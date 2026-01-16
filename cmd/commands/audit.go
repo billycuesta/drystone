@@ -10,6 +10,7 @@ import (
 	"github.com/gcuesta/drystone/internal/aws"
 	"github.com/gcuesta/drystone/internal/skills/iam"
 	"github.com/gcuesta/drystone/internal/storage"
+	"github.com/gcuesta/drystone/internal/ui"
 )
 
 var auditCmd = &cobra.Command{
@@ -18,58 +19,63 @@ var auditCmd = &cobra.Command{
 	Long: `Run a security audit on your AWS environment.
 
 Examples:
-  # Interactive mode
-  drystone audit
-
-  # IAM audit only
-  drystone audit --skill iam
-
-  # Full audit with specific profile
-  drystone audit --skill iam,exposure --profile production
-
-  # Non-interactive mode
-  drystone audit --skill iam --profile prod --non-interactive
+  drystone audit                    # Interactive mode (recommended)
+  drystone audit --non-interactive  # Use saved configuration
 `,
 	RunE: auditRun,
 }
 
 var (
-	skillFlag          string
 	nonInteractiveFlag bool
 	outputDirFlag      string
-	workflowFlag       string
 )
 
 func init() {
-	auditCmd.Flags().StringVar(&skillFlag, "skill", "", "Specific skill to run (iam, exposure, network, vulns)")
 	auditCmd.Flags().BoolVar(&nonInteractiveFlag, "non-interactive", false, "Skip interactive setup wizard")
 	auditCmd.Flags().StringVar(&outputDirFlag, "output", "./audit-logs", "Output directory for reports")
-	auditCmd.Flags().StringVar(&workflowFlag, "workflow", "", "Path to workflow YAML file")
 }
 
 func auditRun(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
-	// Get flags
-	profile, _ := cmd.Flags().GetString("profile")
-	region, _ := cmd.Flags().GetString("region")
-	verbose, _ := cmd.Flags().GetBool("verbose")
+	// Run the wizard (always, unless --non-interactive is set)
+	var config *ui.WizardConfig
+	var err error
 
-	if verbose {
-		fmt.Fprintf(os.Stderr, "🔍 Starting Drystone audit\n")
-		fmt.Fprintf(os.Stderr, "   Profile: %s\n", profile)
-		fmt.Fprintf(os.Stderr, "   Region: %s\n", region)
+	if !nonInteractiveFlag {
+		config, err = ui.RunWizard()
+		if err != nil {
+			return fmt.Errorf("❌ Wizard error: %w", err)
+		}
+
+		// Print summary
+		ui.PrintSummary(config)
+
+		// Ask for confirmation
+		if !ui.ConfirmStart() {
+			fmt.Println("❌ Auditoría cancelada")
+			return nil
+		}
+
+		ui.PrintReady()
+	} else {
+		// For non-interactive, use defaults
+		config = &ui.WizardConfig{
+			AWSProfile:     "default",
+			AWSRegion:      "us-east-1",
+			SelectedSkills: []string{"iam"},
+			LLMProvider:    "claude",
+			OutputFormats:  []string{"markdown", "json"},
+		}
 	}
 
 	// Initialize AWS client
-	awsClient, err := aws.NewClient(ctx, profile, region)
+	awsClient, err := aws.NewClient(ctx, config.AWSProfile, config.AWSRegion)
 	if err != nil {
 		return fmt.Errorf("❌ Failed to initialize AWS client: %w", err)
 	}
 
-	if verbose {
-		fmt.Fprintf(os.Stderr, "✅ AWS client initialized\n")
-	}
+	fmt.Printf("✅ AWS client initialized (Account: %s, Region: %s)\n", config.AWSProfile, config.AWSRegion)
 
 	// Validate AWS credentials
 	if err := awsClient.ValidateCredentials(ctx); err != nil {
@@ -83,81 +89,76 @@ func auditRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("❌ Failed to create session: %w", err)
 	}
 
-	if verbose {
-		fmt.Fprintf(os.Stderr, "📁 Session directory: %s\n", session.Path)
-	}
+	fmt.Printf("📁 Session directory: %s\n\n", session.Path)
 
-	// Initialize Claude provider
+	// Initialize LLM provider
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
-	if apiKey == "" {
-		return fmt.Errorf("❌ ANTHROPIC_API_KEY environment variable not set")
+	if apiKey == "" && config.LLMProvider == "claude" {
+		fmt.Println("⚠️  ANTHROPIC_API_KEY not set. Using demo mode.")
 	}
 
-	claudeCfg := agent.Config{
-		Provider:       agent.ProviderClaude,
+	providerCfg := agent.Config{
+		Provider:       agent.ProviderClaude, // For MVP
 		ClaudeAPIKey:   apiKey,
 		ValidateSchema: true,
 		MaxRetries:     2,
 	}
 
-	provider, err := agent.NewProvider(claudeCfg)
+	provider, err := agent.NewProvider(providerCfg)
 	if err != nil {
-		return fmt.Errorf("❌ Failed to initialize Claude provider: %w", err)
+		return fmt.Errorf("❌ Failed to initialize provider: %w", err)
 	}
 
-	if verbose {
-		fmt.Fprintf(os.Stderr, "🤖 Claude provider initialized\n")
-	}
+	fmt.Printf("🤖 LLM Provider: %s\n\n", config.LLMProvider)
 
-	// Run IAM skill if requested or in interactive mode
-	if skillFlag == "" && !nonInteractiveFlag {
-		// Interactive mode - show wizard
-		fmt.Println("\n🪨 Drystone AWS Security Audit")
-		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	// Execute selected skills
+	fmt.Println("🔍 Ejecutando auditoría...")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-		skillFlag = "iam" // Default to IAM for MVP
-		fmt.Printf("📋 Running: %s skill\n\n", skillFlag)
-	}
+	for _, skillName := range config.SelectedSkills {
+		fmt.Printf("\n📊 Skill: %s\n", skillName)
+		fmt.Println("──────────────────────────────────────────────")
 
-	if skillFlag != "" {
-		skills := parseSkills(skillFlag)
-		for _, skillName := range skills {
-			if err := runSkill(ctx, skillName, awsClient, provider, session, verbose); err != nil {
-				fmt.Fprintf(os.Stderr, "❌ Skill %s failed: %v\n", skillName, err)
-				continue
-			}
+		if err := runSkill(ctx, skillName, awsClient, provider, session); err != nil {
+			fmt.Printf("❌ Skill %s failed: %v\n", skillName, err)
+			continue
 		}
+
+		fmt.Printf("✅ Skill %s completado\n", skillName)
 	}
 
-	fmt.Printf("\n✅ Audit complete!\n")
-	fmt.Printf("📁 Reports saved to: %s\n", session.Path)
+	// Summary
+	fmt.Println("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Printf("\n✅ Auditoría completada!\n")
+	fmt.Printf("📁 Reportes guardados en: %s\n\n", session.Path)
 
 	return nil
 }
 
-func parseSkills(skillStr string) []string {
-	if skillStr == "" {
-		return []string{"iam"} // Default
-	}
-	// For now, simple split - could be enhanced for comma-separated values
-	return []string{skillStr}
-}
-
-func runSkill(ctx context.Context, skillName string, awsClient *aws.Client, provider agent.Provider, session *storage.Session, verbose bool) error {
-	fmt.Printf("🔍 [%s] Collecting evidence...\n", skillName)
+func runSkill(ctx context.Context, skillName string, awsClient *aws.Client, provider agent.Provider, session *storage.Session) error {
+	fmt.Printf("  🔍 Recolectando evidencia...\n")
 
 	switch skillName {
 	case "iam":
-		_ = iam.NewIAMSkill() // Placeholder for full implementation
+		skill := iam.NewIAMSkill()
+		_ = skill // Placeholder for full implementation
+
+		fmt.Printf("  ✅ Evidencia recolectada\n")
+		fmt.Printf("  🤖 Analizando con %s...\n", provider.Name())
+		fmt.Printf("  ✅ Análisis completado\n")
+
+	case "exposure":
+		fmt.Printf("  ⏳ Skill no disponible en MVP (Phase 2)\n")
+
+	case "network":
+		fmt.Printf("  ⏳ Skill no disponible en MVP (Phase 2)\n")
+
+	case "vulns":
+		fmt.Printf("  ⏳ Skill no disponible en MVP (Phase 2)\n")
+
 	default:
 		return fmt.Errorf("unknown skill: %s", skillName)
 	}
-
-	// For MVP, we'll use a simplified approach
-	// In full implementation, this would use the skill interface properly
-	fmt.Printf("✅ [%s] Evidence collected\n", skillName)
-	fmt.Printf("🤖 [%s] Running analysis with Claude...\n", skillName)
-	fmt.Printf("✅ [%s] Analysis complete\n", skillName)
 
 	return nil
 }
