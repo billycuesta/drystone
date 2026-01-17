@@ -22,22 +22,22 @@ def _interpolate_color(position: float, start_rgb: tuple, end_rgb: tuple) -> str
 
 
 def print_banner() -> None:
-    """Print gemini-CLI style banner with gradient colors."""
+    """Print gemini-CLI style banner with gradient colors (lilac to orange)."""
     console = Console()
 
-    # DRYSTONE ASCII art (blocky/pixelated style)
+    # DRYSTONE ASCII art (blocky/pixelated style - 8 characters)
     banner_text = """
-████████╗   ██╗   ██╗███████╗████████╗ ██████╗ ███╗   ██╗███████╗
-██╔═════╝   ██║   ██║██╔════╝╚══██╔══╝██╔═══██╗████╗  ██║██╔════╝
-██║  ███╗   ██║   ██║███████╗   ██║   ██║   ██║██╔██╗ ██║█████╗
-██║   ██║   ██║   ██║╚════██║   ██║   ██║   ██║██║╚██╗██║██╔══╝
-██╔═══██║   ╚██████╔╝███████║   ██║   ╚██████╔╝██║ ╚████║███████╗
-╚═╝   ╚═╝    ╚═════╝ ╚══════╝   ╚═╝    ╚═════╝ ╚═╝  ╚═══╝╚══════╝
+ ██████╗ ██████╗ ██╗   ██╗███████╗████████╗ ██████╗ ███╗   ██╗███████╗
+ ██╔══██╗██╔══██╗╚██╗ ██╔╝██╔════╝╚══██╔══╝██╔═══██╗████╗  ██║██╔════╝
+ ██║  ██║██████╔╝ ╚████╔╝ ███████╗   ██║   ██║   ██║██╔██╗ ██║█████╗
+ ██║  ██║██╔══██╗  ╚██╔╝  ╚════██║   ██║   ██║   ██║██║╚██╗██║██╔══╝
+ ██████╔╝██║  ██║   ██║   ███████║   ██║   ╚██████╔╝██║ ╚████║███████╗
+ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝   ╚═╝    ╚═════╝ ╚═╝  ╚═══╝╚══════╝
     """
 
-    # Gradient colors: cyan → blue → purple → pink
-    start_color = (0, 255, 255)      # Cyan
-    end_color = (255, 100, 150)      # Pink
+    # Gradient colors: lilac (purple) → orange
+    start_color = (180, 100, 220)    # Lilac/Purple
+    end_color = (255, 165, 0)        # Orange
 
     # Apply gradient to banner
     lines = banner_text.strip().split("\n")
@@ -61,9 +61,9 @@ def print_banner() -> None:
     separator = "═" * len(subtitle)
 
     subtitle_text = Text()
-    subtitle_text.append(subtitle, style="cyan dim")
+    subtitle_text.append(subtitle, style="rgb(180,100,220) dim")
     subtitle_text.append("\n")
-    subtitle_text.append(separator, style="cyan dim")
+    subtitle_text.append(separator, style="rgb(180,100,220) dim")
 
     console.print(subtitle_text, justify="center")
     console.print()  # Blank line
