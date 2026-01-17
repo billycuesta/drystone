@@ -70,6 +70,8 @@ def print_banner() -> None:
 
     console.print(subtitle_text)
     console.print()  # Blank line
+    console.print()  # Extra spacing
+    console.print()  # Extra spacing
 
 
 def print_summary(config: "WizardConfig") -> None:
