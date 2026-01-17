@@ -54,7 +54,7 @@ def print_banner() -> None:
             char_count += 1
         gradient_text.append("\n")
 
-    console.print(gradient_text, justify="center")
+    console.print(gradient_text)
 
     # Subtitle (right below banner)
     subtitle = "AWS Security Audit CLI powered by Claude"
@@ -65,7 +65,7 @@ def print_banner() -> None:
     subtitle_text.append("\n")
     subtitle_text.append(separator, style="rgb(180,100,220) dim")
 
-    console.print(subtitle_text, justify="center")
+    console.print(subtitle_text)
     console.print()  # Blank line
 
 
