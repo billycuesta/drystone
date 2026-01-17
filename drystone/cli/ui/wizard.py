@@ -8,13 +8,14 @@ from drystone.cloud.aws import validate_aws_credentials
 from drystone.models import WizardConfig
 
 
-def validate_aws_profile(profile_name: str, region_name: str, max_retries: int = 3) -> bool:
-    """Validate AWS credentials for the given profile.
+def validate_aws_creds(access_key_id: str, secret_access_key: str, region_name: str, max_retries: int = 3) -> bool:
+    """Validate AWS credentials.
 
     Shows validation result and allows user to retry or cancel.
 
     Args:
-        profile_name: AWS profile name
+        access_key_id: AWS Access Key ID
+        secret_access_key: AWS Secret Access Key
         region_name: AWS region
         max_retries: Maximum number of retry attempts
 
@@ -27,9 +28,9 @@ def validate_aws_profile(profile_name: str, region_name: str, max_retries: int =
     retries = 0
 
     while retries < max_retries:
-        print(f"\n🔍 Validating AWS credentials for profile '{profile_name}'...")
+        print("\nValidating AWS credentials...")
 
-        is_valid, message, account_id = validate_aws_credentials(profile_name, region_name)
+        is_valid, message, account_id = validate_aws_credentials(access_key_id, secret_access_key, region_name)
 
         print(message)
 
@@ -41,7 +42,7 @@ def validate_aws_profile(profile_name: str, region_name: str, max_retries: int =
 
         if retries < max_retries:
             retry = questionary.confirm(
-                "Retry with different profile?",
+                "Retry with different credentials?",
                 default=True,
                 auto_enter=False,
             ).ask()
@@ -49,19 +50,26 @@ def validate_aws_profile(profile_name: str, region_name: str, max_retries: int =
             if not retry:
                 raise KeyboardInterrupt("Credential validation cancelled")
 
-            # Ask for new profile
-            profile_name = questionary.text(
-                "🔐 AWS Profile:",
-                default=profile_name,
-                validate=lambda x: len(x) > 0 or "Profile cannot be empty",
+            # Ask for new credentials
+            access_key_id = questionary.text(
+                "AWS Access Key ID:",
+                validate=lambda x: len(x) > 0 or "Access Key ID cannot be empty",
             ).ask()
 
-            if profile_name is None:
+            if access_key_id is None:
+                raise KeyboardInterrupt("Wizard cancelled")
+
+            secret_access_key = questionary.password(
+                "AWS Secret Access Key:",
+                validate=lambda x: len(x) > 0 or "Secret Access Key cannot be empty",
+            ).ask()
+
+            if secret_access_key is None:
                 raise KeyboardInterrupt("Wizard cancelled")
 
             print()  # Blank line
         else:
-            print("❌ Max retry attempts reached")
+            print("Max retry attempts reached")
             raise AWSValidationError("Failed to validate AWS credentials")
 
     return False
@@ -74,7 +82,7 @@ class AWSValidationError(Exception):
 
 
 def run_setup_wizard() -> WizardConfig:
-    """Run interactive 5-step wizard for audit configuration.
+    """Run interactive 6-step wizard for audit configuration.
 
     Returns:
         WizardConfig with user selections
@@ -83,25 +91,33 @@ def run_setup_wizard() -> WizardConfig:
 
     # Step 1: Client/Project Name
     client_name = questionary.text(
-        "📋 Client or Project Name:",
-        default="MyAWS",
+        "Client or Project Name:",
+        default="MyOrg",
         validate=lambda x: len(x) > 0 or "Name cannot be empty",
     ).ask()
 
     if client_name is None:
         raise KeyboardInterrupt("Wizard cancelled")
 
-    # Step 2: AWS Profile
-    aws_profile = questionary.text(
-        "🔐 AWS Profile:",
-        default="default",
-        validate=lambda x: len(x) > 0 or "Profile cannot be empty",
+    # Step 2: AWS Access Key ID
+    access_key_id = questionary.text(
+        "AWS Access Key ID:",
+        validate=lambda x: len(x) > 0 or "Access Key ID cannot be empty",
     ).ask()
 
-    if aws_profile is None:
+    if access_key_id is None:
         raise KeyboardInterrupt("Wizard cancelled")
 
-    # Step 3: AWS Region
+    # Step 3: AWS Secret Access Key
+    secret_access_key = questionary.password(
+        "AWS Secret Access Key:",
+        validate=lambda x: len(x) > 0 or "Secret Access Key cannot be empty",
+    ).ask()
+
+    if secret_access_key is None:
+        raise KeyboardInterrupt("Wizard cancelled")
+
+    # Step 4: AWS Region
     region_choices = [
         "us-east-1",
         "us-east-2",
@@ -114,7 +130,7 @@ def run_setup_wizard() -> WizardConfig:
     ]
 
     aws_region = questionary.select(
-        "🌍 AWS Region:",
+        "AWS Region:",
         choices=region_choices,
         default="us-east-1",
     ).ask()
@@ -122,15 +138,15 @@ def run_setup_wizard() -> WizardConfig:
     if aws_region is None:
         raise KeyboardInterrupt("Wizard cancelled")
 
-    # Step 3.5: Validate AWS Credentials
+    # Step 4.5: Validate AWS Credentials
     try:
-        validate_aws_profile(aws_profile, aws_region)
+        validate_aws_creds(access_key_id, secret_access_key, aws_region)
     except AWSValidationError:
         raise KeyboardInterrupt("AWS credential validation failed")
 
-    # Step 4: Skills to execute
+    # Step 5: Skills to execute
     skills = questionary.checkbox(
-        "🎯 Security Skills to Execute:",
+        "Security Skills to Execute:",
         choices=[
             questionary.Choice("IAM Security Audit", "iam", checked=True),
             questionary.Choice("Internet Exposure Audit", "exposure"),
@@ -143,9 +159,9 @@ def run_setup_wizard() -> WizardConfig:
     if skills is None:
         raise KeyboardInterrupt("Wizard cancelled")
 
-    # Step 5: Output formats
+    # Step 6: Output formats
     output_formats = questionary.checkbox(
-        "📊 Output Formats:",
+        "Output Formats:",
         choices=[
             questionary.Choice("Markdown", "markdown", checked=True),
             questionary.Choice("HTML", "html"),
@@ -161,14 +177,15 @@ def run_setup_wizard() -> WizardConfig:
     try:
         config = WizardConfig(
             client_name=client_name,
-            aws_profile=aws_profile,
+            aws_access_key_id=access_key_id,
+            aws_secret_access_key=secret_access_key,
             aws_region=aws_region,
             skills=skills,
             output_formats=output_formats,
         )
         return config
     except ValueError as e:
-        print(f"❌ Configuration validation failed: {e}")
+        print(f"Configuration validation failed: {e}")
         raise
 
 

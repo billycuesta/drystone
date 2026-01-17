@@ -15,17 +15,19 @@ class AWSCredentialError(Exception):
 class AWSClient:
     """AWS SDK client wrapper."""
 
-    def __init__(self, profile_name: str = "default", region_name: str = "us-east-1"):
+    def __init__(self, access_key_id: str, secret_access_key: str, region_name: str = "us-east-1"):
         """Initialize AWS client.
 
         Args:
-            profile_name: AWS profile name to use
+            access_key_id: AWS Access Key ID
+            secret_access_key: AWS Secret Access Key
             region_name: AWS region
 
         Raises:
             AWSCredentialError: If credentials are invalid
         """
-        self.profile_name = profile_name
+        self.access_key_id = access_key_id
+        self.secret_access_key = secret_access_key
         self.region_name = region_name
         self.session = None
         self.sts_client = None
@@ -43,9 +45,10 @@ class AWSClient:
             - account_id: AWS Account ID if valid, None otherwise
         """
         try:
-            # Create session with specified profile
+            # Create session with provided credentials
             self.session = boto3.Session(
-                profile_name=self.profile_name,
+                aws_access_key_id=self.access_key_id,
+                aws_secret_access_key=self.secret_access_key,
                 region_name=self.region_name,
             )
 
@@ -62,24 +65,12 @@ class AWSClient:
             message = f"✅ Valid credentials | Account: {account_id} | Identity: {user_name}"
             return True, message, account_id
 
-        except botocore.exceptions.ProfileNotFound as e:
-            message = f"❌ AWS Profile not found: {self.profile_name}"
-            return False, message, None
-
-        except botocore.exceptions.PartialCredentialsError as e:
-            message = f"❌ Incomplete AWS credentials for profile '{self.profile_name}'"
-            return False, message, None
-
-        except botocore.exceptions.NoCredentialsError as e:
-            message = f"❌ No AWS credentials found for profile '{self.profile_name}'"
-            return False, message, None
-
         except botocore.exceptions.ClientError as e:
             error_code = e.response.get("Error", {}).get("Code", "Unknown")
             if error_code == "AccessDenied":
                 message = "❌ Access denied - insufficient permissions"
             elif error_code == "InvalidClientTokenId":
-                message = "❌ Invalid AWS credentials (bad access key)"
+                message = "❌ Invalid AWS credentials (bad access key or secret)"
             else:
                 message = f"❌ AWS error: {error_code}"
             return False, message, None
@@ -105,17 +96,18 @@ class AWSClient:
         return self._identity
 
 
-def validate_aws_credentials(profile_name: str, region_name: str = "us-east-1") -> Tuple[bool, str, Optional[str]]:
-    """Validate AWS credentials for a given profile.
+def validate_aws_credentials(access_key_id: str, secret_access_key: str, region_name: str = "us-east-1") -> Tuple[bool, str, Optional[str]]:
+    """Validate AWS credentials.
 
     This is a convenience function that creates a client and validates in one call.
 
     Args:
-        profile_name: AWS profile name
+        access_key_id: AWS Access Key ID
+        secret_access_key: AWS Secret Access Key
         region_name: AWS region
 
     Returns:
         Tuple of (is_valid, message, account_id)
     """
-    client = AWSClient(profile_name=profile_name, region_name=region_name)
+    client = AWSClient(access_key_id=access_key_id, secret_access_key=secret_access_key, region_name=region_name)
     return client.validate_credentials()

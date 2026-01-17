@@ -91,7 +91,13 @@ def print_summary(config: "WizardConfig") -> None:
 
     # Add rows
     table.add_row("Client/Project", f"[bold]{config.client_name}[/bold]")
-    table.add_row("AWS Profile", f"[bold]{config.aws_profile}[/bold]")
+
+    # Mask AWS credentials for display
+    masked_access_key = f"{config.aws_access_key_id[:4]}...{config.aws_access_key_id[-4:]}"
+    masked_secret = f"{'*' * len(config.aws_secret_access_key)}"
+
+    table.add_row("AWS Access Key", f"[bold dim]{masked_access_key}[/bold dim]")
+    table.add_row("AWS Secret Key", f"[bold dim]{masked_secret}[/bold dim]")
     table.add_row("AWS Region", f"[bold]{config.aws_region}[/bold]")
     table.add_row("Skills", f"[bold]{', '.join(config.skills)}[/bold]")
     table.add_row("Output Formats", f"[bold]{', '.join(config.output_formats)}[/bold]")

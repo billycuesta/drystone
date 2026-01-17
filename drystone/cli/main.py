@@ -13,18 +13,20 @@ from drystone.cloud.aws import validate_aws_credentials
 from drystone.models import WizardConfig
 
 
-def validate_and_show_aws_creds(profile: str, region: str) -> bool:
+def validate_and_show_aws_creds(access_key_id: str, secret_access_key: str, region: str) -> bool:
     """Validate AWS credentials and show result to user.
 
     Args:
-        profile: AWS profile name
+        access_key_id: AWS Access Key ID
+        secret_access_key: AWS Secret Access Key
         region: AWS region
 
     Returns:
         True if credentials are valid, False otherwise
     """
-    click.echo(f"\n🔍 Validating AWS credentials for profile '{profile}'...")
-    is_valid, message, account_id = validate_aws_credentials(profile, region)
+    masked_key = f"{access_key_id[:4]}...{access_key_id[-4:]}"
+    click.echo(f"\nValidating AWS credentials (Key: {masked_key})...")
+    is_valid, message, account_id = validate_aws_credentials(access_key_id, secret_access_key, region)
     click.echo(message)
     return is_valid
 
@@ -47,10 +49,6 @@ def cli() -> None:
     help="Client/project name",
 )
 @click.option(
-    "--profile",
-    help="AWS profile to use",
-)
-@click.option(
     "--region",
     help="AWS region",
 )
@@ -69,7 +67,6 @@ def cli() -> None:
 def audit(
     non_interactive: bool,
     client: str = None,
-    profile: str = None,
     region: str = None,
     skills: tuple = (),
     formats: tuple = (),
@@ -84,7 +81,7 @@ def audit(
     config: WizardConfig = None
 
     # Determine if we should use interactive mode
-    has_cli_args = bool(client or profile or region or skills or formats)
+    has_cli_args = bool(client or region or skills or formats)
     should_use_interactive = not non_interactive and not has_cli_args
 
     if should_use_interactive and use_last_config():
@@ -102,26 +99,21 @@ def audit(
                 click.echo("\n❌ Audit cancelled")
                 sys.exit(1)
         elif has_cli_args:
-            # Create config from CLI args
-            config = WizardConfig(
-                client_name=client or "Default",
-                aws_profile=profile or "default",
-                aws_region=region or "us-east-1",
-                skills=list(skills) if skills else ["iam"],
-                output_formats=list(formats) if formats else ["markdown"],
-            )
-            click.echo("✅ Using CLI arguments\n")
+            # CLI args provided but credentials must come from wizard
+            click.echo("⚠️  Credentials must be entered interactively for security reasons")
+            click.echo("Please run: drystone audit\n")
+            sys.exit(1)
         else:
             # No interactive mode and no CLI args - try last config
             config = load_last_config()
             if not config:
-                click.echo("❌ No saved configuration found and --non-interactive mode requires --client or saved config")
+                click.echo("❌ No saved configuration found. Please run: drystone audit")
                 sys.exit(1)
             click.echo("✅ Using saved configuration\n")
 
     # Validate AWS credentials
-    if not validate_and_show_aws_creds(config.aws_profile, config.aws_region):
-        click.echo("\n❌ Invalid AWS credentials. Please check your profile and try again.")
+    if not validate_and_show_aws_creds(config.aws_access_key_id, config.aws_secret_access_key, config.aws_region):
+        click.echo("\n❌ Invalid AWS credentials. Please check your credentials and try again.")
         sys.exit(1)
 
     # Show summary

@@ -13,19 +13,22 @@ class WizardConfig(BaseModel):
     # Step 1: Client/Project
     client_name: str = Field(..., description="Client or project name")
 
-    # Step 2: AWS Profile
-    aws_profile: str = Field(default="default", description="AWS profile to use")
+    # Step 2: AWS Access Key ID
+    aws_access_key_id: str = Field(..., description="AWS Access Key ID")
 
-    # Step 3: AWS Region
+    # Step 3: AWS Secret Access Key
+    aws_secret_access_key: str = Field(..., description="AWS Secret Access Key")
+
+    # Step 4: AWS Region
     aws_region: str = Field(default="us-east-1", description="AWS region")
 
-    # Step 4: Skills to execute
+    # Step 5: Skills to execute
     skills: List[str] = Field(
         default=["iam"],
         description="Security skills to execute (iam, exposure, network, vulns)"
     )
 
-    # Step 5: Output formats
+    # Step 6: Output formats
     output_formats: List[Literal["markdown", "html", "json"]] = Field(
         default=["markdown"],
         description="Report output formats"
@@ -40,7 +43,8 @@ class WizardConfig(BaseModel):
         json_schema_extra = {
             "example": {
                 "client_name": "ACME Corp",
-                "aws_profile": "production",
+                "aws_access_key_id": "AKIAIOSFODNN7EXAMPLE",
+                "aws_secret_access_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
                 "aws_region": "us-east-1",
                 "skills": ["iam", "exposure"],
                 "output_formats": ["markdown", "html"],
