@@ -59,11 +59,14 @@ def print_banner() -> None:
     # Subtitle (right below banner)
     subtitle = "AWS Security Audit CLI powered by Claude"
     separator = "═" * len(subtitle)
+    author = "made by billyslopes"
 
     subtitle_text = Text()
     subtitle_text.append(subtitle, style="rgb(180,100,220) dim")
     subtitle_text.append("\n")
     subtitle_text.append(separator, style="rgb(180,100,220) dim")
+    subtitle_text.append("\n")
+    subtitle_text.append(author, style="rgb(180,100,220) dim")
 
     console.print(subtitle_text)
     console.print()  # Blank line
