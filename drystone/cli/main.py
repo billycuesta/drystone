@@ -9,7 +9,24 @@ from drystone.cli import __version__
 from drystone.cli.config import load_last_config, save_config, use_last_config
 from drystone.cli.ui import print_banner, run_setup_wizard
 from drystone.cli.ui.branding import print_summary
+from drystone.cloud.aws import validate_aws_credentials
 from drystone.models import WizardConfig
+
+
+def validate_and_show_aws_creds(profile: str, region: str) -> bool:
+    """Validate AWS credentials and show result to user.
+
+    Args:
+        profile: AWS profile name
+        region: AWS region
+
+    Returns:
+        True if credentials are valid, False otherwise
+    """
+    click.echo(f"\n🔍 Validating AWS credentials for profile '{profile}'...")
+    is_valid, message, account_id = validate_aws_credentials(profile, region)
+    click.echo(message)
+    return is_valid
 
 
 @click.group()
@@ -102,6 +119,10 @@ def audit(
                 sys.exit(1)
             click.echo("✅ Using saved configuration\n")
 
+    # Validate AWS credentials
+    if not validate_and_show_aws_creds(config.aws_profile, config.aws_region):
+        click.echo("\n❌ Invalid AWS credentials. Please check your profile and try again.")
+        sys.exit(1)
 
     # Show summary
     print_summary(config)

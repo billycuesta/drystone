@@ -19,6 +19,8 @@ dependencies = [
     "questionary>=2.0.1",
     "pydantic>=2.5.0",
     "python-dotenv>=1.0.0",
+    "boto3>=1.29.0",
+    "botocore>=1.32.0",
 ]
 
 [project.optional-dependencies]
@@ -30,10 +32,6 @@ dev = [
     "mypy>=1.7.0",
 ]
 
-aws = [
-    "boto3>=1.29.0",
-    "botocore>=1.32.0",
-]
 
 llm = [
     "anthropic>=0.7.0",

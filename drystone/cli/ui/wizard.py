@@ -1,10 +1,76 @@
 """Interactive wizard for Drystone setup."""
 
-from typing import List
+from typing import List, Optional
 
 import questionary
 
+from drystone.cloud.aws import validate_aws_credentials
 from drystone.models import WizardConfig
+
+
+def validate_aws_profile(profile_name: str, region_name: str, max_retries: int = 3) -> bool:
+    """Validate AWS credentials for the given profile.
+
+    Shows validation result and allows user to retry or cancel.
+
+    Args:
+        profile_name: AWS profile name
+        region_name: AWS region
+        max_retries: Maximum number of retry attempts
+
+    Returns:
+        True if credentials are valid, False if user cancelled
+
+    Raises:
+        KeyboardInterrupt: If user cancels
+    """
+    retries = 0
+
+    while retries < max_retries:
+        print(f"\n🔍 Validating AWS credentials for profile '{profile_name}'...")
+
+        is_valid, message, account_id = validate_aws_credentials(profile_name, region_name)
+
+        print(message)
+
+        if is_valid:
+            print()  # Blank line
+            return True
+
+        retries += 1
+
+        if retries < max_retries:
+            retry = questionary.confirm(
+                "Retry with different profile?",
+                default=True,
+                auto_enter=False,
+            ).ask()
+
+            if not retry:
+                raise KeyboardInterrupt("Credential validation cancelled")
+
+            # Ask for new profile
+            profile_name = questionary.text(
+                "🔐 AWS Profile:",
+                default=profile_name,
+                validate=lambda x: len(x) > 0 or "Profile cannot be empty",
+            ).ask()
+
+            if profile_name is None:
+                raise KeyboardInterrupt("Wizard cancelled")
+
+            print()  # Blank line
+        else:
+            print("❌ Max retry attempts reached")
+            raise AWSValidationError("Failed to validate AWS credentials")
+
+    return False
+
+
+class AWSValidationError(Exception):
+    """Raised when AWS validation fails."""
+
+    pass
 
 
 def run_setup_wizard() -> WizardConfig:
@@ -55,6 +121,12 @@ def run_setup_wizard() -> WizardConfig:
 
     if aws_region is None:
         raise KeyboardInterrupt("Wizard cancelled")
+
+    # Step 3.5: Validate AWS Credentials
+    try:
+        validate_aws_profile(aws_profile, aws_region)
+    except AWSValidationError:
+        raise KeyboardInterrupt("AWS credential validation failed")
 
     # Step 4: Skills to execute
     skills = questionary.checkbox(
