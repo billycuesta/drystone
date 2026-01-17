@@ -2,193 +2,341 @@
 
 Developer guide for working with Drystone using Claude Code.
 
-## Qué es Drystone
+## What is Drystone
 
-CLI para auditorías de seguridad AWS. Similar a shannon pero para compliance/security (no pentesting activo).
+CLI for AWS security audits. Similar to Shannon but for compliance/security (not active pentesting).
 
-**Principio core:** App orquesta, agente analiza.
+**Core principle:** App orchestrates, agent analyzes.
 
-## Arquitectura
+## Technology Stack
 
-- **Go** + Cobra (CLI)
-- **Skills modulares:** IAM, Exposure, Network, Vulns
-- **Workflow YAML:** Define qué skills ejecutar y en qué orden
-- **Claude API:** Para análisis de evidencia
+- **Python 3.9+** - Modern, fast iteration for MVP
+- **Click** - CLI framework with intuitive command structure
+- **Questionary** - Interactive prompts and wizard UI
+- **Rich** - Beautiful terminal formatting and tables
+- **boto3** - AWS SDK for data collection
+- **Pydantic** - Type-safe data models and validation
+- **Anthropic SDK** - Claude API integration
+- **Modular skills:** IAM, Exposure, Network, Vulns
+- **YAML workflows:** Define skill execution order and configuration
+- **Claude API:** For evidence analysis and finding generation
 
-## Estructura Clave
+## Project Structure
 
 ```
-cmd/main.go                      - Entry point
-internal/orchestrator/engine.go  - Core orchestration
-internal/skills/base/skill.go    - Interface común
-internal/skills/iam/skill.go     - Patrón de referencia
-internal/agent/client.go         - Claude integration
-configs/workflows/               - Workflow definitions
+drystone/
+├── cli/
+│   ├── main.py                 - Click CLI entry point
+│   ├── config.py               - Configuration management
+│   └── ui/
+│       ├── branding.py         - ASCII banner and UI components
+│       └── wizard.py           - Interactive 5-step wizard
+├── models/
+│   ├── config.py               - WizardConfig (Pydantic)
+│   ├── evidence.py             - IAM evidence models
+│   └── __init__.py
+├── cloud/
+│   ├── aws/
+│   │   ├── client.py           - AWS credential validation
+│   │   └── __init__.py
+│   └── __init__.py
+├── skills/
+│   ├── iam/
+│   │   ├── collector.py        - TODO: IAM data collection
+│   │   ├── analyzer.py         - TODO: Claude analysis
+│   │   └── checklist.json      - TODO: Security checklist
+│   └── __init__.py
+├── storage/
+│   ├── manager.py              - TODO: Evidence persistence
+│   └── __init__.py
+├── __main__.py                 - Entry for `python -m drystone`
+└── __init__.py
 ```
 
-## Flujo de Ejecución
+## Execution Flow
 
-1. Usuario: `drystone audit`
-2. App lee workflow YAML
-3. Por cada skill:
-   - **Collector** llama AWS APIs → guarda evidencia JSON
-   - **Analyzer** pasa evidencia + checklist a Claude → recibe findings JSON
-4. App correlaciona findings cross-skill
-5. App genera reportes (HTML/MD/JSON)
+1. User: `python -m drystone audit`
+2. Phase 0: Interactive wizard (5 steps)
+   - Client name
+   - Direct AWS credentials (Access Key ID + Secret Access Key)
+   - AWS region
+   - Skills selection (IAM, Exposure, Network, Vulns)
+   - Output formats (markdown, HTML, JSON)
+3. Phase 1: AWS credential validation (boto3 STS)
+4. Phase 1a: Data collection for each skill
+   - **Collector** calls AWS APIs → saves raw evidence JSON
+   - Evidence stored in Pydantic models
+5. Phase 1b: Agent analysis
+   - **Analyzer** sends evidence + checklist to Claude
+   - Claude returns findings JSON
+6. Phase 2: Cross-skill correlation and risk scoring
+7. Phase 3: Report generation (HTML, Markdown, JSON)
+8. Phase 4: Session logging and audit trail
 
-## Cómo Agregar un Skill
+## How to Add a Skill
 
-1. Crear directorio `internal/skills/{nombre}/`
-2. Implementar interface `Skill`:
-   ```go
-   type MySkill struct {
-       base.BaseSkill
-   }
+1. Create directory `drystone/skills/{name}/`
+2. Implement collector:
+   ```python
+   # drystone/skills/network/collector.py
+   from drystone.models import Evidence
+   import boto3
 
-   func (s *MySkill) Collect(ctx, aws) (*Evidence, error) {
-       // AWS API calls
-   }
+   class NetworkCollector:
+       def __init__(self, client_config):
+           self.ec2 = boto3.client('ec2', **client_config)
 
-   func (s *MySkill) Analyze(ctx, evidence, agent) (*Result, error) {
-       // Pass to agent
+       def collect(self) -> Evidence:
+           """Collect network evidence from AWS."""
+           vpcs = self.ec2.describe_vpcs()
+           security_groups = self.ec2.describe_security_groups()
+           return Evidence(
+               skill='network',
+               data={
+                   'vpcs': vpcs['Vpcs'],
+                   'security_groups': security_groups['SecurityGroups']
+               }
+           )
+   ```
+3. Implement analyzer:
+   ```python
+   # drystone/skills/network/analyzer.py
+   from anthropic import Anthropic
+
+   class NetworkAnalyzer:
+       def analyze(self, evidence: Evidence, agent: Anthropic) -> list:
+           """Analyze evidence with Claude."""
+           prompt = f"Analyze network security: {evidence.json()}"
+           return agent.analyze(prompt)
+   ```
+4. Create checklist JSON:
+   ```json
+   // drystone/skills/network/checklist.json
+   {
+       "skill": "network",
+       "items": [
+           {
+               "id": "NET-001",
+               "title": "Restrict SSH access",
+               "severity": "Critical"
+           }
+       ]
    }
    ```
-3. Crear checklist JSON
-4. Registrar en workflow YAML
+5. Register in workflow YAML
 
-## Testing Local
+## Development Setup
 
 ```bash
-# Build
-make build
+# Clone and setup
+git clone <repo>
+cd drystone
+pip install -e ".[dev]"
 
-# Run IAM audit
-./bin/drystone audit --skill iam --profile dev
+# Run interactive audit
+python -m drystone audit
 
-# Run full audit
-./bin/drystone audit --profile dev
+# Run with CLI args
+python -m drystone audit --client "ACME" --region us-east-1
 
-# View logs
-./bin/drystone logs list
+# Non-interactive (reuse last config)
+python -m drystone audit --non-interactive
+
+# View audit sessions
+ls audit-logs/
+
+# Format code
+black drystone/
+
+# Lint
+ruff check drystone/
+
+# Type check
+mypy drystone/
+
+# Run tests
+pytest tests/
 ```
 
-## Convenciones
+## Code Conventions
 
-- **Evidence:** Siempre guardar raw data antes de analizar
-- **Findings:** JSON estructurado (severity, risk_score, remediation)
-- **Checklists:** JSON con items CIS/NIST
-- **Logs:** Structured logging con zerolog
+- **Evidence:** Always collect raw AWS API data before analysis; use Pydantic models
+- **Findings:** Structured JSON with severity, risk_score, remediation, and evidence references
+- **Checklists:** JSON with CIS/NIST framework items; one per skill
+- **Models:** Pydantic BaseModel for all data structures with type hints
+- **Error Handling:** Catch boto3 ClientError, return meaningful error messages
+- **Logging:** Use Python logging with structured formatters
+- **Credentials:** Never log credentials; always mask in UI
 
-## Integración con Claude
+## Claude API Integration
 
-```go
-// Prompt structure
-prompt := fmt.Sprintf(`
-Eres un auditor AWS. Analiza:
+```python
+# Prompt structure for Claude analysis
+from anthropic import Anthropic
+import json
 
-EVIDENCIA:
-%s
+client = Anthropic()
+
+def analyze_iam_evidence(evidence: dict, checklist: dict) -> dict:
+    """Pass evidence and checklist to Claude for security analysis."""
+
+    prompt = f"""You are an AWS security auditor. Analyze the following evidence:
+
+EVIDENCE:
+{json.dumps(evidence, indent=2)}
 
 CHECKLIST:
-%s
+{json.dumps(checklist, indent=2)}
 
-Retorna JSON:
-{
-  "findings": [{
-    "id": "IAM-001",
-    "severity": "Critical",
-    "risk_score": 9.5,
-    "title": "...",
-    "remediation": "..."
-  }],
-  "risk_score": 7.5
-}
-`, evidence, checklist)
+Return findings as JSON:
+{{
+  "findings": [
+    {{
+      "id": "IAM-001",
+      "severity": "Critical",
+      "risk_score": 9.5,
+      "title": "Root account has active access keys",
+      "remediation": "Delete root access keys, use IAM users instead",
+      "evidence_refs": ["users[0].access_keys[0]"]
+    }}
+  ],
+  "skill_risk_score": 7.5,
+  "summary": "3 critical findings, 2 medium"
+}}
+"""
+
+    response = client.messages.create(
+        model="claude-opus-4-5-20251101",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    return json.loads(response.content[0].text)
 ```
 
-**Crítico:** Agent SOLO analiza, NO decide workflow.
+**Critical:** Agent ONLY analyzes evidence, does NOT make orchestration decisions. App controls workflow.
 
-## Arquitectura de Ejecución
+## App vs Agent Architecture
 
-### App vs Agent Separation
+### Separation of Concerns
 
 ```
-App (Go)                  Agent (Claude)
-├─ Read workflow YAML  →  ├─ Receive evidence JSON
-├─ AWS data collect    →  ├─ Apply checklist
-├─ Save evidence JSON  →  ├─ Analyze findings
-├─ Call agent          →  └─ Return JSON
-├─ Parse findings
-├─ Correlate skills
+App (Python)                     Agent (Claude)
+├─ Read workflow YAML            ├─ Receive evidence JSON
+├─ Validate AWS credentials  →   ├─ Apply checklist
+├─ AWS data collection           ├─ Analyze patterns
+├─ Save evidence JSON        →   ├─ Identify risks
+├─ Parse findings            ←   └─ Return findings JSON
+├─ Correlate cross-skill findings
+├─ Calculate risk scores
 └─ Generate reports
 ```
 
-### Skill Interface
+### Skill Structure (Python Pattern)
 
-```go
-type Skill interface {
-    // Metadata
-    Name() string
-    Description() string
-    Version() string
+```python
+# drystone/skills/iam/collector.py
+class IAMCollector:
+    """Collects raw IAM data from AWS."""
 
-    // Execution
-    Preflight(ctx context.Context, aws AWSClient) error
-    Collect(ctx context.Context, aws AWSClient) (*Evidence, error)
-    Analyze(ctx context.Context, evidence *Evidence, agent AgentClient) (*SkillResult, error)
+    def __init__(self, credentials: dict):
+        self.iam = boto3.client('iam', **credentials)
 
-    // Configuration
-    LoadChecklist() ([]ChecklistItem, error)
-    RequiredPermissions() []string
-}
+    def collect(self) -> Evidence:
+        """Return raw evidence without analysis."""
+        return Evidence(
+            skill='iam',
+            collected_at=datetime.now(),
+            data={
+                'users': self.iam.list_users()['Users'],
+                'roles': self.iam.list_roles()['Roles'],
+            }
+        )
+
+# drystone/skills/iam/analyzer.py
+class IAMAnalyzer:
+    """Analyzes evidence with Claude."""
+
+    def analyze(self, evidence: Evidence, client: Anthropic) -> list:
+        """Send evidence to Claude, return findings."""
+        # Claude analyzes evidence.data and returns findings
+        pass
 ```
 
-## Development Workflow
+## Development Workflow: Adding a New Skill
 
-### 1. Starting New Skill
+### Step 1: Create Skill Structure
 
 ```bash
-# Create skill structure
-mkdir -p internal/skills/new-skill
-touch internal/skills/new-skill/{skill,collector}.go
-cp internal/skills/iam/checklist.json internal/skills/new-skill/
+# Create directories
+mkdir -p drystone/skills/{new_skill}
+touch drystone/skills/{new_skill}/{__init__,collector,analyzer}.py
+cp drystone/skills/iam/checklist.json drystone/skills/{new_skill}/
 
-# Edit CLAUDE.md with new skill
-# - Add to "Estructura Clave" section
-# - Add to workflow YAML
+# Create __init__.py
+echo "from .collector import NewSkillCollector\nfrom .analyzer import NewSkillAnalyzer" > drystone/skills/{new_skill}/__init__.py
 ```
 
-### 2. AWS Data Collection
+### Step 2: Implement Collector
 
-```go
-// internal/skills/new-skill/collector.go
-func (c *Collector) Collect(ctx context.Context, aws AWSClient) (*Evidence, error) {
-    // 1. Call AWS APIs
-    // 2. Validate responses
-    // 3. Structure data
-    // 4. Return Evidence with map[string]interface{}
-}
+```python
+# drystone/skills/new_skill/collector.py
+import boto3
+from drystone.models import Evidence
+from datetime import datetime
+
+class NewSkillCollector:
+    def __init__(self, credentials: dict):
+        self.client = boto3.client('service-name', **credentials)
+
+    def collect(self) -> Evidence:
+        """Collect raw evidence from AWS."""
+        data = self.client.describe_resources()  # Your AWS API calls
+        return Evidence(
+            skill='new_skill',
+            collected_at=datetime.now(),
+            data=data
+        )
 ```
 
-### 3. Agent Analysis
+### Step 3: Implement Analyzer
 
-```go
-// Must return structured JSON
-// Errors in parsing = skill failure
-// Always validate agent response
+```python
+# drystone/skills/new_skill/analyzer.py
+from anthropic import Anthropic
+from drystone.models import Evidence
+import json
+
+class NewSkillAnalyzer:
+    def analyze(self, evidence: Evidence, checklist: dict, client: Anthropic) -> list:
+        """Analyze evidence with Claude."""
+        prompt = f"Analyze {evidence.skill}...\nEVIDENCE:\n{json.dumps(evidence.data)}"
+        response = client.messages.create(
+            model="claude-opus-4-5-20251101",
+            max_tokens=4096,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return json.loads(response.content[0].text)
 ```
 
-### 4. Testing
+### Step 4: Test
 
 ```bash
-# Test single skill
-./bin/drystone audit --skill new-skill --profile dev
+# Run audit with new skill
+python -m drystone audit --skill new_skill
 
 # Check output
 ls audit-logs/
-cat audit-logs/*/evidence/new-skill/*.json
-cat audit-logs/*/findings/new-skill.json
+cat audit-logs/*/evidence/new_skill/raw.json | python -m json.tool
+cat audit-logs/*/findings/new_skill.json | python -m json.tool
 ```
+
+### Step 5: Integration
+
+- Add checklist.json with CIS/NIST items
+- Register in workflow YAML
+- Update README.md with skill description
+- Add unit tests in tests/skills/test_new_skill.py
 
 ## Common Patterns
 
@@ -237,24 +385,25 @@ cat audit-logs/*/findings/new-skill.json
 
 ## Critical Files
 
-### For Implementation
+### For Implementation (Python)
 
 | File | Purpose | Status |
 |------|---------|--------|
-| `cmd/main.go` | CLI entry point | TODO |
-| `internal/orchestrator/engine.go` | Core orchestration logic | TODO |
-| `internal/skills/base/skill.go` | Base skill interface | TODO |
-| `internal/skills/iam/skill.go` | IAM skill (reference) | TODO |
-| `internal/agent/client.go` | Claude integration | TODO |
-| `internal/aws/client.go` | AWS SDK wrapper | TODO |
+| `drystone/cli/main.py` | Click CLI entry point | Phase 0 Complete |
+| `drystone/cloud/orchestrator.py` | Core orchestration logic | Phase 1 TODO |
+| `drystone/skills/base.py` | Base skill class (abstract) | Phase 1 TODO |
+| `drystone/skills/iam/{collector,analyzer}.py` | IAM skill implementation | Phase 1 TODO |
+| `drystone/cloud/agent.py` | Claude API integration | Phase 1b TODO |
+| `drystone/cloud/aws/client.py` | AWS credential validation | Phase 1 Complete |
 
 ### Configuration
 
-| File | Purpose |
-|------|---------|
-| `configs/workflows/iam-only.yaml` | Simple test workflow |
-| `configs/workflows/full-audit.yaml` | Full audit workflow |
-| `internal/skills/iam/checklist.json` | IAM security checklist |
+| File | Purpose | Status |
+|------|---------|--------|
+| `drystone/skills/iam/checklist.json` | IAM security checklist | Phase 1 TODO |
+| `drystone/skills/exposure/checklist.json` | Public exposure checklist | Phase 2 TODO |
+| `drystone/skills/network/checklist.json` | Network security checklist | Phase 2 TODO |
+| `drystone/skills/vulns/checklist.json` | Vulnerability checklist | Phase 2 TODO |
 
 ## Debugging
 
@@ -264,40 +413,80 @@ cat audit-logs/*/findings/new-skill.json
 # List sessions
 ls audit-logs/
 
-# View evidence
-cat audit-logs/*/evidence/iam/users.json | jq .
+# View evidence collected
+find audit-logs -name "*.json" | head -5
+
+# Pretty print JSON
+python -m json.tool audit-logs/*/evidence/iam/raw.json
 
 # View findings
-cat audit-logs/*/findings/iam.json | jq .
+python -c "import json; print(json.dumps(open('audit-logs/*/findings/iam.json').read(), indent=2))"
 
-# View logs
-tail audit-logs/*/logs/orchestrator.log
+# Check logs
+tail -f audit-logs/*/logs/audit.log
 ```
 
 ### Common Issues
 
-1. **No evidence collected:** Check AWS credentials, permissions
-2. **Agent timeout:** Reduce evidence size, simplify checklist
-3. **Parse error:** Check JSON response format from agent
-4. **Corrupted session:** Delete audit-logs/{session} and retry
+1. **Credential validation failed:** Check Access Key ID and Secret Access Key are correct
+2. **No evidence collected:** Verify IAM permissions (GetUser, ListUsers, ListRoles, etc.)
+3. **Agent analysis timeout:** Reduce evidence size, simplify checklist items
+4. **JSON parse error:** Verify Claude response is valid JSON, check prompt formatting
+5. **Missing models:** Ensure evidence.py has all required Pydantic models
 
-## Próximos Pasos
+### Troubleshooting Commands
 
-- [ ] Implement `cmd/main.go` with cobra setup
-- [ ] Implement `internal/skills/base/skill.go` interface
-- [ ] Implement `internal/aws/client.go` wrapper
-- [ ] Implement `internal/skills/iam/skill.go` (reference implementation)
-- [ ] Implement `internal/agent/client.go` with Claude API
-- [ ] Create test workflow `configs/workflows/iam-only.yaml`
-- [ ] Test MVP: `./bin/drystone audit --skill iam`
-- [ ] Implement Exposure skill
-- [ ] Implement Network skill
-- [ ] Implement Orchestrator engine
-- [ ] Full workflow testing
+```bash
+# Test credentials directly
+python -c "from drystone.cloud.aws import validate_aws_credentials; print(validate_aws_credentials('KEY', 'SECRET', 'us-east-1'))"
+
+# Check Pydantic models
+python -c "from drystone.models import IAMEvidence; print(IAMEvidence.schema())"
+
+# Verify Anthropic SDK
+python -c "from anthropic import Anthropic; print('OK')"
+
+# Run linter
+ruff check drystone/
+```
+
+## Next Session Priority (Próximos Pasos)
+
+### Phase 1a (High Priority)
+- [x] AWS credential validation (STS GetCallerIdentity)
+- [ ] Implement IAM collector (`drystone/skills/iam/collector.py`)
+- [ ] Create evidence storage layer (`drystone/storage/manager.py`)
+- [ ] Add unit tests for AWS client and models
+
+### Phase 1b (Medium Priority)
+- [ ] Integrate Anthropic SDK for Claude analysis
+- [ ] Implement IAM analyzer (`drystone/skills/iam/analyzer.py`)
+- [ ] Create IAM security checklist (CIS AWS Foundations)
+- [ ] Test end-to-end: collect → analyze → findings
+
+### Phase 1c (Medium Priority)
+- [ ] Implement orchestrator for multi-skill execution
+- [ ] Build correlation engine for cross-skill findings
+- [ ] Add risk score calculation
+
+### Phase 2 (Lower Priority)
+- [ ] Implement Exposure skill (public S3, RDS, etc.)
+- [ ] Implement Network skill (security groups, NACLs)
+- [ ] Implement Vulns skill (patch status, misconfigs)
+- [ ] Cross-skill correlation logic
+
+### Phase 3+ (Future)
+- [ ] Multi-LLM support (Gemini, OpenAI)
+- [ ] HTML report generation
+- [ ] Audit trail and compliance reporting
+- [ ] Scheduled audits and monitoring
 
 ## Resources
 
-- [Go AWS SDK v2](https://github.com/aws/aws-sdk-go-v2)
-- [Cobra CLI Framework](https://github.com/spf13/cobra)
-- [Anthropic SDK Go](https://github.com/anthropics/anthropic-sdk-go)
+- [Anthropic SDK Python](https://github.com/anthropics/anthropic-sdk-python)
+- [boto3 Documentation](https://boto3.amazonaws.com/v1/documentation/api/latest/index.html)
+- [Pydantic Documentation](https://docs.pydantic.dev/)
+- [Click Documentation](https://click.palletsprojects.com/)
 - [Project Plan](PROJECT_PLAN.md)
+- [Session Tracker](SESSION_TRACKER.md)
+- [Project State](PROJECT_STATE.md)

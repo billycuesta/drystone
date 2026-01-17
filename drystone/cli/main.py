@@ -123,10 +123,50 @@ def audit(
     saved_path = save_config(config)
     click.echo(f"💾 Configuration saved to {saved_path}\n")
 
-    # Ready to execute
-    click.echo("🚀 [Audit execution pending - Phase 1+]")
-    click.echo("   ✅ Config validated and saved")
-    click.echo("   ⏳ Awaiting orchestrator implementation")
+    # Extract account ID from validation
+    _, _, account_id = validate_aws_credentials(
+        config.aws_access_key_id, config.aws_secret_access_key, config.aws_region
+    )
+
+    # === PHASE 2: EVIDENCE COLLECTION ===
+    click.echo()
+    from drystone.storage.session import AuditSession
+    from drystone.skills.iam import IAMSkill
+    from drystone.cloud.aws.client import AWSClient
+
+    # Create audit session
+    click.echo("📁 Creating audit session...")
+    session = AuditSession(config.client_name, account_id)
+    click.echo(f"   Session: {session.base_path}\n")
+
+    # Execute IAM skill if selected
+    if "iam" in config.skills:
+        click.echo("🔍 Executing IAM Security Audit...")
+
+        # Create AWS client for skill
+        aws_client = AWSClient(
+            access_key_id=config.aws_access_key_id,
+            secret_access_key=config.aws_secret_access_key,
+            region_name=config.aws_region,
+        )
+
+        # Execute IAM collector
+        skill = IAMSkill()
+        skill.collect(aws_client, session)
+
+        # List generated files
+        evidence_path = session.get_evidence_path("iam")
+        files = sorted(evidence_path.glob("*"))
+
+        click.echo(f"\n📊 Evidence saved ({len(files)} files):")
+        click.echo(f"   {evidence_path}/")
+        for file in files:
+            size_kb = file.stat().st_size / 1024
+            click.echo(f"   - {file.name} ({size_kb:.1f} KB)")
+
+    # Show completion
+    click.echo("\n✅ Phase 2 Complete")
+    click.echo(f"   Audit data: {session.base_path}")
     click.echo()
 
 
