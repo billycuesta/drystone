@@ -1,0 +1,291 @@
+{
+  "skill": "iam",
+  "framework": "CIS AWS Foundations v1.5.0 + AWS Security Best Practices",
+  "description": "Comprehensive Identity and Access Management (IAM) security checks",
+  "items": [
+    {
+      "id": "IAM-001",
+      "cis_id": "1.5",
+      "title": "Root account must have MFA enabled",
+      "severity": "Critical",
+      "description": "MFA on root account prevents unauthorized access even if root credentials are compromised. Root has no limits on actions.",
+      "evidence_files": ["users.json", "account-summary.json"],
+      "check_keywords": ["root", "mfa_active", "MFA", "multi-factor"],
+      "remediation": "Enable MFA on root account via AWS Console → Account Settings → Multi-factor Authentication"
+    },
+    {
+      "id": "IAM-002",
+      "cis_id": "1.2",
+      "title": "IAM users should have MFA enabled (especially privileged users)",
+      "severity": "Critical",
+      "description": "MFA provides additional layer of security. Critical for users with administrative or console access permissions.",
+      "evidence_files": ["users.json"],
+      "check_keywords": ["mfa_active", "console access", "admin", "AdministratorAccess"],
+      "remediation": "Enable MFA for each IAM user with console access. Enforce via policies if needed."
+    },
+    {
+      "id": "IAM-003",
+      "cis_id": "1.3",
+      "title": "Remove unused IAM credentials (>90 days inactive)",
+      "severity": "High",
+      "description": "Inactive credentials increase attack surface. Remove or rotate credentials that haven't been used in 90+ days.",
+      "evidence_files": ["users.json"],
+      "check_keywords": ["inactive", "90 days", "last_used", "never used"],
+      "remediation": "Remove inactive access keys. For users still needed, force rotation via rotation policy."
+    },
+    {
+      "id": "IAM-004",
+      "cis_id": "1.11",
+      "title": "Access keys should be rotated every 90 days",
+      "severity": "Critical",
+      "description": "Regular rotation reduces impact of compromised credentials. AWS recommends 90-day rotation.",
+      "evidence_files": ["users.json"],
+      "check_keywords": ["access_key", "create_date", "90 days", "rotation", "age"],
+      "remediation": "Implement automated key rotation. Create new key → Update applications → Delete old key after verification."
+    },
+    {
+      "id": "IAM-005",
+      "cis_id": "1.12",
+      "title": "IAM password policy minimum length should be 14+ characters",
+      "severity": "High",
+      "description": "Longer passwords reduce brute-force attack risk. 14+ chars recommended.",
+      "evidence_files": ["password-policy.json"],
+      "check_keywords": ["MinimumPasswordLength", "password", "length"],
+      "remediation": "Set: aws iam update-account-password-policy --minimum-password-length 14"
+    },
+    {
+      "id": "IAM-006",
+      "cis_id": "1.13",
+      "title": "IAM password policy should prevent password reuse",
+      "severity": "Medium",
+      "description": "Prevents users from reusing old passwords. Should remember at least 24 previous passwords.",
+      "evidence_files": ["password-policy.json"],
+      "check_keywords": ["PasswordReusePrevention", "reuse", "previous"],
+      "remediation": "Set: aws iam update-account-password-policy --password-reuse-prevention 24"
+    },
+    {
+      "id": "IAM-007",
+      "cis_id": "1.16",
+      "title": "Inline policies must not be used. Use managed policies instead",
+      "severity": "Medium",
+      "description": "Managed policies provide version control, reusability, and easier delegation. Inline policies are deprecated.",
+      "evidence_files": ["users.json", "roles.json", "groups.json"],
+      "check_keywords": ["inline", "inline policy", "AssumeExecutionRolePermissions"],
+      "remediation": "Migrate inline policies to managed policies using CloudFormation or AWS CLI."
+    },
+    {
+      "id": "IAM-008",
+      "cis_id": "1.20",
+      "title": "No policy should have full administrative permissions (*:*)",
+      "severity": "Critical",
+      "description": "Policies granting all actions on all resources violate principle of least privilege.",
+      "evidence_files": ["policies.json", "users.json", "roles.json", "groups.json"],
+      "check_keywords": ["*:*", "Action.*:*", "Resource.*:*", "AdministratorAccess"],
+      "remediation": "Review policies. Replace broad permissions with specific actions and resources."
+    },
+    {
+      "id": "IAM-009",
+      "cis_id": "1.6",
+      "title": "Root account should not have active access keys",
+      "severity": "Critical",
+      "description": "Root account with access keys provides programmatic access with unlimited permissions. Highest risk.",
+      "evidence_files": ["users.json", "account-summary.json"],
+      "check_keywords": ["root", "access_key", "active keys", "access_key_1_active"],
+      "remediation": "Delete root access keys: aws iam delete-access-key --access-key-id KEY_ID (requires root login)"
+    },
+    {
+      "id": "IAM-010",
+      "cis_id": "1.2",
+      "title": "Administrative users must have MFA enabled",
+      "severity": "Critical",
+      "description": "Users with AdministratorAccess or similar elevated permissions without MFA pose critical risk.",
+      "evidence_files": ["users.json", "roles.json"],
+      "check_keywords": ["admin", "AdministratorAccess", "mfa_active", "MFA"],
+      "remediation": "Enforce MFA requirement for admin users via deny policy for non-MFA actions."
+    },
+    {
+      "id": "IAM-011",
+      "cis_id": "1.21",
+      "title": "IAM role trust policies should not allow public access (*)",
+      "severity": "Critical",
+      "description": "Trust policies with Principal: '*' allow any AWS account to assume the role. Severely restricted.",
+      "evidence_files": ["roles.json"],
+      "check_keywords": ["Principal.*\\*", "trust policy", "AssumeRole"],
+      "remediation": "Update trust policy to restrict to specific AWS accounts/services. Use ExternalId for cross-account."
+    },
+    {
+      "id": "IAM-012",
+      "cis_id": "1.1",
+      "title": "Inactive users (no login in 90+ days) should be removed or disabled",
+      "severity": "High",
+      "description": "Users not accessing the system for 90+ days represent unnecessary attack surface.",
+      "evidence_files": ["users.json"],
+      "check_keywords": ["inactive", "90 days", "last login", "password_last_changed"],
+      "remediation": "Review credential report. Disable inactive users: aws iam delete-login-profile --user-name USER"
+    },
+    {
+      "id": "IAM-013",
+      "cis_id": "1.4",
+      "title": "Access keys should never be left unused (>30 days) but active",
+      "severity": "High",
+      "description": "Active but unused keys suggest zombie accounts or compromised credentials not in use.",
+      "evidence_files": ["users.json"],
+      "check_keywords": ["access_key", "never used", "unused", "last_used_date"],
+      "remediation": "Review unused keys. Either delete if not needed or rotate if in use. Set reminder for regular audits."
+    },
+    {
+      "id": "IAM-014",
+      "cis_id": "1.4",
+      "title": "Users should not have multiple active access keys (except during rotation)",
+      "severity": "High",
+      "description": "Multiple active keys per user increases credential compromise risk and complicates key management.",
+      "evidence_files": ["users.json"],
+      "check_keywords": ["access_key", "multiple", "2 keys", "second key"],
+      "remediation": "Review users with multiple keys. Delete old keys after confirming new ones work in all systems."
+    },
+    {
+      "id": "IAM-015",
+      "cis_id": "1.15",
+      "title": "Users should not have direct permissions (use groups instead)",
+      "severity": "High",
+      "description": "Direct user permissions bypass group-level management, making auditing and updates difficult.",
+      "evidence_files": ["users.json", "groups.json"],
+      "check_keywords": ["direct policy", "attached to user", "not in group"],
+      "remediation": "Create groups by function/role. Move permissions to groups. Remove direct user permissions."
+    },
+    {
+      "id": "IAM-016",
+      "cis_id": "1.19",
+      "title": "Service accounts should use roles, not IAM users",
+      "severity": "High",
+      "description": "Service accounts (only access keys, no password) should be replaced with roles for better auditability.",
+      "evidence_files": ["users.json"],
+      "check_keywords": ["service account", "no password", "only access keys", "not_supported"],
+      "remediation": "Migrate to IAM roles with STS AssumeRole for service-to-service authentication."
+    },
+    {
+      "id": "IAM-017",
+      "cis_id": "1.21",
+      "title": "Cross-account access must include ExternalId for security",
+      "severity": "High",
+      "description": "Cross-account roles without ExternalId can be assumed by other accounts without additional verification.",
+      "evidence_files": ["roles.json"],
+      "check_keywords": ["cross-account", "Principal.*AWS", "ExternalId"],
+      "remediation": "Add ExternalId condition to trust policy: 'sts:ExternalId': 'unique-external-id'"
+    },
+    {
+      "id": "IAM-018",
+      "cis_id": "1.7",
+      "title": "IAM password policy should enforce maximum password age",
+      "severity": "High",
+      "description": "Users should be forced to change passwords periodically (90 days recommended).",
+      "evidence_files": ["password-policy.json"],
+      "check_keywords": ["MaxPasswordAge", "password age", "expire"],
+      "remediation": "Set: aws iam update-account-password-policy --max-password-age 90"
+    },
+    {
+      "id": "IAM-019",
+      "cis_id": "N/A",
+      "title": "IAM password policy should require symbol characters",
+      "severity": "Medium",
+      "description": "Password complexity improves resistance to brute-force attacks. Symbols add entropy.",
+      "evidence_files": ["password-policy.json"],
+      "check_keywords": ["RequireSymbols", "symbols", "special characters"],
+      "remediation": "Set: aws iam update-account-password-policy --require-symbols"
+    },
+    {
+      "id": "IAM-020",
+      "cis_id": "N/A",
+      "title": "Users should not exist without group assignment",
+      "severity": "Medium",
+      "description": "Users in groups enable centralized permission management and policy enforcement.",
+      "evidence_files": ["users.json", "groups.json"],
+      "check_keywords": ["no groups", "standalone user", "unassigned"],
+      "remediation": "Review users. Assign each user to appropriate functional group (Developers, Admins, etc.)"
+    },
+    {
+      "id": "IAM-021",
+      "cis_id": "N/A",
+      "title": "Empty groups should be removed",
+      "severity": "Medium",
+      "description": "Groups with no members add maintenance burden and create confusion about organizational structure.",
+      "evidence_files": ["groups.json"],
+      "check_keywords": ["empty group", "no members", "group with 0 users"],
+      "remediation": "Delete empty groups: aws iam delete-group --group-name GROUP_NAME (after removing any policies)"
+    },
+    {
+      "id": "IAM-022",
+      "cis_id": "N/A",
+      "title": "Roles unused for 90+ days should be reviewed for removal",
+      "severity": "Medium",
+      "description": "Unused roles represent technical debt and potential security blind spots.",
+      "evidence_files": ["roles.json"],
+      "check_keywords": ["role", "unused", "90 days", "no activity"],
+      "remediation": "Use AWS Access Analyzer to identify unused roles. Delete or archive after confirmation."
+    },
+    {
+      "id": "IAM-023",
+      "cis_id": "2.1",
+      "title": "CloudTrail should log IAM API events",
+      "severity": "Medium",
+      "description": "Logging IAM events enables detection of unauthorized access attempts and configuration changes.",
+      "evidence_files": ["account-summary.json"],
+      "check_keywords": ["CloudTrail", "logging", "IAM events", "trail enabled"],
+      "remediation": "Enable CloudTrail for multi-region with logging to S3: aws cloudtrail create-trail --name default --s3-bucket-name BUCKET"
+    },
+    {
+      "id": "IAM-024",
+      "cis_id": "1.20",
+      "title": "IAM Access Analyzer should be enabled",
+      "severity": "Medium",
+      "description": "Access Analyzer identifies resources shared with external principals and validates against policies.",
+      "evidence_files": ["account-summary.json"],
+      "check_keywords": ["Access Analyzer", "enabled", "analyzer active"],
+      "remediation": "Enable: aws accessanalyzer create-analyzer --analyzer-name ConsoleAnalyzer --type ACCOUNT"
+    },
+    {
+      "id": "IAM-025",
+      "cis_id": "1.17",
+      "title": "Customer-managed IAM policies should not duplicate AWS managed policies",
+      "severity": "Medium",
+      "description": "Redundant policies create maintenance overhead and inconsistency. Use AWS managed policies when possible.",
+      "evidence_files": ["policies.json"],
+      "check_keywords": ["duplicate", "customer-managed", "same permissions", "redundant"],
+      "remediation": "Compare custom policies with AWS managed policies. Consolidate and remove duplicates."
+    },
+    {
+      "id": "IAM-026",
+      "cis_id": "1.22",
+      "title": "Permission boundaries should be used for delegated administration",
+      "severity": "Medium",
+      "description": "Permission boundaries limit maximum permissions for delegated roles, adding security layer.",
+      "evidence_files": ["roles.json", "users.json"],
+      "check_keywords": ["permission boundary", "boundary", "delegation"],
+      "remediation": "Define permission boundary policies. Apply to delegated admin roles."
+    },
+    {
+      "id": "IAM-027",
+      "cis_id": "1.18",
+      "title": "IAM account alias should be configured for console access",
+      "severity": "Low",
+      "description": "Alias makes console login more user-friendly and branded. Currently may use account number.",
+      "evidence_files": ["account-aliases.json"],
+      "check_keywords": ["alias", "account-alias", "not configured"],
+      "remediation": "Create alias: aws iam create-account-alias --account-alias my-company-name"
+    },
+    {
+      "id": "IAM-028",
+      "cis_id": "N/A",
+      "title": "Tags should be consistently applied to IAM resources",
+      "severity": "Low",
+      "description": "Tags enable cost allocation, automation, and better resource organization.",
+      "evidence_files": ["users.json", "roles.json"],
+      "check_keywords": ["tags", "missing tags", "no tag"],
+      "remediation": "Tag resources for Environment, Owner, Application, CostCenter: aws iam tag-user --user-name USER --tags Key=Env,Value=prod"
+    }
+  ],
+  "version": "2.0",
+  "total_checks": 28,
+  "last_updated": "2026-01-18",
+  "notes": "Expanded checklist covers CIS AWS Foundations v1.5.0 + AWS Security Best Practices. Includes critical, high, medium, and low severity items."
+}

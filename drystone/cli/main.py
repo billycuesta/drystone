@@ -1,5 +1,7 @@
 """Main CLI entry point for Drystone."""
 
+import json
+import os
 import sys
 from pathlib import Path
 
@@ -61,7 +63,7 @@ def cli() -> None:
 @click.option(
     "--formats",
     multiple=True,
-    type=click.Choice(["markdown", "html", "json"]),
+    type=click.Choice(["markdown", "json"]),
     help="Output formats (can specify multiple times)",
 )
 def audit(
@@ -73,7 +75,9 @@ def audit(
 ) -> None:
     """Run AWS security audit."""
 
+    click.echo()  # Blank line before banner
     print_banner()
+    click.echo()  # Blank line after banner
     click.echo("📋 Configuration Setup")
     click.echo("━" * 50 + "\n")
 
@@ -164,8 +168,71 @@ def audit(
             size_kb = file.stat().st_size / 1024
             click.echo(f"   - {file.name} ({size_kb:.1f} KB)")
 
+    # === PHASE 3: AGENT ANALYSIS ===
+    findings_data = None
+    if "iam" in config.skills:
+        try:
+            click.echo("\n🤖 Analyzing evidence with Claude...")
+
+            from drystone.agent.client import AgentClient
+
+            # Create provider configuration from config
+            provider_config = {
+                'type': config.ai_provider,
+                'api_key': config.ai_api_key,
+            }
+
+            agent = AgentClient(provider_config=provider_config)
+            findings_path = skill.analyze(session, agent)
+
+            # Show findings summary
+            with open(findings_path) as f:
+                findings_data = json.load(f)
+
+            click.echo(f"\n📊 Findings Summary:")
+            click.echo(f"   Total: {findings_data['summary']['total_findings']}")
+            click.echo(f"   Critical: {findings_data['summary']['critical']}")
+            click.echo(f"   High: {findings_data['summary']['high']}")
+            click.echo(f"   Risk Score: {findings_data['summary']['overall_risk_score']:.1f}/10")
+            click.echo(f"   Saved: {findings_path}")
+
+        except Exception as e:
+            click.echo(f"\n❌ Analysis error: {e}")
+            click.echo("   Evidence collection completed successfully")
+
+    # === PHASE 4: REPORT GENERATION ===
+    if findings_data is not None:
+        click.echo("\n📄 Generating reports...")
+
+        try:
+            from drystone.reports import ReportGenerator
+
+            generator = ReportGenerator(session)
+            generated_reports = generator.generate_reports("iam", config.output_formats)
+
+            click.echo("\n📊 Reports Generated:")
+            for format_name, report_path in generated_reports.items():
+                size_kb = report_path.stat().st_size / 1024
+                click.echo(
+                    f"   ✅ {format_name.upper():8} {report_path.name:25} ({size_kb:.1f} KB)"
+                )
+
+            # Show how to view reports
+            if "markdown" in generated_reports:
+                md_path = generated_reports["markdown"]
+                click.echo(f"\n📝 View report:")
+                click.echo(f"   cat {md_path}")
+
+            click.echo(f"\n✅ Phase 4 Complete (Report Generation)")
+
+        except Exception as e:
+            click.echo(f"\n⚠️  Report generation failed: {e}")
+            click.echo("   Evidence and findings are saved, but reports could not be generated")
+    else:
+        click.echo("\n⚠️  Skipping Phase 4 (no findings to report)")
+
     # Show completion
-    click.echo("\n✅ Phase 2 Complete")
+    click.echo(f"\n✅ Audit Complete")
     click.echo(f"   Audit data: {session.base_path}")
     click.echo()
 

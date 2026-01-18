@@ -1,0 +1,58 @@
+"""Base formatter for report generation."""
+
+from abc import ABC, abstractmethod
+from pathlib import Path
+from typing import Dict, Any
+
+from drystone.storage.session import AuditSession
+
+
+class BaseFormatter(ABC):
+    """Abstract base class for report formatters."""
+
+    def __init__(self, findings_data: Dict[str, Any], session: AuditSession):
+        """Initialize formatter.
+
+        Args:
+            findings_data: Parsed findings JSON (SkillFindings dict)
+            session: Audit session for file paths
+        """
+        self.findings = findings_data
+        self.session = session
+        self.reports_path = session.get_reports_path()
+        self.reports_path.mkdir(parents=True, exist_ok=True)
+
+    @abstractmethod
+    def generate(self) -> Path:
+        """Generate report in specific format.
+
+        Returns:
+            Path to generated report file
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def file_extension(self) -> str:
+        """File extension for this format (e.g., 'html', 'md')."""
+        pass
+
+    def _get_severity_emoji(self, severity: str) -> str:
+        """Get emoji for severity level."""
+        return {
+            "Critical": "🔴",
+            "High": "🟠",
+            "Medium": "🟡",
+            "Low": "🟢",
+        }.get(severity, "⚪")
+
+    def _format_risk_score(self, score: float) -> str:
+        """Format risk score with color indicator."""
+        if score >= 9.0:
+            return f"🔴 {score:.1f}/10 (Critical)"
+        elif score >= 7.0:
+            return f"🟠 {score:.1f}/10 (High)"
+        elif score >= 4.0:
+            return f"🟡 {score:.1f}/10 (Medium)"
+        else:
+            return f"🟢 {score:.1f}/10 (Low)"

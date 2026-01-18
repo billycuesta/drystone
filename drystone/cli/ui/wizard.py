@@ -164,7 +164,6 @@ def run_setup_wizard() -> WizardConfig:
         "Output Formats:",
         choices=[
             questionary.Choice("Markdown", "markdown", checked=True),
-            questionary.Choice("HTML", "html"),
             questionary.Choice("JSON", "json"),
         ],
         validate=lambda x: len(x) > 0 or "Select at least one format",
@@ -172,6 +171,31 @@ def run_setup_wizard() -> WizardConfig:
 
     if output_formats is None:
         raise KeyboardInterrupt("Wizard cancelled")
+
+    # Step 7: AI Provider for analysis
+    ai_provider = questionary.select(
+        "AI Provider for Security Analysis:",
+        choices=[
+            questionary.Choice("Claude API Key", "claude-api"),
+            questionary.Choice("Claude CLI (Free, Recommended)", "claude-cli", checked=True),
+            questionary.Choice("Google Gemini API", "gemini-api"),
+        ],
+    ).ask()
+
+    if ai_provider is None:
+        raise KeyboardInterrupt("Wizard cancelled")
+
+    # Step 8: API Key (if needed)
+    ai_api_key = None
+    if ai_provider in ["claude-api", "gemini-api"]:
+        api_key_name = "Claude API" if ai_provider == "claude-api" else "Gemini API"
+        ai_api_key = questionary.password(
+            f"Enter your {api_key_name} key:",
+            validate=lambda x: len(x) > 0 or "API key cannot be empty",
+        ).ask()
+
+        if ai_api_key is None:
+            raise KeyboardInterrupt("Wizard cancelled")
 
     # Create and validate config
     try:
@@ -182,6 +206,8 @@ def run_setup_wizard() -> WizardConfig:
             aws_region=aws_region,
             skills=skills,
             output_formats=output_formats,
+            ai_provider=ai_provider,
+            ai_api_key=ai_api_key,
         )
         return config
     except ValueError as e:
