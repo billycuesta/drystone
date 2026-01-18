@@ -450,36 +450,62 @@ python -c "from anthropic import Anthropic; print('OK')"
 ruff check drystone/
 ```
 
+## Session History
+
+### Session: 2026-01-18 (Provider Cleanup)
+**Phase:** Phase 1b Agent Analysis
+
+**Accomplishments:**
+- Removed non-functional gemini-cli provider option
+- Validated all 3 remaining providers working (claude-api, claude-cli, gemini-api)
+- Cleaned up dead code paths (40 lines removed)
+- Improved codebase maintainability
+
+**Key Decisions:**
+- Consolidate to 3 functional providers
+- Keep flexibility for different deployment scenarios
+- Remove non-functional options to reduce complexity
+
+**Next Steps:**
+- Implement IAM collector to pull actual AWS data
+- Test end-to-end workflow (credentials → collect → analyze → report)
+
+---
+
 ## Next Session Priority (Próximos Pasos)
 
-### Phase 1a (High Priority)
-- [x] AWS credential validation (STS GetCallerIdentity)
-- [ ] Implement IAM collector (`drystone/skills/iam/collector.py`)
-- [ ] Create evidence storage layer (`drystone/storage/manager.py`)
-- [ ] Add unit tests for AWS client and models
+### Phase 1b (In Progress - High Priority)
+- [x] Integrate Anthropic SDK for Claude analysis
+- [x] Create IAM security checklist (CIS AWS Foundations - 28 items)
+- [x] Enhance Claude system prompt with vulnerability categories
+- [x] Multi-provider support (claude-api, claude-cli, gemini-api)
+- [ ] Implement IAM collector (`drystone/skills/iam/__init__.py`)
+- [ ] End-to-end integration test: collect → analyze → findings
 
-### Phase 1b (Medium Priority)
-- [ ] Integrate Anthropic SDK for Claude analysis
-- [ ] Implement IAM analyzer (`drystone/skills/iam/analyzer.py`)
-- [ ] Create IAM security checklist (CIS AWS Foundations)
-- [ ] Test end-to-end: collect → analyze → findings
-
-### Phase 1c (Medium Priority)
-- [ ] Implement orchestrator for multi-skill execution
-- [ ] Build correlation engine for cross-skill findings
-- [ ] Add risk score calculation
+### Phase 1c (Pending - Medium Priority)
+- [x] Create evidence storage layer foundation (`drystone/storage/session.py`)
+- [ ] Finalize persistence logic for evidence and findings
+- [ ] Implement audit-logs directory structure
 
 ### Phase 2 (Lower Priority)
 - [ ] Implement Exposure skill (public S3, RDS, etc.)
 - [ ] Implement Network skill (security groups, NACLs)
 - [ ] Implement Vulns skill (patch status, misconfigs)
-- [ ] Cross-skill correlation logic
+- [ ] Implement orchestrator for multi-skill execution
+- [ ] Build correlation engine for cross-skill findings
+- [ ] Add risk score calculation
 
-### Phase 3+ (Future)
-- [ ] Multi-LLM support (Gemini, OpenAI)
-- [ ] HTML report generation
-- [ ] Audit trail and compliance reporting
+### Phase 3 (Reporting - Future)
+- [ ] Polish HTML report generation
+- [ ] Enhance Markdown report formatting
+- [ ] Implement JSON report structure
+- [ ] Add audit trail and compliance reporting
+
+### Phase 4+ (Future)
 - [ ] Scheduled audits and monitoring
+- [ ] Multi-account AWS support
+- [ ] Compliance framework templates (PCI-DSS, SOC2, etc.)
+- [ ] Integration with security tools (Jira, ServiceNow)
 
 ## Resources
 

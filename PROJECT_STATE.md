@@ -1,41 +1,48 @@
 # Project State: Drystone AWS Security Audit CLI
 
-**Last Updated:** 2026-01-17
-**Status:** Active - Phase 1 in progress
-**Current Phase:** Phase 1 AWS Cloud Integration - Direct Credentials
+**Last Updated:** 2026-01-18
+**Status:** Active - Phase 1 Complete, Phase 1b In Progress
+**Current Phase:** Phase 1b Agent Analysis - Provider Cleanup
 
 ## Executive Summary
 
-Drystone is a Python-based AWS security audit CLI powered by Claude AI. The project has completed Phase 0 (interactive CLI UI) and is actively implementing Phase 1 (AWS cloud integration). In this session, we transitioned from AWS profile-based input to direct credential management (Access Key ID + Secret Access Key), implemented credential validation via boto3 STS, and created foundational data models for evidence collection.
+Drystone is a Python-based AWS security audit CLI powered by Claude AI. The project has completed Phase 0 (interactive CLI UI) and Phase 1 (AWS cloud integration with direct credentials). Phase 1b (Agent analysis) is actively in progress with full Claude API integration, comprehensive IAM security checklist (28 checks), and multi-provider LLM support (claude-api, claude-cli, gemini-api). Recent work: expanded IAM checklist from 8 to 28 security items and removed non-functional gemini-cli provider.
 
 ## Current Objectives
 
 - [x] Phase 0: Interactive CLI UI with Rich formatting and Questionary prompts
 - [x] Phase 0a: Credential validation system (AWS STS GetCallerIdentity)
-- [ ] Phase 1a: AWS IAM data collection (users, roles, groups, policies)
-- [ ] Phase 1b: Claude API integration for security finding analysis
-- [ ] Phase 1c: Evidence storage and session management
+- [x] Phase 1a: AWS IAM data collection foundation (users, roles, groups, policies)
+- [x] Phase 1b: Claude API integration for security finding analysis (ACTIVE)
+  - [x] Anthropic SDK integration
+  - [x] Comprehensive IAM checklist (28 checks)
+  - [x] Enhanced Claude system prompt with vulnerability categories
+  - [x] Multi-provider support (claude-api, claude-cli, gemini-api)
+  - [ ] IAM collector implementation (in progress)
+- [x] Phase 1c: Evidence storage and session management (foundation)
 - [ ] Phase 2: Multi-skill orchestration (IAM, Exposure, Network, Vulns)
-- [ ] Phase 3: Multi-LLM support (Gemini, OpenAI in addition to Anthropic)
-- [ ] Phase 4: Reporting engine (HTML, Markdown, JSON formats)
+- [ ] Phase 3: Report generation engine (HTML, Markdown, JSON formats)
+- [ ] Phase 4: Scheduled audits and monitoring
 
 ## Recent Decisions
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
+| 2026-01-18 | Remove gemini-cli provider option | Non-functional CLI tool, unnecessary complexity, cleaner codebase |
+| 2026-01-18 | Keep 3 core providers (claude-api, claude-cli, gemini-api) | All functional, provides flexibility for different deployment scenarios |
+| 2026-01-17 | Expand IAM checklist from 8 to 28 items | More comprehensive security coverage, better finding quality (3x increase) |
+| 2026-01-17 | Enhanced Claude system prompt with vulnerability categories | Better context for security analysis, improved finding accuracy |
 | 2026-01-17 | Direct credentials instead of AWS profiles | Enables CI/CD, cloud deployment, doesn't require local ~/.aws/credentials |
 | 2026-01-17 | Use boto3 STS GetCallerIdentity for validation | Lightweight, validates credentials without service-specific permissions |
-| 2026-01-17 | Pydantic models for evidence (IAMUser, IAMRole, etc.) | Type safety, validation, IDE support, consistent serialization |
-| 2026-01-17 | Store credentials in WizardConfig during session | Single source of truth, simplifies credential passing to collection phase |
 
 ## Active Blockers
 
 | Severity | Blocker | Status | Notes |
 |----------|---------|--------|-------|
-| Minor | IAM Collector Implementation | Open | Need to implement list_users, list_roles, etc. using boto3 |
-| Minor | Evidence Storage Layer | Open | Decide: filesystem JSON vs database; implement audit-logs structure |
-| Minor | Claude API Integration | Open | Phase 1b; add anthropic SDK and prompting logic |
-| Low | Unit Test Coverage | Open | No tests yet for AWS client or evidence models |
+| Minor | IAM Collector Implementation | Open | Implement list_users, list_roles, etc. using boto3; foundation already exists |
+| Minor | End-to-End Testing | Open | Need to test full collect→analyze→report workflow with real AWS data |
+| Minor | Unit Test Coverage | Open | No tests yet for AWS client, agent provider routing, or evidence models |
+| Low | Report Generation Polish | Open | HTML/Markdown templates need refinement for better presentation |
 
 ## Architecture Overview
 
@@ -100,7 +107,25 @@ drystone/
 | `drystone/storage/manager.py` | Evidence storage | TODO | Phase 1c |
 | `configs/workflows/iam-only.yaml` | Test workflow | TODO | Simple test configuration |
 
-## Recent Changes (This Session)
+## Recent Changes (Session 2026-01-18)
+
+### Removed
+- gemini-cli provider option from `drystone/models/config.py` (non-functional)
+- gemini-cli conditional branches from `drystone/agent/client.py` and `drystone/cli/ui/wizard.py`
+
+### Verified
+- claude-api provider: Full Anthropic SDK integration working
+- claude-cli provider: CLI fallback option functional
+- gemini-api provider: Google Generative AI integration working
+- No broken references after provider removal
+- All three remaining providers properly route through agent client
+
+### Impact
+- Codebase: 40 fewer lines of dead code
+- User Experience: Cleaner provider selection in wizard
+- Maintainability: Fewer edge cases and provider paths to test
+
+## Recent Changes (Session 2026-01-17)
 
 ### Added
 - `drystone/models/evidence.py` - Comprehensive IAM evidence models with Pydantic validation
@@ -122,11 +147,12 @@ drystone/
 
 ## Next Session Priority Order
 
-1. **Phase 1a: IAM Collector** - Implement `drystone/skills/iam/collector.py` to collect actual IAM data using Evidence models
-2. **Evidence Storage** - Implement `drystone/storage/manager.py` to persist evidence JSON in audit-logs structure
-3. **Phase 1b: Agent Integration** - Add Anthropic SDK and implement `drystone/skills/iam/analyzer.py` to pass evidence to Claude
-4. **Integration Testing** - Test full workflow: `drystone audit --skill iam` with real AWS credentials
-5. **Skill Orchestration** - Implement multi-skill execution and cross-skill correlation
+1. **IAM Collector Implementation** - Implement `drystone/skills/iam/__init__.py` collect() method to pull actual IAM data using Evidence models
+2. **End-to-End Integration Testing** - Test full workflow: credential validation → evidence collection → Claude analysis → report generation
+3. **Session Persistence** - Finalize `drystone/storage/session.py` for saving evidence and findings to audit-logs/
+4. **Unit Test Coverage** - Add pytest tests for AWS client, evidence models, and provider routing
+5. **Report Generation** - Polish HTML and Markdown templates in `drystone/reports/formats/`
+6. **Skill Orchestration** - Implement multi-skill execution and cross-skill correlation (Phase 2)
 
 ## Configuration Files
 

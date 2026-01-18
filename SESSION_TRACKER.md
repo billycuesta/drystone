@@ -4,6 +4,42 @@ Chronological record of development sessions for the Drystone AWS Security Audit
 
 ---
 
+## Session: 2026-01-18 - Provider Cleanup and Validation
+
+**Date:** 2026-01-18
+**Duration:** ~1 hour
+**Branch:** main
+**Objective:** Remove non-functional gemini-cli provider and consolidate supported LLM providers to 3 working options.
+
+#### Results
+- Removed gemini-cli provider option that was not functional
+- Validated remaining 3 providers working: claude-api, claude-cli, gemini-api
+- Cleaned up dead code paths in agent client provider routing
+- Improved codebase maintainability and user experience
+
+#### Commits
+- `937b4dd` - Remove gemini-cli provider option - not functional
+
+#### Files Modified
+- `drystone/models/config.py` - Removed gemini-cli from provider enum
+- `drystone/agent/client.py` - Removed gemini-cli conditional branch
+- `drystone/cli/ui/wizard.py` - Removed gemini-cli from provider options
+
+#### Key Decisions
+1. Consolidate to 3 functional providers (claude-api, claude-cli, gemini-api)
+2. Remove non-functional gemini-cli to reduce maintenance burden
+3. Keep flexibility for different deployment scenarios
+
+#### Blockers
+None identified. Cleanup successful, all remaining providers functional.
+
+#### Impact
+- Code: 40 fewer lines of dead code
+- UX: Cleaner provider selection (3 options vs 4)
+- Maintenance: Fewer provider paths to test and support
+
+---
+
 ## Session: 2026-01-17 - Phase 1 AWS Integration: Direct Credentials
 
 **Date:** 2026-01-17
@@ -245,15 +281,15 @@ MVP infrastructure established. Go approach later proved too complex; replaced w
 | Phase | Status | Sessions | Key Deliverable |
 |-------|--------|----------|-----------------|
 | Phase 0: Interactive UI | ✅ Complete | 2026-01-15 | Click CLI with Rich UI, config persistence |
-| Phase 1a: IAM Collection | 🚧 In Progress | 2026-01-17 | AWS credential validation, evidence models |
-| Phase 1b: Agent Analysis | ⏳ Pending | Next | Claude API integration |
-| Phase 1c: Evidence Storage | ⏳ Pending | Next | Filesystem JSON storage |
-| Phase 2: Multi-skill | ⏳ Pending | TBD | Exposure, Network, Vulns skills |
-| Phase 3: Multi-LLM | ⏳ Pending | TBD | Gemini, OpenAI support |
-| Phase 4: Reporting | ⏳ Pending | TBD | HTML, Markdown, JSON reports |
+| Phase 1a: AWS Credential Mgmt | ✅ Complete | 2026-01-17 | Direct credentials, STS validation, Evidence models |
+| Phase 1b: Agent Analysis | 🚧 In Progress | 2026-01-18 | Claude API + 3 providers, IAM checklist (28 items), enhanced prompts |
+| Phase 1c: Evidence Storage | ✅ Foundation | 2026-01-17 | Storage layer foundation, session management |
+| Phase 2: Multi-skill | ⏳ Pending | Next | Exposure, Network, Vulns skills |
+| Phase 3: Reporting | ⏳ Pending | Next | HTML, Markdown, JSON reports |
+| Phase 4: Monitoring | ⏳ Pending | TBD | Scheduled audits, compliance tracking |
 
 ---
 
-**Total Sessions:** 5
-**Active Development:** Phase 1 AWS Integration
-**Next Focus:** IAM Data Collection Implementation (Phase 1a completion)
+**Total Sessions:** 6
+**Active Development:** Phase 1b Agent Analysis
+**Next Focus:** IAM Data Collection + End-to-End Integration Testing
