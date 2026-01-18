@@ -452,35 +452,59 @@ ruff check drystone/
 
 ## Session History
 
-### Session: 2026-01-18 (Provider Cleanup)
+### Session: 2026-01-18 (Iterative Wizard Implementation)
+**Phase:** Phase 0 Interactive UI Enhancement
+
+**Accomplishments:**
+- ✅ Refactored wizard to support flexible menu navigation
+- ✅ Added `display_config_summary()` function for visual config overview
+- ✅ Modified `run_project_menu()` and `run_ai_menu()` to accept pre-filled values
+- ✅ Changed wizard flow: now starts with navigation menu (no forced Menu A)
+- ✅ Menu A is required before "Continue" option appears
+- ✅ AWS credentials validated on each Menu A edit
+- ✅ Credentials/secrets never pre-filled for security
+- ✅ Removed "Use last saved configuration?" prompt from main.py
+- ✅ Created comprehensive testing guide (WIZARD_TESTING.md)
+- ✅ Updated README with wizard features and examples
+
+**Key Decisions:**
+- User chooses which menu to configure first (Menu A or B)
+- Menu A validation happens every time it's re-edited
+- "Continue" option only visible after Menu A is complete
+- Configuration summary shown after each menu change
+- Backward compatible with `--non-interactive` mode
+
+**Files Modified:**
+- `drystone/cli/ui/wizard.py` - Core wizard refactor (~180 lines added/modified)
+- `drystone/cli/main.py` - Removed config reuse prompt (simplified flow)
+- `README.md` - Added wizard features and examples
+- `WIZARD_TESTING.md` - New comprehensive testing guide
+
+---
+
+### Previous Session: 2026-01-18 (Provider Cleanup)
 **Phase:** Phase 1b Agent Analysis
 
 **Accomplishments:**
 - Removed non-functional gemini-cli provider option
 - Validated all 3 remaining providers working (claude-api, claude-cli, gemini-api)
 - Cleaned up dead code paths (40 lines removed)
-- Improved codebase maintainability
-
-**Key Decisions:**
-- Consolidate to 3 functional providers
-- Keep flexibility for different deployment scenarios
-- Remove non-functional options to reduce complexity
-
-**Next Steps:**
-- Implement IAM collector to pull actual AWS data
-- Test end-to-end workflow (credentials → collect → analyze → report)
 
 ---
 
 ## Next Session Priority (Próximos Pasos)
 
-### Phase 1b (In Progress - High Priority)
-- [x] Integrate Anthropic SDK for Claude analysis
-- [x] Create IAM security checklist (CIS AWS Foundations - 28 items)
-- [x] Enhance Claude system prompt with vulnerability categories
-- [x] Multi-provider support (claude-api, claude-cli, gemini-api)
+### Phase 1a (In Progress - High Priority)
+- [x] Implement iterative wizard with flexible menu navigation
+- [x] Add visual config summary display
+- [x] Simplify wizard startup flow
+- [ ] Manual testing of wizard (all 6 test cases)
+- [ ] Verify backward compatibility with --non-interactive
+
+### Phase 1b (Pending - High Priority)
 - [ ] Implement IAM collector (`drystone/skills/iam/__init__.py`)
 - [ ] End-to-end integration test: collect → analyze → findings
+- [ ] Test with actual AWS credentials and audit data
 
 ### Phase 1c (Pending - Medium Priority)
 - [x] Create evidence storage layer foundation (`drystone/storage/session.py`)

@@ -16,22 +16,31 @@ pip install -e .
 # Show help
 python -m drystone --help
 
-# Run audit with CLI arguments
-python -m drystone audit --client "ACME Corp" --profile default --region us-east-1 --skills iam --formats markdown
+# Run interactive audit (flexible wizard menu)
+python -m drystone audit
 
 # Run with saved configuration
 python -m drystone audit --non-interactive
+
+# Run with CLI arguments
+python -m drystone audit --client "ACME Corp" --region us-east-1 --skills iam --formats markdown
 ```
 
 ## Features
 
 ### ✅ Phase 0: Interactive CLI UI
 - 🎨 Gemini-CLI style ASCII banner with RGB gradient colors
-- 🪄 5-step interactive wizard (client/profile/region/skills/formats)
+- 🪄 **Iterative wizard with flexible menu navigation**
+  - Start with Menu A (Project & AWS Scope) or Menu B (AI Configuration)
+  - Edit menus multiple times before finalizing
+  - AWS credentials validated on each Menu A edit
+  - Config summary displayed after each change
+  - "Continue" option only appears after Menu A is complete
 - 📋 Configuration validation with Pydantic
 - 💾 Config persistence (~/.drystone/last-run.json)
 - 🎯 Support both interactive and non-interactive modes
 - 📊 Rich-formatted summary tables
+- 🔐 Credentials masked in display (never logged)
 
 ### 🚧 Phase 1+: AWS Integration (coming soon)
 - AWS data collection (boto3)
@@ -71,6 +80,32 @@ drystone/
 ├── __main__.py          # Entry for python -m drystone
 └── __init__.py
 ```
+
+## Interactive Wizard
+
+The iterative wizard allows flexible configuration:
+
+```
+$ python -m drystone audit
+
+🪨 DRYSTONE
+AWS Security Audit CLI
+
+? Configuration Setup
+
+  > 📋 Configure Menu A: Project Scope
+    🤖 Configure Menu B: AI Configuration
+```
+
+**Features:**
+- ✅ Start with either menu (no forced order)
+- ✅ View configuration summary after each change
+- ✅ Edit menus multiple times before finalizing
+- ✅ Pre-filled values on re-edit (secrets excluded)
+- ✅ AWS validation on each Menu A edit
+- ✅ "Continue" appears only after Menu A is complete
+
+For testing details, see [WIZARD_TESTING.md](WIZARD_TESTING.md)
 
 ## Commands
 

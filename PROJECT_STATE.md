@@ -1,12 +1,14 @@
 # Project State: Drystone AWS Security Audit CLI
 
 **Last Updated:** 2026-01-18
-**Status:** Active - Phase 1 Complete, Phase 1b In Progress
-**Current Phase:** Phase 1b Agent Analysis - UI Reorganization
+**Status:** Active - Phase 0 Complete, Phase 1 In Progress
+**Current Phase:** Phase 0 UI Enhancement + Phase 1 Agent Analysis
 
 ## Executive Summary
 
-Drystone is a Python-based AWS security audit CLI powered by Claude AI. The project has completed Phase 0 (interactive CLI UI) and Phase 1 (AWS cloud integration with direct credentials). Phase 1b (Agent analysis) is actively in progress with full Claude API integration, comprehensive IAM security checklist (28 checks), and multi-provider LLM support (claude-api, claude-cli, gemini-api). Recent work: expanded IAM checklist from 8 to 28 security items and removed non-functional gemini-cli provider.
+Drystone is a Python-based AWS security audit CLI powered by Claude AI. The project has completed Phase 0 (interactive CLI UI) with recent enhancements to the wizard UI flow for better flexibility and UX. Phase 1 (AWS cloud integration with agent analysis) is actively in progress with full Claude API integration, comprehensive IAM security checklist (28 checks), and multi-provider LLM support (claude-api, claude-cli, gemini-api).
+
+**Latest Enhancement (2026-01-18):** Refactored wizard to support flexible menu navigation - user can now start with either Menu A (Project Scope) or Menu B (AI Configuration), edit both multiple times, and view configuration summary after each change. Removed forced "Use last saved configuration?" prompt for cleaner startup flow.
 
 ## Current Objectives
 
@@ -28,6 +30,11 @@ Drystone is a Python-based AWS security audit CLI powered by Claude AI. The proj
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
+| 2026-01-18 | Refactor wizard to iterative menu navigation | Better UX, flexible menu order, simpler flow (no forced Menu A) |
+| 2026-01-18 | Remove "Use last saved configuration?" prompt | Cleaner startup, reduces extra step, wizard shows options directly |
+| 2026-01-18 | Menu A required for "Continue" option | Ensures AWS credentials are always configured before execution |
+| 2026-01-18 | Never pre-fill secrets (passwords, API keys) | Security best practice, prevents accidental credential exposure |
+| 2026-01-18 | Display config summary after each menu edit | Improved feedback, users can verify before continuing |
 | 2026-01-18 | Remove gemini-cli provider option | Non-functional CLI tool, unnecessary complexity, cleaner codebase |
 | 2026-01-18 | Keep 3 core providers (claude-api, claude-cli, gemini-api) | All functional, provides flexibility for different deployment scenarios |
 | 2026-01-17 | Expand IAM checklist from 8 to 28 items | More comprehensive security coverage, better finding quality (3x increase) |
