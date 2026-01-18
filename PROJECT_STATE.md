@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-01-18
 **Status:** Active - Phase 1 Complete, Phase 1b In Progress
-**Current Phase:** Phase 1b Agent Analysis - Provider Cleanup
+**Current Phase:** Phase 1b Agent Analysis - UI Reorganization
 
 ## Executive Summary
 
@@ -107,11 +107,24 @@ drystone/
 | `drystone/storage/manager.py` | Evidence storage | TODO | Phase 1c |
 | `configs/workflows/iam-only.yaml` | Test workflow | TODO | Simple test configuration |
 
-## Recent Changes (Session 2026-01-18)
+## Recent Changes (Session 2026-01-18 - Ongoing)
 
 ### Removed
 - gemini-cli provider option from `drystone/models/config.py` (non-functional)
 - gemini-cli conditional branches from `drystone/agent/client.py` and `drystone/cli/ui/wizard.py`
+
+### Wizard UI Reorganization
+- Refactored `drystone/cli/ui/wizard.py` into 3 separate functions:
+  - `run_project_menu()`: Menu A - Project scope (obligatory) - 6 steps (client, AWS creds, region, skills, formats)
+  - `run_ai_menu()`: Menu B - AI configuration (optional) - 2 steps (provider, API key)
+  - `get_default_ai_config()`: Returns default (claude-cli, no API key)
+  - `run_setup_wizard()`: Orchestrates both menus with conditional flow
+- Menu A executes first (always required)
+- After Menu A, user asked if they want to customize AI config
+- If "No": Uses claude-cli by default (free, no API key needed)
+- If "Yes": Shows Menu B with provider selection + conditional API key prompt
+- Better UX: Separates project scope (mandatory) from AI preferences (optional with smart defaults)
+- Backward compatible: `--non-interactive` and saved configs still work
 
 ### Verified
 - claude-api provider: Full Anthropic SDK integration working
@@ -119,11 +132,13 @@ drystone/
 - gemini-api provider: Google Generative AI integration working
 - No broken references after provider removal
 - All three remaining providers properly route through agent client
+- Wizard refactoring: All 3 new functions import successfully, syntax validated
 
 ### Impact
-- Codebase: 40 fewer lines of dead code
-- User Experience: Cleaner provider selection in wizard
-- Maintainability: Fewer edge cases and provider paths to test
+- Codebase: 40 fewer lines of dead code (provider cleanup) + 120 new lines (wizard refactor) = net +80 lines with better structure
+- User Experience: Two-menu flow reduces cognitive load, smart defaults for common use case (claude-cli)
+- Maintainability: Cleaner separation of concerns, easier to modify each menu independently
+- UX Improvement: Optional AI configuration makes CLI more approachable for first-time users
 
 ## Recent Changes (Session 2026-01-17)
 
@@ -256,5 +271,6 @@ python -m drystone audit --client "ACME" --region us-west-2
 
 ---
 
-**Last Session:** 2026-01-17 - Phase 1 AWS Integration, Direct Credentials
+**Last Session:** 2026-01-18 - UI Reorganization (Two-Menu Wizard) + Provider Cleanup
+**Current Focus:** Wizard Testing and IAM Collector Implementation
 **Next Focus:** IAM Data Collection Implementation

@@ -81,13 +81,16 @@ class AWSValidationError(Exception):
     pass
 
 
-def run_setup_wizard() -> WizardConfig:
-    """Run interactive 6-step wizard for audit configuration.
+def run_project_menu() -> dict:
+    """Run Menu A: Project & AWS Scope Configuration.
 
     Returns:
-        WizardConfig with user selections
+        dict with: client_name, aws_access_key_id, aws_secret_access_key,
+                   aws_region, skills, output_formats
     """
-    print()  # Blank line
+    print("\n" + "━" * 50)
+    print("📋 MENU A: Review Scope")
+    print("━" * 50 + "\n")
 
     # Step 1: Client/Project Name
     client_name = questionary.text(
@@ -172,12 +175,32 @@ def run_setup_wizard() -> WizardConfig:
     if output_formats is None:
         raise KeyboardInterrupt("Wizard cancelled")
 
+    return {
+        "client_name": client_name,
+        "aws_access_key_id": access_key_id,
+        "aws_secret_access_key": secret_access_key,
+        "aws_region": aws_region,
+        "skills": skills,
+        "output_formats": output_formats,
+    }
+
+
+def run_ai_menu() -> dict:
+    """Run Menu B: AI Configuration (optional).
+
+    Returns:
+        dict with: ai_provider, ai_api_key
+    """
+    print("\n" + "━" * 50)
+    print("🤖 MENU B: AI Configuration")
+    print("━" * 50 + "\n")
+
     # Step 7: AI Provider for analysis
     ai_provider = questionary.select(
         "AI Provider for Security Analysis:",
         choices=[
-            questionary.Choice("Claude API Key", "claude-api"),
             questionary.Choice("Claude CLI (Free, Recommended)", "claude-cli", checked=True),
+            questionary.Choice("Claude API Key", "claude-api"),
             questionary.Choice("Google Gemini API", "gemini-api"),
         ],
     ).ask()
@@ -197,17 +220,71 @@ def run_setup_wizard() -> WizardConfig:
         if ai_api_key is None:
             raise KeyboardInterrupt("Wizard cancelled")
 
-    # Create and validate config
+    return {
+        "ai_provider": ai_provider,
+        "ai_api_key": ai_api_key,
+    }
+
+
+def get_default_ai_config() -> dict:
+    """Get default AI configuration (Claude CLI, no API key).
+
+    Returns:
+        dict with default ai_provider and ai_api_key
+    """
+    return {
+        "ai_provider": "claude-cli",
+        "ai_api_key": None,
+    }
+
+
+def run_setup_wizard() -> WizardConfig:
+    """Run interactive 2-menu wizard for audit configuration.
+
+    Menu A (obligatory): Project & AWS Scope
+    Menu B (optional): AI Configuration with defaults
+
+    Returns:
+        WizardConfig with user selections
+    """
+    print()  # Blank line
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # MENU A: Project & AWS Scope (ALWAYS)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    project_config = run_project_menu()
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # MENU B: AI Configuration (OPTIONAL)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    print("\n" + "━" * 50)
+    print("🤖 MENU B: AI Configuration")
+    print("━" * 50)
+
+    customize_ai = questionary.confirm(
+        "Customize AI configuration? (default: Claude CLI - free)",
+        default=False,
+        auto_enter=False,
+    ).ask()
+
+    if customize_ai is None:
+        raise KeyboardInterrupt("Wizard cancelled")
+
+    if customize_ai:
+        ai_config = run_ai_menu()
+    else:
+        ai_config = get_default_ai_config()
+        print("\n✅ Using default configuration:")
+        print("   Provider: Claude CLI (free)")
+        print("   API Key: not required\n")
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Build final WizardConfig
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     try:
         config = WizardConfig(
-            client_name=client_name,
-            aws_access_key_id=access_key_id,
-            aws_secret_access_key=secret_access_key,
-            aws_region=aws_region,
-            skills=skills,
-            output_formats=output_formats,
-            ai_provider=ai_provider,
-            ai_api_key=ai_api_key,
+            **project_config,
+            **ai_config,
         )
         return config
     except ValueError as e:
