@@ -78,8 +78,6 @@ def audit(
     click.echo()  # Blank line before banner
     print_banner()
     click.echo()  # Blank line after banner
-    click.echo("📋 Configuration Setup")
-    click.echo("━" * 50 + "\n")
 
     # Load config
     config: WizardConfig = None
@@ -88,15 +86,9 @@ def audit(
     has_cli_args = bool(client or region or skills or formats)
     should_use_interactive = not non_interactive and not has_cli_args
 
-    if should_use_interactive and use_last_config():
-        # Try to load last config
-        config = load_last_config()
-        if config:
-            click.echo("✅ Using saved configuration\n")
-
     if not config:
         if should_use_interactive:
-            # Run wizard
+            # Run wizard directly
             try:
                 config = run_setup_wizard()
             except KeyboardInterrupt:
