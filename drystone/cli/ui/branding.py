@@ -2,6 +2,8 @@
 
 from rich.console import Console
 from rich.text import Text
+from rich.panel import Panel
+from rich.align import Align
 
 
 def _interpolate_color(position: float, start_rgb: tuple, end_rgb: tuple) -> str:
@@ -22,22 +24,24 @@ def _interpolate_color(position: float, start_rgb: tuple, end_rgb: tuple) -> str
 
 
 def print_banner() -> None:
-    """Print gemini-CLI style banner with gradient colors (lilac to orange)."""
+    """Print banner with decorative box (Shannon-style) with gradient colors (lilac to orange)."""
     console = Console()
 
-    # DRYSTONE ASCII art (blocky/pixelated style - 8 characters)
+    # Gradient colors: lilac (purple) → orange
+    start_color = (180, 100, 220)    # Lilac/Purple
+    end_color = (255, 165, 0)        # Orange
+
+    # Border color (use the midpoint of gradient for consistent look)
+    border_color = _interpolate_color(0.5, start_color, end_color)
+
+    # DRYSTONE ASCII art (blocky/pixelated style)
     banner_text = """
  ██████╗ ██████╗ ██╗   ██╗███████╗████████╗ ██████╗ ███╗   ██╗███████╗
  ██╔══██╗██╔══██╗╚██╗ ██╔╝██╔════╝╚══██╔══╝██╔═══██╗████╗  ██║██╔════╝
  ██║  ██║██████╔╝ ╚████╔╝ ███████╗   ██║   ██║   ██║██╔██╗ ██║█████╗
  ██║  ██║██╔══██╗  ╚██╔╝  ╚════██║   ██║   ██║   ██║██║╚██╗██║██╔══╝
  ██████╔╝██║  ██║   ██║   ███████║   ██║   ╚██████╔╝██║ ╚████║███████╗
- ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝   ╚═╝    ╚═════╝ ╚═╝  ╚═══╝╚══════╝
-    """
-
-    # Gradient colors: lilac (purple) → orange
-    start_color = (180, 100, 220)    # Lilac/Purple
-    end_color = (255, 165, 0)        # Orange
+ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝   ╚═╝    ╚═════╝ ╚═╝  ╚═══╝╚══════╝"""
 
     # Apply gradient to banner
     lines = banner_text.strip().split("\n")
@@ -54,24 +58,37 @@ def print_banner() -> None:
             char_count += 1
         gradient_text.append("\n")
 
-    console.print(gradient_text)
+    # Build content for panel
+    content = Text()
+    content.append(gradient_text)
+    content.append("\n")
 
-    # Subtitle (right below banner)
+    # Subtitle
     subtitle = "AWS Security Audit CLI powered by Claude"
-    separator = "═" * len(subtitle)
-    author = "made by billyslopes"
+    subtitle_styled = Text(subtitle, style=f"{border_color} bold")
+    content.append(Align.center(subtitle_styled))
+    content.append("\n\n")
 
-    subtitle_text = Text()
-    subtitle_text.append(subtitle, style="rgb(180,100,220) dim")
-    subtitle_text.append("\n")
-    subtitle_text.append(separator, style="rgb(180,100,220) dim")
-    subtitle_text.append("\n")
-    subtitle_text.append(author, style="rgb(180,100,220) dim")
+    # Version
+    version_text = Text("v1.0.0", style=f"{border_color}")
+    content.append(Align.center(version_text))
+    content.append("\n\n")
 
-    console.print(subtitle_text)
+    # Tagline
+    tagline = "🔒 DEFENSIVE SECURITY ONLY 🔒"
+    tagline_styled = Text(tagline, style=f"{border_color} bold")
+    content.append(Align.center(tagline_styled))
+
+    # Create panel with gradient-colored border
+    panel = Panel(
+        content,
+        border_style=border_color,
+        padding=(1, 2),
+        expand=False
+    )
+
+    console.print(Align.center(panel))
     console.print()  # Blank line
-    console.print()  # Extra spacing
-    console.print()  # Extra spacing
 
 
 def print_summary(config: "WizardConfig") -> None:

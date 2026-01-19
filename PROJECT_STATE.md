@@ -44,6 +44,9 @@ Drystone is a Python-based AWS security audit CLI powered by Claude AI. The proj
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
+| 2026-01-19 | Map IAM checklist to PCI DSS v4.0 controls | Compliance reporting, dual-framework audit (CIS + PCI), better governance story |
+| 2026-01-19 | Add `pci_dss[]` field to Finding model | Structured compliance mapping, supports compliance dashboards and reporting |
+| 2026-01-19 | Include PCI mappings in agent analysis prompt | Claude context-aware mapping, ensures relevant controls in findings |
 | 2026-01-18 | Refactor wizard to iterative menu navigation | Better UX, flexible menu order, simpler flow (no forced Menu A) |
 | 2026-01-18 | Remove "Use last saved configuration?" prompt | Cleaner startup, reduces extra step, wizard shows options directly |
 | 2026-01-18 | Menu A required for "Continue" option | Ensures AWS credentials are always configured before execution |

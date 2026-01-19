@@ -279,11 +279,12 @@ class AgentClient:
 
     def _get_system_prompt(self) -> str:
         """Get system prompt for Claude - IAM Security Specialist."""
-        return """Eres un auditor AWS experto en IAM security con certificación AWS Security Specialty.
+        return """Eres un auditor AWS experto en IAM security con certificación AWS Security Specialty y conocimiento de compliance (PCI DSS v4.0).
 
 Tu rol:
-- Analizar configuraciones IAM contra CIS AWS Foundations + AWS Security Best Practices
+- Analizar configuraciones IAM contra CIS AWS Foundations + AWS Security Best Practices + PCI DSS v4.0
 - Identificar 25+ categorías de vulnerabilidades y misconfigurations
+- Mapear cada hallazgo a controles PCI DSS relevantes para compliance reporting
 - Generar hallazgos accionables con remediaciones específicas
 - Aplicar principios de least privilege y defense in depth
 
@@ -345,7 +346,13 @@ INSTRUCCIONES DE ANÁLISIS:
 - Luego medios (3-5.9)
 - Luego bajos (0-2.9)
 
-**Paso 4: Incluye referencias específicas**
+**Paso 4: Mapea a controles PCI DSS**
+- El checklist.json incluye "pci_dss" array para cada check (control + reason)
+- Extrae los controles PCI-DSS del checklist para cada hallazgo
+- Incluye en "pci_dss_controls" field: {control: "8.4.1", reason: "..."}
+- Usa las razones del checklist, no inventes nuevas
+
+**Paso 5: Incluye referencias específicas**
 - users.json#root → Root user
 - users.json#UserName='admin-user' → Specific user
 - roles.json#RoleName='LambdaExecutionRole'#AssumeRolePolicyDocument → Trust policy
@@ -383,7 +390,7 @@ Requisitos de respuesta:
         prompt = f"""Analiza la siguiente evidencia AWS {skill_name.upper()} contra el checklist de seguridad.
 
 ===== EVIDENCIA AWS =====
-{json.dumps(evidence, indent=2, default=str)[:8000]}
+{json.dumps(evidence, indent=2, default=str)}
 
 ===== CHECKLIST DE SEGURIDAD =====
 {json.dumps(checklist, indent=2)}
@@ -401,7 +408,13 @@ Requisitos de respuesta:
       "evidence_refs": ["evidence/iam/users.json#path"],
       "affected_resources": ["arn:aws:iam::..."],
       "remediation": "Pasos concretos de remediación",
-      "cis_reference": "CIS ID"
+      "cis_reference": "CIS ID",
+      "pci_dss": [
+        {{
+          "control": "8.4.1",
+          "reason": "Razón específica del checklist por qué este hallazgo se relaciona con este control"
+        }}
+      ]
     }}
   ],
   "summary": {{
@@ -414,7 +427,7 @@ Requisitos de respuesta:
   }},
   "analyzed_at": "ISO timestamp",
   "evidence_count": {evidence_count},
-  "checklist_version": "1.0"
+  "checklist_version": "2.0"
 }}
 
 ===== INSTRUCCIONES =====
@@ -423,8 +436,9 @@ Requisitos de respuesta:
 3. Incluye referencias específicas a evidencia (ej: users.json#root)
 4. Calcula risk_score 0-10 basado en: severidad + impacto + probabilidad
 5. Incluye affected_resources con ARNs reales de la evidencia
-6. overall_risk_score = promedio de todos los risk_score
-7. Retorna SOLO JSON válido, sin texto adicional, sin markdown"""
+6. Mapea cada finding a controles PCI DSS usando el checklist.json (campo "pci_dss")
+7. overall_risk_score = promedio de todos los risk_score
+8. Retorna SOLO JSON válido, sin texto adicional, sin markdown"""
 
         return prompt
 

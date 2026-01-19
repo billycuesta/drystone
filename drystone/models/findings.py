@@ -6,6 +6,15 @@ from typing import List, Optional, Literal
 from pydantic import BaseModel, Field
 
 
+class PCIDSSControl(BaseModel):
+    """PCI DSS control mapping for a finding."""
+
+    control: str = Field(..., description="PCI DSS control ID (e.g., '8.4.1')")
+    reason: str = Field(
+        ..., description="Why this finding relates to this control"
+    )
+
+
 class Finding(BaseModel):
     """Individual security finding from agent analysis."""
 
@@ -31,6 +40,10 @@ class Finding(BaseModel):
     cis_reference: Optional[str] = Field(
         None, description="CIS AWS Foundations reference (e.g., '1.5')"
     )
+    pci_dss: List[PCIDSSControl] = Field(
+        default_factory=list,
+        description="PCI DSS controls related to this finding (v4.0)",
+    )
 
     class Config:
         """Pydantic config."""
@@ -46,6 +59,12 @@ class Finding(BaseModel):
                 "affected_resources": ["arn:aws:iam::123456789012:root"],
                 "remediation": "Enable MFA on root account...",
                 "cis_reference": "1.5",
+                "pci_dss": [
+                    {
+                        "control": "8.4.1",
+                        "reason": "This control requires MFA for all non-console administrative access into the CDE. The root user is the highest privileged account.",
+                    }
+                ],
             }
         }
 
