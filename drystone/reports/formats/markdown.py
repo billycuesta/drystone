@@ -1,5 +1,7 @@
 """Markdown report formatter."""
 
+import json
+import re
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, List
@@ -34,10 +36,13 @@ class MarkdownFormatter(BaseFormatter):
         parts = [
             self._header(),
             self._executive_summary(),
+            self._pci_dss_compliance_summary(),
             self._findings_by_severity(),
             self._remediation_guide(),
             self._footer(),
         ]
+        # Filter out empty sections
+        parts = [p for p in parts if p]
         return "\n\n".join(parts)
 
     def _header(self) -> str:
@@ -227,3 +232,114 @@ AWS Security Audit CLI powered by Claude
             return "🟡 **MEDIUM**"
         else:
             return "🟢 **LOW**"
+
+    def _natural_sort_key(self, s: str) -> List:
+        """Natural sort key for control IDs (7.2.1 < 8.4.1)."""
+        return [int(part) if part.isdigit() else part for part in re.split(r'(\d+)', s)]
+
+    def _get_all_checklist_controls(self) -> List[str]:
+        """Extract all unique PCI DSS controls from checklist.json."""
+        try:
+            # Build path to checklist
+            skill = self.findings.get("skill", "iam")
+            checklist_path = Path(__file__).parent.parent.parent / "skills" / skill / "checklist.json"
+
+            if not checklist_path.exists():
+                return []
+
+            with open(checklist_path, "r") as f:
+                checklist = json.load(f)
+
+            # Extract unique control IDs
+            controls = set()
+            for item in checklist.get("items", []):
+                for pci_control in item.get("pci_dss", []):
+                    control_id = pci_control.get("control")
+                    if control_id:
+                        controls.add(control_id)
+
+            # Return sorted by natural sort
+            return sorted(controls, key=self._natural_sort_key)
+
+        except (FileNotFoundError, json.JSONDecodeError, KeyError):
+            return []
+
+    def _extract_pci_controls_map(self, findings: List[Dict]) -> Dict[str, List[Dict]]:
+        """Group findings by PCI control ID."""
+        control_map = {}
+        for finding in findings:
+            for pci_control in finding.get("pci_dss", []):
+                control_id = pci_control.get("control")
+                if control_id:
+                    if control_id not in control_map:
+                        control_map[control_id] = []
+                    control_map[control_id].append(finding)
+        return control_map
+
+    def _format_findings_count(self, findings: List[Dict]) -> str:
+        """Format findings count by severity (e.g., '2 Critical, 1 High')."""
+        if not findings:
+            return "-"
+
+        # Count by severity
+        counts = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
+        for finding in findings:
+            severity = finding.get("severity", "Low")
+            if severity in counts:
+                counts[severity] += 1
+
+        # Build formatted string
+        parts = []
+        for severity in ["Critical", "High", "Medium", "Low"]:
+            if counts[severity] > 0:
+                parts.append(f"{counts[severity]} {severity}")
+
+        return ", ".join(parts) if parts else "-"
+
+    def _pci_dss_compliance_summary(self) -> str:
+        """Generate PCI DSS compliance summary section."""
+        findings = self.findings.get("findings", [])
+
+        # Get all PCI controls from checklist
+        all_controls = self._get_all_checklist_controls()
+        if not all_controls:
+            return ""  # No PCI mappings, skip section
+
+        # Extract control map from findings
+        control_map = self._extract_pci_controls_map(findings)
+
+        # Calculate stats
+        total = len(all_controls)
+        ko_controls = len(control_map)  # Controls with findings = KO
+        ok_controls = total - ko_controls
+        compliance_pct = (ok_controls / total * 100) if total > 0 else 0.0
+
+        # Build section header
+        section = f"""## 🛡️ PCI DSS v4.0 Compliance Summary
+
+**Compliance Rate**: {ok_controls}/{total} controles OK ({compliance_pct:.1f}%)
+
+| Control ID | Status | # Findings |
+|------------|--------|------------|
+"""
+
+        # Build table rows
+        for control_id in all_controls:
+            if control_id in control_map:
+                status = "❌ KO"
+                findings_text = self._format_findings_count(control_map[control_id])
+            else:
+                status = "✅ OK"
+                findings_text = "-"
+
+            section += f"| {control_id} | {status} | {findings_text} |\n"
+
+        # Add legend and notes
+        section += """
+**Legend:**
+- ✅ OK: No violations found for this control
+- ❌ KO: Violations detected (see detailed findings below)
+
+**Note:** This table shows PCI DSS v4.0 controls evaluated by the IAM skill. For a complete PCI compliance assessment, all 12 requirement categories must be evaluated across multiple skills (Network, Exposure, Vulnerabilities, etc.)."""
+
+        return section.strip()
