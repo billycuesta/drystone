@@ -9,12 +9,17 @@ import json
 import os
 import subprocess
 import shutil
+import warnings
 from typing import Any, Dict, Optional
 
 import anthropic
 
+# Suppress deprecation warning for google.generativeai
+# TODO: Migrate to google.genai when available
 try:
-    import google.generativeai as genai
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=FutureWarning)
+        import google.generativeai as genai
 except ImportError:
     genai = None
 
@@ -67,7 +72,7 @@ class AgentClient:
         self.use_cli = False
 
         # Validate provider type
-        valid_types = {"claude-api", "claude-cli", "gemini-api"}
+        valid_types = {"claude-api", "claude-cli", "gemini-api", "bedrock"}
         if self.provider_type not in valid_types:
             raise AgentError(
                 f"Provider type '{self.provider_type}' not supported. "
@@ -80,6 +85,9 @@ class AgentClient:
         # Configure Gemini
         elif self.provider_type.startswith("gemini"):
             self._setup_gemini()
+        # Configure Bedrock
+        elif self.provider_type == "bedrock":
+            self._setup_bedrock()
 
     def _setup_claude(self) -> None:
         """Setup Claude provider (API or CLI)."""
@@ -137,6 +145,67 @@ class AgentClient:
             except Exception as e:
                 raise AgentError(f"Failed to initialize Gemini client: {e}")
 
+    def _setup_bedrock(self) -> None:
+        """Setup AWS Bedrock provider (Amazon Nova Micro).
+
+        Uses Amazon Nova Micro model (amazon.nova-micro-v1:0) - AWS's efficient
+        foundation model optimized for speed and cost.
+        Uses separate AWS credentials for Bedrock (can be different from audit credentials).
+        Region hardcoded to eu-west-1 where Bedrock is enabled.
+        """
+        self.provider_name = "bedrock"
+
+        # Extract Bedrock AWS credentials from provider_config
+        # These are separate credentials for Bedrock (can be from a different AWS account)
+        # Priority: bedrock_* fields, fall back to aws_* if bedrock_* not provided
+        bedrock_access_key = self.provider_config.get('bedrock_access_key_id')
+        bedrock_secret_key = self.provider_config.get('bedrock_secret_access_key')
+        bedrock_session_token = self.provider_config.get('bedrock_session_token')
+
+        # Fall back to audit credentials if Bedrock credentials not provided
+        if not bedrock_access_key:
+            bedrock_access_key = self.provider_config.get('aws_access_key_id')
+        if not bedrock_secret_key:
+            bedrock_secret_key = self.provider_config.get('aws_secret_access_key')
+
+        if not bedrock_access_key or not bedrock_secret_key:
+            raise AgentError(
+                "AWS credentials required for Bedrock provider.\n"
+                "Provide bedrock_access_key_id and bedrock_secret_access_key, or ensure aws_access_key_id and aws_secret_access_key are configured."
+            )
+
+        try:
+            import boto3
+
+            # Create Bedrock Runtime client
+            # Region: eu-west-1 (hardcoded - where company has Bedrock enabled)
+            bedrock_kwargs = {
+                'region_name': 'eu-west-1',
+                'aws_access_key_id': bedrock_access_key,
+                'aws_secret_access_key': bedrock_secret_key,
+            }
+            # Add session token only if provided (for temporary credentials)
+            if bedrock_session_token:
+                bedrock_kwargs['aws_session_token'] = bedrock_session_token
+
+            self.bedrock_client = boto3.client('bedrock-runtime', **bedrock_kwargs)
+
+            # Model configuration
+            # Using Amazon Nova Micro (fast, cost-effective)
+            # Nova Micro has 5000 token limit (sufficient for typical evidence analysis)
+            self.bedrock_model_id = "amazon.nova-micro-v1:0"
+            self.max_tokens = 5000
+            self.temperature = 0.0
+            self.use_cli = False
+
+        except ImportError:
+            raise AgentError(
+                "boto3 library required for Bedrock.\n"
+                "Install: pip install boto3"
+            )
+        except Exception as e:
+            raise AgentError(f"Failed to initialize Bedrock client: {e}")
+
     def analyze_evidence(
         self,
         skill_name: str,
@@ -149,7 +218,7 @@ class AgentClient:
 
         Flow:
         1. Builds analysis prompt with evidence and checklist
-        2. Calls Claude (CLI or API)
+        2. Calls Claude (CLI or API) or Bedrock
         3. Parses JSON response
         4. Validates with Pydantic model
         5. Returns structured findings
@@ -165,18 +234,25 @@ class AgentClient:
         Raises:
             AgentError: If call fails or response invalid
         """
-        # 1. Build prompt
-        analysis_prompt = self._build_analysis_prompt(skill_name, evidence, checklist)
-        full_prompt = f"{self._get_system_prompt()}\n\n{analysis_prompt}"
+        # 1. Get prompts
+        system_prompt = self._get_system_prompt()
+        user_prompt = self._build_analysis_prompt(skill_name, evidence, checklist)
 
         # 2. Call LLM (CLI or API)
         if self.provider_type.startswith("claude"):
+            # Claude providers use combined prompt
+            full_prompt = f"{system_prompt}\n\n{user_prompt}"
             if self.use_cli:
                 response_text = self._call_claude_cli(full_prompt)
             else:
                 response_text = self._call_claude_api(full_prompt)
         elif self.provider_type == "gemini-api":
+            # Gemini uses combined prompt
+            full_prompt = f"{system_prompt}\n\n{user_prompt}"
             response_text = self._call_gemini_api(full_prompt)
+        elif self.provider_type == "bedrock":
+            # Bedrock (Nova Micro) requires separated prompts
+            response_text = self._call_bedrock_api(system_prompt, user_prompt)
 
         # 3. Parse JSON response
         try:
@@ -276,6 +352,80 @@ class AgentClient:
 
         except Exception as e:
             raise AgentError(f"Gemini API call failed: {e}")
+
+    def _call_bedrock_api(self, system_prompt: str, user_prompt: str) -> str:
+        """Call Amazon Nova Micro via AWS Bedrock Runtime API.
+
+        Nova Micro requires separated system and user prompts in the request body.
+
+        Args:
+            system_prompt: System prompt (instructions)
+            user_prompt: User prompt (analysis request with evidence)
+
+        Returns:
+            Response text from Nova Micro via Bedrock
+
+        Raises:
+            AgentError: If Bedrock API call fails
+        """
+        try:
+            # Bedrock request format for Amazon Nova Micro
+            # https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-nova.html
+            request_body = {
+                "system": [
+                    {
+                        "text": system_prompt
+                    }
+                ],
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "text": user_prompt
+                            }
+                        ]
+                    }
+                ],
+                "inferenceConfig": {
+                    "maxTokens": self.max_tokens,
+                    "temperature": self.temperature
+                }
+            }
+
+            # Call Bedrock InvokeModel API
+            response = self.bedrock_client.invoke_model(
+                modelId=self.bedrock_model_id,
+                body=json.dumps(request_body),
+                contentType="application/json",
+                accept="application/json",
+            )
+
+            # Parse response
+            response_body = json.loads(response['body'].read())
+
+            # Extract text from Nova Micro response format
+            # Response structure: {"output": {"message": {"content": [{"text": "..."}]}}}
+            if ('output' in response_body and
+                'message' in response_body['output'] and
+                'content' in response_body['output']['message'] and
+                len(response_body['output']['message']['content']) > 0):
+                return response_body['output']['message']['content'][0]['text']
+
+            # Defensive error with response keys for debugging
+            raise AgentError(
+                f"Invalid response structure from Bedrock Nova Micro. "
+                f"Got keys: {list(response_body.keys())}"
+            )
+
+        except self.bedrock_client.exceptions.ValidationException as e:
+            raise AgentError(f"Bedrock validation error: {e}")
+        except self.bedrock_client.exceptions.ModelTimeoutException as e:
+            raise AgentError(f"Bedrock model timeout (prompt too large?): {e}")
+        except self.bedrock_client.exceptions.ThrottlingException as e:
+            raise AgentError(f"Bedrock throttling (rate limit exceeded): {e}")
+        except Exception as e:
+            raise AgentError(f"Bedrock API call failed: {e}")
 
     def _get_system_prompt(self) -> str:
         """Get system prompt for Claude - IAM Security Specialist."""

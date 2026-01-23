@@ -22,7 +22,9 @@ class AuditSession:
             client_name: Organization or client name (used in dirname)
             account_id: AWS account ID for metadata
         """
-        self.client_name = client_name
+        # Sanitize client_name to prevent path traversal. Only the final
+        # path component is used.
+        self.client_name = Path(client_name).name
         self.account_id = account_id
         self.timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
 

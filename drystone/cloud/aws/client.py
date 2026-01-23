@@ -15,19 +15,21 @@ class AWSCredentialError(Exception):
 class AWSClient:
     """AWS SDK client wrapper."""
 
-    def __init__(self, access_key_id: str, secret_access_key: str, region_name: str = "us-east-1"):
+    def __init__(self, access_key_id: str, secret_access_key: str, region_name: str = "us-east-1", session_token: Optional[str] = None):
         """Initialize AWS client.
 
         Args:
             access_key_id: AWS Access Key ID
             secret_access_key: AWS Secret Access Key
             region_name: AWS region
+            session_token: Optional AWS Session Token for temporary credentials
 
         Raises:
             AWSCredentialError: If credentials are invalid
         """
         self.access_key_id = access_key_id
         self.secret_access_key = secret_access_key
+        self.session_token = session_token
         self.region_name = region_name
         self.session = None
         self.sts_client = None
@@ -46,11 +48,16 @@ class AWSClient:
         """
         try:
             # Create session with provided credentials
-            self.session = boto3.Session(
-                aws_access_key_id=self.access_key_id,
-                aws_secret_access_key=self.secret_access_key,
-                region_name=self.region_name,
-            )
+            session_kwargs = {
+                'aws_access_key_id': self.access_key_id,
+                'aws_secret_access_key': self.secret_access_key,
+                'region_name': self.region_name,
+            }
+            # Add session token only if provided (for temporary credentials)
+            if self.session_token:
+                session_kwargs['aws_session_token'] = self.session_token
+
+            self.session = boto3.Session(**session_kwargs)
 
             # Try to get STS client and call get_caller_identity
             self.sts_client = self.session.client("sts")
@@ -96,7 +103,7 @@ class AWSClient:
         return self._identity
 
 
-def validate_aws_credentials(access_key_id: str, secret_access_key: str, region_name: str = "us-east-1") -> Tuple[bool, str, Optional[str]]:
+def validate_aws_credentials(access_key_id: str, secret_access_key: str, region_name: str = "us-east-1", session_token: Optional[str] = None) -> Tuple[bool, str, Optional[str]]:
     """Validate AWS credentials.
 
     This is a convenience function that creates a client and validates in one call.
@@ -105,9 +112,10 @@ def validate_aws_credentials(access_key_id: str, secret_access_key: str, region_
         access_key_id: AWS Access Key ID
         secret_access_key: AWS Secret Access Key
         region_name: AWS region
+        session_token: Optional AWS Session Token for temporary credentials
 
     Returns:
         Tuple of (is_valid, message, account_id)
     """
-    client = AWSClient(access_key_id=access_key_id, secret_access_key=secret_access_key, region_name=region_name)
+    client = AWSClient(access_key_id=access_key_id, secret_access_key=secret_access_key, region_name=region_name, session_token=session_token)
     return client.validate_credentials()

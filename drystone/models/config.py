@@ -19,6 +19,12 @@ class WizardConfig(BaseModel):
     # Step 3: AWS Secret Access Key
     aws_secret_access_key: str = Field(..., description="AWS Secret Access Key")
 
+    # Step 3.5: AWS Session Token (optional for temporary credentials)
+    aws_session_token: Optional[str] = Field(
+        default=None,
+        description="AWS Session Token for temporary credentials (STS/AssumeRole)"
+    )
+
     # Step 4: AWS Region
     aws_region: str = Field(default="us-east-1", description="AWS region")
 
@@ -35,7 +41,7 @@ class WizardConfig(BaseModel):
     )
 
     # Step 7: AI Provider for analysis
-    ai_provider: Literal["claude-api", "claude-cli", "gemini-api"] = Field(
+    ai_provider: Literal["claude-api", "claude-cli", "gemini-api", "bedrock"] = Field(
         default="claude-cli",
         description="AI provider for security analysis"
     )
@@ -44,6 +50,22 @@ class WizardConfig(BaseModel):
     ai_api_key: Optional[str] = Field(
         default=None,
         description="API key for AI provider (if using API-based option)"
+    )
+
+    # Step 8.5: Bedrock AWS Credentials (separate from client credentials)
+    bedrock_access_key_id: Optional[str] = Field(
+        default=None,
+        description="AWS Access Key ID for Bedrock (if using bedrock provider)"
+    )
+
+    bedrock_secret_access_key: Optional[str] = Field(
+        default=None,
+        description="AWS Secret Access Key for Bedrock"
+    )
+
+    bedrock_session_token: Optional[str] = Field(
+        default=None,
+        description="AWS Session Token for Bedrock (optional, for temporary credentials)"
     )
 
     # Metadata
@@ -57,11 +79,15 @@ class WizardConfig(BaseModel):
                 "client_name": "ACME Corp",
                 "aws_access_key_id": "AKIAIOSFODNN7EXAMPLE",
                 "aws_secret_access_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+                "aws_session_token": None,
                 "aws_region": "us-east-1",
                 "skills": ["iam", "exposure"],
                 "output_formats": ["markdown", "json"],
-                "ai_provider": "claude-cli",
+                "ai_provider": "bedrock",
                 "ai_api_key": None,
+                "bedrock_access_key_id": "AKIAIOSFODNN7BEDROCK",
+                "bedrock_secret_access_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+                "bedrock_session_token": None,
                 "created_at": "2026-01-17T10:30:00",
                 "non_interactive": False,
             }

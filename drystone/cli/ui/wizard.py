@@ -8,7 +8,7 @@ from drystone.cloud.aws import validate_aws_credentials
 from drystone.models import WizardConfig
 
 
-def validate_aws_creds(access_key_id: str, secret_access_key: str, region_name: str, max_retries: int = 3) -> bool:
+def validate_aws_creds(access_key_id: str, secret_access_key: str, region_name: str, session_token: Optional[str] = None, max_retries: int = 3) -> bool:
     """Validate AWS credentials.
 
     Shows validation result and allows user to retry or cancel.
@@ -17,6 +17,7 @@ def validate_aws_creds(access_key_id: str, secret_access_key: str, region_name: 
         access_key_id: AWS Access Key ID
         secret_access_key: AWS Secret Access Key
         region_name: AWS region
+        session_token: Optional AWS Session Token for temporary credentials
         max_retries: Maximum number of retry attempts
 
     Returns:
@@ -30,7 +31,7 @@ def validate_aws_creds(access_key_id: str, secret_access_key: str, region_name: 
     while retries < max_retries:
         print("\nValidating AWS credentials...")
 
-        is_valid, message, account_id = validate_aws_credentials(access_key_id, secret_access_key, region_name)
+        is_valid, message, account_id = validate_aws_credentials(access_key_id, secret_access_key, region_name, session_token)
 
         print(message)
 
@@ -102,6 +103,10 @@ def display_config_summary(project_config: dict, ai_config: dict) -> None:
     masked_key = f"{key_id[:4]}...{key_id[-4:]}" if len(key_id) > 8 else "****"
     print(f"   AWS Access Key: {masked_key}")
 
+    # Session token indicator
+    if project_config.get('aws_session_token'):
+        print(f"   AWS Session Token: ✅ Configured")
+
     # Skills
     skills_display = ", ".join(project_config['skills']) if project_config['skills'] else "None"
     print(f"   Security Skills: {skills_display}")
@@ -114,13 +119,26 @@ def display_config_summary(project_config: dict, ai_config: dict) -> None:
     print("\n🤖 AI Configuration:")
     print(f"   Provider: {ai_config['ai_provider']}")
 
+    if ai_config['ai_provider'] == 'bedrock':
+        print(f"   Bedrock Region: eu-west-1")
+
+        # Show Bedrock AWS credentials info
+        if ai_config.get('bedrock_access_key_id'):
+            key_id = ai_config['bedrock_access_key_id']
+            masked_bedrock_key = f"{key_id[:4]}...{key_id[-4:]}" if len(key_id) > 8 else "****"
+            print(f"   Bedrock Access Key: {masked_bedrock_key}")
+
+        if ai_config.get('bedrock_session_token'):
+            print(f"   Bedrock Session Token: ✅ Configured")
+
     if ai_config['ai_api_key']:
         # Mask API key
         key = ai_config['ai_api_key']
         masked_api_key = f"{key[:4]}...{key[-4:]}" if len(key) > 8 else "****"
         print(f"   API Key: {masked_api_key}")
     else:
-        print("   API Key: not required (using CLI)")
+        if ai_config['ai_provider'] != 'bedrock':
+            print("   API Key: not required (using CLI or AWS credentials)")
 
     print("\n" + "━" * 60 + "\n")
 
@@ -171,6 +189,19 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
     if secret_access_key is None:
         raise KeyboardInterrupt("Wizard cancelled")
 
+    # Step 3.5: AWS Session Token (optional for temporary credentials)
+    session_token = questionary.password(
+        "AWS Session Token (optional, press Enter to skip):",
+        default="",
+    ).ask()
+
+    if session_token is None:
+        raise KeyboardInterrupt("Wizard cancelled")
+
+    # Strip empty string to None
+    if not session_token or not session_token.strip():
+        session_token = None
+
     # Step 4: AWS Region
     region_choices = [
         "us-east-1",
@@ -194,7 +225,7 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
 
     # Step 4.5: Validate AWS Credentials (ALWAYS when editing Menu A)
     try:
-        validate_aws_creds(access_key_id, secret_access_key, aws_region)
+        validate_aws_creds(access_key_id, secret_access_key, aws_region, session_token)
     except AWSValidationError:
         raise KeyboardInterrupt("AWS credential validation failed")
 
@@ -250,6 +281,7 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
         "client_name": client_name,
         "aws_access_key_id": access_key_id,
         "aws_secret_access_key": secret_access_key,
+        "aws_session_token": session_token,
         "aws_region": aws_region,
         "skills": skills,
         "output_formats": output_formats,
@@ -289,6 +321,10 @@ def run_ai_menu(current_config: Optional[dict] = None) -> dict:
                 "Google Gemini API", "gemini-api",
                 checked=(current_provider == "gemini-api")
             ),
+            questionary.Choice(
+                "AWS Bedrock (Amazon Nova Micro)", "bedrock",
+                checked=(current_provider == "bedrock")
+            ),
         ],
     ).ask()
 
@@ -297,6 +333,10 @@ def run_ai_menu(current_config: Optional[dict] = None) -> dict:
 
     # Step 8: API Key (if needed - don't pre-fill for security)
     ai_api_key = None
+    bedrock_access_key_id = None
+    bedrock_secret_access_key = None
+    bedrock_session_token = None
+
     if ai_provider in ["claude-api", "gemini-api"]:
         api_key_name = "Claude API" if ai_provider == "claude-api" else "Gemini API"
         ai_api_key = questionary.password(
@@ -307,9 +347,44 @@ def run_ai_menu(current_config: Optional[dict] = None) -> dict:
         if ai_api_key is None:
             raise KeyboardInterrupt("Wizard cancelled")
 
+    # Step 8.5: Bedrock AWS Credentials (separate from client credentials)
+    elif ai_provider == "bedrock":
+        print("\n📝 Enter your AWS credentials for Bedrock (can be different from client credentials)")
+
+        bedrock_access_key_id = questionary.text(
+            "AWS Access Key ID (for Bedrock in your org):",
+            validate=lambda x: len(x) > 0 or "Access Key ID cannot be empty",
+        ).ask()
+
+        if bedrock_access_key_id is None:
+            raise KeyboardInterrupt("Wizard cancelled")
+
+        bedrock_secret_access_key = questionary.password(
+            "AWS Secret Access Key (for Bedrock):",
+            validate=lambda x: len(x) > 0 or "Secret Access Key cannot be empty",
+        ).ask()
+
+        if bedrock_secret_access_key is None:
+            raise KeyboardInterrupt("Wizard cancelled")
+
+        bedrock_session_token = questionary.password(
+            "AWS Session Token (optional, press Enter to skip):",
+            default="",
+        ).ask()
+
+        if bedrock_session_token is None:
+            raise KeyboardInterrupt("Wizard cancelled")
+
+        # Strip empty string to None
+        if not bedrock_session_token or not bedrock_session_token.strip():
+            bedrock_session_token = None
+
     return {
         "ai_provider": ai_provider,
         "ai_api_key": ai_api_key,
+        "bedrock_access_key_id": bedrock_access_key_id,
+        "bedrock_secret_access_key": bedrock_secret_access_key,
+        "bedrock_session_token": bedrock_session_token,
     }
 
 

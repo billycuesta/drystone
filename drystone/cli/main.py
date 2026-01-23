@@ -4,6 +4,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Optional
 
 import click
 
@@ -15,20 +16,21 @@ from drystone.cloud.aws import validate_aws_credentials
 from drystone.models import WizardConfig
 
 
-def validate_and_show_aws_creds(access_key_id: str, secret_access_key: str, region: str) -> bool:
+def validate_and_show_aws_creds(access_key_id: str, secret_access_key: str, region: str, session_token: Optional[str] = None) -> bool:
     """Validate AWS credentials and show result to user.
 
     Args:
         access_key_id: AWS Access Key ID
         secret_access_key: AWS Secret Access Key
         region: AWS region
+        session_token: Optional AWS Session Token for temporary credentials
 
     Returns:
         True if credentials are valid, False otherwise
     """
     masked_key = f"{access_key_id[:4]}...{access_key_id[-4:]}"
     click.echo(f"\nValidating AWS credentials (Key: {masked_key})...")
-    is_valid, message, account_id = validate_aws_credentials(access_key_id, secret_access_key, region)
+    is_valid, message, account_id = validate_aws_credentials(access_key_id, secret_access_key, region, session_token)
     click.echo(message)
     return is_valid
 
@@ -108,7 +110,7 @@ def audit(
             click.echo("✅ Using saved configuration\n")
 
     # Validate AWS credentials
-    if not validate_and_show_aws_creds(config.aws_access_key_id, config.aws_secret_access_key, config.aws_region):
+    if not validate_and_show_aws_creds(config.aws_access_key_id, config.aws_secret_access_key, config.aws_region, config.aws_session_token):
         click.echo("\n❌ Invalid AWS credentials. Please check your credentials and try again.")
         sys.exit(1)
 
@@ -121,7 +123,7 @@ def audit(
 
     # Extract account ID from validation
     _, _, account_id = validate_aws_credentials(
-        config.aws_access_key_id, config.aws_secret_access_key, config.aws_region
+        config.aws_access_key_id, config.aws_secret_access_key, config.aws_region, config.aws_session_token
     )
 
     # === PHASE 2: EVIDENCE COLLECTION ===
@@ -144,6 +146,7 @@ def audit(
             access_key_id=config.aws_access_key_id,
             secret_access_key=config.aws_secret_access_key,
             region_name=config.aws_region,
+            session_token=config.aws_session_token,
         )
 
         # Execute IAM collector
@@ -172,6 +175,14 @@ def audit(
             provider_config = {
                 'type': config.ai_provider,
                 'api_key': config.ai_api_key,
+                # Audit credentials (for evidence collection)
+                'aws_access_key_id': config.aws_access_key_id,
+                'aws_secret_access_key': config.aws_secret_access_key,
+                'aws_session_token': config.aws_session_token,
+                # Bedrock credentials (separate, for AI analysis)
+                'bedrock_access_key_id': config.bedrock_access_key_id,
+                'bedrock_secret_access_key': config.bedrock_secret_access_key,
+                'bedrock_session_token': config.bedrock_session_token,
             }
 
             agent = AgentClient(provider_config=provider_config)

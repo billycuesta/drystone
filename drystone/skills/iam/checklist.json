@@ -9,9 +9,27 @@
       "title": "Root account must have MFA enabled",
       "severity": "Critical",
       "description": "MFA on root account prevents unauthorized access even if root credentials are compromised. Root has no limits on actions.",
-      "evidence_files": ["users.json", "account-summary.json"],
-      "check_keywords": ["root", "mfa_active", "MFA", "multi-factor"],
-      "remediation": "Enable MFA on root account via AWS Console → Account Settings → Multi-factor Authentication"
+      "evidence_files": [
+        "users.json",
+        "account-summary.json"
+      ],
+      "check_keywords": [
+        "root",
+        "mfa_active",
+        "MFA",
+        "multi-factor"
+      ],
+      "remediation": "Enable MFA on root account via AWS Console → Account Settings → Multi-factor Authentication",
+      "pci_dss": [
+        {
+          "control": "8.4.1",
+          "reason": "This control requires MFA for all non-console administrative access into the Cardholder Data Environment (CDE). The root user is the highest privileged account, and enabling MFA is a direct implementation of this requirement to protect it."
+        },
+        {
+          "control": "7.2.1",
+          "reason": "This control demands access to be based on job classification and function, following the principle of least privilege. Securing the root account with MFA ensures that only the true owner can perform the unrestricted actions associated with this unique, highly-privileged role."
+        }
+      ]
     },
     {
       "id": "IAM-002",
@@ -19,9 +37,26 @@
       "title": "IAM users should have MFA enabled (especially privileged users)",
       "severity": "Critical",
       "description": "MFA provides additional layer of security. Critical for users with administrative or console access permissions.",
-      "evidence_files": ["users.json"],
-      "check_keywords": ["mfa_active", "console access", "admin", "AdministratorAccess"],
-      "remediation": "Enable MFA for each IAM user with console access. Enforce via policies if needed."
+      "evidence_files": [
+        "users.json"
+      ],
+      "check_keywords": [
+        "mfa_active",
+        "console access",
+        "admin",
+        "AdministratorAccess"
+      ],
+      "remediation": "Enable MFA for each IAM user with console access. Enforce via policies if needed.",
+      "pci_dss": [
+        {
+          "control": "8.4.2",
+          "reason": "This control requires MFA for all access into the CDE. Enforcing MFA for all IAM users, especially those with access to the CDE, directly meets this requirement."
+        },
+        {
+          "control": "8.5.1",
+          "reason": "This control specifies that MFA must use at least two different factor types and that success of all is required for access. Enabling MFA for IAM users is the first step in implementing a compliant MFA system."
+        }
+      ]
     },
     {
       "id": "IAM-003",
@@ -29,9 +64,22 @@
       "title": "Remove unused IAM credentials (>90 days inactive)",
       "severity": "High",
       "description": "Inactive credentials increase attack surface. Remove or rotate credentials that haven't been used in 90+ days.",
-      "evidence_files": ["users.json"],
-      "check_keywords": ["inactive", "90 days", "last_used", "never used"],
-      "remediation": "Remove inactive access keys. For users still needed, force rotation via rotation policy."
+      "evidence_files": [
+        "users.json"
+      ],
+      "check_keywords": [
+        "inactive",
+        "90 days",
+        "last_used",
+        "never used"
+      ],
+      "remediation": "Remove inactive access keys. For users still needed, force rotation via rotation policy.",
+      "pci_dss": [
+        {
+          "control": "8.2.6",
+          "reason": "This control requires that inactive user accounts are removed or disabled within 90 days. This IAM check directly enforces this rule for credentials, reducing the risk of dormant accounts being compromised."
+        }
+      ]
     },
     {
       "id": "IAM-004",
@@ -39,9 +87,23 @@
       "title": "Access keys should be rotated every 90 days",
       "severity": "Critical",
       "description": "Regular rotation reduces impact of compromised credentials. AWS recommends 90-day rotation.",
-      "evidence_files": ["users.json"],
-      "check_keywords": ["access_key", "create_date", "90 days", "rotation", "age"],
-      "remediation": "Implement automated key rotation. Create new key → Update applications → Delete old key after verification."
+      "evidence_files": [
+        "users.json"
+      ],
+      "check_keywords": [
+        "access_key",
+        "create_date",
+        "90 days",
+        "rotation",
+        "age"
+      ],
+      "remediation": "Implement automated key rotation. Create new key → Update applications → Delete old key after verification.",
+      "pci_dss": [
+        {
+          "control": "8.3.9",
+          "reason": "This control requires changing passwords/passphrases at least every 90 days for single-factor authentication. While access keys are not passwords, they are authentication factors, and rotating them every 90 days applies the same security principle to programmatic access."
+        }
+      ]
     },
     {
       "id": "IAM-005",
@@ -49,9 +111,21 @@
       "title": "IAM password policy minimum length should be 14+ characters",
       "severity": "High",
       "description": "Longer passwords reduce brute-force attack risk. 14+ chars recommended.",
-      "evidence_files": ["password-policy.json"],
-      "check_keywords": ["MinimumPasswordLength", "password", "length"],
-      "remediation": "Set: aws iam update-account-password-policy --minimum-password-length 14"
+      "evidence_files": [
+        "password-policy.json"
+      ],
+      "check_keywords": [
+        "MinimumPasswordLength",
+        "password",
+        "length"
+      ],
+      "remediation": "Set: aws iam update-account-password-policy --minimum-password-length 14",
+      "pci_dss": [
+        {
+          "control": "8.3.6",
+          "reason": "This control requires passwords/passphrases to have a minimum length of 12 characters. Enforcing a length of 14+ characters exceeds this minimum requirement, strengthening security against brute-force attacks."
+        }
+      ]
     },
     {
       "id": "IAM-006",
@@ -59,9 +133,21 @@
       "title": "IAM password policy should prevent password reuse",
       "severity": "Medium",
       "description": "Prevents users from reusing old passwords. Should remember at least 24 previous passwords.",
-      "evidence_files": ["password-policy.json"],
-      "check_keywords": ["PasswordReusePrevention", "reuse", "previous"],
-      "remediation": "Set: aws iam update-account-password-policy --password-reuse-prevention 24"
+      "evidence_files": [
+        "password-policy.json"
+      ],
+      "check_keywords": [
+        "PasswordReusePrevention",
+        "reuse",
+        "previous"
+      ],
+      "remediation": "Set: aws iam update-account-password-policy --password-reuse-prevention 24",
+      "pci_dss": [
+        {
+          "control": "8.3.7",
+          "reason": "This control mandates that new passwords/passphrases cannot be the same as the four previously used ones. Configuring a reuse prevention of 24 significantly exceeds this requirement, enhancing password history protection."
+        }
+      ]
     },
     {
       "id": "IAM-007",
@@ -69,9 +155,23 @@
       "title": "Inline policies must not be used. Use managed policies instead",
       "severity": "Medium",
       "description": "Managed policies provide version control, reusability, and easier delegation. Inline policies are deprecated.",
-      "evidence_files": ["users.json", "roles.json", "groups.json"],
-      "check_keywords": ["inline", "inline policy", "AssumeExecutionRolePermissions"],
-      "remediation": "Migrate inline policies to managed policies using CloudFormation or AWS CLI."
+      "evidence_files": [
+        "users.json",
+        "roles.json",
+        "groups.json"
+      ],
+      "check_keywords": [
+        "inline",
+        "inline policy",
+        "AssumeExecutionRolePermissions"
+      ],
+      "remediation": "Migrate inline policies to managed policies using CloudFormation or AWS CLI.",
+      "pci_dss": [
+        {
+          "control": "7.2.2",
+          "reason": "This control requires assigning access based on job classification and least privilege. Managed policies facilitate this by creating reusable sets of permissions for specific job functions, making access control more standardized, auditable, and less prone to error than managing numerous inline policies."
+        }
+      ]
     },
     {
       "id": "IAM-008",
@@ -79,9 +179,29 @@
       "title": "No policy should have full administrative permissions (*:*)",
       "severity": "Critical",
       "description": "Policies granting all actions on all resources violate principle of least privilege.",
-      "evidence_files": ["policies.json", "users.json", "roles.json", "groups.json"],
-      "check_keywords": ["*:*", "Action.*:*", "Resource.*:*", "AdministratorAccess"],
-      "remediation": "Review policies. Replace broad permissions with specific actions and resources."
+      "evidence_files": [
+        "policies.json",
+        "users.json",
+        "roles.json",
+        "groups.json"
+      ],
+      "check_keywords": [
+        "*:*",
+        "Action.*:*",
+        "Resource.*:*",
+        "AdministratorAccess"
+      ],
+      "remediation": "Review policies. Replace broad permissions with specific actions and resources.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "This is a direct implementation of the principle of 'least privileges required to perform a job function.' A policy with '*:*' grants maximum privilege, which is the opposite of the least privilege principle mandated by this control."
+        },
+        {
+          "control": "7.3.3",
+          "reason": "This control requires access control systems to be set to 'deny all' by default. Granting '*:*' permissions effectively sets the default to 'allow all', directly contravening this foundational security principle."
+        }
+      ]
     },
     {
       "id": "IAM-009",
@@ -89,9 +209,27 @@
       "title": "Root account should not have active access keys",
       "severity": "Critical",
       "description": "Root account with access keys provides programmatic access with unlimited permissions. Highest risk.",
-      "evidence_files": ["users.json", "account-summary.json"],
-      "check_keywords": ["root", "access_key", "active keys", "access_key_1_active"],
-      "remediation": "Delete root access keys: aws iam delete-access-key --access-key-id KEY_ID (requires root login)"
+      "evidence_files": [
+        "users.json",
+        "account-summary.json"
+      ],
+      "check_keywords": [
+        "root",
+        "access_key",
+        "active keys",
+        "access_key_1_active"
+      ],
+      "remediation": "Delete root access keys: aws iam delete-access-key --access-key-id KEY_ID (requires root login)",
+      "pci_dss": [
+        {
+          "control": "2.2.2",
+          "reason": "This control requires managing vendor default accounts, including changing passwords or disabling them if not used. The root account is the ultimate 'default' account, and disabling its programmatic access keys is a critical hardening step."
+        },
+        {
+          "control": "7.2.1",
+          "reason": "The root account should not be used for daily operational tasks. Prohibiting access keys for the root account enforces the principle of least privilege by forcing the use of IAM roles and users with specific, limited permissions for programmatic access."
+        }
+      ]
     },
     {
       "id": "IAM-010",
@@ -99,9 +237,23 @@
       "title": "Administrative users must have MFA enabled",
       "severity": "Critical",
       "description": "Users with AdministratorAccess or similar elevated permissions without MFA pose critical risk.",
-      "evidence_files": ["users.json", "roles.json"],
-      "check_keywords": ["admin", "AdministratorAccess", "mfa_active", "MFA"],
-      "remediation": "Enforce MFA requirement for admin users via deny policy for non-MFA actions."
+      "evidence_files": [
+        "users.json",
+        "roles.json"
+      ],
+      "check_keywords": [
+        "admin",
+        "AdministratorAccess",
+        "mfa_active",
+        "MFA"
+      ],
+      "remediation": "Enforce MFA requirement for admin users via deny policy for non-MFA actions.",
+      "pci_dss": [
+        {
+          "control": "8.4.1",
+          "reason": "This is a direct mapping. The control requires MFA for all non-console administrative access into the CDE. This IAM check ensures that AWS administrators, who have privileged access, are protected by MFA."
+        }
+      ]
     },
     {
       "id": "IAM-011",
@@ -109,9 +261,25 @@
       "title": "IAM role trust policies should not allow public access (*)",
       "severity": "Critical",
       "description": "Trust policies with Principal: '*' allow any AWS account to assume the role. Severely restricted.",
-      "evidence_files": ["roles.json"],
-      "check_keywords": ["Principal.*\\*", "trust policy", "AssumeRole"],
-      "remediation": "Update trust policy to restrict to specific AWS accounts/services. Use ExternalId for cross-account."
+      "evidence_files": [
+        "roles.json"
+      ],
+      "check_keywords": [
+        "Principal.*\\*",
+        "trust policy",
+        "AssumeRole"
+      ],
+      "remediation": "Update trust policy to restrict to specific AWS accounts/services. Use ExternalId for cross-account.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "This control requires that access is based on need-to-know. A trust policy allowing public access ('*') violates this by definition, as it permits access from any principal, not just those with a legitimate business need."
+        },
+        {
+          "control": "1.3.1",
+          "reason": "This control requires restricting inbound traffic to only what is necessary and denying all other traffic. A public IAM role is analogous to an open door in the firewall, allowing unnecessary and untrusted access into the environment."
+        }
+      ]
     },
     {
       "id": "IAM-012",
@@ -119,9 +287,22 @@
       "title": "Inactive users (no login in 90+ days) should be removed or disabled",
       "severity": "High",
       "description": "Users not accessing the system for 90+ days represent unnecessary attack surface.",
-      "evidence_files": ["users.json"],
-      "check_keywords": ["inactive", "90 days", "last login", "password_last_changed"],
-      "remediation": "Review credential report. Disable inactive users: aws iam delete-login-profile --user-name USER"
+      "evidence_files": [
+        "users.json"
+      ],
+      "check_keywords": [
+        "inactive",
+        "90 days",
+        "last login",
+        "password_last_changed"
+      ],
+      "remediation": "Review credential report. Disable inactive users: aws iam delete-login-profile --user-name USER",
+      "pci_dss": [
+        {
+          "control": "8.2.6",
+          "reason": "This control explicitly requires that inactive user accounts are removed or disabled within 90 days. This IAM check is a direct implementation of that requirement."
+        }
+      ]
     },
     {
       "id": "IAM-013",
@@ -129,9 +310,26 @@
       "title": "Access keys should never be left unused (>30 days) but active",
       "severity": "High",
       "description": "Active but unused keys suggest zombie accounts or compromised credentials not in use.",
-      "evidence_files": ["users.json"],
-      "check_keywords": ["access_key", "never used", "unused", "last_used_date"],
-      "remediation": "Review unused keys. Either delete if not needed or rotate if in use. Set reminder for regular audits."
+      "evidence_files": [
+        "users.json"
+      ],
+      "check_keywords": [
+        "access_key",
+        "never used",
+        "unused",
+        "last_used_date"
+      ],
+      "remediation": "Review unused keys. Either delete if not needed or rotate if in use. Set reminder for regular audits.",
+      "pci_dss": [
+        {
+          "control": "7.2.4",
+          "reason": "This control requires a review of all user accounts and privileges at least every six months to ensure access remains appropriate. Identifying and removing unused but active keys is a critical part of this access review process to reduce the attack surface."
+        },
+        {
+          "control": "8.2.6",
+          "reason": "While this control specifies 90 days for user accounts, the principle of removing inactive credentials applies. Unused keys represent a form of inactive account that should be disabled or removed to prevent potential misuse."
+        }
+      ]
     },
     {
       "id": "IAM-014",
@@ -139,9 +337,22 @@
       "title": "Users should not have multiple active access keys (except during rotation)",
       "severity": "High",
       "description": "Multiple active keys per user increases credential compromise risk and complicates key management.",
-      "evidence_files": ["users.json"],
-      "check_keywords": ["access_key", "multiple", "2 keys", "second key"],
-      "remediation": "Review users with multiple keys. Delete old keys after confirming new ones work in all systems."
+      "evidence_files": [
+        "users.json"
+      ],
+      "check_keywords": [
+        "access_key",
+        "multiple",
+        "2 keys",
+        "second key"
+      ],
+      "remediation": "Review users with multiple keys. Delete old keys after confirming new ones work in all systems.",
+      "pci_dss": [
+        {
+          "control": "8.2.1",
+          "reason": "This control requires that all users are assigned a unique ID. While multiple keys are tied to one user ID, minimizing the number of active credentials per user simplifies auditing and strengthens the association between an action and a specific credential, supporting the goal of unique identification."
+        }
+      ]
     },
     {
       "id": "IAM-015",
@@ -149,9 +360,26 @@
       "title": "Users should not have direct permissions (use groups instead)",
       "severity": "High",
       "description": "Direct user permissions bypass group-level management, making auditing and updates difficult.",
-      "evidence_files": ["users.json", "groups.json"],
-      "check_keywords": ["direct policy", "attached to user", "not in group"],
-      "remediation": "Create groups by function/role. Move permissions to groups. Remove direct user permissions."
+      "evidence_files": [
+        "users.json",
+        "groups.json"
+      ],
+      "check_keywords": [
+        "direct policy",
+        "attached to user",
+        "not in group"
+      ],
+      "remediation": "Create groups by function/role. Move permissions to groups. Remove direct user permissions.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "This control requires that access is based on user's job classification and functions. Using groups is the standard mechanism to implement role-based access control (RBAC). Assigning permissions to groups instead of individual users ensures that access is consistently applied based on role."
+        },
+        {
+          "control": "7.3.2",
+          "description": "This control requires the access control system to enforce permissions based on job classification. Group-based permissions are the technical enforcement of this policy, making the system more manageable and auditable."
+        }
+      ]
     },
     {
       "id": "IAM-016",
@@ -159,9 +387,26 @@
       "title": "Service accounts should use roles, not IAM users",
       "severity": "High",
       "description": "Service accounts (only access keys, no password) should be replaced with roles for better auditability.",
-      "evidence_files": ["users.json"],
-      "check_keywords": ["service account", "no password", "only access keys", "not_supported"],
-      "remediation": "Migrate to IAM roles with STS AssumeRole for service-to-service authentication."
+      "evidence_files": [
+        "users.json"
+      ],
+      "check_keywords": [
+        "service account",
+        "no password",
+        "only access keys",
+        "not_supported"
+      ],
+      "remediation": "Migrate to IAM roles with STS AssumeRole for service-to-service authentication.",
+      "pci_dss": [
+        {
+          "control": "7.2.5",
+          "reason": "This control specifies how application and system accounts should be managed, including assigning least privilege. IAM roles are the preferred AWS mechanism for this, as they provide temporary, automatically-rotated credentials, which is far more secure than using static, long-lived access keys associated with an IAM user."
+        },
+        {
+          "control": "8.6.1",
+          "reason": "This control governs the interactive use of application and system accounts. While roles are typically for programmatic access, replacing user-based service accounts with roles helps prevent their misuse for interactive logins and ensures their privileges are strictly for application needs."
+        }
+      ]
     },
     {
       "id": "IAM-017",
@@ -169,9 +414,25 @@
       "title": "Cross-account access must include ExternalId for security",
       "severity": "High",
       "description": "Cross-account roles without ExternalId can be assumed by other accounts without additional verification.",
-      "evidence_files": ["roles.json"],
-      "check_keywords": ["cross-account", "Principal.*AWS", "ExternalId"],
-      "remediation": "Add ExternalId condition to trust policy: 'sts:ExternalId': 'unique-external-id'"
+      "evidence_files": [
+        "roles.json"
+      ],
+      "check_keywords": [
+        "cross-account",
+        "Principal.*AWS",
+        "ExternalId"
+      ],
+      "remediation": "Add ExternalId condition to trust policy: 'sts:ExternalId': 'unique-external-id'",
+      "pci_dss": [
+        {
+          "control": "8.5.1",
+          "reason": "This control requires MFA systems to not be susceptible to replay attacks or bypass. The ExternalId is a crucial defense against the 'confused deputy' problem in cross-account access, which is a form of bypass. It ensures that only the intended third party in a specific context can assume the role."
+        },
+        {
+          "control": "7.2.1",
+          "reason": "This control requires that access is based on need-to-know. Using an ExternalId ensures that cross-account role assumption is more specific and secure, preventing unauthorized principals within the trusted account from gaining access."
+        }
+      ]
     },
     {
       "id": "IAM-018",
@@ -179,9 +440,21 @@
       "title": "IAM password policy should enforce maximum password age",
       "severity": "High",
       "description": "Users should be forced to change passwords periodically (90 days recommended).",
-      "evidence_files": ["password-policy.json"],
-      "check_keywords": ["MaxPasswordAge", "password age", "expire"],
-      "remediation": "Set: aws iam update-account-password-policy --max-password-age 90"
+      "evidence_files": [
+        "password-policy.json"
+      ],
+      "check_keywords": [
+        "MaxPasswordAge",
+        "password age",
+        "expire"
+      ],
+      "remediation": "Set: aws iam update-account-password-policy --max-password-age 90",
+      "pci_dss": [
+        {
+          "control": "8.3.9",
+          "reason": "This control explicitly requires that passwords/passphrases are changed at least once every 90 days for single-factor authentication implementations. Setting a maximum password age directly enforces this requirement."
+        }
+      ]
     },
     {
       "id": "IAM-019",
@@ -189,9 +462,21 @@
       "title": "IAM password policy should require symbol characters",
       "severity": "Medium",
       "description": "Password complexity improves resistance to brute-force attacks. Symbols add entropy.",
-      "evidence_files": ["password-policy.json"],
-      "check_keywords": ["RequireSymbols", "symbols", "special characters"],
-      "remediation": "Set: aws iam update-account-password-policy --require-symbols"
+      "evidence_files": [
+        "password-policy.json"
+      ],
+      "check_keywords": [
+        "RequireSymbols",
+        "symbols",
+        "special characters"
+      ],
+      "remediation": "Set: aws iam update-account-password-policy --require-symbols",
+      "pci_dss": [
+        {
+          "control": "8.3.6",
+          "reason": "This control mandates password complexity, including the use of both numeric and alphabetic characters. While symbols are not explicitly required by the base control, they are a recommended industry best practice for strong passwords and significantly enhance password complexity, aligning with the spirit of the requirement."
+        }
+      ]
     },
     {
       "id": "IAM-020",
@@ -199,9 +484,22 @@
       "title": "Users should not exist without group assignment",
       "severity": "Medium",
       "description": "Users in groups enable centralized permission management and policy enforcement.",
-      "evidence_files": ["users.json", "groups.json"],
-      "check_keywords": ["no groups", "standalone user", "unassigned"],
-      "remediation": "Review users. Assign each user to appropriate functional group (Developers, Admins, etc.)"
+      "evidence_files": [
+        "users.json",
+        "groups.json"
+      ],
+      "check_keywords": [
+        "no groups",
+        "standalone user",
+        "unassigned"
+      ],
+      "remediation": "Review users. Assign each user to appropriate functional group (Developers, Admins, etc.)",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "This control mandates access based on job classification. A user without a group assignment likely has no defined role or has permissions attached directly, making it difficult to audit and manage access based on their function. Ensuring all users are in groups helps enforce this."
+        }
+      ]
     },
     {
       "id": "IAM-021",
@@ -209,9 +507,21 @@
       "title": "Empty groups should be removed",
       "severity": "Medium",
       "description": "Groups with no members add maintenance burden and create confusion about organizational structure.",
-      "evidence_files": ["groups.json"],
-      "check_keywords": ["empty group", "no members", "group with 0 users"],
-      "remediation": "Delete empty groups: aws iam delete-group --group-name GROUP_NAME (after removing any policies)"
+      "evidence_files": [
+        "groups.json"
+      ],
+      "check_keywords": [
+        "empty group",
+        "no members",
+        "group with 0 users"
+      ],
+      "remediation": "Delete empty groups: aws iam delete-group --group-name GROUP_NAME (after removing any policies)",
+      "pci_dss": [
+        {
+          "control": "12.5.1",
+          "reason": "This control requires maintaining an accurate inventory of in-scope system components. While an IAM group is not a server, it is a component of the access control system. Removing empty, unused groups simplifies the environment and contributes to a cleaner, more accurate, and less confusing inventory of access control elements."
+        }
+      ]
     },
     {
       "id": "IAM-022",
@@ -219,9 +529,26 @@
       "title": "Roles unused for 90+ days should be reviewed for removal",
       "severity": "Medium",
       "description": "Unused roles represent technical debt and potential security blind spots.",
-      "evidence_files": ["roles.json"],
-      "check_keywords": ["role", "unused", "90 days", "no activity"],
-      "remediation": "Use AWS Access Analyzer to identify unused roles. Delete or archive after confirmation."
+      "evidence_files": [
+        "roles.json"
+      ],
+      "check_keywords": [
+        "role",
+        "unused",
+        "90 days",
+        "no activity"
+      ],
+      "remediation": "Use AWS Access Analyzer to identify unused roles. Delete or archive after confirmation.",
+      "pci_dss": [
+        {
+          "control": "7.2.4",
+          "reason": "This control requires a review of all user accounts and privileges at least every six months. Roles are a form of account with privileges, and reviewing them for inactivity is a key part of ensuring access remains appropriate and necessary."
+        },
+        {
+          "control": "8.2.6",
+          "reason": "This control requires removing or disabling inactive user accounts within 90 days. The same principle applies to roles; an unused role is an inactive identity that increases the attack surface and should be removed."
+        }
+      ]
     },
     {
       "id": "IAM-023",
@@ -229,9 +556,30 @@
       "title": "CloudTrail should log IAM API events",
       "severity": "Medium",
       "description": "Logging IAM events enables detection of unauthorized access attempts and configuration changes.",
-      "evidence_files": ["account-summary.json"],
-      "check_keywords": ["CloudTrail", "logging", "IAM events", "trail enabled"],
-      "remediation": "Enable CloudTrail for multi-region with logging to S3: aws cloudtrail create-trail --name default --s3-bucket-name BUCKET"
+      "evidence_files": [
+        "account-summary.json"
+      ],
+      "check_keywords": [
+        "CloudTrail",
+        "logging",
+        "IAM events",
+        "trail enabled"
+      ],
+      "remediation": "Enable CloudTrail for multi-region with logging to S3: aws cloudtrail create-trail --name default --s3-bucket-name BUCKET",
+      "pci_dss": [
+        {
+          "control": "10.2.1",
+          "reason": "This control requires audit logs to be enabled and active for all system components. AWS CloudTrail is the service that generates audit logs. Ensuring it is active is fundamental to meeting this requirement."
+        },
+        {
+          "control": "10.2.1.2",
+          "reason": "This control requires logging all actions taken by any individual with administrative access. IAM events logged by CloudTrail provide a detailed record of these actions."
+        },
+        {
+          "control": "10.2.1.5",
+          "reason": "This control requires that changes to identification and authentication credentials (like creating accounts or elevating privileges) are logged. IAM API events are precisely these types of changes."
+        }
+      ]
     },
     {
       "id": "IAM-024",
@@ -239,9 +587,21 @@
       "title": "IAM Access Analyzer should be enabled",
       "severity": "Medium",
       "description": "Access Analyzer identifies resources shared with external principals and validates against policies.",
-      "evidence_files": ["account-summary.json"],
-      "check_keywords": ["Access Analyzer", "enabled", "analyzer active"],
-      "remediation": "Enable: aws accessanalyzer create-analyzer --analyzer-name ConsoleAnalyzer --type ACCOUNT"
+      "evidence_files": [
+        "account-summary.json"
+      ],
+      "check_keywords": [
+        "Access Analyzer",
+        "enabled",
+        "analyzer active"
+      ],
+      "remediation": "Enable: aws accessanalyzer create-analyzer --analyzer-name ConsoleAnalyzer --type ACCOUNT",
+      "pci_dss": [
+        {
+          "control": "7.2.4",
+          "reason": "This control requires a periodic review of user accounts and privileges. Access Analyzer automates a critical part of this review by continuously monitoring and reporting on which resources are accessible to external principals, helping to ensure access remains appropriate."
+        }
+      ]
     },
     {
       "id": "IAM-025",
@@ -249,9 +609,22 @@
       "title": "Customer-managed IAM policies should not duplicate AWS managed policies",
       "severity": "Medium",
       "description": "Redundant policies create maintenance overhead and inconsistency. Use AWS managed policies when possible.",
-      "evidence_files": ["policies.json"],
-      "check_keywords": ["duplicate", "customer-managed", "same permissions", "redundant"],
-      "remediation": "Compare custom policies with AWS managed policies. Consolidate and remove duplicates."
+      "evidence_files": [
+        "policies.json"
+      ],
+      "check_keywords": [
+        "duplicate",
+        "customer-managed",
+        "same permissions",
+        "redundant"
+      ],
+      "remediation": "Compare custom policies with AWS managed policies. Consolidate and remove duplicates.",
+      "pci_dss": [
+        {
+          "control": "6.5.1",
+          "reason": "This control requires a formal change control process. Simplifying the policy landscape by using standard, managed policies where possible makes the security impact analysis for any change much easier and more reliable."
+        }
+      ]
     },
     {
       "id": "IAM-026",
@@ -259,9 +632,26 @@
       "title": "Permission boundaries should be used for delegated administration",
       "severity": "Medium",
       "description": "Permission boundaries limit maximum permissions for delegated roles, adding security layer.",
-      "evidence_files": ["roles.json", "users.json"],
-      "check_keywords": ["permission boundary", "boundary", "delegation"],
-      "remediation": "Define permission boundary policies. Apply to delegated admin roles."
+      "evidence_files": [
+        "roles.json",
+        "users.json"
+      ],
+      "check_keywords": [
+        "permission boundary",
+        "boundary",
+        "delegation"
+      ],
+      "remediation": "Define permission boundary policies. Apply to delegated admin roles.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "This control requires implementing access control based on least privilege. A permissions boundary is a technical enforcement mechanism that sets the maximum permissions an identity can have, preventing privilege escalation even if its own policies are overly permissive. This is a powerful tool for enforcing least privilege for delegated administrators."
+        },
+        {
+          "control": "7.2.2",
+          "reason": "This control mandates that privileges assigned are based on job classification. Permission boundaries help enforce this by ensuring that even if a delegated admin tries to grant themselves more power, they cannot exceed the 'boundary' set for their job function."
+        }
+      ]
     },
     {
       "id": "IAM-027",
@@ -269,9 +659,21 @@
       "title": "IAM account alias should be configured for console access",
       "severity": "Low",
       "description": "Alias makes console login more user-friendly and branded. Currently may use account number.",
-      "evidence_files": ["account-aliases.json"],
-      "check_keywords": ["alias", "account-alias", "not configured"],
-      "remediation": "Create alias: aws iam create-account-alias --account-alias my-company-name"
+      "evidence_files": [
+        "account-aliases.json"
+      ],
+      "check_keywords": [
+        "alias",
+        "account-alias",
+        "not configured"
+      ],
+      "remediation": "Create alias: aws iam create-account-alias --account-alias my-company-name",
+      "pci_dss": [
+        {
+          "control": "12.1.3",
+          "reason": "This check has a weak but plausible link to security. The control requires that information security roles and responsibilities are clearly defined. An account alias makes the login URL clearer and more recognizable (e.g., 'my-company.signin.aws.amazon.com'), which can help prevent users from accidentally logging into the wrong account or being phished with a fake URL that uses the account number."
+        }
+      ]
     },
     {
       "id": "IAM-028",
@@ -279,13 +681,26 @@
       "title": "Tags should be consistently applied to IAM resources",
       "severity": "Low",
       "description": "Tags enable cost allocation, automation, and better resource organization.",
-      "evidence_files": ["users.json", "roles.json"],
-      "check_keywords": ["tags", "missing tags", "no tag"],
-      "remediation": "Tag resources for Environment, Owner, Application, CostCenter: aws iam tag-user --user-name USER --tags Key=Env,Value=prod"
+      "evidence_files": [
+        "users.json",
+        "roles.json"
+      ],
+      "check_keywords": [
+        "tags",
+        "missing tags",
+        "no tag"
+      ],
+      "remediation": "Tag resources for Environment, Owner, Application, CostCenter: aws iam tag-user --user-name USER --tags Key=Env,Value=prod",
+      "pci_dss": [
+        {
+          "control": "12.5.1",
+          "reason": "This control requires maintaining an inventory of all in-scope system components. While tags are not the inventory itself, they are a critical mechanism for identifying and managing that inventory. For example, a 'pci-scope=true' tag allows for easy identification, automation, and reporting on all components relevant to the CDE."
+        }
+      ]
     }
   ],
   "version": "2.0",
   "total_checks": 28,
   "last_updated": "2026-01-18",
-  "notes": "Expanded checklist covers CIS AWS Foundations v1.5.0 + AWS Security Best Practices. Includes critical, high, medium, and low severity items."
+  "notes": "Expanded checklist covers CIS AWS Foundations v1.5.0 + AWS Security Best Practices. Includes critical, high, medium, and low severity items. Mapped to PCI DSS v4.0 controls."
 }

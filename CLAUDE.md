@@ -367,21 +367,48 @@ cat audit-logs/*/findings/new_skill.json | python -m json.tool
 }
 ```
 
-### Checklist Format
+### Checklist Format (v2.0 - PCI DSS Mapped)
 
 ```json
 {
   "skill": "iam",
+  "framework": "CIS AWS Foundations v1.5.0 + AWS Security Best Practices",
+  "description": "Comprehensive Identity and Access Management (IAM) security checks",
+  "version": "2.0",
+  "total_checks": 28,
+  "last_updated": "2026-01-18",
   "items": [
     {
       "id": "IAM-001",
-      "title": "Avoid root account usage",
+      "cis_id": "1.5",
+      "title": "Root account must have MFA enabled",
       "severity": "Critical",
-      "framework": "CIS AWS Foundations 1.1"
+      "description": "MFA on root account prevents unauthorized access...",
+      "evidence_files": ["users.json", "account-summary.json"],
+      "check_keywords": ["root", "mfa_active", "MFA"],
+      "remediation": "Enable MFA on root account via AWS Console...",
+      "pci_dss": [
+        {
+          "control": "8.4.1",
+          "reason": "MFA required for non-console admin access into CDE..."
+        },
+        {
+          "control": "7.2.1",
+          "reason": "Access based on least privilege principle..."
+        }
+      ]
     }
-  ]
+  ],
+  "notes": "Expanded checklist covers CIS AWS Foundations v1.5.0 + AWS Security Best Practices. Includes critical, high, medium, and low severity items. Mapped to PCI DSS v4.0 controls."
 }
 ```
+
+**Cambios v2.0:**
+- ✅ Mapeo a **PCI DSS v4.0** (array `pci_dss` con justificación)
+- ✅ `evidence_files`: qué AWS API responses buscar
+- ✅ `check_keywords`: términos para búsqueda en evidencia
+- ✅ Metadatos: `version`, `total_checks`, `last_updated`
+- ✅ Todos los 28 controles IAM mapeados a PCI DSS
 
 ## Critical Files
 

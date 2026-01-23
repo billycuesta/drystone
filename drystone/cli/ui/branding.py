@@ -1,6 +1,6 @@
 """Branding and UI components for Drystone."""
 
-from rich.console import Console
+from rich.console import Console, Group
 from rich.text import Text
 from rich.panel import Panel
 from rich.align import Align
@@ -58,26 +58,16 @@ def print_banner() -> None:
             char_count += 1
         gradient_text.append("\n")
 
-    # Build content for panel
-    content = Text()
-    content.append(gradient_text)
-    content.append("\n")
-
-    # Subtitle
-    subtitle = "AWS Security Audit CLI powered by Claude"
-    subtitle_styled = Text(subtitle, style=f"{border_color} bold")
-    content.append(Align.center(subtitle_styled))
-    content.append("\n\n")
-
-    # Version
-    version_text = Text("v1.0.0", style=f"{border_color}")
-    content.append(Align.center(version_text))
-    content.append("\n\n")
-
-    # Tagline
-    tagline = "🔒 DEFENSIVE SECURITY ONLY 🔒"
-    tagline_styled = Text(tagline, style=f"{border_color} bold")
-    content.append(Align.center(tagline_styled))
+    # Build content for panel using Group for proper centering
+    content = Group(
+        gradient_text,
+        "",
+        Align.center(Text("AWS Security Audit powered by BillySlopes with Claude", style=f"{border_color} bold")),
+        "",
+        Align.center(Text("v1.0.0", style=f"{border_color}")),
+        "",
+        Align.center(Text("🔒 Automated AWS Security Assessment 🔒", style=f"{border_color} bold")),
+    )
 
     # Create panel with gradient-colored border
     panel = Panel(
