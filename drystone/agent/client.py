@@ -191,9 +191,9 @@ class AgentClient:
             self.bedrock_client = boto3.client('bedrock-runtime', **bedrock_kwargs)
 
             # Model configuration
-            # Using Amazon Nova Micro (fast, cost-effective)
+            # Using Amazon Nova Micro via Inference Profile (fast, cost-effective)
             # Nova Micro has 5000 token limit (sufficient for typical evidence analysis)
-            self.bedrock_model_id = "amazon.nova-micro-v1:0"
+            self.bedrock_model_id = "arn:aws:bedrock:eu-west-1:781978598807:inference-profile/eu.amazon.nova-micro-v1:0"
             self.max_tokens = 5000
             self.temperature = 0.0
             self.use_cli = False
@@ -205,6 +205,48 @@ class AgentClient:
             )
         except Exception as e:
             raise AgentError(f"Failed to initialize Bedrock client: {e}")
+
+    def get_display_name(self) -> str:
+        """Get user-friendly display name for the configured AI provider.
+
+        Returns display name like "AWS Bedrock (Nova Micro)" or "Claude API (Opus 4.5)".
+        Defensive: if cannot determine exact model, returns generic provider name.
+
+        Returns:
+            Display name string for UI output
+        """
+        if self.provider_type == "bedrock":
+            # Extract model name from ARN or model ID
+            # ARN format: arn:aws:bedrock:region:account:inference-profile/eu.amazon.nova-micro-v1:0
+            # Model ID format: amazon.nova-micro-v1:0
+            model_id = self.bedrock_model_id
+
+            if "nova-micro" in model_id:
+                return "AWS Bedrock (Nova Micro)"
+            elif "nova-lite" in model_id:
+                return "AWS Bedrock (Nova Lite)"
+            elif "claude-3-sonnet" in model_id:
+                return "AWS Bedrock (Claude 3 Sonnet)"
+            else:
+                return "AWS Bedrock"
+
+        elif self.provider_type == "claude-api":
+            # Use self.model (e.g., "claude-opus-4-5-20251101")
+            if hasattr(self, 'model') and 'opus' in self.model:
+                return "Claude API (Opus 4.5)"
+            elif hasattr(self, 'model') and 'sonnet' in self.model:
+                return "Claude API (Sonnet)"
+            else:
+                return "Claude API"
+
+        elif self.provider_type == "claude-cli":
+            return "Claude CLI"
+
+        elif self.provider_type == "gemini-api":
+            return "Gemini API"
+
+        else:
+            return "AI Provider"  # Fallback
 
     def analyze_evidence(
         self,
@@ -428,107 +470,123 @@ class AgentClient:
             raise AgentError(f"Bedrock API call failed: {e}")
 
     def _get_system_prompt(self) -> str:
-        """Get system prompt for Claude - IAM Security Specialist."""
-        return """Eres un auditor AWS experto en IAM security con certificación AWS Security Specialty y conocimiento de compliance (PCI DSS v4.0).
+        """Get system prompt for AI agent - SKILL-AGNOSTIC version.
+
+        Generic prompt that works for any security skill (IAM, Exposure, Network, Vulns).
+        Emphasizes consistency and anti-variance rules for multi-model deployment.
+        """
+        return """Eres un auditor AWS experto en seguridad y compliance (PCI DSS v4.0).
 
 Tu rol:
-- Analizar configuraciones IAM contra CIS AWS Foundations + AWS Security Best Practices + PCI DSS v4.0
-- Identificar 25+ categorías de vulnerabilidades y misconfigurations
-- Mapear cada hallazgo a controles PCI DSS relevantes para compliance reporting
-- Generar hallazgos accionables con remediaciones específicas
+- Analizar evidencia AWS contra checklists de seguridad
+- Identificar configuraciones inseguras y vulnerabilidades reales
+- Mapear hallazgos a controles PCI DSS relevantes
+- Generar recomendaciones accionables y específicas
 - Aplicar principios de least privilege y defense in depth
 
-CATEGORÍAS DE ANÁLISIS (EXHAUSTIVAS):
+FORMATO DE IDs OBLIGATORIO (UNIVERSAL):
+✅ CORRECTO:
+  - IAM-001, IAM-007, IAM-028 (formato SKILL-XXX)
+  - EXP-005, EXP-012, EXP-020
+  - NET-001, NET-003, NET-015
+  - VULN-001, VULN-008, VULN-012
 
-🔴 CRÍTICOS (máxima prioridad - resolver en 24h):
-1. Root account sin MFA (risk_score: 10)
-2. Root account con access keys activas (risk_score: 10)
-3. Usuarios admin sin MFA (risk_score: 9.5)
-4. Access keys > 90 días sin rotación (risk_score: 9)
-5. Políticas *:* (full admin) sin restricción (risk_score: 9)
-6. Trust policies con Principal: "*" público (risk_score: 10)
+❌ PROHIBIDO:
+  - IAM-008-001 (sub-IDs prohibidos)
+  - IAM-099 (IDs fuera del checklist)
+  - RANDOM-123 (IDs inventados)
 
-🟠 ALTOS (prioridad media - resolver en 1 semana):
-7. Usuarios inactivos > 90 días con credenciales activas (risk_score: 7-8)
-8. Access keys nunca usadas pero activas > 30 días (risk_score: 7)
-9. Múltiples access keys activas por usuario (risk_score: 6-7)
-10. Usuarios con permisos directos (no en grupos) (risk_score: 6)
-11. Service accounts como IAM users (no roles) (risk_score: 6)
-12. Cross-account roles sin ExternalId (risk_score: 7)
-13. Password policy débil (< 14 chars, sin símbolos) (risk_score: 6-7)
-14. Password policy sin max-age o reuse prevention (risk_score: 6)
+REGLA ANTI-VARIANZA:
+- Usa EXACTAMENTE los IDs del checklist proporcionado
+- NO uses sub-IDs como SKILL-XXX-YYY
+- NO inventes IDs fuera del checklist
+- MÁXIMO 1 finding por item de checklist
 
-🟡 MEDIOS (mejora recomendada - resolver en 2 semanas):
-15. Inline policies (deben migrar a managed) (risk_score: 4-5)
-16. Usuarios sin grupo asignado (risk_score: 3-4)
-17. Grupos vacíos (sin usuarios) (risk_score: 2-3)
-18. Roles sin uso en 90+ días (risk_score: 3-4)
-19. Políticas customer-managed duplicadas (risk_score: 3)
-20. CloudTrail sin logging de IAM events (risk_score: 4)
-21. Access Analyzer deshabilitado (risk_score: 3)
-22. Permission boundaries no usadas (delegated admin) (risk_score: 3)
-23. Políticas customer-managed sin attachments (dead code) (risk_score: 2)
+SEVERITY CALIBRATION (RANGOS UNIVERSALES):
 
-🔵 BAJOS (best practice - resolver cuando sea posible):
-24. Alias de cuenta no configurado (risk_score: 1)
-25. Tags faltantes en recursos (risk_score: 1)
-26. RequireSymbols no activado (risk_score: 2)
+🔴 CRITICAL (risk_score: 8.5-10.0):
+- Pérdida de confidencialidad: datos sensibles expuestos sin autenticación
+- Pérdida de integridad: modificación de configs sin autorización
+- Pérdida de disponibilidad: eliminación o sabotaje de servicios
+- Cumplimiento: violaciones PCI DSS critical (8.4.1, 2.3.1, etc)
+
+🟠 HIGH (risk_score: 6.0-8.4):
+- Acceso excesivo: usuarios sin MFA, permisos sin restricción
+- Credenciales débiles: rotación >90 días, policies permisivos
+- Exposición no intendida: recursos públicos sin justificación
+
+🟡 MEDIUM (risk_score: 3.0-5.9):
+- Configuraciones subóptimas: inline policies, password policies débiles
+- Mejoras recomendadas: usuarios sin grupos, roles sin uso
+- Best practices: logs incompletos, sin segmentación
+
+🔵 LOW (risk_score: 1.0-2.9):
+- Mejoras cosmética: alias no configurados, tags faltantes
+- Optimización: configuraciones no criticas
+
+⚠️ INSTRUCCIONES ANTI-VARIANZA CRÍTICAS:
+
+1. NUNCA generes findings con texto "DISREGARD THIS FINDING"
+2. NUNCA uses sub-IDs (formato SKILL-XXX-YYY está prohibido)
+3. NUNCA generes más de 1 finding por checklist item
+4. NUNCA inventes severidades fuera de los 4 niveles
+5. NUNCA reportes hallazgos ambiguos sin evidencia clara
+6. NUNCA violes los límites de findings (min/max dinámicos)
+
+Si encuentras evidencia ambigua:
+→ Aplica principio conservador (menor severity o no reportar)
+→ Documenta ambigüedad en "description"
+→ Usa risk_score MÍNIMO del rango de severidad
 
 INSTRUCCIONES DE ANÁLISIS:
 
 **Paso 1: Revisa TODA la evidencia**
-- users.json: Analiza cada usuario por MFA, access keys, grupos, permisos directos
-- roles.json: Busca trust policies con "*", inline policies, permisos excesivos
-- policies.json: Detecta "*:*", duplicados, inline policies
-- password-policy.json: Valida longitud, símbolos, números, max-age, reuse prevention
-- groups.json: Identifica grupos vacíos, usuarios no agrupados
-- account-summary.json: Verifica CloudTrail, Access Analyzer
+- Lee todos los archivos de evidencia proporcionados
+- Valida contra CADA item del checklist
+- Nota: evidencia incompleta = sin reporte (no asumas datos)
 
 **Paso 2: Genera findings SOLO si encuentras riesgo real**
-- No generes false positives
-- Incluye evidencia específica (arn, user name, policy details)
-- Calcula risk_score 0-10 basado en: severidad + impacto + probabilidad
-- Para cada finding: incluir affected_resources con ARNs reales
+- Cada finding debe tener evidencia específica
+- Incluye referencias precisas (file#path o arn)
+- Calcula risk_score 0-10: severidad × impacto × probabilidad
 
 **Paso 3: Prioriza por severidad**
-- Críticos primero (risk_score 8-10)
-- Luego altos (6-7.9)
-- Luego medios (3-5.9)
-- Luego bajos (0-2.9)
+- Críticos primero (risk_score 8.5-10.0)
+- Luego altos (6.0-8.4)
+- Luego medios (3.0-5.9)
+- Luego bajos (1.0-2.9)
 
 **Paso 4: Mapea a controles PCI DSS**
-- El checklist.json incluye "pci_dss" array para cada check (control + reason)
-- Extrae los controles PCI-DSS del checklist para cada hallazgo
-- Incluye en "pci_dss_controls" field: {control: "8.4.1", reason: "..."}
-- Usa las razones del checklist, no inventes nuevas
+- Usa el array "pci_dss" del checklist como source of truth
+- Solo incluye controles del checklist (no inventes nuevos)
+- Copia la "reason" exacta del checklist
 
 **Paso 5: Incluye referencias específicas**
-- users.json#root → Root user
-- users.json#UserName='admin-user' → Specific user
-- roles.json#RoleName='LambdaExecutionRole'#AssumeRolePolicyDocument → Trust policy
-- policies.json#PolicyName → Policy name
-- password-policy.json → Password policy settings
+- Formato: file.json#identifier
+- Ejemplo: users.json#root, roles.json#RoleName='Lambda'
+- Ejemplo ARN: arn:aws:iam::123456789012:user/admin
 
 Requisitos de respuesta:
 - SOLO JSON válido, sin markdown, sin explicaciones adicionales
-- Usar schema exacto del user prompt
-- Ser exhaustivo: revisar TODOS los 28 checks del checklist
-- Campo "cis_reference" debe reflejar CIS control ID
-- overall_risk_score = promedio ponderado de todos los findings
-- Máximo 50 findings por skill (prioriza críticos y altos)"""
+- Usar schema exacto proporcionado
+- Revisar TODOS los checks del checklist
+- overall_risk_score = promedio ponderado de severity
+- Máximo de findings: según rango dinámico (calculado por app)"""
 
     def _build_analysis_prompt(
         self, skill_name: str, evidence: Dict[str, Any], checklist: Dict[str, Any]
     ) -> str:
-        """Build analysis prompt with evidence and checklist.
+        """Build analysis prompt with evidence and checklist (SKILL-AGNOSTIC).
+
+        Includes dynamic anti-variance calibration instructions based on checklist.
 
         Args:
-            skill_name: Skill name (e.g., "iam")
+            skill_name: Skill name (e.g., "iam", "exposure", "network")
             evidence: AWS evidence data
-            checklist: Security checklist
+            checklist: Security checklist with items
 
         Returns:
-            Formatted prompt for Claude
+            Formatted prompt for Claude with anti-variance instructions
         """
         # Evidence count
         evidence_count = sum(
@@ -536,6 +594,14 @@ Requisitos de respuesta:
             for v in evidence.values()
             if v is not None
         )
+
+        # Calculate dynamic findings limits (reduce variance)
+        total_checklist_items = len(checklist.get('items', []))
+        min_findings = max(8, int(total_checklist_items * 0.6))  # At least 60% of items
+        max_findings = int(total_checklist_items * 0.8)  # Max 80% of items
+
+        # Generate severity guide from checklist
+        severity_guide = self._generate_severity_guide(checklist)
 
         prompt = f"""Analiza la siguiente evidencia AWS {skill_name.upper()} contra el checklist de seguridad.
 
@@ -555,14 +621,14 @@ Requisitos de respuesta:
       "risk_score": 0.0-10.0,
       "title": "Título breve",
       "description": "Descripción detallada del hallazgo",
-      "evidence_refs": ["evidence/iam/users.json#path"],
+      "evidence_refs": ["evidence/skill/file.json#path"],
       "affected_resources": ["arn:aws:iam::..."],
       "remediation": "Pasos concretos de remediación",
       "cis_reference": "CIS ID",
       "pci_dss": [
         {{
           "control": "8.4.1",
-          "reason": "Razón específica del checklist por qué este hallazgo se relaciona con este control"
+          "reason": "Razón del checklist"
         }}
       ]
     }}
@@ -580,17 +646,103 @@ Requisitos de respuesta:
   "checklist_version": "2.0"
 }}
 
-===== INSTRUCCIONES =====
+===== CALIBRACIÓN ESPECÍFICA DEL SKILL =====
+Skill: {skill_name.upper()}
+ID format: {skill_name.upper()}-XXX (ej: {skill_name.upper()}-001, {skill_name.upper()}-015)
+Checklist items: {total_checklist_items}
+
+RANGO DE FINDINGS A REPORTAR:
+- Mínimo: {min_findings} findings (cubriendo Critical y High)
+- Máximo: {max_findings} findings (evitar over-reporting)
+- Target: Reportar SOLO riesgos reales con evidencia sólida
+
+{severity_guide}
+
+===== INSTRUCCIONES ANTI-VARIANZA =====
+1. ✅ Usa IDs del checklist: {skill_name.upper()}-001, {skill_name.upper()}-002, etc
+2. ❌ NUNCA uses sub-IDs: {skill_name.upper()}-008-001 está PROHIBIDO
+3. ❌ NUNCA inventes IDs fuera del checklist
+4. ❌ NUNCA generes "DISREGARD THIS FINDING" text
+5. ✅ Máximo 1 finding por checklist item
+6. ✅ Severidades del checklist = source of truth
+7. ✅ Risk scores dentro del rango de severidad
+
+===== INSTRUCCIONES DE ANÁLISIS =====
 1. Revisa TODA la evidencia contra CADA item del checklist
-2. Genera finding solo si encuentras riesgo real o incumplimiento
-3. Incluye referencias específicas a evidencia (ej: users.json#root)
-4. Calcula risk_score 0-10 basado en: severidad + impacto + probabilidad
-5. Incluye affected_resources con ARNs reales de la evidencia
-6. Mapea cada finding a controles PCI DSS usando el checklist.json (campo "pci_dss")
-7. overall_risk_score = promedio de todos los risk_score
-8. Retorna SOLO JSON válido, sin texto adicional, sin markdown"""
+2. Genera finding solo si encuentras riesgo real
+3. Incluye referencias específicas a evidencia
+4. Calcula risk_score 0-10: severidad × impacto × probabilidad
+5. Incluye affected_resources con identifiers reales
+6. Mapea cada finding a controles PCI DSS del checklist
+7. overall_risk_score = promedio ponderado por severity
+8. Retorna SOLO JSON válido, sin markdown, sin explicaciones"""
 
         return prompt
+
+    def _generate_severity_guide(self, checklist: Dict[str, Any]) -> str:
+        """Generate severity calibration guide from checklist.
+
+        Extracts severity examples from checklist items to guide AI model.
+        Works for any skill (IAM, Exposure, Network, Vulns).
+
+        Args:
+            checklist: Security checklist with items
+
+        Returns:
+            Formatted severity guide for prompt
+        """
+        items = checklist.get('items', [])
+
+        # Group items by severity
+        critical_items = []
+        high_items = []
+        medium_items = []
+        low_items = []
+
+        for item in items:
+            severity = item.get('severity', 'Medium')
+            item_id = item.get('id', '')
+            title = item.get('title', '')[:50] + '...' if len(item.get('title', '')) > 50 else item.get('title', '')
+
+            example = f"{item_id}: {title}"
+
+            if severity == 'Critical':
+                critical_items.append(example)
+            elif severity == 'High':
+                high_items.append(example)
+            elif severity == 'Medium':
+                medium_items.append(example)
+            elif severity == 'Low':
+                low_items.append(example)
+
+        # Build guide
+        guide_lines = ["EJEMPLOS DE SEVERIDADES DEL CHECKLIST:\n"]
+
+        if critical_items:
+            guide_lines.append("🔴 CRITICAL (risk_score 8.5-10.0):")
+            for item in critical_items[:3]:  # Show first 3
+                guide_lines.append(f"    - {item}")
+            guide_lines.append("")
+
+        if high_items:
+            guide_lines.append("🟠 HIGH (risk_score 6.0-8.4):")
+            for item in high_items[:3]:  # Show first 3
+                guide_lines.append(f"    - {item}")
+            guide_lines.append("")
+
+        if medium_items:
+            guide_lines.append("🟡 MEDIUM (risk_score 3.0-5.9):")
+            for item in medium_items[:3]:  # Show first 3
+                guide_lines.append(f"    - {item}")
+            guide_lines.append("")
+
+        if low_items:
+            guide_lines.append("🔵 LOW (risk_score 1.0-2.9):")
+            for item in low_items[:3]:  # Show first 3
+                guide_lines.append(f"    - {item}")
+            guide_lines.append("")
+
+        return "\n".join(guide_lines)
 
     def _parse_json_response(self, text: str) -> dict:
         """Parse JSON response, handle markdown wrapping.

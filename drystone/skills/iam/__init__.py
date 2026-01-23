@@ -362,10 +362,15 @@ class IAMSkill(BaseSkill):
         print(f"    Loaded {len(checklist['items'])} security checks")
 
         # 3. Call agent for analysis
-        print("  Analyzing with Claude API...")
+        provider_name = agent_client.get_display_name()
+        print(f"  Analyzing with {provider_name}...")
         findings = agent_client.analyze_evidence(
             skill_name=self.name, evidence=evidence, checklist=checklist
         )
+
+        # 3a. Normalize findings (reduce variance between models)
+        print("  Normalizing findings...")
+        findings = self._normalize_findings(findings, checklist)
 
         # 4. Save findings
         findings_dir = session.get_findings_path()
