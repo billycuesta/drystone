@@ -1,0 +1,239 @@
+"""Vulnerability management skill for AWS audit."""
+
+import json
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+import boto3
+
+from drystone.cloud.aws.client import AWSClient
+from drystone.skills.base import BaseSkill
+from drystone.storage.session import AuditSession
+
+if TYPE_CHECKING:
+    from drystone.agent.client import AgentClient
+
+
+class VulnsSkill(BaseSkill):
+    """Vulnerability management audit skill - analyzes Inspector and patch status."""
+
+    @property
+    def name(self) -> str:
+        """Skill identifier."""
+        return "vulns"
+
+    def collect(self, aws_client: AWSClient, session: AuditSession):
+        """Collect vulnerability management data from AWS account.
+
+        Collects:
+            - AWS Inspector v2 configuration and findings
+            - EC2 instance patch status
+            - Systems Manager patch baselines
+            - EC2 vulnerability assessment data
+            - Container image scanning results
+            - Lambda function vulnerability status
+            - RDS patch information
+
+        Args:
+            aws_client: Authenticated AWS client
+            session: Audit session for evidence storage
+        """
+        client_kwargs = {
+            'aws_access_key_id': aws_client.access_key_id,
+            'aws_secret_access_key': aws_client.secret_access_key,
+            'region_name': aws_client.region_name,
+        }
+        if aws_client.session_token:
+            client_kwargs['aws_session_token'] = aws_client.session_token
+
+        evidence_path = session.get_evidence_path(self.name)
+
+        # === INSPECTOR V2 ===
+        print("  Collecting AWS Inspector v2 data...")
+        try:
+            inspector_client = boto3.client("inspector2", **client_kwargs)
+
+            # Get delegated admin account status
+            try:
+                delegated = inspector_client.describe_organization_configuration()
+                self._save_json(evidence_path / "inspector-org-config.json", delegated)
+            except Exception:
+                pass
+
+            # List findings (max 100 per call, paginated)
+            findings_list = []
+            try:
+                paginator = inspector_client.get_paginator('list_findings')
+                for page in paginator.paginate():
+                    findings_list.extend(page.get("findings", []))
+            except Exception:
+                findings_list = []
+
+            self._save_json(evidence_path / "inspector-findings.json", findings_list)
+        except Exception as e:
+            print(f"    Warning: Could not collect Inspector data: {e}")
+
+        # === EC2 PATCH STATUS ===
+        print("  Collecting EC2 patch compliance...")
+        try:
+            ec2_client = boto3.client("ec2", **client_kwargs)
+            ssm_client = boto3.client("ssm", **client_kwargs)
+
+            instances = ec2_client.describe_instances()
+            patch_status_list = []
+
+            for reservation in instances.get("Reservations", []):
+                for instance in reservation.get("Instances", []):
+                    instance_id = instance.get("InstanceId")
+                    instance_detail = {
+                        "InstanceId": instance_id,
+                        "InstanceType": instance.get("InstanceType"),
+                        "Platform": instance.get("Platform", "linux"),
+                        "State": instance.get("State", {}).get("Name"),
+                        "Tags": instance.get("Tags", []),
+                    }
+
+                    # Get compliance status from Systems Manager
+                    try:
+                        compliance = ssm_client.describe_instance_information(
+                            Filters=[
+                                {"Key": "InstanceIds", "Values": [instance_id]}
+                            ]
+                        )
+                        instance_detail["SSMStatus"] = compliance.get("InstanceInformationList", [])
+
+                        # Get patch compliance details
+                        patch_compliance = ssm_client.get_compliance_details_by_resource(
+                            ResourceId=instance_id,
+                            ResourceType="ManagedInstance",
+                            ComplianceTypes=["PATCH"]
+                        )
+                        instance_detail["PatchCompliance"] = patch_compliance.get("ComplianceItems", [])
+                    except Exception:
+                        instance_detail["SSMStatus"] = []
+                        instance_detail["PatchCompliance"] = []
+
+                    patch_status_list.append(instance_detail)
+
+            self._save_json(evidence_path / "ec2-patch-status.json", patch_status_list)
+        except Exception as e:
+            print(f"    Warning: Could not collect patch status: {e}")
+
+        # === SYSTEMS MANAGER PATCH BASELINES ===
+        print("  Collecting patch baselines...")
+        try:
+            baselines_list = []
+            paginator = ssm_client.get_paginator('describe_patch_baselines')
+            for page in paginator.paginate():
+                for baseline in page.get("PatchBaselines", []):
+                    baseline_detail = {
+                        "BaselineId": baseline.get("BaselineId"),
+                        "BaselineName": baseline.get("BaselineName"),
+                        "OperatingSystemFamily": baseline.get("OperatingSystemFamily"),
+                        "DefaultBaseline": baseline.get("DefaultBaseline"),
+                    }
+
+                    # Get baseline details
+                    try:
+                        details = ssm_client.get_patch_baseline(
+                            BaselineId=baseline.get("BaselineId")
+                        )
+                        baseline_detail["Details"] = {
+                            "ApprovalRules": details.get("ApprovalRules"),
+                            "GlobalFilters": details.get("GlobalFilters"),
+                            "ApprovedPatches": details.get("ApprovedPatches", []),
+                            "RejectedPatches": details.get("RejectedPatches", []),
+                        }
+                    except Exception:
+                        baseline_detail["Details"] = {}
+
+                    baselines_list.append(baseline_detail)
+
+            self._save_json(evidence_path / "patch-baselines.json", baselines_list)
+        except Exception as e:
+            print(f"    Warning: Could not collect patch baselines: {e}")
+
+        # === RDS PATCH INFORMATION ===
+        print("  Collecting RDS patch information...")
+        try:
+            rds_client = boto3.client("rds", **client_kwargs)
+            rds_instances = rds_client.describe_db_instances()
+            rds_patch_list = []
+
+            for instance in rds_instances.get("DBInstances", []):
+                rds_detail = {
+                    "DBInstanceIdentifier": instance.get("DBInstanceIdentifier"),
+                    "Engine": instance.get("Engine"),
+                    "EngineVersion": instance.get("EngineVersion"),
+                    "DBInstanceStatus": instance.get("DBInstanceStatus"),
+                    "LatestRestorableTime": instance.get("LatestRestorableTime"),
+                    "PendingModifiedValues": instance.get("PendingModifiedValues", {}),
+                }
+
+                try:
+                    # Get upgrade details
+                    upgradeable = rds_client.describe_db_engine_versions(
+                        Engine=instance.get("Engine"),
+                        EngineVersion=instance.get("EngineVersion"),
+                    )
+                    rds_detail["ValidUpgradeTarget"] = upgradeable.get("DBEngineVersions", [{}])[0].get(
+                        "ValidUpgradeTarget", []
+                    )
+                except Exception:
+                    rds_detail["ValidUpgradeTarget"] = []
+
+                rds_patch_list.append(rds_detail)
+
+            self._save_json(evidence_path / "rds-patch-info.json", rds_patch_list)
+        except Exception as e:
+            print(f"    Warning: Could not collect RDS patch info: {e}")
+
+        # === ECR IMAGE SCANNING ===
+        print("  Collecting ECR image scan results...")
+        try:
+            ecr_client = boto3.client("ecr", **client_kwargs)
+            repositories = ecr_client.describe_repositories()
+            ecr_images_list = []
+
+            for repo in repositories.get("repositories", []):
+                repo_name = repo.get("repositoryName")
+
+                try:
+                    images = ecr_client.describe_images(repositoryName=repo_name)
+                    for image in images.get("imageDetails", []):
+                        image_detail = {
+                            "RepositoryName": repo_name,
+                            "ImageId": image.get("imageId"),
+                            "ImageSizeBytes": image.get("imageSizeBytes"),
+                            "ImageScanStatus": image.get("imageScanStatus", {}),
+                            "ImageScanFindingsSummary": image.get("imageScanFindingsSummary", {}),
+                        }
+
+                        # Get scan findings if available
+                        if image.get("imageScanStatus", {}).get("status") == "COMPLETE":
+                            try:
+                                findings = ecr_client.describe_image_scan_findings(
+                                    repositoryName=repo_name,
+                                    imageId=image.get("imageId")
+                                )
+                                image_detail["ScanFindings"] = findings.get("imageScanFindings", {})
+                            except Exception:
+                                image_detail["ScanFindings"] = {}
+
+                        ecr_images_list.append(image_detail)
+                except Exception:
+                    pass
+
+            self._save_json(evidence_path / "ecr-image-scans.json", ecr_images_list)
+        except Exception as e:
+            print(f"    Warning: Could not collect ECR scan data: {e}")
+
+        print(f"\n✅ Vulnerability collection complete")
+
+    def _save_json(self, filepath: Path, data):
+        """Save data to JSON file with proper datetime serialization."""
+        with open(filepath, "w") as f:
+            json.dump(data, f, indent=2, default=str)
+
+
+__all__ = ["VulnsSkill"]

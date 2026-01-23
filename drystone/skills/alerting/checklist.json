@@ -1,0 +1,308 @@
+{
+  "skill": "alerting",
+  "framework": "AWS Security Best Practices + PCI DSS v4.0 Mapping",
+  "description": "Checklist for auditing AWS security alerting flows, from CloudTrail events to responsible personnel notifications, with mappings to relevant PCI DSS controls.",
+  "items": [
+    {
+      "id": "ALRT-001",
+      "title": "CloudTrail sin integracion con CloudWatch Logs",
+      "severity": "Critical",
+      "description": "AWS CloudTrail is not integrated with CloudWatch Logs, meaning that CloudTrail events are not centrally streamed for monitoring, metric filtering, and alarming, resulting in a critical gap in security visibility.",
+      "remediation": "Configure CloudTrail to send all management and data events to a dedicated CloudWatch Logs Log Group. Ensure the IAM role for CloudTrail has necessary permissions to publish to CloudWatch Logs.",
+      "pci_dss": [
+        {
+          "control": "10.2.1",
+          "reason": "This control requires audit logs to be enabled and active for all system components. CloudWatch Logs integration is essential for continuous monitoring and management of CloudTrail events, which are fundamental audit logs."
+        },
+        {
+          "control": "10.5.1",
+          "reason": "Audit logs must be retained for at least one year. CloudWatch Logs provides the mechanism for centralized collection and retention of these critical logs."
+        },
+        {
+          "control": "10.6.1",
+          "reason": "Monitoring of security events is required. Without logs in CloudWatch, it's impossible to create metric filters and alarms for proactive monitoring."
+        }
+      ]
+    },
+    {
+      "id": "ALRT-002",
+      "title": "CloudTrail sin integracion con EventBridge",
+      "severity": "Critical",
+      "description": "AWS CloudTrail events are not being routed to Amazon EventBridge, missing a crucial mechanism for real-time, event-driven security automation and advanced alerting workflows.",
+      "remediation": "Create EventBridge rules to capture relevant CloudTrail events (e.g., specific API calls) and route them to targets like SNS, Lambda, or Security Hub for advanced processing and alerting.",
+      "pci_dss": [
+        {
+          "control": "10.6.1",
+          "reason": "EventBridge can act as a crucial part of the security event monitoring and alerting pipeline, enabling real-time response. Lack of integration hinders proactive event management."
+        }
+      ]
+    },
+    {
+      "id": "ALRT-003",
+      "title": "Metric Filters sin alarmas asociadas",
+      "severity": "Critical",
+      "description": "CloudWatch Metric Filters designed to detect critical security events do not have associated CloudWatch Alarms, meaning that detected event patterns will not trigger proactive notifications to security personnel.",
+      "remediation": "For every security-related CloudWatch Metric Filter, create a corresponding CloudWatch Alarm with appropriate thresholds and configure it to publish to an SNS Topic that has confirmed subscribers.",
+      "pci_dss": [
+        {
+          "control": "10.6.1",
+          "reason": "This control explicitly requires generating alerts when security events are detected. Metric filters without alarms fail to generate these alerts, leaving critical events unnoticed."
+        }
+      ]
+    },
+    {
+      "id": "ALRT-004",
+      "title": "EventBridge rules sin targets SNS",
+      "severity": "Critical",
+      "description": "EventBridge rules designed to capture CloudTrail security events do not have SNS Topics as targets, preventing real-time notifications to security personnel for detected events.",
+      "remediation": "Add an SNS Topic (with confirmed subscribers) as a target for all EventBridge rules that process critical CloudTrail security events.",
+      "pci_dss": [
+        {
+          "control": "10.6.1",
+          "reason": "For EventBridge rules that handle security events, the lack of an SNS target means no alert is generated or personnel notified, directly violating this control."
+        }
+      ]
+    },
+    {
+      "id": "ALRT-005",
+      "title": "SNS Topics sin subscripciones",
+      "severity": "Critical",
+      "description": "Security-related SNS Topics (referenced by CloudWatch Alarms or EventBridge Rules) have no active subscribers, meaning that notifications for detected security events will not reach any personnel.",
+      "remediation": "Add email endpoints (e.g., security team distribution lists, on-call rotation emails) as subscribers to all critical SNS Topics and ensure all subscriptions are confirmed.",
+      "pci_dss": [
+        {
+          "control": "10.6.1",
+          "reason": "Without active subscribers, notifications cannot reach responsible personnel, rendering the entire alerting mechanism ineffective and violating the requirement for notifying personnel."
+        }
+      ]
+    },
+    {
+      "id": "ALRT-006",
+      "title": "Subscripciones en estado 'PendingConfirmation'",
+      "severity": "Critical",
+      "description": "One or more email subscriptions to security-related SNS Topics are in 'PendingConfirmation' state, meaning that security alerts are not being delivered to those endpoints.",
+      "remediation": "Ensure all pending SNS subscriptions are confirmed by the respective recipients. Implement a process to periodically check and remind recipients of unconfirmed subscriptions.",
+      "pci_dss": [
+        {
+          "control": "10.6.1",
+          "reason": "Notifications are not actively delivered to 'PendingConfirmation' endpoints, which means responsible personnel are not receiving alerts, thus failing the notification requirement."
+        }
+      ]
+    },
+    {
+      "id": "ALRT-007",
+      "title": "Eventos criticos sin alerta configurada",
+      "severity": "Critical",
+      "description": "Crucial security events (e.g., `StopLogging`, `DeleteTrail`, `CreateUser`, `ConsoleLogin`) do not have associated Metric Filters or EventBridge rules that trigger alarms/notifications.",
+      "remediation": "Configure Metric Filters and CloudWatch Alarms (or EventBridge rules and SNS targets) for all identified critical security events, ensuring comprehensive coverage.",
+      "pci_dss": [
+        {
+          "control": "10.6.1",
+          "reason": "This is a direct violation, as critical security events are not triggering alerts, leaving the organization blind to potentially severe security incidents."
+        },
+        {
+          "control": "10.2.1.2",
+          "reason": "Failing to alert on administrative actions (like ConsoleLogin, CreateUser) or audit log tampering (StopLogging, DeleteTrail) means these critical events are not being effectively monitored."
+        }
+      ]
+    },
+    {
+      "id": "ALRT-008",
+      "title": "Trail no es multi-region (eventos perdidos en otras regiones)",
+      "severity": "High",
+      "description": "AWS CloudTrail is configured as a single-region trail, leading to potential loss of management events and data events that occur in other AWS regions or global services (e.g., IAM).",
+      "remediation": "Configure CloudTrail as a multi-region trail to capture all events across all AWS regions and global services in a single trail.",
+      "pci_dss": [
+        {
+          "control": "10.2.1",
+          "reason": "This control requires audit logs for ALL system components. A single-region trail will miss events in other regions, resulting in incomplete audit logs."
+        }
+      ]
+    },
+    {
+      "id": "ALRT-009",
+      "title": "Log Group sin Metric Filters para eventos de seguridad",
+      "severity": "High",
+      "description": "The CloudWatch Logs Log Group receiving CloudTrail events does not have adequately configured Metric Filters to detect and extract metrics for critical security-related events.",
+      "remediation": "Create and verify Metric Filters for all critical security events listed in the checklist (e.g., `ConsoleLogin`, `CreateUser`, `StopLogging`, `AuthorizeSecurityGroupIngress`) within the CloudTrail Log Group.",
+      "pci_dss": [
+        {
+          "control": "10.6.1",
+          "reason": "Metric filters are the foundation for detecting security events within logs. Without them, specific security events cannot be effectively monitored or trigger alerts."
+        }
+      ]
+    },
+    {
+      "id": "ALRT-010",
+      "title": "Alarmas en estado INSUFFICIENT_DATA",
+      "severity": "High",
+      "description": "One or more CloudWatch Alarms intended for security alerts are in 'INSUFFICIENT_DATA' state, indicating that they are not receiving enough data to evaluate their metric, potentially leading to missed alerts.",
+      "remediation": "Investigate the root cause of 'INSUFFICIENT_DATA' alarms. This could be due to incorrect metric filter patterns, missing log events, or misconfigured alarm periods/thresholds. Adjust configurations as needed.",
+      "pci_dss": [
+        {
+          "control": "10.6.1",
+          "reason": "Alarms in 'INSUFFICIENT_DATA' state cannot reliably generate alerts for security events, creating a blind spot in real-time monitoring."
+        }
+      ]
+    },
+    {
+      "id": "ALRT-011",
+      "title": "SNS Topics sin policy restrictiva",
+      "severity": "High",
+      "description": "Security-related SNS Topics lack a restrictive access policy, potentially allowing unauthorized principals (users, roles, or even other AWS accounts) to publish messages or read topic metadata.",
+      "remediation": "Apply a restrictive IAM policy to all security-related SNS Topics, allowing only authorized CloudWatch Alarms or EventBridge rules to publish messages.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "This control requires access to be based on the principle of least privilege. An open SNS topic policy violates this by allowing excessive access."
+        }
+      ]
+    },
+    {
+      "id": "ALRT-012",
+      "title": "No hay alerta para: ConsoleLogin, CreateUser, StopLogging",
+      "severity": "High",
+      "description": "There are no configured alerts for critical security events such as AWS console logins, new IAM user creation, or CloudTrail logging being stopped.",
+      "remediation": "Implement Metric Filters and CloudWatch Alarms (or EventBridge rules) for `ConsoleLogin`, `CreateUser`, and `StopLogging` events to ensure these crucial activities are immediately alerted upon.",
+      "pci_dss": [
+        {
+          "control": "10.6.1",
+          "reason": "This is a direct violation, as these are fundamental security events that must trigger alerts as per the control."
+        },
+        {
+          "control": "10.2.1.2",
+          "reason": "These events represent administrative actions (ConsoleLogin, CreateUser) or tampering with audit logs (StopLogging) that are explicitly required to be logged and monitored."
+        }
+      ]
+    },
+    {
+      "id": "ALRT-013",
+      "title": "Trail sin Log File Validation",
+      "severity": "Medium",
+      "description": "AWS CloudTrail Log File Validation is not enabled, meaning there is no cryptographic assurance that log files have not been tampered with or altered after delivery to the S3 bucket.",
+      "remediation": "Enable Log File Validation for all CloudTrail trails to ensure the integrity and non-repudiation of audit logs.",
+      "pci_dss": [
+        {
+          "control": "10.5.5",
+          "reason": "This control requires protecting audit logs from alteration. Log File Validation provides cryptographic proof of log integrity, directly supporting this requirement."
+        }
+      ]
+    },
+    {
+      "id": "ALRT-014",
+      "title": "Trail sin KMS encryption",
+      "severity": "Medium",
+      "description": "AWS CloudTrail log files are not encrypted using AWS KMS keys when delivered to the S3 bucket, potentially exposing sensitive audit data at rest if the S3 bucket's encryption is not adequately configured or if the bucket is compromised.",
+      "remediation": "Configure CloudTrail to encrypt log files using an AWS KMS key when delivering them to the S3 bucket.",
+      "pci_dss": [
+        {
+          "control": "3.5.1",
+          "reason": "While CloudTrail logs are not cardholder data, the principle of encrypting sensitive data at rest applies. Encrypting logs with KMS adds a layer of protection against unauthorized disclosure."
+        }
+      ]
+    },
+    {
+      "id": "ALRT-015",
+      "title": "No hay alerta para IAM changes",
+      "severity": "Medium",
+      "description": "There are no configured alerts for critical IAM changes beyond user creation/deletion, such as policy modifications, role assumption policy changes, or MFA device management.",
+      "remediation": "Implement Metric Filters and CloudWatch Alarms (or EventBridge rules) for a broader range of IAM change events, ensuring comprehensive monitoring of identity and access management.",
+      "pci_dss": [
+        {
+          "control": "10.2.1.5",
+          "reason": "This control requires logging changes to identification and authentication credentials. Broader IAM changes also fall under this category and should trigger alerts."
+        },
+        {
+          "control": "10.6.1",
+          "reason": "Alerting on IAM changes is crucial for detecting potential privilege escalation or unauthorized access modifications."
+        }
+      ]
+    },
+    {
+      "id": "ALRT-016",
+      "title": "No hay alerta para Security Group changes",
+      "severity": "Medium",
+      "description": "There are no configured alerts for changes to Security Groups (e.g., `AuthorizeSecurityGroupIngress`, `RevokeSecurityGroupIngress`), which are critical network access controls.",
+      "remediation": "Implement Metric Filters and CloudWatch Alarms (or EventBridge rules) for Security Group modification events to ensure immediate awareness of changes to network access rules.",
+      "pci_dss": [
+        {
+          "control": "1.2.2.a",
+          "reason": "Changes to network security controls (NSCs) like Security Groups must be part of a formal change control process. Alerts for such changes provide real-time monitoring of this."
+        },
+        {
+          "control": "10.6.1",
+          "reason": "Monitoring and alerting on changes to network access rules is a fundamental security practice."
+        }
+      ]
+    },
+    {
+      "id": "ALRT-017",
+      "title": "CloudWatch Logs retention muy baja (<90 dias)",
+      "severity": "Medium",
+      "description": "The retention policy for CloudWatch Logs Log Groups storing CloudTrail events is set to less than 90 days, potentially violating compliance requirements for audit log retention.",
+      "remediation": "Adjust the retention policy for CloudTrail-related CloudWatch Logs Log Groups to at least 90 days, or longer if required by specific compliance frameworks (e.g., 365 days for PCI DSS).",
+      "pci_dss": [
+        {
+          "control": "10.5.1",
+          "reason": "This control requires audit logs to be retained for a minimum of one year. A retention policy of less than 90 days is a clear violation for PCI DSS scope."
+        }
+      ]
+    },
+    {
+      "id": "ALRT-018",
+      "title": "Alarmas sin descripcion clara",
+      "severity": "Low",
+      "description": "CloudWatch Alarms lack clear and descriptive names or descriptions, hindering effective incident response by making it difficult to quickly understand the alarm's purpose or impacted service.",
+      "remediation": "Update all CloudWatch Alarms with clear, concise, and descriptive names and descriptions that include the alarm's purpose, what it monitors, and potential impact.",
+      "pci_dss": [
+        {
+          "control": "10.6.1",
+          "reason": "While not a direct technical security control, clear alarm descriptions are crucial for responsible personnel to promptly investigate and respond to security events, supporting the objective of this control."
+        }
+      ]
+    },
+    {
+      "id": "ALRT-019",
+      "title": "Nombres no descriptivos",
+      "severity": "Low",
+      "description": "AWS resources related to alerting (e.g., SNS Topics, EventBridge Rules, Metric Filters) have generic or non-descriptive names, making them difficult to identify, manage, and understand within the larger AWS environment.",
+      "remediation": "Implement a consistent naming convention for all alerting-related AWS resources. Use prefixes or suffixes to indicate purpose, environment, and owner.",
+      "pci_dss": [
+        {
+          "control": "12.5.1",
+          "reason": "Good naming conventions contribute to maintaining an accurate inventory of system components and understanding their function, which is required for effective management and auditing."
+        }
+      ]
+    },
+    {
+      "id": "ALRT-020",
+      "title": "Tags faltantes",
+      "severity": "Low",
+      "description": "Key alerting resources (e.g., SNS Topics, CloudWatch Alarms) are missing essential tags, hindering resource organization, cost allocation, and automated management.",
+      "remediation": "Apply consistent tags (e.g., 'Environment', 'Owner', 'Application', 'Compliance') to all alerting-related resources for better visibility and management.",
+      "pci_dss": [
+        {
+          "control": "12.5.1",
+          "reason": "Tags are critical for identifying and managing in-scope system components, supporting the requirement for maintaining a clear inventory."
+        }
+      ]
+    },
+    {
+      "id": "ALRT-021",
+      "title": "SNS sin Dead Letter Queue",
+      "severity": "Low",
+      "description": "Security-related SNS Topics that fan out to unreliable endpoints (e.g., Lambda, SQS) are not configured with a Dead Letter Queue (DLQ), potentially leading to lost security alerts if delivery fails.",
+      "remediation": "Configure a Dead Letter Queue (DLQ) for SNS Topics that have critical subscribers or complex delivery mechanisms to ensure no security alerts are lost due to transient delivery failures.",
+      "pci_dss": [
+        {
+          "control": "10.5.1",
+          "reason": "While not directly about log retention, ensuring reliable delivery of security alerts contributes to the overall objective of having complete and actionable security event data, which could indirectly relate to audit trail completeness."
+        }
+      ]
+    }
+  ],
+  "version": "1.0",
+  "total_checks": 21,
+  "last_updated": "2026-01-23",
+  "notes": "Generated based on aws-alerting-skill.md and mapped against PCI DSS v4.0 controls."
+}

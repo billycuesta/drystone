@@ -1,0 +1,466 @@
+{
+  "skill": "network",
+  "framework": "AWS VPC Security Best Practices + PCI DSS v4.0 Mapping",
+  "description": "Checklist for auditing AWS network policies and connectivity, including Security Groups, NACLs, Route Tables, VPC Peering, Transit Gateway, and Network Firewall, with mappings to relevant PCI DSS controls.",
+  "items": [
+    {
+      "id": "NET-001",
+      "title": "Security Groups con reglas ANY (0.0.0.0/0) en puertos sensibles (22, 3389, 3306, 5432, 1433, 27017, 6379)",
+      "severity": "Critical",
+      "description": "Security Groups allowing unrestricted inbound access (0.0.0.0/0) to sensitive management ports (SSH, RDP) or database ports expose instances and databases to internet-borne attacks, such as brute-force or exploitation of known vulnerabilities.",
+      "remediation": "Restrict inbound rules to specific trusted IP addresses or IP ranges. For management, use a bastion host or AWS Systems Manager Session Manager. For databases, allow access only from application security groups.",
+      "pci_dss": [
+        {
+          "control": "1.3.1.b",
+          "reason": "This control requires restricting inbound traffic to only what is necessary and explicitly denying all other traffic. Opening sensitive ports to the entire internet is a direct violation of this principle."
+        },
+        {
+          "control": "2.2.4.b",
+          "reason": "All unnecessary functionality must be removed or disabled. Exposing management or database ports to the public internet is an unnecessary and highly risky configuration."
+        },
+        {
+          "control": "7.2.1",
+          "reason": "Access to system components must be based on the principle of least privilege. Unrestricted inbound access to sensitive ports violates this by granting maximum privilege from any source."
+        }
+      ]
+    },
+    {
+      "id": "NET-002",
+      "title": "Security Groups con ALL traffic (protocol -1) desde 0.0.0.0/0",
+      "severity": "Critical",
+      "description": "A Security Group rule allowing ALL traffic (protocol -1) from 0.0.0.0/0 effectively disables the firewall function for any attached resource, exposing all ports and protocols to the entire internet.",
+      "remediation": "Remove the 'ALL traffic' rule. Implement specific, least-privilege rules for necessary inbound and outbound traffic, specifying protocols, ports, and source/destination IP ranges.",
+      "pci_dss": [
+        {
+          "control": "1.3.1.b",
+          "reason": "This control demands strict traffic restriction. Allowing all inbound traffic from 0.0.0.0/0 is a complete failure to restrict traffic and explicitly deny what is not needed."
+        },
+        {
+          "control": "7.3.3",
+          "reason": "Access control systems must be set to 'deny all' by default. This rule effectively creates an 'allow all' scenario, contravening this principle."
+        }
+      ]
+    },
+    {
+      "id": "NET-003",
+      "title": "NACLs con reglas ALLOW ALL sin restricciones",
+      "severity": "Critical",
+      "description": "Network Access Control Lists (NACLs) are configured with rules that allow all traffic (e.g., rule 100, ALL protocol, 0.0.0.0/0), rendering them ineffective as a stateless firewall layer.",
+      "remediation": "Replace overly permissive NACL rules with specific inbound and outbound rules that only allow necessary traffic based on the subnet's purpose. All other traffic should be implicitly denied by the default rule.",
+      "pci_dss": [
+        {
+          "control": "1.3.1.b",
+          "reason": "NACLs are considered Network Security Controls (NSCs). An 'ALLOW ALL' rule fundamentally contradicts the requirement to restrict inbound traffic to only what is necessary and deny all other traffic."
+        },
+        {
+          "control": "7.3.3",
+          "reason": "Access control systems (NACLs) must be set to 'deny all' by default. An explicit 'ALLOW ALL' rule bypasses this security principle."
+        }
+      ]
+    },
+    {
+      "id": "NET-004",
+      "title": "Route tables con default route (0.0.0.0/0) hacia Internet Gateway en subnets con recursos sensibles (DB, internal apps)",
+      "severity": "Critical",
+      "description": "A subnet designated for sensitive resources (e.g., databases, internal applications) has a default route (0.0.0.0/0) pointing to an Internet Gateway, effectively making it a public subnet.",
+      "remediation": "Remove the route to the Internet Gateway. For private subnets requiring outbound internet access (e.g., for updates), configure the default route to a NAT Gateway or a Network Firewall endpoint.",
+      "pci_dss": [
+        {
+          "control": "1.4.4.b",
+          "reason": "System components storing cardholder data are explicitly required not to be directly accessible from untrusted networks. A default route to an Internet Gateway exposes the subnet directly to the internet."
+        },
+        {
+          "control": "2.2.1",
+          "reason": "This violates industry-accepted system hardening standards, which dictate that sensitive resources should always reside in private subnets without direct internet routing."
+        }
+      ]
+    },
+    {
+      "id": "NET-005",
+      "title": "VPC Peering con route tables bidireccionales sin filtrado",
+      "severity": "Critical",
+      "description": "VPC Peering connections are configured with bidirectional routes covering broad CIDR blocks without specific Security Group filtering, effectively merging the network segments with minimal control and violating segmentation principles.",
+      "remediation": "Implement granular Security Group rules to filter traffic between peered VPCs based on least privilege. Consider using Transit Gateway with dedicated route tables and Network Firewall for better segmentation.",
+      "pci_dss": [
+        {
+          "control": "1.3.1.b",
+          "reason": "Broad bidirectional routing without filtering contradicts the requirement to restrict traffic to only what is necessary between network segments, especially if they have different trust levels."
+        },
+        {
+          "control": "7.2.1",
+          "reason": "Access between VPCs should be controlled with least privilege. Wide-open peering routes fail this principle."
+        }
+      ]
+    },
+    {
+      "id": "NET-006",
+      "title": "Security Groups que referencian SGs de otras cuentas sin validación",
+      "severity": "Critical",
+      "description": "Security Groups are configured to allow traffic from Security Groups in other AWS accounts without proper validation or strict control over the referenced external security groups.",
+      "remediation": "Remove cross-account Security Group references where possible. If necessary, ensure strict control and validation mechanisms are in place for the referenced external Security Groups and their associated resources.",
+      "pci_dss": [
+        {
+          "control": "1.3.1.b",
+          "reason": "Referencing external Security Groups without strict control introduces an uncontrolled and potentially untrusted source for inbound traffic, violating the necessity principle."
+        },
+        {
+          "control": "7.2.1",
+          "reason": "This practice makes it difficult to enforce least privilege, as the permissions granted depend on configurations in another, potentially less controlled, account."
+        }
+      ]
+    },
+    {
+      "id": "NET-007",
+      "title": "Network Firewall deshabilitado en VPCs críticas con tráfico norte-sur",
+      "severity": "Critical",
+      "description": "AWS Network Firewall is not deployed or enabled in critical VPCs that handle significant north-south traffic (internet-facing), leaving inbound/outbound traffic unprotected against advanced threats like intrusion, malware, and data exfiltration.",
+      "remediation": "Deploy AWS Network Firewall in critical VPCs. Configure it for both inbound and outbound traffic inspection. Implement stateful rules for intrusion prevention (IDS/IPS), URL filtering, and domain filtering.",
+      "pci_dss": [
+        {
+          "control": "1.1.4",
+          "reason": "This control requires firewalls at each internet connection and between any DMZ and the internal network. Network Firewall is designed to fulfill this critical perimeter defense role for VPCs."
+        },
+        {
+          "control": "6.4.2",
+          "reason": "For public-facing web applications, an automated technical solution that detects and prevents web-based attacks is required. Network Firewall can provide this layer of defense."
+        }
+      ]
+    },
+    {
+      "id": "NET-008",
+      "title": "Subnets públicas con recursos críticos (RDS, ElastiCache, internal apps)",
+      "severity": "Critical",
+      "description": "Critical resources such as databases (RDS), caching services (ElastiCache), or internal application servers are deployed directly into public subnets.",
+      "remediation": "Move all critical resources to private subnets. Ensure private subnets do not have direct routes to an Internet Gateway.",
+      "pci_dss": [
+        {
+          "control": "1.4.4.b",
+          "reason": "System components storing cardholder data must not be directly accessible from untrusted networks. Deploying critical resources into public subnets is a direct violation of this requirement."
+        }
+      ]
+    },
+    {
+      "id": "NET-009",
+      "title": "Security Groups con reglas desde rangos amplios (>=/16) para puertos no-web",
+      "severity": "High",
+      "description": "Security Groups permit access from overly broad IP ranges (e.g., /16 or larger) to non-web ports, increasing the exposure window for resources even if not to the entire internet.",
+      "remediation": "Refine Security Group rules to use the narrowest possible IP ranges or specific Security Group IDs as sources, following the principle of least privilege.",
+      "pci_dss": [
+        {
+          "control": "1.3.1.b",
+          "reason": "Restricting inbound traffic to only what is necessary implies using precise source definitions. Broad IP ranges are less restrictive than required."
+        },
+        {
+          "control": "7.2.1",
+          "reason": "Least privilege principle requires granting only necessary access. Broad IP ranges grant more access than typically needed."
+        }
+      ]
+    },
+    {
+      "id": "NET-010",
+      "title": "NACLs con reglas permisivas (allow all) como default",
+      "severity": "High",
+      "description": "Default NACLs in VPCs are often overly permissive (e.g., allow all inbound/outbound). If custom NACLs are not applied, these permissive defaults will be in effect.",
+      "remediation": "Ensure all subnets have custom NACLs applied that implement explicit deny rules for all unnecessary traffic and only permit required traffic.",
+      "pci_dss": [
+        {
+          "control": "1.3.1.b",
+          "reason": "Network Security Controls (NACLs) must restrict traffic to what is necessary. Permissive default rules can undermine this."
+        },
+        {
+          "control": "7.3.3",
+          "reason": "Access control systems must deny all by default. Default permissive NACLs contradict this."
+        }
+      ]
+    },
+    {
+      "id": "NET-011",
+      "title": "Security Groups sin descripción en reglas críticas",
+      "severity": "High",
+      "description": "Critical Security Group rules lack descriptions, making it difficult for auditors and administrators to understand the purpose or business justification of the rule.",
+      "remediation": "Add clear and concise descriptions to all Security Group rules, especially for critical ports or broad access, explaining their purpose and justification.",
+      "pci_dss": [
+        {
+          "control": "1.2.1.a",
+          "reason": "Configuration standards for Network Security Controls (NSCs) should be defined and maintained. Undocumented critical rules make the configuration non-compliant with clear standards."
+        },
+        {
+          "control": "12.5.1",
+          "reason": "Maintaining an accurate inventory of components is aided by clear descriptions of security configurations."
+        }
+      ]
+    },
+    {
+      "id": "NET-012",
+      "title": "Transit Gateway sin Network Firewall en attachments",
+      "severity": "High",
+      "description": "Transit Gateway attachments (especially for VPCs with differing trust levels or internet egress) are not inspected by a Network Firewall, leading to unfiltered traffic between network segments.",
+      "remediation": "Integrate AWS Network Firewall with Transit Gateway, routing traffic through inspection VPCs to ensure all inter-VPC traffic is inspected and filtered according to policy.",
+      "pci_dss": [
+        {
+          "control": "1.1.4",
+          "reason": "Firewalls are required to be implemented between network segments with differing trust levels. TGW without Network Firewall bypasses this requirement for inter-VPC traffic."
+        }
+      ]
+    },
+    {
+      "id": "NET-013",
+      "title": "VPC endpoints no utilizados (tráfico hacia servicios AWS via internet)",
+      "severity": "High",
+      "description": "Instead of using VPC Endpoints, traffic from private subnets to AWS public services (e.g., S3, DynamoDB) is routed over the internet via NAT Gateways, increasing data transfer costs and potential exposure.",
+      "remediation": "Create VPC Gateway Endpoints for S3 and DynamoDB, and VPC Interface Endpoints for other supported AWS services (e.g., EC2, CloudWatch, KMS) to keep traffic within the AWS network.",
+      "pci_dss": [
+        {
+          "control": "1.3.4",
+          "reason": "This control (in v4.0) encourages keeping traffic within trusted networks. Using VPC Endpoints is a key mechanism for reducing exposure by not routing sensitive traffic over the public internet."
+        }
+      ]
+    },
+    {
+      "id": "NET-014",
+      "title": "Route tables con blackhole routes activos",
+      "severity": "High",
+      "description": "Route tables contain active blackhole routes, which can unintentionally drop traffic, potentially disrupting critical services or creating unexpected network behavior.",
+      "remediation": "Investigate the purpose of active blackhole routes. Remove them if unnecessary, or replace with explicit deny rules or more specific routing if intentional for security segmentation.",
+      "pci_dss": [
+        {
+          "control": "1.2.1.b",
+          "reason": "Route tables are configuration settings for NSCs. Unexpected blackhole routes can indicate non-compliance with intended network configurations and create security gaps."
+        }
+      ]
+    },
+    {
+      "id": "NET-015",
+      "title": "Security Groups con reglas duplicadas o redundantes",
+      "severity": "High",
+      "description": "Security Groups have redundant rules (e.g., identical rules, or a broader rule that encompasses a narrower one), complicating auditing and management.",
+      "remediation": "Review and consolidate Security Group rules to eliminate duplicates and redundancies, simplifying the policy and improving clarity.",
+      "pci_dss": [
+        {
+          "control": "1.2.1.a",
+          "reason": "Configuration standards for NSCs (Security Groups) should be defined and maintained. Redundant rules make the configuration harder to maintain and audit against defined standards."
+        }
+      ]
+    },
+    {
+      "id": "NET-016",
+      "title": "Subnets sin NACL custom (usando default NACL)",
+      "severity": "High",
+      "description": "Subnets are using the default NACL, which typically allows all inbound and outbound traffic, providing no additional layer of stateless network filtering.",
+      "remediation": "Create and associate custom NACLs to all subnets. Configure custom NACLs with explicit deny rules and only allow necessary traffic for the subnet's function.",
+      "pci_dss": [
+        {
+          "control": "1.3.1.b",
+          "reason": "The default NACL's 'allow all' behavior fails to implement the required traffic restriction for inbound traffic, creating a significant security weakness."
+        }
+      ]
+    },
+    {
+      "id": "NET-017",
+      "title": "Private subnets con route hacia Internet Gateway",
+      "severity": "High",
+      "description": "A subnet intended to be private has a route to an Internet Gateway, compromising its isolation and making it effectively a public subnet if associated resources have public IPs or are assigned a Public IP on launch.",
+      "remediation": "Modify the route table associated with the private subnet to remove the route to the Internet Gateway. Ensure outbound internet access is provided via a NAT Gateway or Network Firewall.",
+      "pci_dss": [
+        {
+          "control": "1.4.4.b",
+          "reason": "This directly violates the requirement that system components storing cardholder data are not directly accessible from untrusted networks. A route to IGW compromises privacy."
+        }
+      ]
+    },
+    {
+      "id": "NET-018",
+      "title": "VPC sin Flow Logs habilitados",
+      "severity": "High",
+      "description": "VPC Flow Logs are not enabled for one or more VPCs, leading to a critical lack of network traffic visibility for monitoring, troubleshooting, and security incident response.",
+      "remediation": "Enable VPC Flow Logs for all VPCs. Configure them to capture ALL traffic (accepted and rejected) and deliver to a centralized S3 bucket or CloudWatch Logs Log Group with adequate retention.",
+      "pci_dss": [
+        {
+          "control": "10.2.1",
+          "reason": "This control requires audit logs for all system components. VPC Flow Logs are essential audit logs for network traffic, and their absence means a critical logging gap."
+        },
+        {
+          "control": "10.6.1",
+          "reason": "Monitoring network events is crucial. Without Flow Logs, real-time monitoring of network traffic for anomalies and security events is impossible."
+        }
+      ]
+    },
+    {
+      "id": "NET-019",
+      "title": "Security Groups con más de 50 reglas (difícil de auditar)",
+      "severity": "Medium",
+      "description": "Security Groups with a very high number of rules (e.g., over 50) become complex to manage, audit, and understand, increasing the likelihood of misconfigurations or security gaps.",
+      "remediation": "Refactor large Security Groups by consolidating rules, leveraging Security Group referencing, or organizing resources into more granular subnets/VPCs with simpler SGs.",
+      "pci_dss": [
+        {
+          "control": "1.2.1.a",
+          "reason": "Configuration standards for NSCs (Security Groups) should facilitate clear understanding and maintenance. Overly complex SGs make this difficult."
+        },
+        {
+          "control": "12.5.1",
+          "reason": "Complexity hinders the ability to maintain an accurate inventory and understand the security posture of network components."
+        }
+      ]
+    },
+    {
+      "id": "NET-020",
+      "title": "NACLs con números de regla no secuenciales (gaps grandes)",
+      "severity": "Medium",
+      "description": "NACLs with large gaps in rule numbers (e.g., 100, 200, 1000) can indicate poor organization, make future additions harder, and increase the chance of unintended rule interactions.",
+      "remediation": "Reorganize NACL rules to have smaller, more sequential gaps between rule numbers. Automate NACL management using IaC to maintain order.",
+      "pci_dss": [
+        {
+          "control": "1.2.1.a",
+          "reason": "Maintaining clear and organized configuration standards for NSCs is important. Non-sequential rule numbers make it harder to enforce and audit these standards."
+        }
+      ]
+    },
+    {
+      "id": "NET-021",
+      "title": "Security Groups huérfanos (sin recursos attached)",
+      "severity": "Medium",
+      "description": "Security Groups exist in the account but are not associated with any active network interfaces or resources, indicating potential remnants of decommissioned resources or unmanaged configurations.",
+      "remediation": "Identify and remove all unattached (orphaned) Security Groups. Before removal, verify that they are not temporarily unattached or used by stopped resources.",
+      "pci_dss": [
+        {
+          "control": "12.5.1",
+          "reason": "Orphaned Security Groups contribute to configuration clutter and can complicate maintaining an accurate and clean inventory of active network security controls."
+        }
+      ]
+    },
+    {
+      "id": "NET-022",
+      "title": "Route tables con múltiples default routes",
+      "severity": "Medium",
+      "description": "A route table contains multiple default routes (0.0.0.0/0) pointing to different targets, leading to unpredictable routing behavior and potential security bypasses.",
+      "remediation": "Ensure each route table has a single, clearly defined default route. Remove any ambiguous or conflicting default routes.",
+      "pci_dss": [
+        {
+          "control": "1.2.1.b",
+          "reason": "Ambiguous routing configurations can lead to unexpected traffic flows, compromising network segmentation and traffic control requirements."
+        }
+      ]
+    },
+    {
+      "id": "NET-023",
+      "title": "VPC Peering sin tags de ownership",
+      "severity": "Medium",
+      "description": "VPC Peering connections lack appropriate tags for ownership, purpose, or environment, hindering management, cost allocation, and auditability.",
+      "remediation": "Apply consistent tagging to all VPC Peering connections, including 'Owner', 'Purpose', 'Environment', and 'Contact'.",
+      "pci_dss": [
+        {
+          "control": "12.5.1",
+          "reason": "Maintaining an accurate inventory of in-scope system components is crucial. Tags facilitate this by clearly identifying the purpose and ownership of network connections."
+        }
+      ]
+    },
+    {
+      "id": "NET-024",
+      "title": "Naming conventions inconsistentes en recursos de red",
+      "severity": "Medium",
+      "description": "Inconsistent naming conventions for network resources (VPCs, subnets, SGs, NACLs, etc.) make it challenging to identify, manage, and audit components effectively, especially in large environments.",
+      "remediation": "Establish and enforce a consistent naming convention across all network resources. Use IaC (Infrastructure as Code) to automate naming and ensure compliance.",
+      "pci_dss": [
+        {
+          "control": "12.5.1",
+          "reason": "Clear naming conventions aid in maintaining an accurate inventory and understanding the role of each network component, supporting compliance efforts."
+        }
+      ]
+    },
+    {
+      "id": "NET-025",
+      "title": "Subnets sin tags de clasificación (public/private/db/app)",
+      "severity": "Medium",
+      "description": "Subnets lack explicit classification tags (e.g., 'Tier:Public', 'Tier:Private', 'Layer:DB', 'Layer:App'), making it difficult to understand their intended purpose and security posture at a glance.",
+      "remediation": "Apply standardized classification tags to all subnets to clearly define their role and trust level within the network architecture.",
+      "pci_dss": [
+        {
+          "control": "12.5.1",
+          "reason": "Classification tags on subnets help in clearly defining network segments and their associated security requirements, contributing to an accurate inventory and segmentation strategy."
+        }
+      ]
+    },
+    {
+      "id": "NET-026",
+      "title": "Security Groups con reglas de egress restrictivas que bloquean actualizaciones",
+      "severity": "Medium",
+      "description": "Security Group egress rules are overly restrictive, inadvertently blocking necessary outbound traffic for system updates, patching, or access to critical AWS services.",
+      "remediation": "Review egress rules for instances needing updates. Allow necessary outbound access for package managers (HTTP/HTTPS to specific endpoints), update servers, and AWS service endpoints (via VPC Endpoints or NAT Gateways).",
+      "pci_dss": [
+        {
+          "control": "6.3.3.b",
+          "reason": "Overly restrictive egress rules can prevent systems from receiving critical security patches and updates, hindering vulnerability management efforts."
+        }
+      ]
+    },
+    {
+      "id": "NET-027",
+      "title": "Security Groups sin tags",
+      "severity": "Low",
+      "description": "Security Groups are missing tags, making them harder to identify, manage, filter, and automate based on ownership, environment, or application.",
+      "remediation": "Apply consistent tags (e.g., 'Name', 'Environment', 'Owner', 'Application') to all Security Groups.",
+      "pci_dss": [
+        {
+          "control": "12.5.1",
+          "reason": "Tags are critical for maintaining an accurate inventory of system components, which includes network security controls like Security Groups."
+        }
+      ]
+    },
+    {
+      "id": "NET-028",
+      "title": "NACLs con reglas comentadas pero no eliminadas",
+      "severity": "Low",
+      "description": "NACLs contain rules that appear to be commented out or are inactive but remain configured, creating clutter and potential confusion during audits or troubleshooting.",
+      "remediation": "Remove all inactive, commented-out, or unnecessary NACL rules to keep configurations clean and clear. Use IaC for version control instead of commenting within the configuration.",
+      "pci_dss": [
+        {
+          "control": "1.2.1.a",
+          "reason": "Clear and maintainable configuration standards for NSCs are important. Cluttered configurations can lead to errors or misunderstandings."
+        }
+      ]
+    },
+    {
+      "id": "NET-029",
+      "title": "VPCs con CIDR blocks superpuestos entre regiones",
+      "severity": "Low",
+      "description": "VPCs in different regions are configured with overlapping CIDR blocks, complicating future multi-region connectivity (e.g., Direct Connect, Transit Gateway) and leading to potential routing issues.",
+      "remediation": "Plan for a non-overlapping IP addressing scheme across all VPCs, especially if multi-region connectivity is anticipated. Redesign CIDR blocks for new VPCs.",
+      "pci_dss": [
+        {
+          "control": "1.2.3.a",
+          "reason": "An accurate network diagram is required. Overlapping CIDR blocks can complicate understanding the network architecture and potential routing conflicts, affecting the accuracy of network diagrams."
+        }
+      ]
+    },
+    {
+      "id": "NET-030",
+      "title": "Route tables con rutas estáticas en lugar de propagación automática",
+      "severity": "Low",
+      "description": "Route tables for Transit Gateway or Direct Connect rely on static routes instead of route propagation, increasing operational overhead and risk of misconfiguration or stale routes.",
+      "remediation": "Configure route propagation for Transit Gateway and Direct Connect to automatically update route tables, reducing manual intervention and configuration errors.",
+      "pci_dss": [
+        {
+          "control": "1.2.1.a",
+          "reason": "Configuration standards for NSCs should be well-defined and maintained. Manual static routes can be less reliable and harder to maintain than automated propagation, increasing the risk of misconfiguration."
+        }
+      ]
+    },
+    {
+      "id": "NET-031",
+      "title": "DNS resolution/hostname deshabilitado en VPCs",
+      "severity": "Low",
+      "description": "DNS hostnames or DNS resolution are disabled for a VPC, potentially breaking internal name resolution for AWS-provided hostnames and services, impacting operational visibility.",
+      "remediation": "Ensure both DNS hostnames and DNS resolution are enabled for all VPCs unless there is a specific, well-justified reason for disabling them.",
+      "pci_dss": [
+        {
+          "control": "12.5.1",
+          "reason": "Proper DNS functionality is critical for the operational accuracy and visibility of system components, supporting the maintenance of an accurate inventory and understanding of the environment."
+        }
+      ]
+    }
+  ],
+  "version": "1.0",
+  "total_checks": 31,
+  "last_updated": "2026-01-23",
+  "notes": "Generated based on aws-networkpolicies-skill.md and mapped against PCI DSS v4.0 controls."
+}

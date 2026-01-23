@@ -1,0 +1,305 @@
+{
+  "skill": "hardening",
+  "framework": "AWS Security Best Practices + PCI DSS v4.0 Mapping",
+  "description": "Checklist for evaluating AWS account hardening and compliance posture, with mappings to relevant PCI DSS controls.",
+  "items": [
+    {
+      "id": "HRD-001",
+      "title": "AWS Config no habilitado en ninguna region",
+      "severity": "Critical",
+      "description": "AWS Config is not enabled in any active region, resulting in a complete lack of continuous configuration monitoring, change tracking, and audit trail for resource configurations.",
+      "remediation": "Enable AWS Config in all active AWS regions with an appropriate IAM role and S3 bucket for configuration history and snapshots. Consider using a multi-region aggregator for centralized view.",
+      "pci_dss": [
+        {
+          "control": "10.2.1",
+          "reason": "This control requires audit logs to be enabled and active for all system components. AWS Config records configuration changes, which are a form of audit log essential for compliance."
+        },
+        {
+          "control": "10.5.1",
+          "reason": "This control requires audit logs to be retained for at least one year. AWS Config records are stored in an S3 bucket, fulfilling the retention requirement for configuration changes."
+        },
+        {
+          "control": "12.5.1",
+          "reason": "Maintaining an accurate inventory of in-scope system components is critical. AWS Config provides continuous inventory of resources, which is vital for this control."
+        }
+      ]
+    },
+    {
+      "id": "HRD-002",
+      "title": "Security Hub no habilitado en ninguna region",
+      "severity": "Critical",
+      "description": "AWS Security Hub is not enabled in any active region, leading to a lack of centralized security posture management, aggregated findings from multiple services, and continuous compliance checks against industry standards.",
+      "remediation": "Enable AWS Security Hub in all active AWS regions. Configure it to automatically enable and aggregate findings from integrated AWS services (e.g., GuardDuty, Inspector, Config) and partner solutions.",
+      "pci_dss": [
+        {
+          "control": "12.2.1",
+          "reason": "This control requires a risk management program. Security Hub provides continuous monitoring and assessment against security standards, which is a key part of managing security risks."
+        },
+        {
+          "control": "6.3.1",
+          "reason": "This control requires processes to identify and manage security vulnerabilities. Security Hub aggregates findings from various security checks, providing a consolidated view of vulnerabilities."
+        }
+      ]
+    },
+    {
+      "id": "HRD-003",
+      "title": "0 standards de compliance habilitados",
+      "severity": "Critical",
+      "description": "No compliance standards (e.g., AWS FSBP, CIS, PCI DSS) are enabled in Security Hub, meaning the account's security posture is not being continuously evaluated against established benchmarks.",
+      "remediation": "Enable relevant compliance standards in Security Hub, such as AWS Foundational Security Best Practices, CIS AWS Foundations Benchmark, and PCI DSS (if applicable to the environment).",
+      "pci_dss": [
+        {
+          "control": "12.2.1",
+          "reason": "Directly impacts the ability to assess and report on compliance against relevant security standards, including PCI DSS itself."
+        },
+        {
+          "control": "6.3.1",
+          "reason": "Identifying security vulnerabilities requires evaluation against industry-recognized benchmarks, which Security Hub's enabled standards provide."
+        }
+      ]
+    },
+    {
+      "id": "HRD-004",
+      "title": "Compliance score < 50%",
+      "severity": "Critical",
+      "description": "A global compliance score below 50% indicates significant and widespread deviations from security best practices and compliance standards, posing a critical security risk.",
+      "remediation": "Prioritize remediation of CRITICAL and HIGH severity findings to rapidly improve the compliance score. Focus on foundational security controls.",
+      "pci_dss": [
+        {
+          "control": "12.2.1",
+          "reason": "A low compliance score is a direct indicator of inadequate implementation of security controls, thus reflecting a weak risk management program."
+        }
+      ]
+    },
+    {
+      "id": "HRD-005",
+      "title": "Findings CRITICAL sin remediar",
+      "severity": "Critical",
+      "description": "Critical security findings remain un-remediated, indicating unaddressed severe vulnerabilities or misconfigurations that could lead to significant security breaches or data compromise.",
+      "remediation": "Immediately address all CRITICAL findings as a top priority. Implement a robust remediation process and track progress until all critical issues are resolved.",
+      "pci_dss": [
+        {
+          "control": "6.3.3.b",
+          "reason": "This control requires critical or high-security patches/updates to be installed within one month of release. Unremediated critical findings often represent unaddressed vulnerabilities that fall under this requirement."
+        },
+        {
+          "control": "12.5.2",
+          "reason": "Requires addressing security incidents and identified weaknesses. Unremediated critical findings represent significant security weaknesses."
+        }
+      ]
+    },
+    {
+      "id": "HRD-006",
+      "title": "AWS Config habilitado parcialmente (no todas las regiones)",
+      "severity": "High",
+      "description": "AWS Config is only enabled in some, but not all, active AWS regions. This results in blind spots where resource configurations are not being monitored, potentially leading to unrecorded changes and compliance gaps.",
+      "remediation": "Extend AWS Config enablement to all active AWS regions to ensure comprehensive coverage. Verify that configuration recorders are in 'RECORDING' state in all enabled regions.",
+      "pci_dss": [
+        {
+          "control": "10.2.1",
+          "reason": "Incomplete deployment of audit logging (Config) means that not all system components are being logged, failing to meet the comprehensive logging requirement."
+        },
+        {
+          "control": "12.5.1",
+          "reason": "Lack of full inventory coverage due to partial Config enablement impacts the ability to maintain an accurate and complete inventory of in-scope system components."
+        }
+      ]
+    },
+    {
+      "id": "HRD-007",
+      "title": "Security Hub sin standards PCI DSS (si aplica)",
+      "severity": "High",
+      "description": "If the AWS account processes cardholder data or is part of the Cardholder Data Environment (CDE), Security Hub does not have the PCI DSS compliance standard enabled, meaning there is no automated, continuous monitoring against PCI DSS requirements.",
+      "remediation": "Enable the PCI DSS compliance standard in AWS Security Hub to continuously monitor and report on the account's adherence to PCI DSS requirements.",
+      "pci_dss": [
+        {
+          "control": "12.2.1",
+          "reason": "For PCI DSS compliant environments, failing to monitor against the PCI DSS standard directly impacts the risk management program and continuous compliance assessment."
+        },
+        {
+          "control": "6.3.1",
+          "reason": "Identifying vulnerabilities relevant to PCI DSS requires active monitoring against the standard, which is missing in this case."
+        }
+      ]
+    },
+    {
+      "id": "HRD-008",
+      "title": "Compliance score 50-70%",
+      "severity": "High",
+      "description": "A global compliance score between 50% and 70% indicates a deficient security posture with numerous unaddressed findings, requiring urgent attention to reduce overall risk.",
+      "remediation": "Prioritize and remediate all HIGH and a significant portion of MEDIUM findings to improve the compliance score and strengthen the security posture.",
+      "pci_dss": [
+        {
+          "control": "12.2.1",
+          "reason": "A compliance score in this range signifies considerable gaps in the implementation of security controls, necessitating a more robust risk management approach."
+        }
+      ]
+    },
+    {
+      "id": "HRD-009",
+      "title": "Findings HIGH sin remediar > 10",
+      "severity": "High",
+      "description": "More than 10 HIGH severity security findings remain un-remediated, indicating a backlog of significant vulnerabilities or misconfigurations that elevate the account's risk profile.",
+      "remediation": "Implement a focused remediation effort to address all HIGH severity findings within a short timeframe (e.g., 1 week).",
+      "pci_dss": [
+        {
+          "control": "6.3.3.b",
+          "reason": "Similar to critical findings, high-security patches/updates (or remediation of high severity vulnerabilities) must be addressed promptly."
+        },
+        {
+          "control": "12.5.2",
+          "reason": "Requires timely addressing of identified security weaknesses to prevent potential incidents."
+        }
+      ]
+    },
+    {
+      "id": "HRD-010",
+      "title": "Sin conformance packs configurados",
+      "severity": "High",
+      "description": "No AWS Config Conformance Packs are configured, missing an opportunity to automate compliance validation and generate reports against specific security and operational best practices.",
+      "remediation": "Deploy relevant AWS Config Conformance Packs (e.g., Operational Best Practices, specific regulatory compliance packs) to automate checks and improve compliance reporting.",
+      "pci_dss": [
+        {
+          "control": "12.2.1",
+          "reason": "Conformance Packs provide automated continuous compliance checks, directly supporting and enhancing the risk management program's effectiveness."
+        }
+      ]
+    },
+    {
+      "id": "HRD-011",
+      "title": "Compliance score 70-85%",
+      "severity": "Medium",
+      "description": "A compliance score between 70% and 85% indicates a reasonably good security posture, but with notable areas for improvement to achieve stronger compliance and hardening.",
+      "remediation": "Review and prioritize remediation of all MEDIUM severity findings. Consider enabling additional proactive security services and implementing architectural best practices.",
+      "pci_dss": [
+        {
+          "control": "12.2.1",
+          "reason": "While better, this score still points to areas where the risk management program and implemented controls can be strengthened to achieve higher compliance."
+        }
+      ]
+    },
+    {
+      "id": "HRD-012",
+      "title": "Findings MEDIUM sin remediar > 20",
+      "severity": "Medium",
+      "description": "More than 20 MEDIUM severity security findings remain un-remediated, creating an accumulation of moderate risks that could become significant if left unaddressed over time.",
+      "remediation": "Address MEDIUM severity findings in a planned manner, ideally within 2-4 weeks, to reduce the overall technical debt and improve the security baseline.",
+      "pci_dss": [
+        {
+          "control": "6.3.3.b",
+          "reason": "While not critical, medium severity vulnerabilities still require timely remediation as per vulnerability management policies."
+        },
+        {
+          "control": "12.5.2",
+          "reason": "Accumulation of unaddressed medium findings represents a failure to effectively manage and address identified security weaknesses."
+        }
+      ]
+    },
+    {
+      "id": "HRD-013",
+      "title": "Standards desactualizados",
+      "severity": "Medium",
+      "description": "The compliance standards enabled in Security Hub are outdated versions, meaning the account is not being assessed against the most current security best practices and regulatory requirements.",
+      "remediation": "Update Security Hub to use the latest versions of enabled compliance standards (e.g., CIS v1.4, PCI DSS v4.0) to ensure assessments are based on current benchmarks.",
+      "pci_dss": [
+        {
+          "control": "6.3.1.a",
+          "reason": "Requires that security vulnerabilities are identified using industry-recognized sources and that processes are updated as new vulnerability issues are identified. Using outdated standards means the process is not fully up-to-date."
+        }
+      ]
+    },
+    {
+      "id": "HRD-014",
+      "title": "Sin integracion con alertas",
+      "severity": "Medium",
+      "description": "Security Hub findings are not integrated with an alerting mechanism (e.g., SNS, EventBridge to PagerDuty/Slack), leading to delayed notification and response to security events.",
+      "remediation": "Configure EventBridge rules to forward Security Hub findings (especially CRITICAL/HIGH) to an appropriate alerting system, ensuring prompt notification of security personnel.",
+      "pci_dss": [
+        {
+          "control": "10.6.1",
+          "reason": "This control requires monitoring security events and alerting personnel. Lack of integration with an alerting system directly impacts the effectiveness of security event monitoring."
+        }
+      ]
+    },
+    {
+      "id": "HRD-015",
+      "title": "Compliance score 85-95%",
+      "severity": "Low",
+      "description": "A compliance score between 85% and 95% indicates a strong security posture with only minor gaps. Focus should be on continuous improvement and addressing remaining findings.",
+      "remediation": "Continuously monitor for new findings, refine security controls, and address remaining LOW severity findings as part of an ongoing security improvement program.",
+      "pci_dss": [
+        {
+          "control": "12.2.1",
+          "reason": "Even with a high compliance score, continuous monitoring and review are necessary to maintain and improve the security posture."
+        }
+      ]
+    },
+    {
+      "id": "HRD-016",
+      "title": "Findings LOW pendientes",
+      "severity": "Low",
+      "description": "Some LOW severity security findings remain un-remediated. While not immediately critical, these findings contribute to technical debt and may indicate areas for process improvement.",
+      "remediation": "Address LOW severity findings as part of routine maintenance or during dedicated security improvement sprints. Focus on automation and preventative measures.",
+      "pci_dss": [
+        {
+          "control": "6.3.3.b",
+          "reason": "While not high-priority, all identified vulnerabilities, regardless of severity, should eventually be addressed according to an entity's vulnerability management policy."
+        }
+      ]
+    },
+    {
+      "id": "HRD-017",
+      "title": "Tags inconsistentes",
+      "severity": "Low",
+      "description": "Lack of consistent tagging across resources hinders effective resource management, cost allocation, automation, and security policy enforcement.",
+      "remediation": "Implement a comprehensive tagging strategy. Use AWS Tag Editor or Resource Groups to apply consistent tags for environment, ownership, application, and compliance scope across all resources.",
+      "pci_dss": [
+        {
+          "control": "12.5.1",
+          "reason": "Consistent tagging is crucial for maintaining an accurate inventory of system components, especially those in-scope for PCI DSS. It enables easier identification and management of relevant resources."
+        }
+      ]
+    },
+    {
+      "id": "HRD-018",
+      "title": "Documentacion faltante",
+      "severity": "Low",
+      "description": "Key security policies, operational procedures, or architectural documentation are missing or incomplete, potentially leading to inconsistent security practices and difficulties during audits.",
+      "remediation": "Document all missing security policies, operational procedures, and architectural diagrams. Ensure documentation is kept up-to-date, in use, and known to all affected parties.",
+      "pci_dss": [
+        {
+          "control": "1.1.1",
+          "reason": "This control explicitly requires all security policies and operational procedures to be documented, kept up to date, in use, and known to all affected parties. Missing documentation is a direct violation."
+        },
+        {
+          "control": "2.1.1",
+          "reason": "This control requires documentation of security policies and operational procedures related to secure configurations."
+        },
+        {
+          "control": "3.1.1",
+          "reason": "Requires documented security policies and procedures for protecting stored account data."
+        },
+        {
+          "control": "4.1.1",
+          "reason": "Requires documented security policies and procedures for protecting cardholder data during transmission over open, public networks."
+        },
+        {
+          "control": "5.1.1",
+          "reason": "Requires documented security policies and procedures for protecting all systems and networks from malware."
+        },
+        {
+          "control": "6.1.1",
+          "reason": "Requires documented security policies and procedures for developing and maintaining secure systems and applications."
+        },
+        {
+          "control": "7.1.1",
+          "reason": "Requires documented security policies and procedures for restricting access to system components and cardholder data by business need-to-know."
+        }
+      ]
+    }
+  ],
+  "version": "1.0",
+  "total_checks": 18,
+  "last_updated": "2026-01-23",
+  "notes": "Generated based on aws-hardening-skill.md and mapped against PCI DSS v4.0 controls."
+}

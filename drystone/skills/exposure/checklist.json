@@ -1,671 +1,231 @@
 {
   "skill": "exposure",
-  "framework": "AWS Well-Architected Framework Security Pillar + CIS AWS Benchmark",
-  "description": "Internet Exposure Assessment - Identifies all resources exposed to the internet, maps complete architecture chains, and evaluates misconfiguration and attack surface risks",
+  "framework": "AWS Security Best Practices + PCI DSS v4.0 Mapping",
+  "description": "Checklist for identifying and assessing AWS resources exposed to the internet, with mappings to relevant PCI DSS controls.",
   "items": [
     {
       "id": "EXP-001",
-      "cis_id": "2.1.5",
-      "title": "S3 buckets with sensitive data must not be publicly accessible",
+      "title": "S3 buckets públicos con datos sensibles",
       "severity": "Critical",
-      "description": "S3 buckets containing backups, logs, PII, or customer data exposed publicly. AllUsers ACL or IsPublic policy allows unrestricted read/list access from internet.",
-      "evidence_files": [
-        "s3-public-buckets.json",
-        "s3-bucket-policies.json"
-      ],
-      "check_keywords": [
-        "public",
-        "AllUsers",
-        "IsPublic",
-        "ACL",
-        "backup",
-        "logs",
-        "PII",
-        "customer"
-      ],
-      "remediation": "Enable Block Public Access at bucket level: aws s3api put-public-access-block --bucket BUCKET --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true",
+      "description": "S3 buckets containing sensitive data (backups, PII, credentials) are configured to allow public read/write access. This is a direct and severe data exposure risk.",
+      "remediation": "Enable 'Block Public Access' at the account and bucket level. Remove any public ACLs or bucket policies. Ensure buckets with sensitive data are encrypted and access is restricted via IAM policies and roles.",
       "pci_dss": [
         {
-          "control": "3.2.1",
-          "reason": "This control requires restricting access to cardholder data (storage, transmission, deletion). Public S3 buckets with customer/payment data directly violate this requirement."
+          "control": "1.4.4.b",
+          "reason": "This control requires that system components storing cardholder data are not directly accessible from untrusted networks. A public S3 bucket is, by definition, directly accessible from the internet (an untrusted network)."
         },
         {
-          "control": "6.5.9",
-          "reason": "This control addresses broken access control. Public S3 buckets are a classic example of broken access control allowing unauthorized access to sensitive data."
+          "control": "3.5.1",
+          "reason": "This control mandates that the Primary Account Number (PAN) is rendered unreadable anywhere it is stored. A public bucket makes data readable to everyone, directly violating the core principle of protecting stored cardholder data."
         },
         {
-          "control": "10.7",
-          "reason": "This control requires retention of audit trail records. Public S3 buckets expose historical data without audit controls, violating retention policies."
+          "control": "7.2.1",
+          "reason": "This control requires access to be based on the principle of least privilege. Making a bucket public is the antithesis of least privilege, granting maximum possible privilege to the entire internet."
         }
       ]
     },
     {
       "id": "EXP-002",
-      "cis_id": "2.3.1",
-      "title": "Security Groups must not allow SSH (22) access from 0.0.0.0/0",
+      "title": "RDS/Databases directamente accesibles desde internet",
       "severity": "Critical",
-      "description": "EC2 instances with SSH access open to entire internet. Exposed to brute-force attacks, vulnerability exploitation, and unauthorized access.",
-      "evidence_files": [
-        "security-groups-open.json",
-        "ec2-instances.json"
-      ],
-      "check_keywords": [
-        "SSH",
-        "port 22",
-        "0.0.0.0/0",
-        "::/0",
-        "management access"
-      ],
-      "remediation": "Restrict SSH to specific IPs or use Systems Manager Session Manager: aws ec2 revoke-security-group-ingress --group-id SG_ID --protocol tcp --port 22 --cidr 0.0.0.0/0 && aws ec2 authorize-security-group-ingress --group-id SG_ID --protocol tcp --port 22 --cidr <OFFICE_IP>/32",
+      "description": "Relational Database Service (RDS) instances or other databases are configured with the 'PubliclyAccessible' flag set to true and have security groups allowing access from 0.0.0.0/0.",
+      "remediation": "Set 'PubliclyAccessible' to false for all RDS instances. Place databases in private subnets and restrict access via security groups to only the specific application servers that need to connect to them.",
       "pci_dss": [
         {
-          "control": "1.3.1",
-          "reason": "This control requires restricting inbound traffic to only necessary, approved traffic and denying all other traffic. SSH open to internet violates the deny-by-default principle."
+          "control": "1.4.4.b",
+          "reason": "A publicly accessible database is a system component storing cardholder data that is directly accessible from an untrusted network (the internet), which is explicitly forbidden by this control."
         },
         {
-          "control": "7.1",
-          "reason": "This control mandates limiting access to system components to only those individuals requiring access. SSH open to 0.0.0.0/0 allows unrestricted access."
+          "control": "2.2.1",
+          "reason": "Industry-accepted hardening standards universally recommend against exposing databases directly to the internet. This configuration violates secure configuration principles."
+        },
+        {
+          "control": "7.2.1",
+          "reason": "Exposing a database to the world violates the principle of least privilege. Access should be restricted to only specific, authorized application components."
         }
       ]
     },
     {
       "id": "EXP-003",
-      "cis_id": "2.3.2",
-      "title": "Security Groups must not allow RDP (3389) access from 0.0.0.0/0",
+      "title": "Security Groups con SSH/RDP abierto a 0.0.0.0/0",
       "severity": "Critical",
-      "description": "Windows instances with RDP exposed to internet. Critical risk for brute-force and credential-based attacks.",
-      "evidence_files": [
-        "security-groups-open.json",
-        "ec2-instances.json"
-      ],
-      "check_keywords": [
-        "RDP",
-        "port 3389",
-        "0.0.0.0/0",
-        "::/0"
-      ],
-      "remediation": "Restrict RDP to specific office IPs: aws ec2 revoke-security-group-ingress --group-id SG_ID --protocol tcp --port 3389 --cidr 0.0.0.0/0",
+      "description": "Security group rules allow unrestricted access from any IP address (0.0.0.0/0) to administrative ports such as SSH (22) or RDP (3389). This exposes instances to brute-force attacks.",
+      "remediation": "Modify the security group to only allow SSH/RDP access from a trusted, limited set of IP addresses (e.g., corporate office, bastion host). The best practice is to use AWS Systems Manager Session Manager and remove direct SSH/RDP access entirely.",
       "pci_dss": [
         {
-          "control": "1.3.1",
-          "reason": "This control requires restricting inbound traffic to only necessary traffic and denying all other. RDP exposed to internet violates this principle."
+          "control": "1.3.1.b",
+          "reason": "This control requires inbound traffic to be restricted to only what is necessary, with all other traffic denied. Allowing SSH/RDP from the entire internet is not necessary and violates this 'deny-all' principle."
+        },
+        {
+          "control": "2.2.7.b",
+          "reason": "This control requires that non-console administrative access (like SSH/RDP) is secured. Exposing these ports to the world is a failure to properly secure the administrative interface, making it vulnerable to attack."
+        },
+        {
+          "control": "8.4.1",
+          "reason": "This finding relates to securing the entry point for non-console administrative access, for which MFA is required. A wide-open port is a failure to adequately protect the administrative interface where MFA would be challenged."
         }
       ]
     },
     {
       "id": "EXP-004",
-      "cis_id": "N/A",
-      "title": "Security Groups must not expose database ports (3306, 5432, 1433, 27017) to 0.0.0.0/0",
+      "title": "EC2 con puertos de gestión expuestos (22, 3389, 3306, 5432)",
       "severity": "Critical",
-      "description": "Database ports directly accessible from internet. Allows unauthorized database access, SQL injection attacks, and data exfiltration.",
-      "evidence_files": [
-        "security-groups-open.json",
-        "rds-instances.json"
-      ],
-      "check_keywords": [
-        "database",
-        "MySQL 3306",
-        "PostgreSQL 5432",
-        "MSSQL 1433",
-        "MongoDB 27017",
-        "Redis 6379",
-        "Oracle 1521",
-        "0.0.0.0/0"
-      ],
-      "remediation": "Remove database port rules from 0.0.0.0/0. Database ports should only be accessible from application servers: aws ec2 revoke-security-group-ingress --group-id SG_ID --protocol tcp --port 3306 --cidr 0.0.0.0/0",
+      "description": "EC2 instances have public IP addresses and are associated with security groups that expose administrative or database ports directly to the internet.",
+      "remediation": "Place instances in private subnets. Use an Application Load Balancer (ALB) for web traffic. Restrict security group rules to only necessary sources. Use AWS Systems Manager for management.",
       "pci_dss": [
         {
-          "control": "1.3.1",
-          "reason": "Exposing database ports to internet violates the deny-by-default inbound traffic principle."
+          "control": "1.3.1.b",
+          "reason": "This requires restricting inbound traffic to only what is necessary. Exposing management and database ports to the internet is a direct violation, as that traffic is not necessary from all sources."
         },
         {
-          "control": "3.2.1",
-          "reason": "Direct database exposure violates access restriction requirements for cardholder data."
+          "control": "2.2.4.b",
+          "reason": "This control requires disabling unnecessary functionality. While the service (e.g., SSH, MySQL) may be necessary for the server, exposing it via an open port is an unnecessary and insecure function."
         }
       ]
     },
     {
       "id": "EXP-005",
-      "cis_id": "N/A",
-      "title": "RDS instances must not have PubliclyAccessible enabled",
+      "title": "Lambda URLs sin autenticación con lógica sensible",
       "severity": "Critical",
-      "description": "RDS database instances with PubliclyAccessible=true allow connections from internet. Should only be accessible from application servers in private subnet.",
-      "evidence_files": [
-        "rds-instances.json"
-      ],
-      "check_keywords": [
-        "RDS",
-        "PubliclyAccessible",
-        "true",
-        "public endpoint"
-      ],
-      "remediation": "Disable public accessibility and ensure database is in private subnet: aws rds modify-db-instance --db-instance-identifier DB_ID --no-publicly-accessible --apply-immediately",
+      "description": "AWS Lambda functions with sensitive business logic are exposed to the internet via a Function URL with the authentication type set to 'NONE'.",
+      "remediation": "Change the Lambda Function URL authentication type to 'AWS_IAM'. Use API Gateway with an authorizer (IAM, Cognito, or Lambda authorizer) as a more robust and secure frontend.",
       "pci_dss": [
         {
-          "control": "1.3.1",
-          "reason": "Public RDS directly violates the principle of restricting inbound traffic to only necessary sources."
+          "control": "6.2.4",
+          "reason": "This relates to preventing attacks on business logic and access control. A public Lambda URL with no authentication is a complete bypass of access control mechanisms for that piece of business logic."
         },
         {
-          "control": "3.2.1",
-          "reason": "Publicly accessible databases expose cardholder data to internet access."
+          "control": "7.2.1",
+          "reason": "Allowing unauthenticated access to sensitive logic is a gross violation of the principle of least privilege."
+        },
+        {
+          "control": "8.1.1",
+          "reason": "This control requires that all access to system components and cardholder data is assigned to an individual and authenticated. A Lambda URL with no authentication fails to meet this requirement."
         }
       ]
     },
     {
       "id": "EXP-006",
-      "cis_id": "N/A",
-      "title": "Lambda functions with public URLs must have authentication enabled",
+      "title": "API Gateway sin autenticación/rate limiting",
       "severity": "Critical",
-      "description": "Lambda functions with Function URLs accessible without authentication. AuthType=NONE allows anyone to invoke the function, potentially accessing sensitive data or performing unauthorized actions.",
-      "evidence_files": [
-        "lambda-public-urls.json"
-      ],
-      "check_keywords": [
-        "Lambda URL",
-        "AuthType",
-        "NONE",
-        "public",
-        "authentication"
-      ],
-      "remediation": "Enable authentication for Lambda URLs: aws lambda update-function-url-config --function-name FUNCTION_NAME --auth-type AWS_IAM or use AWS_IAM with resource-based policy",
+      "description": "API Gateway endpoints that trigger sensitive backend operations are configured without any authentication mechanism (e.g., IAM, Cognito, API Key) and without rate limiting (throttling).",
+      "remediation": "Implement an authorizer (IAM, Cognito, or Lambda) for all sensitive endpoints. Configure Usage Plans and API Keys to enforce throttling and prevent abuse.",
       "pci_dss": [
         {
-          "control": "7.1",
-          "reason": "Public Lambda URLs without authentication allow unrestricted access to functions, violating access control requirements."
+          "control": "8.1.1",
+          "reason": "An API without authentication allows access without identification or authentication, directly violating this fundamental control."
+        },
+        {
+          "control": "7.2.1",
+          "reason": "Public access without authentication is the maximum possible privilege, directly opposing the requirement for least privilege."
+        },
+        {
+          "control": "6.4.2",
+          "reason": "While API Gateway itself isn't a WAF, the lack of authentication and rate limiting makes it vulnerable to web-based attacks like business logic abuse and denial of service, which this control aims to prevent."
         }
       ]
     },
     {
       "id": "EXP-007",
-      "cis_id": "N/A",
-      "title": "API Gateway endpoints must have authentication configured",
+      "title": "ALB/NLB sin WAF en aplicaciones críticas",
       "severity": "Critical",
-      "description": "API Gateway REST/HTTP APIs accessible without authentication (no API key, IAM, Cognito, or custom authorizer). Allows unauthorized API consumption, data access, and abuse.",
-      "evidence_files": [
-        "api-gateway-apis.json",
-        "api-gateway-stages.json"
-      ],
-      "check_keywords": [
-        "API Gateway",
-        "authentication",
-        "api-key",
-        "IAM",
-        "Cognito",
-        "authorizer",
-        "NONE"
-      ],
-      "remediation": "Implement authentication. Option 1 (API Key): aws apigateway create-api-key --name prod-key --enabled. Option 2 (IAM): Update resource policy. Option 3 (Cognito): Attach user pool to API.",
+      "description": "An internet-facing Application Load Balancer (ALB) or Network Load Balancer (NLB) in front of a critical, public-facing web application does not have AWS WAF associated with it.",
+      "remediation": "Create an AWS WAF Web ACL with AWS Managed Rules (e.g., Core rule set, SQLi rule set) and associate it with the critical ALB.",
       "pci_dss": [
         {
-          "control": "7.1",
-          "reason": "APIs without authentication allow unrestricted access, violating least privilege principles."
-        },
-        {
-          "control": "8.1",
-          "reason": "Authentication is required for user identification and is a fundamental security control."
+          "control": "6.4.2",
+          "reason": "This control requires an automated technical solution (like a WAF) to be installed in front of public-facing web applications to detect and prevent web-based attacks. This finding is a direct violation."
         }
       ]
     },
     {
       "id": "EXP-008",
-      "cis_id": "N/A",
-      "title": "Lambda environment variables must not contain hardcoded credentials",
+      "title": "Secrets/credenciales hardcodeadas en Lambda",
       "severity": "Critical",
-      "description": "Secrets, passwords, API keys, database credentials stored in Lambda environment variables. Anyone with Lambda:GetFunction permission can read plaintext credentials.",
-      "evidence_files": [
-        "lambda-environment-vars.json"
-      ],
-      "check_keywords": [
-        "PASSWORD",
-        "SECRET",
-        "API_KEY",
-        "ACCESS_KEY",
-        "TOKEN",
-        "DB_PASSWORD",
-        "PRIVATE_KEY",
-        "JWT_SECRET"
-      ],
-      "remediation": "Migrate credentials to AWS Secrets Manager: aws secretsmanager create-secret --name prod/lambda/db-password --secret-string '{\"password\":\"xxx\"}' --kms-key-id KMS_KEY_ID. Update Lambda to retrieve secret at runtime.",
+      "description": "Sensitive information like database passwords, API keys, or other secrets are stored in plaintext within Lambda environment variables or source code.",
+      "remediation": "Remove secrets from environment variables and code. Store them securely in AWS Secrets Manager or AWS Systems Manager Parameter Store (SecureString type) and grant the Lambda function's execution role permission to retrieve them at runtime.",
       "pci_dss": [
         {
-          "control": "2.2.4",
-          "reason": "Hardcoded credentials in source/environment violate secure credential management requirements."
+          "control": "3.6.1.a",
+          "reason": "This control demands processes to protect cryptographic keys and secrets against disclosure. Storing secrets in plaintext environment variables is a direct failure to protect them."
         },
         {
-          "control": "8.2.1",
-          "reason": "This control requires strong authentication mechanisms. Hardcoded credentials weaken authentication."
+          "control": "6.2.4",
+          "reason": "Hardcoding credentials is a common software vulnerability. Secure development practices require separating code from secrets."
+        },
+        {
+          "control": "8.3.1",
+          "reason": "This control requires that passwords/passphrases are not stored in a readable format. Hardcoded credentials in environment variables or code are considered readable."
         }
       ]
     },
     {
       "id": "EXP-009",
-      "cis_id": "2.4.2",
-      "title": "Application Load Balancers must have WAF attached for production applications",
-      "severity": "Critical",
-      "description": "Internet-facing ALBs without AWS WAF protection. Applications vulnerable to OWASP Top 10 attacks (SQL injection, XSS, CSRF, etc.), bots, and credential stuffing.",
-      "evidence_files": [
-        "alb-load-balancers.json",
-        "waf-associations.json"
-      ],
-      "check_keywords": [
-        "ALB",
-        "internet-facing",
-        "WAF",
-        "web application firewall",
-        "protected"
-      ],
-      "remediation": "Create WAF Web ACL and associate with ALB: aws wafv2 create-web-acl --name prod-waf --scope REGIONAL --default-action Allow={} --rules file://waf-rules.json --visibility-config SampledRequestsEnabled=true,CloudWatchMetricsEnabled=true,MetricName=prod-waf. Then: aws wafv2 associate-web-acl --web-acl-arn ARN --resource-arn ALB_ARN",
+      "title": "CloudFront sin protección DDoS (Shield)",
+      "severity": "High",
+      "description": "A CloudFront distribution for a business-critical application is not protected by AWS Shield Advanced, relying only on the default Shield Standard.",
+      "remediation": "Subscribe to AWS Shield Advanced and add the CloudFront distribution to its list of protected resources. This provides enhanced DDoS protection and access to the DDoS Response Team (DRT).",
       "pci_dss": [
         {
-          "control": "6.6",
-          "reason": "This control requires protecting web applications from known attacks. WAF is essential for detecting and blocking OWASP Top 10 attacks."
+          "control": "12.10.6",
+          "reason": "This control is part of incident response and requires measures to prevent, detect, and address DoS attacks. Not having adequate DDoS protection for a critical application is a failure in prevention."
         }
       ]
     },
     {
       "id": "EXP-010",
-      "cis_id": "N/A",
-      "title": "API Gateway must have throttling/rate limiting configured",
-      "severity": "Critical",
-      "description": "API Gateway without throttling allows unlimited requests. Vulnerable to DoS attacks, abuse, and cost overruns from malicious API consumption.",
-      "evidence_files": [
-        "api-gateway-stages.json",
-        "api-gateway-usage-plans.json"
-      ],
-      "check_keywords": [
-        "throttle",
-        "rate limit",
-        "usage plan",
-        "not configured",
-        "unlimited"
-      ],
-      "remediation": "Configure usage plan with throttling: aws apigateway create-usage-plan --name prod-plan --throttle burstLimit=1000,rateLimit=500. Update stage: aws apigateway update-stage --rest-api-id API_ID --stage-name prod --patch-operations op=replace,path=/throttle/rateLimit,value=1000",
+      "title": "ALB con TLS 1.0/1.1 (obsoleto)",
+      "severity": "High",
+      "description": "An internet-facing ALB is configured with a security policy that allows obsolete and insecure TLS versions 1.0 or 1.1.",
+      "remediation": "Update the ALB listener's security policy to a modern one that enforces TLS 1.2 or higher, such as 'ELBSecurityPolicy-TLS13-1-2-2021-06'.",
       "pci_dss": [
         {
-          "control": "6.5.10",
-          "reason": "This control requires protecting applications from broken access control. Rate limiting helps prevent abuse and ensures fair resource usage."
+          "control": "4.2.1.b",
+          "reason": "This control requires strong cryptography and security protocols. TLS 1.0 and 1.1 are explicitly defined as not being strong cryptography and must not be used for transmitting cardholder data."
+        },
+        {
+          "control": "2.2.7.d",
+          "reason": "This control requires implementing strong cryptography according to industry best practices. Using deprecated TLS versions is a direct violation of this."
         }
       ]
     },
     {
       "id": "EXP-011",
-      "cis_id": "2.2.3",
-      "title": "CloudFront distributions must have AWS Shield Standard enabled (default) and Shield Advanced evaluated",
+      "title": "S3 buckets con listado de objetos público",
       "severity": "High",
-      "description": "CloudFront distributions without DDoS protection. Applications vulnerable to volumetric and application-layer DDoS attacks.",
-      "evidence_files": [
-        "cloudfront-distributions.json",
-        "shield-status.json"
-      ],
-      "check_keywords": [
-        "CloudFront",
-        "Shield",
-        "DDoS",
-        "protection",
-        "Advanced"
-      ],
-      "remediation": "Shield Standard is enabled by default. For critical applications, subscribe to Shield Advanced: aws shield subscribe --subscription. Alternative: Use AWS WAF on CloudFront distribution.",
+      "description": "S3 bucket permissions allow anyone on the internet to list the contents of the bucket, which can lead to inadvertent disclosure of sensitive file names and structures even if the objects themselves are not public.",
+      "remediation": "Modify the bucket policy and/or ACLs to deny the 's3:ListBucket' action for public principals. Ensure that only authorized IAM users or roles can list the bucket contents.",
       "pci_dss": [
         {
-          "control": "1.1.2",
-          "reason": "This control requires protection of internet-facing resources. DDoS protection (Shield) is essential for maintaining availability."
+          "control": "7.2.1",
+          "reason": "Allowing public listing of objects violates the principle of least privilege. The ability to see what files exist in a storage location is a privilege that should be restricted to authorized personnel."
+        },
+        {
+          "control": "1.3.1.b",
+          "reason": "Allowing object listing is a form of information leakage that is not strictly necessary for the functioning of most applications and should be denied as part of restricting traffic/access to only what is essential."
         }
       ]
     },
     {
       "id": "EXP-012",
-      "cis_id": "N/A",
-      "title": "ALB/NLB listeners must use TLS 1.2+ (not TLS 1.0/1.1)",
-      "severity": "High",
-      "description": "Load balancer listeners using obsolete TLS versions (1.0, 1.1) with weak ciphers. Vulnerable to known cryptographic attacks (POODLE, BEAST, etc.).",
-      "evidence_files": [
-        "alb-listeners.json"
-      ],
-      "check_keywords": [
-        "TLS",
-        "SSL",
-        "1.0",
-        "1.1",
-        "policy",
-        "ELBSecurityPolicy"
-      ],
-      "remediation": "Update SSL policy to TLS 1.2+. Recommended policy: ELBSecurityPolicy-TLS13-1-2-2021-06 or ELBSecurityPolicy-TLS-1-2-2017-01: aws elbv2 modify-listener --listener-arn LISTENER_ARN --ssl-policy ELBSecurityPolicy-TLS13-1-2-2021-06",
-      "pci_dss": [
-        {
-          "control": "4.1",
-          "reason": "This control requires strong cryptography. TLS 1.2+ is mandatory for secure data transmission. TLS 1.0/1.1 are considered weak."
-        }
-      ]
-    },
-    {
-      "id": "EXP-013",
-      "cis_id": "N/A",
-      "title": "Security Groups should minimize overly broad port ranges",
-      "severity": "High",
-      "description": "Security groups with ranges like 0-65535 or excessive port ranges allow unintended access. Violates least privilege principle.",
-      "evidence_files": [
-        "security-groups-open.json"
-      ],
-      "check_keywords": [
-        "port range",
-        "0-65535",
-        "excessive",
-        "broad"
-      ],
-      "remediation": "Replace broad rules with specific ports. Review each rule and restrict to minimum necessary: aws ec2 authorize-security-group-ingress --group-id SG_ID --protocol tcp --port SPECIFIC_PORT --source-security-group-id SG_SOURCE",
-      "pci_dss": [
-        {
-          "control": "1.3",
-          "reason": "This control requires denying all inbound traffic by default and allowing only necessary services. Broad port ranges violate this."
-        }
-      ]
-    },
-    {
-      "id": "EXP-014",
-      "cis_id": "N/A",
-      "title": "S3 bucket object listing must not be publicly accessible",
-      "severity": "High",
-      "description": "S3 buckets where ListBucket permission is granted to AllUsers/Principal: '*'. Attackers can enumerate all objects in bucket, finding sensitive data.",
-      "evidence_files": [
-        "s3-bucket-policies.json",
-        "s3-public-buckets.json"
-      ],
-      "check_keywords": [
-        "ListBucket",
-        "GetObject",
-        "AllUsers",
-        "Principal.*\\*",
-        "public listing"
-      ],
-      "remediation": "Remove ListBucket permission from bucket policy or restrict to authenticated users: Remove statement with Principal: '*' and s3:ListBucket action",
-      "pci_dss": [
-        {
-          "control": "3.2.1",
-          "reason": "Allowing public bucket listing violates access restriction to cardholder data."
-        }
-      ]
-    },
-    {
-      "id": "EXP-015",
-      "cis_id": "N/A",
-      "title": "Lambda functions must have least privilege IAM role attached",
-      "severity": "High",
-      "description": "Lambda functions with overly permissive IAM roles (e.g., AdministratorAccess, full service permissions). If compromised, attacker gains excessive permissions.",
-      "evidence_files": [
-        "lambda-functions.json",
-        "iam-roles.json",
-        "lambda-policies.json"
-      ],
-      "check_keywords": [
-        "Lambda",
-        "IAM role",
-        "permissions",
-        "AdministratorAccess",
-        "*:*",
-        "least privilege"
-      ],
-      "remediation": "Review Lambda IAM role and restrict to minimum necessary permissions. Remove wildcard permissions: aws iam delete-role-policy --role-name ROLE_NAME --policy-name POLICY_NAME. Attach specific managed policies or create custom policy.",
-      "pci_dss": [
-        {
-          "control": "7.2.1",
-          "reason": "This control requires access based on least privilege. Lambda roles should only have permissions for specific actions."
-        }
-      ]
-    },
-    {
-      "id": "EXP-016",
-      "cis_id": "N/A",
-      "title": "EC2 instances in public subnet should be behind load balancer (not directly internet-facing)",
-      "severity": "High",
-      "description": "EC2 instances in public subnet with public IPs directly exposed. Better practice is to have instances in private subnet behind ALB/NLB.",
-      "evidence_files": [
-        "ec2-instances.json",
-        "elb-load-balancers.json"
-      ],
-      "check_keywords": [
-        "EC2",
-        "public IP",
-        "PublicIpAddress",
-        "public subnet",
-        "load balancer",
-        "target"
-      ],
-      "remediation": "Create ALB and move EC2 instances to private subnet targets. This requires migration planning: 1) Create ALB in public subnets 2) Create target group pointing to instances 3) Gradually migrate to private subnet instances",
-      "pci_dss": [
-        {
-          "control": "1.2.1",
-          "reason": "Direct instance exposure violates network segregation best practices. Load balancers provide additional security layer."
-        }
-      ]
-    },
-    {
-      "id": "EXP-017",
-      "cis_id": "N/A",
-      "title": "Network ACLs should not have overly permissive inbound rules (0.0.0.0/0)",
+      "title": "EC2 sin Instance Metadata Service v2 (IMDSv2)",
       "severity": "Medium",
-      "description": "NACLs with broad Allow rules on inbound traffic. While Security Groups are primary defense, permissive NACLs reduce defense-in-depth.",
-      "evidence_files": [
-        "network-acls.json"
-      ],
-      "check_keywords": [
-        "NACL",
-        "network ACL",
-        "inbound",
-        "0.0.0.0/0",
-        "::/0",
-        "allow",
-        "permissive"
-      ],
-      "remediation": "Review NACL rules and restrict to necessary CIDR blocks. Remove overly broad rules and add specific rules for required traffic.",
+      "description": "EC2 instances are configured to allow IMDSv1, which is vulnerable to Server-Side Request Forgery (SSRF) attacks that can lead to credential exposure. IMDSv2 introduces session-oriented requests that mitigate this risk.",
+      "remediation": "Enforce the use of IMDSv2 on all EC2 instances by modifying their metadata options. Set 'HttpTokens' to 'required'.",
       "pci_dss": [
         {
-          "control": "1.3.1",
-          "reason": "NACLs should follow deny-by-default principle, allowing only necessary inbound traffic."
-        }
-      ]
-    },
-    {
-      "id": "EXP-018",
-      "cis_id": "N/A",
-      "title": "CloudFront distributions must use Origin Access Identity (OAI) for S3 origins",
-      "severity": "Medium",
-      "description": "CloudFront serving S3 content without OAI. Users can bypass CloudFront and access S3 directly using bucket URL, bypassing caching and security controls.",
-      "evidence_files": [
-        "cloudfront-distributions.json",
-        "s3-buckets.json"
-      ],
-      "check_keywords": [
-        "CloudFront",
-        "S3 origin",
-        "OAI",
-        "Origin Access Identity",
-        "DirectAccess"
-      ],
-      "remediation": "Configure Origin Access Identity for S3 origins: 1) Create OAI 2) Update bucket policy to allow only OAI 3) Update CloudFront distribution to use OAI",
-      "pci_dss": [
+          "control": "2.2.1.a",
+          "reason": "This requires hardening standards to address all known security vulnerabilities. The vulnerability of IMDSv1 to SSRF is a well-known issue, and failing to enforce IMDSv2 is a gap in system hardening."
+        },
         {
-          "control": "6.5.10",
-          "reason": "OAI ensures that S3 content is only accessed through CloudFront, maintaining security controls."
-        }
-      ]
-    },
-    {
-      "id": "EXP-019",
-      "cis_id": "N/A",
-      "title": "ELB/ALB access logs should be enabled for monitoring and audit",
-      "severity": "Medium",
-      "description": "Load balancers without access logs. Cannot audit traffic patterns, identify malicious requests, or troubleshoot issues.",
-      "evidence_files": [
-        "elb-load-balancers.json",
-        "alb-load-balancers.json"
-      ],
-      "check_keywords": [
-        "access logs",
-        "logging",
-        "ELB",
-        "ALB",
-        "enabled",
-        "disabled"
-      ],
-      "remediation": "Enable access logs to S3: aws elbv2 modify-load-balancer-attributes --load-balancer-arn ALB_ARN --attributes Key=access_logs.s3.enabled,Value=true Key=access_logs.s3.bucket,Value=BUCKET_NAME Key=access_logs.s3.prefix,Value=alb-logs",
-      "pci_dss": [
-        {
-          "control": "10.2.1",
-          "reason": "This control requires all access to audit trail data be logged. ELB access logs are essential for this."
-        }
-      ]
-    },
-    {
-      "id": "EXP-020",
-      "cis_id": "N/A",
-      "title": "API Gateway should have CloudWatch logging enabled",
-      "severity": "Medium",
-      "description": "API Gateway without CloudWatch logs. Cannot track API calls, debug issues, or detect suspicious activity.",
-      "evidence_files": [
-        "api-gateway-stages.json"
-      ],
-      "check_keywords": [
-        "CloudWatch",
-        "logging",
-        "logs",
-        "enabled",
-        "disabled"
-      ],
-      "remediation": "Enable CloudWatch logging: Create IAM role with logs:* permissions. Configure stage: aws apigateway update-stage --rest-api-id API_ID --stage-name STAGE --patch-operations op=replace,path=/*/*/logging/loglevel,value=INFO",
-      "pci_dss": [
-        {
-          "control": "10.2.1",
-          "reason": "This control requires logging all access to cardholder data environment. API Gateway logs are essential for this."
-        }
-      ]
-    },
-    {
-      "id": "EXP-021",
-      "cis_id": "2.2.2",
-      "title": "EC2 instances should use IMDSv2 (Instance Metadata Service v2)",
-      "severity": "Medium",
-      "description": "EC2 instances using IMDSv1. Vulnerable to SSRF attacks where attacker can query metadata service and steal IAM credentials.",
-      "evidence_files": [
-        "ec2-instances.json"
-      ],
-      "check_keywords": [
-        "IMDSv2",
-        "HttpTokens",
-        "required",
-        "optional",
-        "metadata"
-      ],
-      "remediation": "Enable IMDSv2 requirement: aws ec2 modify-instance-metadata-options --instance-id INSTANCE_ID --http-tokens required --http-put-response-hop-limit 1",
-      "pci_dss": [
-        {
-          "control": "8.1",
-          "reason": "IMDSv2 is a security control that prevents credential theft via SSRF attacks."
-        }
-      ]
-    },
-    {
-      "id": "EXP-022",
-      "cis_id": "N/A",
-      "title": "Exposed resources should have ownership tags for accountability",
-      "severity": "Medium",
-      "description": "Internet-facing resources without tags identifying owner, application, or environment. Difficult to track responsibility and remediate.",
-      "evidence_files": [
-        "ec2-instances.json",
-        "elb-load-balancers.json",
-        "rds-instances.json"
-      ],
-      "check_keywords": [
-        "tags",
-        "Owner",
-        "Application",
-        "Environment",
-        "missing",
-        "untagged"
-      ],
-      "remediation": "Tag all exposed resources with Owner, Application, Environment: aws ec2 create-tags --resources RESOURCE_ID --tags Key=Owner,Value=NAME Key=Application,Value=APP Key=Environment,Value=prod",
-      "pci_dss": [
-        {
-          "control": "12.5.1",
-          "reason": "This control requires maintaining an inventory of system components. Tags enable easy tracking and reporting."
-        }
-      ]
-    },
-    {
-      "id": "EXP-023",
-      "cis_id": "N/A",
-      "title": "Load balancers should redirect HTTP to HTTPS automatically",
-      "severity": "Low",
-      "description": "ALB/NLB accepting unencrypted HTTP. Users may send sensitive data in plaintext or be intercepted.",
-      "evidence_files": [
-        "elb-listeners.json",
-        "alb-listeners.json"
-      ],
-      "check_keywords": [
-        "HTTP",
-        "HTTPS",
-        "listener",
-        "redirect",
-        "unencrypted"
-      ],
-      "remediation": "Configure listener rule to redirect HTTP to HTTPS: aws elbv2 modify-listener --listener-arn LISTENER_ARN_HTTP --default-actions Type=redirect,RedirectConfig={Protocol=HTTPS,Port=443,StatusCode=HTTP_301}",
-      "pci_dss": [
-        {
-          "control": "4.1",
-          "reason": "All traffic to cardholder data environment must be encrypted. HTTP to HTTPS redirect ensures encryption."
-        }
-      ]
-    },
-    {
-      "id": "EXP-024",
-      "cis_id": "N/A",
-      "title": "CloudFront should have compression enabled to improve performance",
-      "severity": "Low",
-      "description": "CloudFront distribution without compression. Larger response sizes, slower performance, increased bandwidth costs.",
-      "evidence_files": [
-        "cloudfront-distributions.json"
-      ],
-      "check_keywords": [
-        "compression",
-        "gzip",
-        "enabled",
-        "disabled"
-      ],
-      "remediation": "Enable compression in CloudFront cache behaviors: aws cloudfront update-distribution --id DIST_ID --distribution-config file://config.json (set Compress=true)",
-      "pci_dss": [
-        {
-          "control": "N/A",
-          "reason": "Compression is a performance optimization, not directly related to PCI DSS but recommended for best practices."
-        }
-      ]
-    },
-    {
-      "id": "EXP-025",
-      "cis_id": "N/A",
-      "title": "Internet-facing resources should follow consistent naming convention",
-      "severity": "Low",
-      "description": "Resources without consistent naming. Difficult to identify resource purpose, ownership, and environment from name alone.",
-      "evidence_files": [
-        "ec2-instances.json",
-        "elb-load-balancers.json",
-        "security-groups.json"
-      ],
-      "check_keywords": [
-        "naming",
-        "convention",
-        "resource-name",
-        "format"
-      ],
-      "remediation": "Adopt naming convention: ENVIRONMENT-APPLICATION-COMPONENT-INSTANCE (e.g., prod-api-alb-01, prod-app-sg-web). Rename existing resources to follow pattern.",
-      "pci_dss": [
-        {
-          "control": "12.5.1",
-          "reason": "Consistent naming contributes to maintaining an accurate and organized inventory."
+          "control": "6.2.4",
+          "reason": "This control requires mitigating common software attacks. While the vulnerability is in the infrastructure, it is often exploited via application-level SSRF flaws. Enforcing IMDSv2 is a defense-in-depth control that mitigates the impact of such application vulnerabilities."
         }
       ]
     }
   ],
-  "version": "2.0",
-  "total_checks": 25,
-  "last_updated": "2026-01-22",
-  "notes": "Comprehensive Internet Exposure Assessment checklist based on AWS Well-Architected Framework Security Pillar and CIS AWS Benchmark. Covers critical to low severity items for identifying resources exposed to internet, mapping architecture chains, and evaluating attack surface. Mapped to PCI DSS v4.0 controls where applicable."
+  "version": "1.0",
+  "total_checks": 12,
+  "last_updated": "2026-01-23",
+  "notes": "Generated based on aws-exposure-checklist.md and mapped against PCI DSS v4.0 controls."
 }
