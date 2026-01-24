@@ -74,8 +74,16 @@ def audit(
             # Run wizard directly
             try:
                 config = run_setup_wizard()
+                if not config:
+                    click.echo("\n❌ Wizard returned empty configuration")
+                    sys.exit(1)
             except KeyboardInterrupt:
                 click.echo("\n❌ Audit cancelled")
+                sys.exit(1)
+            except Exception as e:
+                click.echo(f"\n❌ Error during wizard: {e}")
+                import traceback
+                traceback.print_exc()
                 sys.exit(1)
         elif has_cli_args:
             # CLI args provided but credentials must come from wizard
@@ -91,17 +99,35 @@ def audit(
             click.echo("✅ Using saved configuration\n")
 
     # Show summary
-    print_summary(config)
+    try:
+        print_summary(config)
+    except Exception as e:
+        click.echo(f"\n❌ Error displaying summary: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
     # Save config
-    saved_path = save_config(config)
-    click.echo(f"💾 Configuration saved to {saved_path}\n")
+    try:
+        saved_path = save_config(config)
+        click.echo(f"💾 Configuration saved to {saved_path}\n")
+    except Exception as e:
+        click.echo(f"\n❌ Error saving configuration: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
     # Extract account ID from validation
-    aws_access_key_id, aws_secret_access_key, aws_session_token = config.get_aws_credentials()
-    _, _, account_id = validate_aws_credentials(
-        aws_access_key_id, aws_secret_access_key, config.aws_region, aws_session_token
-    )
+    try:
+        aws_access_key_id, aws_secret_access_key, aws_session_token = config.get_aws_credentials()
+        _, _, account_id = validate_aws_credentials(
+            aws_access_key_id, aws_secret_access_key, config.aws_region, aws_session_token
+        )
+    except Exception as e:
+        click.echo(f"\n❌ Error validating credentials: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
     # === PHASE 2: EVIDENCE COLLECTION ===
     click.echo()

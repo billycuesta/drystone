@@ -585,13 +585,33 @@ def run_setup_wizard() -> WizardConfig:
     # BUILD FINAL CONFIG
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     try:
+        # Verify required keys are present and not None
+        if not project_config:
+            raise ValueError("Project configuration is missing (Menu A not configured)")
+
+        if not project_config.get("client_name"):
+            raise ValueError("Client name is required")
+
+        # Verify credential source is configured
+        has_direct_creds = (
+            project_config.get("aws_access_key_id") and
+            project_config.get("aws_secret_access_key")
+        )
+        has_file = project_config.get("aws_credentials_file")
+        has_profile = project_config.get("aws_profile")
+
+        if not (has_direct_creds or has_file or has_profile):
+            raise ValueError("No AWS credentials configured (expected direct, file, or profile)")
+
         config = WizardConfig(
             **project_config,
             **ai_config,
         )
         return config
-    except ValueError as e:
-        print(f"Configuration validation failed: {e}")
+    except (ValueError, TypeError) as e:
+        print(f"\n❌ Configuration validation failed: {e}")
+        import traceback
+        traceback.print_exc()
         raise
 
 
