@@ -132,7 +132,6 @@ def audit(
     # === PHASE 2: EVIDENCE COLLECTION ===
     click.echo()
     from drystone.storage.session import AuditSession
-    from drystone.skills.iam import IAMSkill
     from drystone.cloud.aws.client import AWSClient
 
     # Create audit session
@@ -140,99 +139,129 @@ def audit(
     session = AuditSession(config.client_name, account_id)
     click.echo(f"   Session: {session.base_path}\n")
 
-    # Execute IAM skill if selected
-    if "iam" in config.skills:
-        click.echo("🔍 Executing IAM Security Audit...")
+    # Create AWS client for all skills
+    aws_client = AWSClient(config)
 
-        # Create AWS client for skill
-        aws_client = AWSClient(config)
+    # Dynamically load and execute skills
+    skills_map = {
+        "iam": ("drystone.skills.iam", "IAMSkill"),
+        "exposure": ("drystone.skills.exposure", "ExposureSkill"),
+        "network": ("drystone.skills.network", "NetworkSkill"),
+        "vulns": ("drystone.skills.vulns", "VulnsSkill"),
+    }
 
-        # Execute IAM collector
-        skill = IAMSkill()
-        skill.collect(aws_client, session)
+    skill_instances = {}
+    for skill_name in config.skills:
+        if skill_name not in skills_map:
+            click.echo(f"⚠️  Unknown skill: {skill_name}")
+            continue
 
-        # List generated files
-        evidence_path = session.get_evidence_path("iam")
-        files = sorted(evidence_path.glob("*"))
-
-        click.echo(f"\n📊 Evidence saved ({len(files)} files):")
-        click.echo(f"   {evidence_path}/")
-        for file in files:
-            size_kb = file.stat().st_size / 1024
-            click.echo(f"   - {file.name} ({size_kb:.1f} KB)")
-
-    # === PHASE 3: AGENT ANALYSIS ===
-    findings_data = None
-    if "iam" in config.skills:
+        module_name, class_name = skills_map[skill_name]
         try:
-            click.echo("\n🤖 Analyzing evidence with AI...")
+            # Dynamically import skill
+            module = __import__(module_name, fromlist=[class_name])
+            skill_class = getattr(module, class_name)
+            skill = skill_class()
+            skill_instances[skill_name] = skill
 
-            from drystone.agent.client import AgentClient
+            # Execute collector
+            click.echo(f"🔍 Executing {skill_name.capitalize()} Security Audit...")
+            skill.collect(aws_client, session)
 
-            # Create provider configuration from config
-            aws_access_key_id, aws_secret_access_key, aws_session_token = config.get_aws_credentials()
+            # List generated files
+            evidence_path = session.get_evidence_path(skill_name)
+            files = sorted(evidence_path.glob("*"))
 
-            # Only load Bedrock credentials if using Bedrock provider
-            bedrock_access_key_id = None
-            bedrock_secret_access_key = None
-            bedrock_session_token = None
-
-            if config.ai_provider == "bedrock":
-                bedrock_access_key_id, bedrock_secret_access_key, bedrock_session_token = config.get_bedrock_credentials()
-
-            provider_config = {
-                'type': config.ai_provider,
-                'api_key': config.ai_api_key,
-                # Audit credentials (for evidence collection context)
-                'aws_access_key_id': aws_access_key_id,
-                'aws_secret_access_key': aws_secret_access_key,
-                'aws_session_token': aws_session_token,
-                # Bedrock credentials (only if using Bedrock provider)
-                'bedrock_access_key_id': bedrock_access_key_id,
-                'bedrock_secret_access_key': bedrock_secret_access_key,
-                'bedrock_session_token': bedrock_session_token,
-            }
-
-            agent = AgentClient(provider_config=provider_config)
-            findings_path = skill.analyze(session, agent)
-
-            # Show findings summary
-            with open(findings_path) as f:
-                findings_data = json.load(f)
-
-            click.echo(f"\n📊 Findings Summary:")
-            click.echo(f"   Total: {findings_data['summary']['total_findings']}")
-            click.echo(f"   Critical: {findings_data['summary']['critical']}")
-            click.echo(f"   High: {findings_data['summary']['high']}")
-            click.echo(f"   Risk Score: {findings_data['summary']['overall_risk_score']:.1f}/10")
-            click.echo(f"   Saved: {findings_path}")
+            click.echo(f"   ✅ Evidence saved ({len(files)} files):")
+            for file in files:
+                size_kb = file.stat().st_size / 1024
+                click.echo(f"      - {file.name} ({size_kb:.1f} KB)")
+            click.echo()
 
         except Exception as e:
-            click.echo(f"\n❌ Analysis error: {e}")
-            click.echo("   Evidence collection completed successfully")
+            click.echo(f"   ❌ Error collecting {skill_name}: {e}")
+            import traceback
+            traceback.print_exc()
+
+    # === PHASE 3: AGENT ANALYSIS ===
+    click.echo("🤖 Analyzing evidence with AI...\n")
+
+    from drystone.agent.client import AgentClient
+
+    # Create provider configuration once
+    aws_access_key_id, aws_secret_access_key, aws_session_token = config.get_aws_credentials()
+
+    # Only load Bedrock credentials if using Bedrock provider
+    bedrock_access_key_id = None
+    bedrock_secret_access_key = None
+    bedrock_session_token = None
+
+    if config.ai_provider == "bedrock":
+        bedrock_access_key_id, bedrock_secret_access_key, bedrock_session_token = config.get_bedrock_credentials()
+
+    provider_config = {
+        'type': config.ai_provider,
+        'api_key': config.ai_api_key,
+        # Audit credentials (for evidence collection context)
+        'aws_access_key_id': aws_access_key_id,
+        'aws_secret_access_key': aws_secret_access_key,
+        'aws_session_token': aws_session_token,
+        # Bedrock credentials (only if using Bedrock provider)
+        'bedrock_access_key_id': bedrock_access_key_id,
+        'bedrock_secret_access_key': bedrock_secret_access_key,
+        'bedrock_session_token': bedrock_session_token,
+    }
+
+    agent = AgentClient(provider_config=provider_config)
+
+    # Analyze each skill
+    all_findings = {}
+    for skill_name, skill in skill_instances.items():
+        try:
+            click.echo(f"   Analyzing {skill_name.capitalize()}...")
+            findings_path = skill.analyze(session, agent)
+
+            # Load findings data
+            with open(findings_path) as f:
+                findings_data = json.load(f)
+                all_findings[skill_name] = findings_data
+
+            # Show summary
+            summary = findings_data['summary']
+            click.echo(f"   ✅ {skill_name.capitalize()}:")
+            click.echo(f"      Total: {summary['total_findings']} | "
+                      f"Critical: {summary['critical']} | "
+                      f"High: {summary['high']} | "
+                      f"Risk: {summary['overall_risk_score']:.1f}/10\n")
+
+        except Exception as e:
+            click.echo(f"   ❌ Analysis error for {skill_name}: {e}")
 
     # === PHASE 4: REPORT GENERATION ===
-    if findings_data is not None:
-        click.echo("\n📄 Generating reports...")
+    if all_findings:
+        click.echo("📄 Generating reports...\n")
 
         try:
             from drystone.reports import ReportGenerator
 
             generator = ReportGenerator(session)
-            generated_reports = generator.generate_reports("iam", config.output_formats)
 
-            click.echo("\n📊 Reports Generated:")
-            for format_name, report_path in generated_reports.items():
-                size_kb = report_path.stat().st_size / 1024
-                click.echo(
-                    f"   ✅ {format_name.upper():8} {report_path.name:25} ({size_kb:.1f} KB)"
-                )
+            # Generate reports for each skill
+            for skill_name in all_findings.keys():
+                generated_reports = generator.generate_reports(skill_name, config.output_formats)
+
+                click.echo(f"   {skill_name.capitalize()} Reports:")
+                for format_name, report_path in generated_reports.items():
+                    size_kb = report_path.stat().st_size / 1024
+                    click.echo(
+                        f"      ✅ {format_name.upper():8} {report_path.name:30} ({size_kb:.1f} KB)"
+                    )
 
             # Show how to view reports
-            if "markdown" in generated_reports:
-                md_path = generated_reports["markdown"]
-                click.echo(f"\n📝 View report:")
-                click.echo(f"   cat {md_path}")
+            if "markdown" in config.output_formats:
+                reports_path = session.get_findings_path()
+                click.echo(f"\n📝 View reports:")
+                click.echo(f"   ls {reports_path.parent}/")
 
             click.echo(f"\n✅ Phase 4 Complete (Report Generation)")
 
@@ -240,7 +269,7 @@ def audit(
             click.echo(f"\n⚠️  Report generation failed: {e}")
             click.echo("   Evidence and findings are saved, but reports could not be generated")
     else:
-        click.echo("\n⚠️  Skipping Phase 4 (no findings to report)")
+        click.echo("⚠️  Skipping Phase 4 (no findings to report)")
 
     # Show completion
     click.echo(f"\n✅ Audit Complete")
