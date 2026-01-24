@@ -219,5 +219,82 @@ class ExposureSkill(BaseSkill):
         with open(filepath, "w") as f:
             json.dump(data, f, indent=2, default=str)
 
+    def analyze(self, session: AuditSession, agent_client: "AgentClient") -> Path:
+        """Analyze collected exposure evidence using Claude API.
+
+        1. Read all evidence files
+        2. Read security checklist
+        3. Send to Claude API for analysis
+        4. Save findings to findings/exposure.json
+        5. Print summary
+
+        Args:
+            session: Audit session with collected evidence
+            agent_client: Claude AI client for analysis
+
+        Returns:
+            Path to saved findings JSON file
+
+        Raises:
+            Exception: If evidence cannot be read or analysis fails
+        """
+        print("  Reading evidence files...")
+
+        # 1. Read all evidence files
+        evidence_path = session.get_evidence_path(self.name)
+        evidence = {}
+
+        if not evidence_path.exists():
+            raise FileNotFoundError(f"Evidence directory not found: {evidence_path}")
+
+        for json_file in evidence_path.glob("*.json"):
+            try:
+                with open(json_file) as f:
+                    evidence[json_file.stem] = json.load(f)
+            except Exception as e:
+                print(f"    Warning: Could not read {json_file.name}: {e}")
+
+        print(f"    Loaded {len(evidence)} evidence files")
+
+        # 2. Read checklist
+        checklist_path = Path(__file__).parent / "checklist.json"
+        if not checklist_path.exists():
+            raise FileNotFoundError(f"Checklist not found: {checklist_path}")
+
+        with open(checklist_path) as f:
+            checklist = json.load(f)
+
+        print(f"    Loaded {len(checklist['items'])} security checks")
+
+        # 3. Call agent for analysis
+        provider_name = agent_client.get_display_name()
+        print(f"  Analyzing with {provider_name}...")
+        findings = agent_client.analyze_evidence(
+            skill_name=self.name, evidence=evidence, checklist=checklist
+        )
+
+        # 3a. Normalize findings (reduce variance between models)
+        print("  Normalizing findings...")
+        findings = self._normalize_findings(findings, checklist)
+
+        # 4. Save findings
+        findings_dir = session.get_findings_path()
+        findings_dir.mkdir(parents=True, exist_ok=True)
+        findings_path = findings_dir / f"{self.name}.json"
+
+        with open(findings_path, "w") as f:
+            json.dump(findings.model_dump(mode="json"), f, indent=2, default=str)
+
+        # 5. Print summary
+        print(f"\n✅ Analysis complete:")
+        print(f"   Total findings: {findings.summary.total_findings}")
+        print(f"   Critical: {findings.summary.critical}")
+        print(f"   High: {findings.summary.high}")
+        print(f"   Medium: {findings.summary.medium}")
+        print(f"   Low: {findings.summary.low}")
+        print(f"   Overall Risk: {findings.summary.overall_risk_score:.1f}/10")
+
+        return findings_path
+
 
 __all__ = ["ExposureSkill"]
