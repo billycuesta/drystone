@@ -99,12 +99,26 @@ def print_summary(config: "WizardConfig") -> None:
     # Add rows
     table.add_row("Client/Project", f"[bold]{config.client_name}[/bold]")
 
-    # Mask AWS credentials for display
-    masked_access_key = f"{config.aws_access_key_id[:4]}...{config.aws_access_key_id[-4:]}"
-    masked_secret = f"{'*' * len(config.aws_secret_access_key)}"
+    # Show AWS credential source
+    if config.aws_access_key_id and config.aws_secret_access_key:
+        # Direct credentials: mask them for display
+        masked_access_key = f"{config.aws_access_key_id[:4]}...{config.aws_access_key_id[-4:]}"
+        masked_secret = f"{'*' * min(len(config.aws_secret_access_key), 10)}"
+        table.add_row("AWS Credentials", f"[bold dim]Direct (masked)[/bold dim]")
+        table.add_row("  Access Key", f"[bold dim]{masked_access_key}[/bold dim]")
+        table.add_row("  Secret Key", f"[bold dim]{masked_secret}[/bold dim]")
+    elif config.aws_credentials_file:
+        # File-based credentials: show path
+        table.add_row("AWS Credentials", f"[bold dim]File[/bold dim]")
+        table.add_row("  File Path", f"[bold dim]{config.aws_credentials_file}[/bold dim]")
+    elif config.aws_profile:
+        # Profile-based credentials: show profile name
+        table.add_row("AWS Credentials", f"[bold dim]Profile[/bold dim]")
+        table.add_row("  Profile", f"[bold dim]{config.aws_profile}[/bold dim]")
+    else:
+        # Fallback: environment variables
+        table.add_row("AWS Credentials", f"[bold dim]Environment Variables[/bold dim]")
 
-    table.add_row("AWS Access Key", f"[bold dim]{masked_access_key}[/bold dim]")
-    table.add_row("AWS Secret Key", f"[bold dim]{masked_secret}[/bold dim]")
     table.add_row("AWS Region", f"[bold]{config.aws_region}[/bold]")
     table.add_row("Skills", f"[bold]{', '.join(config.skills)}[/bold]")
     table.add_row("Output Formats", f"[bold]{', '.join(config.output_formats)}[/bold]")
