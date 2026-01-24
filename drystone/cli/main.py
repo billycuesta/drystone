@@ -145,7 +145,14 @@ def audit(
 
             # Create provider configuration from config
             aws_access_key_id, aws_secret_access_key, aws_session_token = config.get_aws_credentials()
-            bedrock_access_key_id, bedrock_secret_access_key, bedrock_session_token = config.get_bedrock_credentials()
+
+            # Only load Bedrock credentials if using Bedrock provider
+            bedrock_access_key_id = None
+            bedrock_secret_access_key = None
+            bedrock_session_token = None
+
+            if config.ai_provider == "bedrock":
+                bedrock_access_key_id, bedrock_secret_access_key, bedrock_session_token = config.get_bedrock_credentials()
 
             provider_config = {
                 'type': config.ai_provider,
@@ -154,7 +161,7 @@ def audit(
                 'aws_access_key_id': aws_access_key_id,
                 'aws_secret_access_key': aws_secret_access_key,
                 'aws_session_token': aws_session_token,
-                # Bedrock credentials (for AI analysis)
+                # Bedrock credentials (only if using Bedrock provider)
                 'bedrock_access_key_id': bedrock_access_key_id,
                 'bedrock_secret_access_key': bedrock_secret_access_key,
                 'bedrock_session_token': bedrock_session_token,
