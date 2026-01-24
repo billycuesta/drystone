@@ -127,12 +127,32 @@ class WizardConfig(BaseModel):
         """Load credentials from custom JSON file."""
         import json
 
-        expanded_path = file_path.expanduser()
+        if file_path is None:
+            raise ValueError("Credential file path is None")
+
+        expanded_path = Path(file_path).expanduser()
         if not expanded_path.exists():
             raise FileNotFoundError(f"Credential file not found: {expanded_path}")
 
-        with open(expanded_path) as f:
-            data = json.load(f)
+        try:
+            with open(expanded_path) as f:
+                data = json.load(f)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Credential file is not valid JSON: {expanded_path}") from e
+        except Exception as e:
+            raise ValueError(f"Error reading credential file: {expanded_path}") from e
+
+        if data is None:
+            raise ValueError(f"Credential file contains null: {expanded_path}")
+
+        if not isinstance(data, dict):
+            raise ValueError(f"Credential file must contain a JSON object, got {type(data).__name__}: {expanded_path}")
+
+        if not data.get("aws_access_key_id"):
+            raise ValueError(f"Credential file missing 'aws_access_key_id': {expanded_path}")
+
+        if not data.get("aws_secret_access_key"):
+            raise ValueError(f"Credential file missing 'aws_secret_access_key': {expanded_path}")
 
         return (
             data["aws_access_key_id"],
@@ -259,17 +279,25 @@ class WizardConfig(BaseModel):
         data = self.model_dump(mode='json')
 
         # If using a file, profile, or env vars for AWS, don't save direct keys
+        # BUT keep the file/profile paths for reconfiguration
         if self.aws_credentials_file or self.aws_profile or not self.aws_access_key_id:
             data.pop("aws_access_key_id", None)
             data.pop("aws_secret_access_key", None)
             data.pop("aws_session_token", None)
 
+        # Always preserve aws_credentials_file and aws_profile (they're not sensitive)
+        # They will be None if not used, which is fine
+
         # If using a file, profile, env vars, or same-as-aws for Bedrock, don't save direct keys
+        # BUT keep the file/profile paths for reconfiguration
         if (self.bedrock_credentials_file or self.bedrock_profile or self.bedrock_use_same_credentials or not self.bedrock_access_key_id):
             data.pop("bedrock_access_key_id", None)
             data.pop("bedrock_secret_access_key", None)
             data.pop("bedrock_session_token", None)
-        
+
+        # Always preserve bedrock_credentials_file and bedrock_profile (they're not sensitive)
+        # They will be None if not used, which is fine
+
         data["created_at"] = self.created_at.isoformat()
         return data
 
