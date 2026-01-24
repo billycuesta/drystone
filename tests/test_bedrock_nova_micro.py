@@ -14,9 +14,9 @@ class TestBedrockNovaMicroIntegration:
     @pytest.fixture
     def bedrock_client_mock(self):
         """Create mock Bedrock client."""
-        with patch('drystone.agent.client.boto3') as mock_boto3:
+        with patch('boto3.client') as mock_boto_client:
             mock_client = MagicMock()
-            mock_boto3.client.return_value = mock_client
+            mock_boto_client.return_value = mock_client
             yield mock_client
 
     @pytest.fixture
@@ -32,7 +32,7 @@ class TestBedrockNovaMicroIntegration:
 
     def test_bedrock_model_id_is_nova_micro(self, agent_with_bedrock):
         """Verify model ID is set to Amazon Nova Micro."""
-        assert agent_with_bedrock.bedrock_model_id == "amazon.nova-micro-v1:0"
+        assert agent_with_bedrock.bedrock_model_id == "arn:aws:bedrock:eu-west-1:781978598807:inference-profile/eu.amazon.nova-micro-v1:0"
 
     def test_bedrock_max_tokens_is_5000(self, agent_with_bedrock):
         """Verify max tokens is set to Nova Micro limit (5000)."""
@@ -93,7 +93,7 @@ class TestBedrockNovaMicroIntegration:
         assert request_body['inferenceConfig']['maxTokens'] == 5000
         assert request_body['inferenceConfig']['temperature'] == 0.0
 
-        assert call_kwargs['modelId'] == "amazon.nova-micro-v1:0"
+        assert call_kwargs['modelId'] == "arn:aws:bedrock:eu-west-1:781978598807:inference-profile/eu.amazon.nova-micro-v1:0"
 
     def test_call_bedrock_api_response_parsing(self, agent_with_bedrock, bedrock_client_mock):
         """Verify response parsing for Nova Micro format."""
@@ -155,9 +155,9 @@ class TestBedrockNovaMicroIntegration:
 
     def test_bedrock_setup_creates_correct_client(self):
         """Verify Bedrock setup initializes boto3 client correctly."""
-        with patch('drystone.agent.client.boto3') as mock_boto3:
+        with patch('boto3.client') as mock_boto_client:
             mock_client = MagicMock()
-            mock_boto3.client.return_value = mock_client
+            mock_boto_client.return_value = mock_client
 
             config = {
                 'type': 'bedrock',
@@ -168,7 +168,7 @@ class TestBedrockNovaMicroIntegration:
             agent = AgentClient(provider_config=config)
 
             # Verify boto3.client was called with correct parameters
-            mock_boto3.client.assert_called_once_with(
+            mock_boto_client.assert_called_once_with(
                 'bedrock-runtime',
                 region_name='eu-west-1',
                 aws_access_key_id='test-key',
@@ -177,9 +177,9 @@ class TestBedrockNovaMicroIntegration:
 
     def test_bedrock_setup_with_session_token(self):
         """Verify Bedrock setup includes session token when provided."""
-        with patch('drystone.agent.client.boto3') as mock_boto3:
+        with patch('boto3.client') as mock_boto_client:
             mock_client = MagicMock()
-            mock_boto3.client.return_value = mock_client
+            mock_boto_client.return_value = mock_client
 
             config = {
                 'type': 'bedrock',
@@ -191,7 +191,7 @@ class TestBedrockNovaMicroIntegration:
             agent = AgentClient(provider_config=config)
 
             # Verify session token was included
-            mock_boto3.client.assert_called_once_with(
+            mock_boto_client.assert_called_once_with(
                 'bedrock-runtime',
                 region_name='eu-west-1',
                 aws_access_key_id='test-key',

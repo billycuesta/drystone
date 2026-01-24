@@ -62,7 +62,7 @@ def print_banner() -> None:
     content = Group(
         gradient_text,
         "",
-        Align.center(Text("AWS Security Audit powered by BillySlopes with Claude", style=f"{border_color} bold")),
+        Align.center(Text("AWS Security Audit powered by BillySlopes with AI", style=f"{border_color} bold")),
         "",
         Align.center(Text("v1.0.0", style=f"{border_color}")),
         "",

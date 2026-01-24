@@ -13,6 +13,7 @@ import warnings
 from typing import Any, Dict, Optional
 
 import anthropic
+import botocore.exceptions
 
 # Suppress deprecation warning for google.generativeai
 # TODO: Migrate to google.genai when available
@@ -460,12 +461,16 @@ class AgentClient:
                 f"Got keys: {list(response_body.keys())}"
             )
 
-        except self.bedrock_client.exceptions.ValidationException as e:
-            raise AgentError(f"Bedrock validation error: {e}")
-        except self.bedrock_client.exceptions.ModelTimeoutException as e:
-            raise AgentError(f"Bedrock model timeout (prompt too large?): {e}")
-        except self.bedrock_client.exceptions.ThrottlingException as e:
-            raise AgentError(f"Bedrock throttling (rate limit exceeded): {e}")
+        except botocore.exceptions.ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "Unknown")
+            if error_code == "ValidationException":
+                raise AgentError(f"Bedrock validation error: {e}")
+            elif error_code == "ModelTimeoutException":
+                raise AgentError(f"Bedrock model timeout (prompt too large?): {e}")
+            elif error_code == "ThrottlingException":
+                raise AgentError(f"Bedrock throttling (rate limit exceeded): {e}")
+            else:
+                raise AgentError(f"Bedrock API call failed: {e}")
         except Exception as e:
             raise AgentError(f"Bedrock API call failed: {e}")
 
@@ -476,96 +481,77 @@ class AgentClient:
         Emphasizes consistency and anti-variance rules for multi-model deployment.
         """
         return """Eres un auditor AWS experto en seguridad y compliance (PCI DSS v4.0).
-
 Tu rol:
 - Analizar evidencia AWS contra checklists de seguridad
 - Identificar configuraciones inseguras y vulnerabilidades reales
 - Mapear hallazgos a controles PCI DSS relevantes
 - Generar recomendaciones accionables y específicas
 - Aplicar principios de least privilege y defense in depth
-
 FORMATO DE IDs OBLIGATORIO (UNIVERSAL):
 ✅ CORRECTO:
   - IAM-001, IAM-007, IAM-028 (formato SKILL-XXX)
   - EXP-005, EXP-012, EXP-020
   - NET-001, NET-003, NET-015
   - VULN-001, VULN-008, VULN-012
-
 ❌ PROHIBIDO:
   - IAM-008-001 (sub-IDs prohibidos)
   - IAM-099 (IDs fuera del checklist)
   - RANDOM-123 (IDs inventados)
-
 REGLA ANTI-VARIANZA:
 - Usa EXACTAMENTE los IDs del checklist proporcionado
 - NO uses sub-IDs como SKILL-XXX-YYY
 - NO inventes IDs fuera del checklist
 - MÁXIMO 1 finding por item de checklist
-
 SEVERITY CALIBRATION (RANGOS UNIVERSALES):
-
 🔴 CRITICAL (risk_score: 8.5-10.0):
 - Pérdida de confidencialidad: datos sensibles expuestos sin autenticación
 - Pérdida de integridad: modificación de configs sin autorización
 - Pérdida de disponibilidad: eliminación o sabotaje de servicios
 - Cumplimiento: violaciones PCI DSS critical (8.4.1, 2.3.1, etc)
-
 🟠 HIGH (risk_score: 6.0-8.4):
 - Acceso excesivo: usuarios sin MFA, permisos sin restricción
 - Credenciales débiles: rotación >90 días, policies permisivos
 - Exposición no intendida: recursos públicos sin justificación
-
 🟡 MEDIUM (risk_score: 3.0-5.9):
 - Configuraciones subóptimas: inline policies, password policies débiles
 - Mejoras recomendadas: usuarios sin grupos, roles sin uso
 - Best practices: logs incompletos, sin segmentación
-
 🔵 LOW (risk_score: 1.0-2.9):
 - Mejoras cosmética: alias no configurados, tags faltantes
 - Optimización: configuraciones no criticas
-
 ⚠️ INSTRUCCIONES ANTI-VARIANZA CRÍTICAS:
-
 1. NUNCA generes findings con texto "DISREGARD THIS FINDING"
 2. NUNCA uses sub-IDs (formato SKILL-XXX-YYY está prohibido)
 3. NUNCA generes más de 1 finding por checklist item
 4. NUNCA inventes severidades fuera de los 4 niveles
 5. NUNCA reportes hallazgos ambiguos sin evidencia clara
 6. NUNCA violes los límites de findings (min/max dinámicos)
-
 Si encuentras evidencia ambigua:
 → Aplica principio conservador (menor severity o no reportar)
 → Documenta ambigüedad en "description"
 → Usa risk_score MÍNIMO del rango de severidad
-
 INSTRUCCIONES DE ANÁLISIS:
-
 **Paso 1: Revisa TODA la evidencia**
 - Lee todos los archivos de evidencia proporcionados
 - Valida contra CADA item del checklist
 - Nota: evidencia incompleta = sin reporte (no asumas datos)
-
 **Paso 2: Genera findings SOLO si encuentras riesgo real**
 - Cada finding debe tener evidencia específica
 - Incluye referencias precisas (file#path o arn)
 - Calcula risk_score 0-10: severidad × impacto × probabilidad
-
 **Paso 3: Prioriza por severidad**
 - Críticos primero (risk_score 8.5-10.0)
 - Luego altos (6.0-8.4)
 - Luego medios (3.0-5.9)
 - Luego bajos (1.0-2.9)
-
 **Paso 4: Mapea a controles PCI DSS**
 - Usa el array "pci_dss" del checklist como source of truth
 - Solo incluye controles del checklist (no inventes nuevos)
 - Copia la "reason" exacta del checklist
-
 **Paso 5: Incluye referencias específicas**
 - Formato: file.json#identifier
 - Ejemplo: users.json#root, roles.json#RoleName='Lambda'
 - Ejemplo ARN: arn:aws:iam::123456789012:user/admin
-
 Requisitos de respuesta:
 - SOLO JSON válido, sin markdown, sin explicaciones adicionales
 - Usar schema exacto proporcionado

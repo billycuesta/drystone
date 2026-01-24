@@ -12,25 +12,28 @@ class AWSCredentialError(Exception):
     pass
 
 
+from drystone.models import WizardConfig
+
+
 class AWSClient:
     """AWS SDK client wrapper."""
 
-    def __init__(self, access_key_id: str, secret_access_key: str, region_name: str = "us-east-1", session_token: Optional[str] = None):
-        """Initialize AWS client.
+    def __init__(self, config: WizardConfig):
+        """Initialize AWS client from a WizardConfig object.
 
         Args:
-            access_key_id: AWS Access Key ID
-            secret_access_key: AWS Secret Access Key
-            region_name: AWS region
-            session_token: Optional AWS Session Token for temporary credentials
+            config: The WizardConfig object containing credential information.
 
         Raises:
             AWSCredentialError: If credentials are invalid
         """
+        
+        access_key_id, secret_access_key, session_token = config.get_aws_credentials()
+
         self.access_key_id = access_key_id
         self.secret_access_key = secret_access_key
         self.session_token = session_token
-        self.region_name = region_name
+        self.region_name = config.aws_region
         self.session = None
         self.sts_client = None
         self.iam_client = None
@@ -117,5 +120,16 @@ def validate_aws_credentials(access_key_id: str, secret_access_key: str, region_
     Returns:
         Tuple of (is_valid, message, account_id)
     """
-    client = AWSClient(access_key_id=access_key_id, secret_access_key=secret_access_key, region_name=region_name, session_token=session_token)
+    # Create temporary WizardConfig for validation
+    config = WizardConfig(
+        client_name="validation",
+        aws_access_key_id=access_key_id,
+        aws_secret_access_key=secret_access_key,
+        aws_region=region_name,
+        aws_session_token=session_token,
+        skills=["iam"],
+        output_formats=["markdown"],
+        ai_provider="claude-cli"
+    )
+    client = AWSClient(config)
     return client.validate_credentials()

@@ -1,5 +1,6 @@
 """Interactive wizard for Drystone setup."""
 
+from pathlib import Path
 from typing import List, Optional
 
 import questionary
@@ -8,72 +9,85 @@ from drystone.cloud.aws import validate_aws_credentials
 from drystone.models import WizardConfig
 
 
-def validate_aws_creds(access_key_id: str, secret_access_key: str, region_name: str, session_token: Optional[str] = None, max_retries: int = 3) -> bool:
-    """Validate AWS credentials.
-
-    Shows validation result and allows user to retry or cancel.
+def validate_aws_creds(access_key_id: str, secret_access_key: str, session_token: Optional[str] = None, region_name: str = "us-east-1") -> bool:
+    """Validate AWS credentials non-interactively.
 
     Args:
         access_key_id: AWS Access Key ID
         secret_access_key: AWS Secret Access Key
-        region_name: AWS region
         session_token: Optional AWS Session Token for temporary credentials
-        max_retries: Maximum number of retry attempts
+        region_name: AWS region (default: us-east-1)
 
     Returns:
-        True if credentials are valid, False if user cancelled
+        True if credentials are valid, False otherwise.
 
     Raises:
-        KeyboardInterrupt: If user cancels
+        ValueError: If credentials are empty or invalid format
     """
-    retries = 0
+    if not access_key_id or not secret_access_key:
+        raise ValueError("Access Key ID and Secret Access Key cannot be empty")
 
-    while retries < max_retries:
-        print("\nValidating AWS credentials...")
+    print("\nValidating AWS credentials...")
+    is_valid, message, _ = validate_aws_credentials(access_key_id, secret_access_key, region_name, session_token)
+    print(message)
+    print()  # Blank line
+    return is_valid
 
-        is_valid, message, account_id = validate_aws_credentials(access_key_id, secret_access_key, region_name, session_token)
 
-        print(message)
+def validate_credentials_file(file_path: str) -> bool:
+    """Validate that a credentials JSON file exists and is readable.
 
-        if is_valid:
-            print()  # Blank line
-            return True
+    Args:
+        file_path: Path to credentials file
 
-        retries += 1
+    Returns:
+        True if file exists and is readable, False otherwise
+    """
+    expanded_path = Path(file_path).expanduser()
+    if not expanded_path.exists():
+        print(f"❌ Credential file not found: {expanded_path}")
+        return False
+    if not expanded_path.is_file():
+        print(f"❌ Path is not a file: {expanded_path}")
+        return False
+    try:
+        import json
+        with open(expanded_path) as f:
+            data = json.load(f)
+        if not data.get("aws_access_key_id") or not data.get("aws_secret_access_key"):
+            print("❌ Credential file missing 'aws_access_key_id' or 'aws_secret_access_key'")
+            return False
+        print(f"✅ Credential file loaded: {expanded_path}")
+        return True
+    except json.JSONDecodeError:
+        print(f"❌ Credential file is not valid JSON: {expanded_path}")
+        return False
+    except Exception as e:
+        print(f"❌ Error reading credential file: {e}")
+        return False
 
-        if retries < max_retries:
-            retry = questionary.confirm(
-                "Retry with different credentials?",
-                default=True,
-                auto_enter=False,
-            ).ask()
 
-            if not retry:
-                raise KeyboardInterrupt("Credential validation cancelled")
+def validate_aws_profile(profile_name: str) -> bool:
+    """Validate that an AWS profile exists in ~/.aws/credentials.
 
-            # Ask for new credentials
-            access_key_id = questionary.text(
-                "AWS Access Key ID:",
-                validate=lambda x: len(x) > 0 or "Access Key ID cannot be empty",
-            ).ask()
+    Args:
+        profile_name: AWS profile name
 
-            if access_key_id is None:
-                raise KeyboardInterrupt("Wizard cancelled")
-
-            secret_access_key = questionary.password(
-                "AWS Secret Access Key:",
-                validate=lambda x: len(x) > 0 or "Secret Access Key cannot be empty",
-            ).ask()
-
-            if secret_access_key is None:
-                raise KeyboardInterrupt("Wizard cancelled")
-
-            print()  # Blank line
-        else:
-            print("Max retry attempts reached")
-            raise AWSValidationError("Failed to validate AWS credentials")
-
-    return False
+    Returns:
+        True if profile exists, False otherwise
+    """
+    try:
+        import boto3
+        session = boto3.Session(profile_name=profile_name)
+        creds = session.get_credentials()
+        if not creds:
+            print(f"❌ No credentials found for profile: {profile_name}")
+            return False
+        print(f"✅ AWS profile found: {profile_name}")
+        return True
+    except Exception as e:
+        print(f"❌ Error loading AWS profile '{profile_name}': {e}")
+        return False
 
 
 class AWSValidationError(Exception):
@@ -98,14 +112,20 @@ def display_config_summary(project_config: dict, ai_config: dict) -> None:
     print(f"   Client Name: {project_config['client_name']}")
     print(f"   AWS Region: {project_config['aws_region']}")
 
-    # Mask credentials
-    key_id = project_config['aws_access_key_id']
-    masked_key = f"{key_id[:4]}...{key_id[-4:]}" if len(key_id) > 8 else "****"
-    print(f"   AWS Access Key: {masked_key}")
+    # Display AWS credential source
+    if project_config.get('aws_credentials_file'):
+        print(f"   AWS Credentials: File ({project_config['aws_credentials_file']})")
+    elif project_config.get('aws_profile'):
+        print(f"   AWS Credentials: Profile ({project_config['aws_profile']})")
+    elif project_config.get('aws_access_key_id'):
+        key_id = project_config['aws_access_key_id']
+        masked_key = f"{key_id[:4]}...{key_id[-4:]}" if len(key_id) > 8 else "****"
+        print(f"   AWS Access Key: {masked_key}")
+        if project_config.get('aws_session_token'):
+            print(f"   AWS Session Token: ✅ Configured")
+    else:
+        print(f"   AWS Credentials: Environment Variables")
 
-    # Session token indicator
-    if project_config.get('aws_session_token'):
-        print(f"   AWS Session Token: ✅ Configured")
 
     # Skills
     skills_display = ", ".join(project_config['skills']) if project_config['skills'] else "None"
@@ -122,14 +142,21 @@ def display_config_summary(project_config: dict, ai_config: dict) -> None:
     if ai_config['ai_provider'] == 'bedrock':
         print(f"   Bedrock Region: eu-west-1")
 
-        # Show Bedrock AWS credentials info
-        if ai_config.get('bedrock_access_key_id'):
+        if ai_config.get('bedrock_use_same_credentials'):
+            print(f"   Bedrock Credentials: Same as AWS Audit")
+        elif ai_config.get('bedrock_credentials_file'):
+            print(f"   Bedrock Credentials: File ({ai_config['bedrock_credentials_file']})")
+        elif ai_config.get('bedrock_profile'):
+            print(f"   Bedrock Credentials: Profile ({ai_config['bedrock_profile']})")
+        elif ai_config.get('bedrock_access_key_id'):
             key_id = ai_config['bedrock_access_key_id']
             masked_bedrock_key = f"{key_id[:4]}...{key_id[-4:]}" if len(key_id) > 8 else "****"
             print(f"   Bedrock Access Key: {masked_bedrock_key}")
+            if ai_config.get('bedrock_session_token'):
+                print(f"   Bedrock Session Token: ✅ Configured")
+        else:
+            print(f"   Bedrock Credentials: Environment Variables")
 
-        if ai_config.get('bedrock_session_token'):
-            print(f"   Bedrock Session Token: ✅ Configured")
 
     if ai_config['ai_api_key']:
         # Mask API key
@@ -137,8 +164,8 @@ def display_config_summary(project_config: dict, ai_config: dict) -> None:
         masked_api_key = f"{key[:4]}...{key[-4:]}" if len(key) > 8 else "****"
         print(f"   API Key: {masked_api_key}")
     else:
-        if ai_config['ai_provider'] != 'bedrock':
-            print("   API Key: not required (using CLI or AWS credentials)")
+        if ai_config['ai_provider'] not in ['bedrock', 'claude-cli']:
+            print("   API Key: not required")
 
     print("\n" + "━" * 60 + "\n")
 
@@ -150,8 +177,7 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
         current_config: Optional dict with current values to pre-fill
 
     Returns:
-        dict with: client_name, aws_access_key_id, aws_secret_access_key,
-                   aws_region, skills, output_formats
+        dict with: client_name, aws_region, skills, output_formats, and credential info
     """
     print("\n" + "━" * 50)
     print("📋 MENU A: Review Scope")
@@ -166,126 +192,139 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
         default=defaults.get("client_name", "MyOrg"),
         validate=lambda x: len(x) > 0 or "Name cannot be empty",
     ).ask()
+    if client_name is None: raise KeyboardInterrupt("Wizard cancelled")
 
-    if client_name is None:
-        raise KeyboardInterrupt("Wizard cancelled")
+    # Initialize credential dict
+    creds_config = {
+        "aws_access_key_id": None,
+        "aws_secret_access_key": None,
+        "aws_session_token": None,
+        "aws_credentials_file": None,
+        "aws_profile": None,
+    }
 
-    # Step 2: AWS Access Key ID
-    access_key_id = questionary.text(
-        "AWS Access Key ID:",
-        default=defaults.get("aws_access_key_id", ""),
-        validate=lambda x: len(x) > 0 or "Access Key ID cannot be empty",
+    # Step 2: AWS Credentials
+    cred_choice = questionary.select(
+        "How to provide AWS credentials?",
+        choices=[
+            questionary.Choice("Enter manually", "manual"),
+            questionary.Choice("Read from JSON file", "file"),
+            questionary.Choice("Use AWS profile (~/.aws/credentials)", "profile"),
+            questionary.Choice("Use environment variables", "env"),
+        ],
+        default="manual"
     ).ask()
+    if cred_choice is None: raise KeyboardInterrupt("Wizard cancelled")
 
-    if access_key_id is None:
-        raise KeyboardInterrupt("Wizard cancelled")
+    if cred_choice == "manual":
+        creds_config["aws_access_key_id"] = questionary.text(
+            "AWS Access Key ID:",
+            default=defaults.get("aws_access_key_id", ""),
+            validate=lambda x: len(x) > 0 or "Access Key ID cannot be empty",
+        ).ask()
+        if creds_config["aws_access_key_id"] is None: raise KeyboardInterrupt("Wizard cancelled")
 
-    # Step 3: AWS Secret Access Key (don't pre-fill for security)
-    secret_access_key = questionary.password(
-        "AWS Secret Access Key:",
-        validate=lambda x: len(x) > 0 or "Secret Access Key cannot be empty",
-    ).ask()
+        creds_config["aws_secret_access_key"] = questionary.password(
+            "AWS Secret Access Key:",
+            validate=lambda x: len(x) > 0 or "Secret Access Key cannot be empty",
+        ).ask()
+        if creds_config["aws_secret_access_key"] is None: raise KeyboardInterrupt("Wizard cancelled")
 
-    if secret_access_key is None:
-        raise KeyboardInterrupt("Wizard cancelled")
+        creds_config["aws_session_token"] = questionary.password(
+            "AWS Session Token (optional, press Enter to skip):",
+            default="",
+        ).ask()
+        if creds_config["aws_session_token"] is None: raise KeyboardInterrupt("Wizard cancelled")
+        if not creds_config["aws_session_token"].strip(): creds_config["aws_session_token"] = None
 
-    # Step 3.5: AWS Session Token (optional for temporary credentials)
-    session_token = questionary.password(
-        "AWS Session Token (optional, press Enter to skip):",
-        default="",
-    ).ask()
+    elif cred_choice == "file":
+        # Validate file repeatedly until valid or cancelled
+        while True:
+            creds_config["aws_credentials_file"] = questionary.text(
+                "Path to credentials JSON file:",
+                default=defaults.get("aws_credentials_file", "~/.aws/drystone-creds.json"),
+                validate=lambda x: len(x) > 0 or "Path cannot be empty",
+            ).ask()
+            if creds_config["aws_credentials_file"] is None: raise KeyboardInterrupt("Wizard cancelled")
 
-    if session_token is None:
-        raise KeyboardInterrupt("Wizard cancelled")
+            # Validate file exists and is readable
+            if validate_credentials_file(creds_config["aws_credentials_file"]):
+                break
+            else:
+                print("Please provide a valid path to a credentials JSON file.\n")
 
-    # Strip empty string to None
-    if not session_token or not session_token.strip():
-        session_token = None
+    elif cred_choice == "profile":
+        # Validate profile repeatedly until valid or cancelled
+        while True:
+            creds_config["aws_profile"] = questionary.text(
+                "AWS profile name:",
+                default=defaults.get("aws_profile", "default"),
+                validate=lambda x: len(x) > 0 or "Profile name cannot be empty",
+            ).ask()
+            if creds_config["aws_profile"] is None: raise KeyboardInterrupt("Wizard cancelled")
+
+            # Validate profile exists in ~/.aws/credentials
+            if validate_aws_profile(creds_config["aws_profile"]):
+                break
+            else:
+                print("Please provide a valid AWS profile name.\n")
+
+    elif cred_choice == "env":
+        # Nothing to ask, will be loaded at runtime
+        print("   INFO: Credentials will be loaded from environment variables (AWS_...).")
+
 
     # Step 4: AWS Region
     region_choices = [
-        "us-east-1",
-        "us-east-2",
-        "us-west-1",
-        "us-west-2",
-        "eu-west-1",
-        "eu-central-1",
-        "ap-southeast-1",
-        "ap-northeast-1",
+        "us-east-1", "us-east-2", "us-west-1", "us-west-2",
+        "eu-west-1", "eu-central-1", "ap-southeast-1", "ap-northeast-1",
     ]
-
     aws_region = questionary.select(
         "AWS Region:",
         choices=region_choices,
         default=defaults.get("aws_region", "us-east-1"),
     ).ask()
+    if aws_region is None: raise KeyboardInterrupt("Wizard cancelled")
 
-    if aws_region is None:
-        raise KeyboardInterrupt("Wizard cancelled")
-
-    # Step 4.5: Validate AWS Credentials (ALWAYS when editing Menu A)
-    try:
-        validate_aws_creds(access_key_id, secret_access_key, aws_region, session_token)
-    except AWSValidationError:
-        raise KeyboardInterrupt("AWS credential validation failed")
+    # Note: AWS credential validation happens later in run_setup_wizard() after all config is collected
+    # This allows validation of file/profile sources which need the full config context
 
     # Step 5: Skills to execute
     current_skills = defaults.get("skills", ["iam"])
     skills = questionary.checkbox(
         "Security Skills to Execute:",
         choices=[
-            questionary.Choice(
-                "IAM Security Audit", "iam",
-                checked="iam" in current_skills
-            ),
-            questionary.Choice(
-                "Internet Exposure Audit", "exposure",
-                checked="exposure" in current_skills
-            ),
-            questionary.Choice(
-                "Network Policies Audit", "network",
-                checked="network" in current_skills
-            ),
-            questionary.Choice(
-                "Vulnerability Scanning", "vulns",
-                checked="vulns" in current_skills
-            ),
+            questionary.Choice("IAM Security Audit", "iam", checked="iam" in current_skills),
+            questionary.Choice("Internet Exposure Audit", "exposure", checked="exposure" in current_skills),
+            questionary.Choice("Network Policies Audit", "network", checked="network" in current_skills),
+            questionary.Choice("Vulnerability Scanning", "vulns", checked="vulns" in current_skills),
         ],
         validate=lambda x: len(x) > 0 or "Select at least one skill",
     ).ask()
-
-    if skills is None:
-        raise KeyboardInterrupt("Wizard cancelled")
+    if skills is None: raise KeyboardInterrupt("Wizard cancelled")
 
     # Step 6: Output formats
     current_formats = defaults.get("output_formats", ["markdown"])
     output_formats = questionary.checkbox(
         "Output Formats:",
         choices=[
-            questionary.Choice(
-                "Markdown", "markdown",
-                checked="markdown" in current_formats
-            ),
-            questionary.Choice(
-                "JSON", "json",
-                checked="json" in current_formats
-            ),
+            questionary.Choice("Markdown", "markdown", checked="markdown" in current_formats),
+            questionary.Choice("JSON", "json", checked="json" in current_formats),
         ],
         validate=lambda x: len(x) > 0 or "Select at least one format",
     ).ask()
+    if output_formats is None: raise KeyboardInterrupt("Wizard cancelled")
 
-    if output_formats is None:
-        raise KeyboardInterrupt("Wizard cancelled")
-
-    return {
+    # Combine all results
+    project_config = {
         "client_name": client_name,
-        "aws_access_key_id": access_key_id,
-        "aws_secret_access_key": secret_access_key,
-        "aws_session_token": session_token,
         "aws_region": aws_region,
         "skills": skills,
         "output_formats": output_formats,
     }
+    project_config.update(creds_config)
+
+    return project_config
 
 
 def run_ai_menu(current_config: Optional[dict] = None) -> dict:
@@ -295,7 +334,7 @@ def run_ai_menu(current_config: Optional[dict] = None) -> dict:
         current_config: Optional dict with current values to pre-fill
 
     Returns:
-        dict with: ai_provider, ai_api_key
+        dict with: ai_provider, ai_api_key, and bedrock credential info
     """
     print("\n" + "━" * 50)
     print("🤖 MENU B: AI Configuration")
@@ -331,61 +370,106 @@ def run_ai_menu(current_config: Optional[dict] = None) -> dict:
     if ai_provider is None:
         raise KeyboardInterrupt("Wizard cancelled")
 
-    # Step 8: API Key (if needed - don't pre-fill for security)
-    ai_api_key = None
-    bedrock_access_key_id = None
-    bedrock_secret_access_key = None
-    bedrock_session_token = None
+    # Initialize result dict
+    result = {
+        "ai_provider": ai_provider,
+        "ai_api_key": None,
+        "bedrock_access_key_id": None,
+        "bedrock_secret_access_key": None,
+        "bedrock_session_token": None,
+        "bedrock_credentials_file": None,
+        "bedrock_profile": None,
+        "bedrock_use_same_credentials": False,
+    }
 
     if ai_provider in ["claude-api", "gemini-api"]:
         api_key_name = "Claude API" if ai_provider == "claude-api" else "Gemini API"
-        ai_api_key = questionary.password(
+        result["ai_api_key"] = questionary.password(
             f"Enter your {api_key_name} key:",
             validate=lambda x: len(x) > 0 or "API key cannot be empty",
         ).ask()
 
-        if ai_api_key is None:
+        if result["ai_api_key"] is None:
             raise KeyboardInterrupt("Wizard cancelled")
 
-    # Step 8.5: Bedrock AWS Credentials (separate from client credentials)
     elif ai_provider == "bedrock":
-        print("\n📝 Enter your AWS credentials for Bedrock (can be different from client credentials)")
-
-        bedrock_access_key_id = questionary.text(
-            "AWS Access Key ID (for Bedrock in your org):",
-            validate=lambda x: len(x) > 0 or "Access Key ID cannot be empty",
+        print("\n📝 Configure your AWS credentials for Bedrock")
+        
+        bedrock_cred_choice = questionary.select(
+            "How to provide Bedrock credentials?",
+            choices=[
+                questionary.Choice("Use same credentials as AWS audit (Recommended)", "same"),
+                questionary.Choice("Enter manually", "manual"),
+                questionary.Choice("Read from JSON file", "file"),
+                questionary.Choice("Use AWS profile", "profile"),
+                questionary.Choice("Use environment variables", "env"),
+            ],
+            default="same"
         ).ask()
 
-        if bedrock_access_key_id is None:
+        if bedrock_cred_choice is None:
             raise KeyboardInterrupt("Wizard cancelled")
 
-        bedrock_secret_access_key = questionary.password(
-            "AWS Secret Access Key (for Bedrock):",
-            validate=lambda x: len(x) > 0 or "Secret Access Key cannot be empty",
-        ).ask()
+        if bedrock_cred_choice == "same":
+            result["bedrock_use_same_credentials"] = True
+        elif bedrock_cred_choice == "manual":
+            result["bedrock_access_key_id"] = questionary.text(
+                "AWS Access Key ID (for Bedrock in your org):",
+                validate=lambda x: len(x) > 0 or "Access Key ID cannot be empty",
+            ).ask()
+            if result["bedrock_access_key_id"] is None: raise KeyboardInterrupt("Wizard cancelled")
 
-        if bedrock_secret_access_key is None:
-            raise KeyboardInterrupt("Wizard cancelled")
+            result["bedrock_secret_access_key"] = questionary.password(
+                "AWS Secret Access Key (for Bedrock):",
+                validate=lambda x: len(x) > 0 or "Secret Access Key cannot be empty",
+            ).ask()
+            if result["bedrock_secret_access_key"] is None: raise KeyboardInterrupt("Wizard cancelled")
 
-        bedrock_session_token = questionary.password(
-            "AWS Session Token (optional, press Enter to skip):",
-            default="",
-        ).ask()
+            result["bedrock_session_token"] = questionary.password(
+                "AWS Session Token (optional, press Enter to skip):",
+                default="",
+            ).ask()
+            if result["bedrock_session_token"] is None: raise KeyboardInterrupt("Wizard cancelled")
+            if not result["bedrock_session_token"].strip(): result["bedrock_session_token"] = None
+        
+        elif bedrock_cred_choice == "file":
+            # Validate file repeatedly until valid or cancelled
+            while True:
+                result["bedrock_credentials_file"] = questionary.text(
+                    "Path to Bedrock credentials JSON file:",
+                    default="~/.aws/bedrock-creds.json",
+                    validate=lambda x: len(x) > 0 or "Path cannot be empty",
+                ).ask()
+                if result["bedrock_credentials_file"] is None: raise KeyboardInterrupt("Wizard cancelled")
 
-        if bedrock_session_token is None:
-            raise KeyboardInterrupt("Wizard cancelled")
+                # Validate file exists and is readable
+                if validate_credentials_file(result["bedrock_credentials_file"]):
+                    break
+                else:
+                    print("Please provide a valid path to a Bedrock credentials JSON file.\n")
 
-        # Strip empty string to None
-        if not bedrock_session_token or not bedrock_session_token.strip():
-            bedrock_session_token = None
+        elif bedrock_cred_choice == "profile":
+            # Validate profile repeatedly until valid or cancelled
+            while True:
+                result["bedrock_profile"] = questionary.text(
+                    "AWS profile name for Bedrock:",
+                    default="default",
+                    validate=lambda x: len(x) > 0 or "Profile name cannot be empty",
+                ).ask()
+                if result["bedrock_profile"] is None: raise KeyboardInterrupt("Wizard cancelled")
 
-    return {
-        "ai_provider": ai_provider,
-        "ai_api_key": ai_api_key,
-        "bedrock_access_key_id": bedrock_access_key_id,
-        "bedrock_secret_access_key": bedrock_secret_access_key,
-        "bedrock_session_token": bedrock_session_token,
-    }
+                # Validate profile exists in ~/.aws/credentials
+                if validate_aws_profile(result["bedrock_profile"]):
+                    break
+                else:
+                    print("Please provide a valid AWS profile name.\n")
+
+        elif bedrock_cred_choice == "env":
+            # Nothing to ask, will be loaded at runtime
+            print("   INFO: Credentials will be loaded from environment variables (BEDROCK_AWS_... or AWS_...).")
+
+
+    return result
 
 
 def get_default_ai_config() -> dict:
@@ -413,8 +497,9 @@ def run_setup_wizard() -> WizardConfig:
     print()  # Blank line
 
     # Initialize configs: Menu A is empty, Menu B has defaults
-    project_config = None
+    project_config: Optional[dict] = None
     ai_config = get_default_ai_config()
+    last_validation_status = {"aws": False, "bedrock": False}
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # INTERACTIVE NAVIGATION LOOP
@@ -426,24 +511,16 @@ def run_setup_wizard() -> WizardConfig:
 
         # Navigation menu
         choices = [
-            questionary.Choice(
-                "📋 Configure Menu A: Project Scope",
-                value="edit_project"
-            ),
-            questionary.Choice(
-                "🤖 Configure Menu B: AI Configuration",
-                value="edit_ai"
-            ),
+            questionary.Choice("📋 Configure Menu A: Project Scope", value="edit_project"),
+            questionary.Choice("🤖 Configure Menu B: AI Configuration", value="edit_ai"),
         ]
 
-        # Only show "Continue" if Menu A is configured
-        if project_config:
-            choices.append(
-                questionary.Choice(
-                    "✅ Continue with current configuration",
-                    value="continue"
-                )
-            )
+        # Only show "Continue" if Menu A is configured and validated
+        if project_config and last_validation_status["aws"]:
+            # Also check bedrock validation if required
+            provider = ai_config.get("ai_provider")
+            if provider != "bedrock" or (provider == "bedrock" and last_validation_status["bedrock"]):
+                choices.append(questionary.Choice("✅ Continue with current configuration", value="continue"))
 
         action = questionary.select(
             "What would you like to do?" if project_config else "Configuration Setup",
@@ -455,18 +532,54 @@ def run_setup_wizard() -> WizardConfig:
 
         # Handle user choice
         if action == "edit_project":
-            print()
             project_config = run_project_menu(current_config=project_config)
             print("\n✅ Menu A updated!")
-
+            last_validation_status["aws"] = False # Force re-validation
+        
         elif action == "edit_ai":
-            print()
             ai_config = run_ai_menu(current_config=ai_config)
             print("\n✅ Menu B updated!")
+            last_validation_status["bedrock"] = False # Force re-validation
 
         elif action == "continue":
             print("\n✅ Configuration finalized!\n")
             break
+
+        # --- Validation Step ---
+        if project_config:
+            try:
+                # Create a temporary config object to use validation logic
+                temp_config = WizardConfig(**project_config, **ai_config)
+
+                # 1. Validate AWS Credentials if not already done
+                if not last_validation_status["aws"]:
+                    try:
+                        aws_creds = temp_config.get_aws_credentials()
+                        # aws_creds is (access_key_id, secret_access_key, session_token)
+                        is_valid = validate_aws_creds(aws_creds[0], aws_creds[1], aws_creds[2], region_name=temp_config.aws_region)
+                        if not is_valid:
+                            print("🚨 AWS credential validation failed. Please edit Menu A.")
+                        last_validation_status["aws"] = is_valid
+                    except (ValueError, FileNotFoundError) as e:
+                        print(f"🚨 Error getting AWS credentials: {e}")
+                        last_validation_status["aws"] = False
+
+                # 2. Validate Bedrock Credentials if needed and AWS is valid
+                if last_validation_status["aws"] and temp_config.ai_provider == "bedrock" and not last_validation_status["bedrock"]:
+                    try:
+                        bedrock_creds = temp_config.get_bedrock_credentials()
+                        # bedrock_creds is (access_key_id, secret_access_key, session_token)
+                        is_valid = validate_aws_creds(bedrock_creds[0], bedrock_creds[1], bedrock_creds[2], region_name=temp_config.aws_region)
+                        if not is_valid:
+                            print("🚨 Bedrock credential validation failed. Please edit Menu B.")
+                        last_validation_status["bedrock"] = is_valid
+                    except (ValueError, FileNotFoundError) as e:
+                        print(f"🚨 Error getting Bedrock credentials: {e}")
+                        last_validation_status["bedrock"] = False
+                
+            except Exception as e:
+                print(f"An unexpected error occurred during validation: {e}")
+
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # BUILD FINAL CONFIG
