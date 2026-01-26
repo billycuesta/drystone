@@ -9,9 +9,12 @@ import boto3
 from drystone.cloud.aws.client import AWSClient
 from drystone.skills.base import BaseSkill
 from drystone.storage.session import AuditSession
+from drystone.utils.logging import get_logger
 
 if TYPE_CHECKING:
     from drystone.agent.client import AgentClient
+
+logger = get_logger(__name__)
 
 
 class HardeningSkill(BaseSkill):
@@ -58,17 +61,30 @@ class HardeningSkill(BaseSkill):
             try:
                 hub = sh_client.describe_hub()
                 self._save_json(evidence_path / "security-hub-status.json", hub)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Could not describe Security Hub: {e}")
 
-            # List findings
+            # List findings (filtered by severity: Critical, High only)
             findings_list = []
             try:
                 paginator = sh_client.get_paginator('get_findings')
-                for page in paginator.paginate():
+
+                # Filter criteria for Security Hub (only Critical, High + Active)
+                # MEDIUM excluded: 80% are low-impact findings (consistent with Inspector filtering)
+                filters = {
+                    'SeverityLabel': [
+                        {'Value': 'CRITICAL', 'Comparison': 'EQUALS'},
+                        {'Value': 'HIGH', 'Comparison': 'EQUALS'}
+                    ],
+                    'RecordState': [
+                        {'Value': 'ACTIVE', 'Comparison': 'EQUALS'}
+                    ]
+                }
+
+                for page in paginator.paginate(Filters=filters):
                     findings_list.extend(page.get("Findings", []))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Could not paginate Security Hub findings: {e}")
 
             self._save_json(evidence_path / "security-hub-findings.json", findings_list)
 
@@ -90,17 +106,18 @@ class HardeningSkill(BaseSkill):
                             StandardsSubscriptionArn=standard.get("StandardsArn")
                         )
                         std_detail["Controls"] = subscriptions.get("Controls", [])
-                    except Exception:
+                    except Exception as e:
+                        logger.warning(f"Could not describe standards control for {standard.get('StandardsArn')}: {e}")
                         std_detail["Controls"] = []
 
                     compliance_list.append(std_detail)
 
                 self._save_json(evidence_path / "security-hub-standards.json", compliance_list)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Could not describe Security Hub standards: {e}")
 
         except Exception as e:
-            print(f"    Warning: Could not collect Security Hub data: {e}")
+            logger.error(f"Could not collect Security Hub data: {e}")
 
         # === AWS CONFIG ===
         print("  Collecting AWS Config compliance...")
@@ -111,15 +128,15 @@ class HardeningSkill(BaseSkill):
             try:
                 recorders = config_client.describe_configuration_recorders()
                 self._save_json(evidence_path / "config-recorders.json", recorders)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Could not describe Config recorders: {e}")
 
             # Get delivery channels
             try:
                 channels = config_client.describe_delivery_channels()
                 self._save_json(evidence_path / "config-delivery-channels.json", channels)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Could not describe Config delivery channels: {e}")
 
             # Get config rules compliance
             try:
@@ -137,15 +154,15 @@ class HardeningSkill(BaseSkill):
                             "Compliance": compliance.get("ComplianceByConfigRules", [{}])[0].get("Compliance", {}),
                         }
                         compliance_list.append(rule_detail)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(f"Could not get compliance for Config rule {rule_name}: {e}")
 
                 self._save_json(evidence_path / "config-compliance.json", compliance_list)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Could not describe Config rules: {e}")
 
         except Exception as e:
-            print(f"    Warning: Could not collect Config data: {e}")
+            logger.error(f"Could not collect Config data: {e}")
 
         # === ACM CERTIFICATES ===
         print("  Collecting ACM certificates...")
@@ -172,12 +189,12 @@ class HardeningSkill(BaseSkill):
                             "ValidationMethod": cert_detail.get("Certificate", {}).get("ValidationMethod"),
                         }
                         certs_list.append(cert_info)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(f"Could not describe ACM certificate {cert_arn}: {e}")
 
             self._save_json(evidence_path / "acm-certificates.json", certs_list)
         except Exception as e:
-            print(f"    Warning: Could not collect ACM data: {e}")
+            logger.error(f"Could not collect ACM data: {e}")
 
         # === GUARDDUTY ===
         print("  Collecting GuardDuty status...")
@@ -197,22 +214,30 @@ class HardeningSkill(BaseSkill):
                         "FindingPublishingFrequency": detector_detail.get("FindingPublishingFrequency"),
                     })
 
-                    # Get findings (up to 50)
+                    # Get findings (up to 50, filtered by severity: Medium and above)
                     try:
                         findings = gd_client.list_findings(
                             DetectorId=detector_id,
-                            MaxResults=50
+                            MaxResults=50,
+                            FindingCriteria={
+                                'Criterion': {
+                                    'severity': {
+                                        'Gte': 4.0  # Medium (4.0-6.9), High (7.0-8.9), Critical (9.0+)
+                                    }
+                                }
+                            }
                         )
                         detector_detail["FindingIds"] = findings.get("FindingIds", [])
-                    except Exception:
+                    except Exception as e:
+                        logger.warning(f"Could not list GuardDuty findings for detector {detector_id}: {e}")
                         detector_detail["FindingIds"] = []
 
                 self._save_json(evidence_path / "guardduty-detectors.json", detectors_list)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Could not list GuardDuty detectors: {e}")
 
         except Exception as e:
-            print(f"    Warning: Could not collect GuardDuty data: {e}")
+            logger.error(f"Could not collect GuardDuty data: {e}")
 
         # === MACIE ===
         print("  Collecting Macie status...")
@@ -223,10 +248,10 @@ class HardeningSkill(BaseSkill):
             try:
                 status = macie_client.get_macie_session()
                 self._save_json(evidence_path / "macie-session.json", status)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Could not get Macie session: {e}")
 
-            # List findings
+            # List findings (filtered by severity: High only - post-filter since API doesn't support it)
             try:
                 findings_list = []
                 paginator = macie_client.get_paginator('list_findings')
@@ -234,16 +259,22 @@ class HardeningSkill(BaseSkill):
                     for finding_id in page.get("findingIds", []):
                         try:
                             finding = macie_client.get_findings(FindingIds=[finding_id])
-                            findings_list.extend(finding.get("findings", []))
-                        except Exception:
-                            pass
+                            finding_details = finding.get("findings", [])
+
+                            # Post-filter: only High severity (Macie doesn't have Critical, MEDIUM excluded for consistency)
+                            for f in finding_details:
+                                severity = f.get("severity", {}).get("description", "").upper()
+                                if severity in ["HIGH"]:
+                                    findings_list.append(f)
+                        except Exception as e:
+                            logger.warning(f"Could not get Macie finding {finding_id}: {e}")
 
                 self._save_json(evidence_path / "macie-findings.json", findings_list)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Could not list Macie findings: {e}")
 
         except Exception as e:
-            print(f"    Warning: Could not collect Macie data: {e}")
+            logger.error(f"Could not collect Macie data: {e}")
 
         # === BACKUP VAULTS ===
         print("  Collecting backup configuration...")
@@ -265,18 +296,18 @@ class HardeningSkill(BaseSkill):
                         vaults_list.append(vault_detail)
 
                 self._save_json(evidence_path / "backup-vaults.json", vaults_list)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Could not list backup vaults: {e}")
 
             # List backup plans
             try:
                 plans = backup_client.list_backup_plans()
                 self._save_json(evidence_path / "backup-plans.json", plans.get("BackupPlansList", []))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Could not list backup plans: {e}")
 
         except Exception as e:
-            print(f"    Warning: Could not collect backup data: {e}")
+            logger.error(f"Could not collect backup data: {e}")
 
         # === ACCOUNT SETTINGS ===
         print("  Collecting account settings...")
@@ -287,15 +318,15 @@ class HardeningSkill(BaseSkill):
             try:
                 summary = iam_client.get_account_summary()
                 self._save_json(evidence_path / "account-summary.json", summary)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Could not get account summary: {e}")
 
             # Account aliases
             try:
                 aliases = iam_client.list_account_aliases()
                 self._save_json(evidence_path / "account-aliases.json", aliases)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Could not list account aliases: {e}")
 
             # Password policy
             try:
@@ -303,11 +334,11 @@ class HardeningSkill(BaseSkill):
                 self._save_json(evidence_path / "password-policy.json", pwd_policy)
             except iam_client.exceptions.NoSuchEntityException:
                 self._save_json(evidence_path / "password-policy.json", {"error": "No password policy"})
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Could not get account password policy: {e}")
 
         except Exception as e:
-            print(f"    Warning: Could not collect account settings: {e}")
+            logger.error(f"Could not collect account settings: {e}")
 
         print(f"\n✅ Hardening collection complete")
 

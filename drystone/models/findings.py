@@ -73,12 +73,12 @@ class FindingsSummary(BaseModel):
     """Summary statistics for skill findings."""
 
     total_findings: int = Field(..., ge=0, description="Total number of findings")
-    critical: int = Field(..., ge=0, description="Count of critical findings")
-    high: int = Field(..., ge=0, description="Count of high findings")
-    medium: int = Field(..., ge=0, description="Count of medium findings")
-    low: int = Field(..., ge=0, description="Count of low findings")
+    critical: int = Field(default=0, ge=0, description="Count of critical findings")
+    high: int = Field(default=0, ge=0, description="Count of high findings")
+    medium: int = Field(default=0, ge=0, description="Count of medium findings")
+    low: int = Field(default=0, ge=0, description="Count of low findings")
     overall_risk_score: float = Field(
-        ..., ge=0.0, le=10.0, description="Average risk score across all findings"
+        default=0.0, ge=0.0, le=10.0, description="Average risk score across all findings"
     )
 
     class Config:
