@@ -49,12 +49,19 @@ def cli() -> None:
     type=click.Choice(["markdown", "json"]),
     help="Output formats (can specify multiple times)",
 )
+@click.option(
+    "--min-severity",
+    type=click.Choice(["low", "medium", "high", "critical"]),
+    default="low",
+    help="Minimum severity to report",
+)
 def audit(
     non_interactive: bool,
     client: str = None,
     region: str = None,
     skills: tuple = (),
     formats: tuple = (),
+    min_severity: str = "low",
 ) -> None:
     """Run AWS security audit."""
 
@@ -66,7 +73,7 @@ def audit(
     config: WizardConfig = None
 
     # Determine if we should use interactive mode
-    has_cli_args = bool(client or region or skills or formats)
+    has_cli_args = bool(client or region or skills or formats or min_severity != "low")
     should_use_interactive = not non_interactive and not has_cli_args
 
     if not config:
@@ -86,17 +93,31 @@ def audit(
                 traceback.print_exc()
                 sys.exit(1)
         elif has_cli_args:
-            # CLI args provided but credentials must come from wizard
-            click.echo("⚠️  Credentials must be entered interactively for security reasons")
-            click.echo("Please run: drystone audit\n")
-            sys.exit(1)
-        else:
+            # For now, CLI args only work with a saved config
+            config = load_last_config()
+            if not config:
+                click.echo("❌ No saved configuration found. Please run 'drystone audit' first to create one.")
+                sys.exit(1)
+            click.echo("✅ Using saved configuration with CLI overrides\n")
+            # Override config with CLI args
+            if client: config.client_name = client
+            if region: config.aws_region = region
+            if skills: config.skills = list(skills)
+            if formats: config.output_formats = list(formats)
+            if min_severity: config.min_severity = min_severity
+
+        else: # non-interactive and no other args
             # No interactive mode and no CLI args - try last config
             config = load_last_config()
             if not config:
                 click.echo("❌ No saved configuration found. Please run: drystone audit")
                 sys.exit(1)
             click.echo("✅ Using saved configuration\n")
+    
+    # After config is loaded or created, update min_severity if passed via CLI
+    # This ensures CLI flag takes precedence
+    if min_severity and min_severity != "low":
+        config.min_severity = min_severity
 
     # Show summary
     try:
@@ -244,7 +265,7 @@ def audit(
         try:
             from drystone.reports import ReportGenerator
 
-            generator = ReportGenerator(session)
+            generator = ReportGenerator(session, config)
 
             # Generate reports for each skill
             for skill_name in all_findings.keys():

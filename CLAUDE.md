@@ -546,11 +546,39 @@ ruff check drystone/
 - [ ] Build correlation engine for cross-skill findings
 - [ ] Add risk score calculation
 
-### Phase 3 (Reporting - Future)
-- [ ] Polish HTML report generation
-- [ ] Enhance Markdown report formatting
-- [ ] Implement JSON report structure
+### Phase 3 (Reporting - ✅ Enhanced)
+- [x] Wizard selection of report type (General vs PCI DSS)
+- [x] Enhanced Markdown report formatting with visual metrics
+- [x] PCI DSS compliance report formatter (table-based)
+- [x] Fix IAM hardcoded bug in report generation
+- [x] Implement JSON report structure
 - [ ] Add audit trail and compliance reporting
+
+**Report Types Available:**
+
+1. **General Security Report** (`report_type="general"`)
+   - Executive Summary with ASCII charts
+   - Severity Distribution visualization
+   - Top 5 Affected Resources
+   - Remediation Timeline (0-7, 8-30, 31-90 days)
+   - Compliance Rate by Framework (CIS, PCI DSS)
+   - Detailed Findings by Severity
+   - Observations section
+
+2. **PCI DSS Compliance Report** (`report_type="pci-dss"`)
+   - 3-column table: Control ID | Status (✅/❌/⚠️) | Justification
+   - Includes ALL controls from executed skills (not just findings)
+   - Executive Summary with compliance rate
+   - Critical Non-Compliances section
+   - Compliance Statistics by Requirement
+   - Prioritized Recommendations
+
+**Report Modules:**
+- `drystone/reports/generator.py` - Orchestrates report generation
+- `drystone/reports/formats/markdown.py` - General security reports
+- `drystone/reports/formats/pci_dss.py` - PCI DSS compliance reports
+- `drystone/reports/formats/json.py` - JSON export format
+- `drystone/reports/formats/base.py` - Abstract formatter base class
 
 ### Phase 4+ (Future)
 - [ ] Scheduled audits and monitoring

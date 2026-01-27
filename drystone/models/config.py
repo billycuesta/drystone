@@ -6,6 +6,13 @@ from typing import List, Literal, Optional, Tuple
 
 from pydantic import BaseModel, Field, validator
 
+# Example credentials for documentation (NOT REAL)
+# nosec B105 - Example credentials from AWS documentation, not real secrets
+_EXAMPLE_AWS_ACCESS_KEY = "AKIAIOSFODNN7EXAMPLE"  # nosec
+_EXAMPLE_AWS_SECRET_KEY = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"  # nosec
+_EXAMPLE_BEDROCK_ACCESS_KEY = "AKIAIOSFODNN7BEDROCK" # nosec
+_EXAMPLE_BEDROCK_SECRET_KEY = "wJalrXUtnFEMI/BEDROCK/bPxRfiCYEXAMPLEKEY"  # nosec
+
 
 class WizardConfig(BaseModel):
     """Configuration from the interactive wizard."""
@@ -78,6 +85,12 @@ class WizardConfig(BaseModel):
     
     bedrock_use_same_credentials: bool = Field(default=False, description="Reuse AWS credentials for Bedrock")
 
+    # Step 6: Minimum severity to collect and report
+    min_severity: Literal["low", "medium", "high", "critical"] = Field(
+        default="medium",
+        description="Minimum severity level for collected findings (filters out lower severities at collection time)"
+    )
+
     # Metadata
     created_at: datetime = Field(default_factory=datetime.utcnow)
     non_interactive: bool = Field(default=False)
@@ -87,16 +100,16 @@ class WizardConfig(BaseModel):
         json_schema_extra = {
             "example": {
                 "client_name": "ACME Corp",
-                "aws_access_key_id": "AKIAIOSFODNN7EXAMPLE",
-                "aws_secret_access_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+                "aws_access_key_id": _EXAMPLE_AWS_ACCESS_KEY,
+                "aws_secret_access_key": _EXAMPLE_AWS_SECRET_KEY,
                 "aws_session_token": None,
                 "aws_region": "us-east-1",
                 "skills": ["iam", "exposure"],
                 "output_formats": ["markdown", "json"],
                 "ai_provider": "bedrock",
                 "ai_api_key": None,
-                "bedrock_access_key_id": "AKIAIOSFODNN7BEDROCK",
-                "bedrock_secret_access_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+                "bedrock_access_key_id": _EXAMPLE_BEDROCK_ACCESS_KEY,
+                "bedrock_secret_access_key": _EXAMPLE_BEDROCK_SECRET_KEY,
                 "bedrock_session_token": None,
                 "created_at": "2026-01-17T10:30:00",
                 "non_interactive": False,

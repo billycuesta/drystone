@@ -4,6 +4,9 @@ from pathlib import Path
 from datetime import datetime
 
 
+from drystone.utils.logging import setup_file_logging
+
+
 class AuditSession:
     """Manages audit session directory structure and evidence storage.
 
@@ -13,6 +16,7 @@ class AuditSession:
         │   └── {skill}/
         ├── findings/
         └── reports/
+        └── audit.log
     """
 
     def __init__(self, client_name: str, account_id: str):
@@ -33,6 +37,10 @@ class AuditSession:
 
         # Create directory structure
         self._create_directories()
+
+        # Setup file logging for the session
+        log_file = self.base_path / "audit.log"
+        setup_file_logging(log_file)
 
     def _create_directories(self):
         """Create all required subdirectories."""

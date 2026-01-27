@@ -9,9 +9,12 @@ import boto3
 from drystone.cloud.aws.client import AWSClient
 from drystone.skills.base import BaseSkill
 from drystone.storage.session import AuditSession
+from drystone.utils.logging import get_logger
 
 if TYPE_CHECKING:
     from drystone.agent.client import AgentClient
+
+logger = get_logger(__name__)
 
 
 class VulnsSkill(BaseSkill):
@@ -57,21 +60,54 @@ class VulnsSkill(BaseSkill):
             try:
                 delegated = inspector_client.describe_organization_configuration()
                 self._save_json(evidence_path / "inspector-org-config.json", delegated)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Could not describe Inspector organization config: {e}")
 
-            # List findings (max 100 per call, paginated)
+            # List findings (filtered by severity: Critical, High, Medium)
             findings_list = []
             try:
                 paginator = inspector_client.get_paginator('list_findings')
-                for page in paginator.paginate():
-                    findings_list.extend(page.get("findings", []))
-            except Exception:
+
+                # Filter criteria for Inspector v2 (only Critical, High)
+                # Note: severity parameter uses CRITICAL, HIGH values
+                filter_criteria = {
+                    'severity': [
+                        {'comparison': 'EQUALS', 'value': 'CRITICAL'},
+                        {'comparison': 'EQUALS', 'value': 'HIGH'},
+                        # MEDIUM removed: 81% are low-score kernel CVEs (noise)
+                    ]
+                }
+
+                for page in paginator.paginate(filterCriteria=filter_criteria):
+                    raw_findings = page.get("findings", [])
+
+                    # Post-process: simplify findings (remove verbose fields)
+                    for finding in raw_findings:
+                        # Remove verbose nested objects
+                        finding.pop('packageVulnerabilityDetails', None)
+                        finding.pop('networkReachabilityDetails', None)
+                        finding.pop('codeVulnerabilityDetails', None)
+                        finding.pop('inspectorScoreDetails', None)
+                        finding.pop('epss', None)
+
+                        # Simplify resources (keep only essential fields)
+                        if 'resources' in finding:
+                            for resource in finding['resources']:
+                                resource.pop('details', None)  # Remove IPs, subnets, AMI IDs
+
+                        # Remove timestamps (not critical for analysis)
+                        finding.pop('firstObservedAt', None)
+                        finding.pop('lastObservedAt', None)
+                        finding.pop('updatedAt', None)
+
+                    findings_list.extend(raw_findings)
+            except Exception as e:
+                logger.warning(f"Could not list Inspector findings: {e}")
                 findings_list = []
 
             self._save_json(evidence_path / "inspector-findings.json", findings_list)
         except Exception as e:
-            print(f"    Warning: Could not collect Inspector data: {e}")
+            logger.error(f"Could not collect Inspector data: {e}")
 
         # === EC2 PATCH STATUS ===
         print("  Collecting EC2 patch compliance...")
@@ -109,7 +145,8 @@ class VulnsSkill(BaseSkill):
                             ComplianceTypes=["PATCH"]
                         )
                         instance_detail["PatchCompliance"] = patch_compliance.get("ComplianceItems", [])
-                    except Exception:
+                    except Exception as e:
+                        logger.warning(f"Could not get patch compliance for instance {instance_id}: {e}")
                         instance_detail["SSMStatus"] = []
                         instance_detail["PatchCompliance"] = []
 
@@ -117,11 +154,12 @@ class VulnsSkill(BaseSkill):
 
             self._save_json(evidence_path / "ec2-patch-status.json", patch_status_list)
         except Exception as e:
-            print(f"    Warning: Could not collect patch status: {e}")
+            logger.error(f"Could not collect patch status: {e}")
 
         # === SYSTEMS MANAGER PATCH BASELINES ===
         print("  Collecting patch baselines...")
         try:
+            ssm_client = boto3.client("ssm", **client_kwargs)
             baselines_list = []
             paginator = ssm_client.get_paginator('describe_patch_baselines')
             for page in paginator.paginate():
@@ -144,14 +182,15 @@ class VulnsSkill(BaseSkill):
                             "ApprovedPatches": details.get("ApprovedPatches", []),
                             "RejectedPatches": details.get("RejectedPatches", []),
                         }
-                    except Exception:
+                    except Exception as e:
+                        logger.warning(f"Could not get details for patch baseline {baseline.get('BaselineId')}: {e}")
                         baseline_detail["Details"] = {}
 
                     baselines_list.append(baseline_detail)
 
             self._save_json(evidence_path / "patch-baselines.json", baselines_list)
         except Exception as e:
-            print(f"    Warning: Could not collect patch baselines: {e}")
+            logger.error(f"Could not collect patch baselines: {e}")
 
         # === RDS PATCH INFORMATION ===
         print("  Collecting RDS patch information...")
@@ -179,14 +218,15 @@ class VulnsSkill(BaseSkill):
                     rds_detail["ValidUpgradeTarget"] = upgradeable.get("DBEngineVersions", [{}])[0].get(
                         "ValidUpgradeTarget", []
                     )
-                except Exception:
+                except Exception as e:
+                    logger.warning(f"Could not describe DB engine versions for {instance.get('DBInstanceIdentifier')}: {e}")
                     rds_detail["ValidUpgradeTarget"] = []
 
                 rds_patch_list.append(rds_detail)
 
             self._save_json(evidence_path / "rds-patch-info.json", rds_patch_list)
         except Exception as e:
-            print(f"    Warning: Could not collect RDS patch info: {e}")
+            logger.error(f"Could not collect RDS patch info: {e}")
 
         # === ECR IMAGE SCANNING ===
         print("  Collecting ECR image scan results...")
@@ -217,16 +257,17 @@ class VulnsSkill(BaseSkill):
                                     imageId=image.get("imageId")
                                 )
                                 image_detail["ScanFindings"] = findings.get("imageScanFindings", {})
-                            except Exception:
+                            except Exception as e:
+                                logger.warning(f"Could not get scan findings for image {image.get('imageId')}: {e}")
                                 image_detail["ScanFindings"] = {}
 
                         ecr_images_list.append(image_detail)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Could not describe images for repository {repo_name}: {e}")
 
             self._save_json(evidence_path / "ecr-image-scans.json", ecr_images_list)
         except Exception as e:
-            print(f"    Warning: Could not collect ECR scan data: {e}")
+            logger.error(f"Could not collect ECR scan data: {e}")
 
         print(f"\n✅ Vulnerability collection complete")
 
@@ -268,7 +309,7 @@ class VulnsSkill(BaseSkill):
                 with open(json_file) as f:
                     evidence[json_file.stem] = json.load(f)
             except Exception as e:
-                print(f"    Warning: Could not read {json_file.name}: {e}")
+                logger.warning(f"Could not read evidence file {json_file.name}: {e}")
 
         print(f"    Loaded {len(evidence)} evidence files")
 
@@ -282,10 +323,10 @@ class VulnsSkill(BaseSkill):
 
         print(f"    Loaded {len(checklist['items'])} security checks")
 
-        # 3. Call agent for analysis
+        # 3. Call agent for analysis (with automatic chunking for large evidence)
         provider_name = agent_client.get_display_name()
         print(f"  Analyzing with {provider_name}...")
-        findings = agent_client.analyze_evidence(
+        findings = agent_client.analyze_evidence_chunked(
             skill_name=self.name, evidence=evidence, checklist=checklist
         )
 
