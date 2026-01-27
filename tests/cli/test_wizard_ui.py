@@ -34,13 +34,15 @@ def mock_questionary():
         yield mocks
 
 @patch("drystone.cli.ui.wizard.validate_aws_creds", return_value=True)
-def test_run_project_menu_manual_creds(mock_validate, mock_questionary):
+@patch("drystone.cli.ui.wizard.validate_credentials_file", return_value=True)
+@patch("drystone.cli.ui.wizard.validate_aws_profile", return_value=True)
+def test_run_project_menu_manual_creds(mock_validate_aws_profile, mock_validate_credentials_file, mock_validate_aws_creds, mock_questionary):
     """Test the project menu with manual credential entry."""
     # Setup mock returns for each question
     mock_questionary["text"].return_value.ask.side_effect = ["TestClient", "MANUAL_KEY"] # client_name, access_key_id
     mock_questionary["password"].return_value.ask.side_effect = ["MANUAL_SECRET", ""] # secret_key, session_token
     mock_questionary["select"].return_value.ask.side_effect = ["manual", "us-east-1"] # cred_choice, region
-    mock_questionary["checkbox"].return_value.ask.side_effect = [["iam"], ["markdown"]]
+    mock_questionary["checkbox"].return_value.ask.side_effect = [["iam"], ["markdown"]] # skills, formats
 
     config = run_project_menu()
 
@@ -51,7 +53,9 @@ def test_run_project_menu_manual_creds(mock_validate, mock_questionary):
     assert config["aws_credentials_file"] is None
 
 @patch("drystone.cli.ui.wizard.validate_aws_creds", return_value=True)
-def test_run_project_menu_profile_creds(mock_validate, mock_questionary):
+@patch("drystone.cli.ui.wizard.validate_credentials_file", return_value=True)
+@patch("drystone.cli.ui.wizard.validate_aws_profile", return_value=True)
+def test_run_project_menu_profile_creds(mock_validate_aws_profile, mock_validate_credentials_file, mock_validate_aws_creds, mock_questionary):
     """Test the project menu using an AWS profile."""
     mock_questionary["text"].return_value.ask.side_effect = ["TestClient", "my-profile"] # client_name, profile_name
     mock_questionary["select"].return_value.ask.side_effect = ["profile", "us-east-1"] # cred_choice, region
@@ -64,7 +68,9 @@ def test_run_project_menu_profile_creds(mock_validate, mock_questionary):
     assert config["aws_credentials_file"] is None
 
 @patch("drystone.cli.ui.wizard.validate_aws_creds", return_value=True)
-def test_run_project_menu_file_creds(mock_validate, mock_questionary):
+@patch("drystone.cli.ui.wizard.validate_credentials_file", return_value=True)
+@patch("drystone.cli.ui.wizard.validate_aws_profile", return_value=True)
+def test_run_project_menu_file_creds(mock_validate_aws_profile, mock_validate_credentials_file, mock_validate_aws_creds, mock_questionary):
     """Test the project menu using a credential file."""
     mock_questionary["text"].return_value.ask.side_effect = ["TestClient", "~/.aws/my-creds.json"] # client_name, file_path
     mock_questionary["select"].return_value.ask.side_effect = ["file", "us-east-1"] # cred_choice, region
@@ -77,7 +83,9 @@ def test_run_project_menu_file_creds(mock_validate, mock_questionary):
     assert config["aws_profile"] is None
 
 @patch("drystone.cli.ui.wizard.validate_aws_creds", return_value=True)
-def test_run_ai_menu_bedrock_same_creds(mock_validate, mock_questionary):
+@patch("drystone.cli.ui.wizard.validate_credentials_file", return_value=True)
+@patch("drystone.cli.ui.wizard.validate_aws_profile", return_value=True)
+def test_run_ai_menu_bedrock_same_creds(mock_validate_aws_profile, mock_validate_credentials_file, mock_validate_aws_creds, mock_questionary):
     """Test the AI menu selecting 'same' credentials for Bedrock."""
     mock_questionary["select"].return_value.ask.side_effect = ["bedrock", "same"] # ai_provider, bedrock_choice
 
@@ -90,7 +98,9 @@ def test_run_ai_menu_bedrock_same_creds(mock_validate, mock_questionary):
     assert config["bedrock_credentials_file"] is None
 
 @patch("drystone.cli.ui.wizard.validate_aws_creds", return_value=True)
-def test_run_ai_menu_bedrock_manual_creds(mock_validate, mock_questionary):
+@patch("drystone.cli.ui.wizard.validate_credentials_file", return_value=True)
+@patch("drystone.cli.ui.wizard.validate_aws_profile", return_value=True)
+def test_run_ai_menu_bedrock_manual_creds(mock_validate_aws_profile, mock_validate_credentials_file, mock_validate_aws_creds, mock_questionary):
     """Test the AI menu with manual entry for Bedrock credentials."""
     mock_questionary["select"].return_value.ask.side_effect = ["bedrock", "manual"]
     mock_questionary["text"].return_value.ask.side_effect = ["BEDROCK_KEY"]
@@ -106,7 +116,9 @@ def test_run_ai_menu_bedrock_manual_creds(mock_validate, mock_questionary):
 @patch("drystone.models.config.WizardConfig.get_aws_credentials", return_value=("key", "secret", "token"))
 @patch("drystone.models.config.WizardConfig.get_bedrock_credentials", return_value=("key", "secret", "token"))
 @patch("drystone.cli.ui.wizard.validate_aws_creds", return_value=True)
-def test_run_setup_wizard_full_flow(mock_validate, mock_get_bedrock, mock_get_aws, mock_questionary):
+@patch("drystone.cli.ui.wizard.validate_credentials_file", return_value=True)
+@patch("drystone.cli.ui.wizard.validate_aws_profile", return_value=True)
+def test_run_setup_wizard_full_flow(mock_validate_aws_profile, mock_validate_credentials_file, mock_validate_aws_creds, mock_get_bedrock, mock_get_aws, mock_questionary):
     """Test the full wizard flow from start to finish."""
     # Mock the sequence of choices for all 'select' prompts
     mock_questionary["select"].return_value.ask.side_effect = [
@@ -135,4 +147,5 @@ def test_run_setup_wizard_full_flow(mock_validate, mock_get_bedrock, mock_get_aw
     assert final_config.output_formats == ["json"]
     assert final_config.ai_provider == "bedrock"
     assert final_config.bedrock_use_same_credentials is True
+
 

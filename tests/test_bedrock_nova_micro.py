@@ -20,12 +20,12 @@ class TestBedrockNovaMicroIntegration:
             yield mock_client
 
     @pytest.fixture
-    def agent_with_bedrock(self, bedrock_client_mock):
+    def agent_with_bedrock(self, bedrock_client_mock, example_bedrock_credentials):
         """Create agent with Bedrock provider."""
         config = {
             'type': 'bedrock',
-            'bedrock_access_key_id': 'test-key',
-            'bedrock_secret_access_key': 'test-secret',
+            'bedrock_access_key_id': example_bedrock_credentials["bedrock_access_key_id"],
+            'bedrock_secret_access_key': example_bedrock_credentials["bedrock_secret_access_key"],
         }
         agent = AgentClient(provider_config=config)
         return agent
@@ -153,7 +153,7 @@ class TestBedrockNovaMicroIntegration:
 
         assert "Invalid response structure" in str(exc_info.value)
 
-    def test_bedrock_setup_creates_correct_client(self):
+    def test_bedrock_setup_creates_correct_client(self, example_bedrock_credentials):
         """Verify Bedrock setup initializes boto3 client correctly."""
         with patch('boto3.client') as mock_boto_client:
             mock_client = MagicMock()
@@ -161,8 +161,8 @@ class TestBedrockNovaMicroIntegration:
 
             config = {
                 'type': 'bedrock',
-                'bedrock_access_key_id': 'test-key',
-                'bedrock_secret_access_key': 'test-secret',
+                'bedrock_access_key_id': example_bedrock_credentials["bedrock_access_key_id"],
+                'bedrock_secret_access_key': example_bedrock_credentials["bedrock_secret_access_key"],
             }
 
             agent = AgentClient(provider_config=config)
@@ -171,11 +171,11 @@ class TestBedrockNovaMicroIntegration:
             mock_boto_client.assert_called_once_with(
                 'bedrock-runtime',
                 region_name='eu-west-1',
-                aws_access_key_id='test-key',
-                aws_secret_access_key='test-secret',
+                aws_access_key_id=example_bedrock_credentials["bedrock_access_key_id"],
+                aws_secret_access_key=example_bedrock_credentials["bedrock_secret_access_key"],
             )
 
-    def test_bedrock_setup_with_session_token(self):
+    def test_bedrock_setup_with_session_token(self, example_bedrock_credentials):
         """Verify Bedrock setup includes session token when provided."""
         with patch('boto3.client') as mock_boto_client:
             mock_client = MagicMock()
@@ -183,8 +183,8 @@ class TestBedrockNovaMicroIntegration:
 
             config = {
                 'type': 'bedrock',
-                'bedrock_access_key_id': 'test-key',
-                'bedrock_secret_access_key': 'test-secret',
+                'bedrock_access_key_id': example_bedrock_credentials["bedrock_access_key_id"],
+                'bedrock_secret_access_key': example_bedrock_credentials["bedrock_secret_access_key"],
                 'bedrock_session_token': 'test-token',
             }
 
@@ -194,8 +194,8 @@ class TestBedrockNovaMicroIntegration:
             mock_boto_client.assert_called_once_with(
                 'bedrock-runtime',
                 region_name='eu-west-1',
-                aws_access_key_id='test-key',
-                aws_secret_access_key='test-secret',
+                aws_access_key_id=example_bedrock_credentials["bedrock_access_key_id"],
+                aws_secret_access_key=example_bedrock_credentials["bedrock_secret_access_key"],
                 aws_session_token='test-token',
             )
 
