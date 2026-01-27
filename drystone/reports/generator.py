@@ -9,6 +9,7 @@ from drystone.reports.formats import (
     MarkdownFormatter,
     JSONFormatter,
 )
+from drystone.models.config import WizardConfig
 
 
 class ReportGenerator:
@@ -20,13 +21,15 @@ class ReportGenerator:
         "json": JSONFormatter,
     }
 
-    def __init__(self, session: AuditSession):
+    def __init__(self, session: AuditSession, config: WizardConfig):
         """Initialize report generator.
 
         Args:
             session: Audit session for file paths and metadata
+            config: WizardConfig object with settings like min_severity
         """
         self.session = session
+        self.config = config
 
     def generate_reports(self, skill: str, formats: List[str]) -> Dict[str, Path]:
         """Generate reports in requested formats.
@@ -60,6 +63,9 @@ class ReportGenerator:
                 f"File: {findings_path}"
             )
 
+        # Filter findings by severity
+        filtered_findings_data = self._filter_findings_by_severity(findings_data)
+
         # Generate reports
         generated_reports = {}
 
@@ -73,7 +79,8 @@ class ReportGenerator:
             formatter_class = self.FORMATTERS[format_name]
 
             try:
-                formatter = formatter_class(findings_data, self.session)
+                # Pass filtered data to the formatter
+                formatter = formatter_class(filtered_findings_data, self.session)
                 report_path = formatter.generate()
                 generated_reports[format_name] = report_path
             except Exception as e:
@@ -82,3 +89,47 @@ class ReportGenerator:
                 )
 
         return generated_reports
+
+    def _filter_findings_by_severity(self, findings_data: Dict) -> Dict:
+        """Filter findings based on the min_severity setting and recalculate summary."""
+        min_severity = self.config.min_severity
+        if not min_severity or min_severity == "low":
+            return findings_data # No filtering needed
+
+        severity_levels = ["low", "medium", "high", "critical"]
+        try:
+            min_index = severity_levels.index(min_severity)
+        except ValueError:
+            return findings_data # Invalid severity, do no filtering
+
+        # Severities to include in the report
+        allowed_severities = set(severity_levels[min_index:])
+
+        original_findings = findings_data.get("findings", [])
+        
+        # Filter the findings
+        filtered_findings = [
+            f for f in original_findings 
+            if f.get("severity", "low").lower() in allowed_severities
+        ]
+
+        # Create a new data object with filtered findings
+        new_data = findings_data.copy()
+        new_data["findings"] = filtered_findings
+
+        # Recalculate the summary
+        summary = {
+            "total_findings": len(filtered_findings),
+            "critical": sum(1 for f in filtered_findings if f.get("severity") == "Critical"),
+            "high": sum(1 for f in filtered_findings if f.get("severity") == "High"),
+            "medium": sum(1 for f in filtered_findings if f.get("severity") == "Medium"),
+            "low": sum(1 for f in filtered_findings if f.get("severity") == "Low"),
+        }
+        
+        # Recalculate risk score (average of filtered findings)
+        risk_scores = [f.get("risk_score", 0.0) for f in filtered_findings if f.get("risk_score") is not None]
+        summary["overall_risk_score"] = sum(risk_scores) / len(risk_scores) if risk_scores else 0.0
+        
+        new_data["summary"] = summary
+        
+        return new_data
