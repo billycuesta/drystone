@@ -46,6 +46,10 @@ htmlcov/
 # Output
 audit-logs/
 
+# Security scan outputs
+bandit*.json
+security-scan-*.json
+
 # Env vars
 .env
 .env.local
