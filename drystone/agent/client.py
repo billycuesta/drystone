@@ -7,9 +7,10 @@ Provides multi-provider architecture for AI analysis:
 
 import json
 import os
-import subprocess
 import shutil
+import subprocess
 import warnings
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import anthropic
@@ -25,6 +26,7 @@ except ImportError:
     genai = None
 
 from drystone.models.findings import SkillFindings
+from drystone.agent.chunker import EvidenceChunker, FindingsAggregator
 
 
 class AgentError(Exception):
@@ -67,6 +69,7 @@ class AgentClient:
             AgentError: If configuration invalid or backend unavailable
         """
         self.provider_config = provider_config or {}
+        self.config = self.provider_config # Store config for chunker
         self.provider_type = self.provider_config.get('type', 'claude-cli')
         self.api_key = self.provider_config.get('api_key')
         self.client = None
@@ -95,13 +98,8 @@ class AgentClient:
         self.provider_name = "claude"
 
         if self.provider_type == "claude-cli":
-            # Use CLI
-            if not self._check_claude_cli_available():
-                raise AgentError(
-                    "Claude CLI not found in PATH.\n"
-                    "Install: npm install -g @anthropic-ai/claude-code\n"
-                    "Or select 'Claude API Key' option if you have an API key"
-                )
+            # Get absolute path to CLI executable for security
+            self.claude_cli_path = self._get_claude_cli_path()
             self.use_cli = True
 
         elif self.provider_type == "claude-api":
@@ -117,13 +115,28 @@ class AgentClient:
             except Exception as e:
                 raise AgentError(f"Failed to initialize Anthropic client: {e}")
 
-    def _check_claude_cli_available(self) -> bool:
-        """Check if Claude CLI is available in system.
+    def _get_claude_cli_path(self) -> str:
+        """Get absolute path to claude CLI executable.
 
         Returns:
-            True if 'claude' command is available, False otherwise
+            Absolute path to claude executable
+
+        Raises:
+            AgentError: If claude CLI not found or is not a file
         """
-        return shutil.which("claude") is not None
+        claude_path = shutil.which("claude")
+
+        if not claude_path:
+            raise AgentError(
+                "Claude Code CLI not found in PATH.\n"
+                "Install with: npm install -g @anthropic-ai/claude-code"
+            )
+
+        # Security: Verify it's a file before executing
+        if not Path(claude_path).is_file():
+            raise AgentError(f"Claude CLI path is not a file: {claude_path}")
+
+        return claude_path
 
     def _setup_gemini(self) -> None:
         """Setup Gemini API provider."""
@@ -311,8 +324,72 @@ class AgentClient:
 
         return findings
 
+    def analyze_evidence_chunked(
+        self,
+        skill_name: str,
+        evidence: Dict[str, Any],
+        checklist: Dict[str, Any],
+        chunker: EvidenceChunker = None
+    ) -> "SkillFindings":
+        """Analyze evidence with automatic chunking for large datasets.
+
+        Args:
+            skill_name: Name of skill being analyzed
+            evidence: Full evidence dictionary
+            checklist: Security checklist
+            chunker: Optional chunker instance (default: auto-created)
+
+        Returns:
+            SkillFindings with aggregated findings from all chunks
+        """
+        # Auto-create chunker if not provided
+        if chunker is None:
+            # Adjust limits per provider
+            provider_type = self.config.get('type', 'claude-cli')
+
+            if provider_type == 'bedrock':
+                max_tokens = 15000  # Nova Micro has smaller context
+            elif provider_type == 'claude-cli':
+                max_tokens = 20000  # CLI has OS argument limit, be conservative
+            else:
+                max_tokens = 40000  # API has better limits
+
+            chunker = EvidenceChunker(max_tokens_per_chunk=max_tokens)
+
+        # Check if chunking is needed
+        if not chunker.should_chunk(evidence):
+            # Small evidence - use existing flow
+            return self.analyze_evidence(skill_name, evidence, checklist)
+
+        # Large evidence - chunk and aggregate
+        print(f"  📦 Evidence size requires chunking...")
+        aggregator = FindingsAggregator()
+
+        chunks = list(chunker.chunk_evidence(evidence))
+        print(f"  📦 Processing {len(chunks)} chunks...")
+
+        for chunk in chunks:
+            print(f"     Chunk {chunk.chunk_id}/{chunk.total_chunks}: {chunk.metadata.get('source_file', 'unknown')}")
+
+            # Analyze this chunk
+            chunk_findings = self.analyze_evidence(
+                skill_name=skill_name,
+                evidence=chunk.evidence,  # Subset of evidence
+                checklist=checklist        # Full checklist every time
+            )
+
+            # Aggregate findings
+            aggregator.add_findings(chunk_findings)
+
+        # Return aggregated result
+        final_findings = aggregator.aggregate()
+        print(f"  ✅ Aggregated {final_findings.summary.total_findings} findings from {len(chunks)} chunks")
+
+        return final_findings
+
+
     def _call_claude_cli(self, prompt: str) -> str:
-        """Call Claude via CLI subprocess.
+        """Call Claude via CLI subprocess using absolute path for security.
 
         Args:
             prompt: Full prompt (system + user)
@@ -325,7 +402,7 @@ class AgentClient:
         """
         try:
             result = subprocess.run(
-                ["claude", "-p", prompt],
+                [self.claude_cli_path, "-p", prompt],  # Using absolute path
                 input="",  # Empty stdin
                 capture_output=True,
                 text=True,
