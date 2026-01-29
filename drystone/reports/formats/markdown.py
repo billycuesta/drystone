@@ -36,9 +36,11 @@ class MarkdownFormatter(BaseFormatter):
         parts = [
             self._header(),
             self._executive_summary(),
+            self._remediation_timeline(),
             self._pci_dss_compliance_summary(),
             self._findings_by_severity(),
-            self._remediation_guide(),
+            self._observations(),
+            self._references(),
             self._footer(),
         ]
         # Filter out empty sections
@@ -70,34 +72,95 @@ This report presents security findings from the {skill.upper()} security assessm
     def _executive_summary(self) -> str:
         """Generate executive summary section."""
         summary = self.findings.get("summary", {})
-
         total = summary.get("total_findings", 0)
         critical = summary.get("critical", 0)
         high = summary.get("high", 0)
         medium = summary.get("medium", 0)
         low = summary.get("low", 0)
         risk_score = summary.get("overall_risk_score", 0)
+        risk_label = self._get_risk_level(risk_score).replace("*", "")
 
-        risk_label = self._get_risk_level(risk_score)
+        risk_overview = "### Risk Overview\n"
+        risk_overview += "┌─────────────────────────────────────────────┐\n"
+        risk_overview += f"│ Overall Risk Score: {risk_score:.1f} / 10.0 ({risk_label.strip()})".ljust(45) + "│\n"
+        risk_overview += f"│ Total Findings: {total}".ljust(45) + "│\n"
+        risk_overview += f"│ Critical: {critical} | High: {high} | Medium: {medium} | Low: {low}".ljust(45) + "│\n"
+        risk_overview += "└─────────────────────────────────────────────┘"
+        
+        severity_dist = self._severity_distribution_chart()
+        top_resources = self._top_affected_resources()
 
         return f"""## 📊 Executive Summary
 
-### Risk Overview
+{risk_overview}
 
-| Metric | Value |
-|--------|-------|
-| **Overall Risk Score** | {risk_score:.1f}/10 {risk_label} |
-| **Total Findings** | {total} |
-| **Critical** | 🔴 {critical} |
-| **High** | 🟠 {high} |
-| **Medium** | 🟡 {medium} |
-| **Low** | 🟢 {low} |
-| **Evidence Analyzed** | {self.findings.get('evidence_count', 0)} files |
+{severity_dist}
 
-### Risk Assessment
-
-Based on the {total} findings identified, the overall security posture is assessed at **{risk_score:.1f}/10**.
+{top_resources}
 """
+
+    def _severity_distribution_chart(self) -> str:
+        """Generate ASCII bar chart for severity distribution."""
+        summary = self.findings.get("summary", {})
+        total = summary.get("total_findings", 1)
+
+        severities = {
+            "Critical": summary.get("critical", 0),
+            "High": summary.get("high", 0),
+            "Medium": summary.get("medium", 0),
+            "Low": summary.get("low", 0),
+        }
+
+        chart = "### Severity Distribution\n"
+        for severity, count in severities.items():
+            percentage = int((count / total) * 100) if total > 0 else 0
+            bars = "█" * (percentage // 10) + "░" * (10 - percentage // 10)
+            chart += f"{severity:<10} {bars}  {percentage}%\n"
+
+        return chart
+
+    def _remediation_timeline(self) -> str:
+        """Generate prioritized remediation timeline."""
+        findings = self.findings.get("findings", [])
+
+        immediate = [f for f in findings if f.get("severity") == "Critical"]
+        short_term = [f for f in findings if f.get("severity") == "High"]
+        medium_term = [f for f in findings if f.get("severity") == "Medium"]
+
+        timeline = "## 📅 Remediation Timeline (Recommended)\n\n"
+
+        timeline += "### Immediate (0-7 days) - Critical Priority\n"
+        for f in immediate[:5]:  # Limit to top 5
+            timeline += f"- [ ] {f.get('id')}: {f.get('title')}\n"
+
+        timeline += "\n### Short-term (8-30 days) - High Priority\n"
+        for f in short_term[:5]:
+            timeline += f"- [ ] {f.get('id')}: {f.get('title')}\n"
+
+        timeline += "\n### Medium-term (31-90 days) - Medium Priority\n"
+        for f in medium_term[:3]:
+            timeline += f"- [ ] {f.get('id')}: {f.get('title')}\n"
+
+        return timeline
+
+    def _top_affected_resources(self) -> str:
+        """Show top 5 resources with most findings."""
+        findings = self.findings.get("findings", [])
+
+        # Count findings per resource
+        resource_counts = {}
+        for finding in findings:
+            for resource in finding.get("affected_resources", []):
+                resource_counts[resource] = resource_counts.get(resource, 0) + 1
+
+        # Sort by count
+        top_resources = sorted(resource_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+
+        result = "### Top 5 Affected Resources\n"
+        for i, (resource, count) in enumerate(top_resources, 1):
+            result += f"{i}. {resource} ({count} findings)\n"
+
+        return result
 
     def _findings_by_severity(self) -> str:
         """Generate findings grouped by severity."""
@@ -206,6 +269,24 @@ Based on the {total} findings identified, the overall security posture is assess
 
         return guide
 
+    def _observations(self) -> str:
+        """Generate observations section."""
+        return """## 📝 Observations
+
+- **Positive:** Observations about positive security controls will be listed here.
+- **Concerns:** General concerns or patterns of weakness will be listed here.
+- **Recommendations:** High-level recommendations will be listed here.
+"""
+
+    def _references(self) -> str:
+        """Generate references section."""
+        return """## 📚 References
+
+- CIS AWS Foundations Benchmark v1.5.0
+- PCI DSS v4.0 Requirements
+- AWS Security Best Practices
+"""
+
     def _footer(self) -> str:
         """Generate report footer."""
         return """---
@@ -240,8 +321,11 @@ AWS Security Audit CLI powered by Claude
     def _get_all_checklist_controls(self) -> List[str]:
         """Extract all unique PCI DSS controls from checklist.json."""
         try:
+            # Get skill name from findings (NO default)
+            skill = self.findings.get("skill")
+            if not skill:
+                raise ValueError("Skill name missing in findings")
             # Build path to checklist
-            skill = self.findings.get("skill", "iam")
             checklist_path = Path(__file__).parent.parent.parent / "skills" / skill / "checklist.json"
 
             if not checklist_path.exists():
@@ -261,7 +345,7 @@ AWS Security Audit CLI powered by Claude
             # Return sorted by natural sort
             return sorted(controls, key=self._natural_sort_key)
 
-        except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        except (FileNotFoundError, json.JSONDecodeError, KeyError, ValueError):
             return []
 
     def _extract_pci_controls_map(self, findings: List[Dict]) -> Dict[str, List[Dict]]:
@@ -299,6 +383,7 @@ AWS Security Audit CLI powered by Claude
     def _pci_dss_compliance_summary(self) -> str:
         """Generate PCI DSS compliance summary section."""
         findings = self.findings.get("findings", [])
+        skill_name = self.findings.get("skill", "unknown").upper()
 
         # Get all PCI controls from checklist
         all_controls = self._get_all_checklist_controls()
@@ -335,11 +420,11 @@ AWS Security Audit CLI powered by Claude
             section += f"| {control_id} | {status} | {findings_text} |\n"
 
         # Add legend and notes
-        section += """
+        section += f"""
 **Legend:**
 - ✅ OK: No violations found for this control
 - ❌ KO: Violations detected (see detailed findings below)
 
-**Note:** This table shows PCI DSS v4.0 controls evaluated by the IAM skill. For a complete PCI compliance assessment, all 12 requirement categories must be evaluated across multiple skills (Network, Exposure, Vulnerabilities, etc.)."""
+**Note:** This table shows PCI DSS v4.0 controls evaluated by the {skill_name} skill. For a complete PCI compliance assessment, all 12 requirement categories must be evaluated across multiple skills (Network, Exposure, Vulnerabilities, etc.)."""
 
         return section.strip()

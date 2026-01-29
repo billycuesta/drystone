@@ -135,6 +135,13 @@ def display_config_summary(project_config: dict, ai_config: dict) -> None:
     formats_display = ", ".join(project_config['output_formats']) if project_config['output_formats'] else "None"
     print(f"   Output Formats: {formats_display}")
 
+    # Add report type
+    report_type_display = {
+        "general": "📊 General Security Report",
+        "pci-dss": "🔐 PCI DSS Compliance Report"
+    }
+    print(f"   Report Type: {report_type_display.get(project_config.get('report_type', 'general'))}")
+
     # Menu B: AI Configuration
     print("\n🤖 AI Configuration:")
     print(f"   Provider: {ai_config['ai_provider']}")
@@ -315,12 +322,35 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
     ).ask()
     if output_formats is None: raise KeyboardInterrupt("Wizard cancelled")
 
+    # Step 6.5: Report Type
+    current_report_type = defaults.get("report_type", "general")
+    report_type = questionary.select(
+        "Report Type:",
+        choices=[
+            questionary.Choice(
+                "📊 General Security Report - Comprehensive findings with remediation guide",
+                "general",
+                checked=current_report_type == "general"
+            ),
+            questionary.Choice(
+                "🔐 PCI DSS Compliance Report - Control-based compliance table",
+                "pci-dss",
+                checked=current_report_type == "pci-dss"
+            ),
+        ],
+        instruction="(Select report focus and structure)"
+    ).ask()
+    if report_type is None:
+        raise KeyboardInterrupt("Wizard cancelled")
+
+
     # Combine all results
     project_config = {
         "client_name": client_name,
         "aws_region": aws_region,
         "skills": skills,
         "output_formats": output_formats,
+        "report_type": report_type,
     }
     project_config.update(creds_config)
 

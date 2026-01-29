@@ -49,6 +49,12 @@ class WizardConfig(BaseModel):
         description="Report output formats"
     )
 
+    # Step 6.5: Report Type
+    report_type: Literal["general", "pci-dss"] = Field(
+        default="general",
+        description="Report type: general security report or PCI DSS compliance report"
+    )
+
     # Step 7: AI Provider for analysis
     ai_provider: Literal["claude-api", "claude-cli", "gemini-api", "bedrock"] = Field(
         default="claude-cli",

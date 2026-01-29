@@ -4,21 +4,24 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, Any
 
+from drystone.models.config import AuditConfig
 from drystone.storage.session import AuditSession
 
 
 class BaseFormatter(ABC):
     """Abstract base class for report formatters."""
 
-    def __init__(self, findings_data: Dict[str, Any], session: AuditSession):
+    def __init__(self, findings_data: Dict[str, Any], session: AuditSession, config: AuditConfig):
         """Initialize formatter.
 
         Args:
             findings_data: Parsed findings JSON (SkillFindings dict)
             session: Audit session for file paths
+            config: Audit configuration object
         """
         self.findings = findings_data
         self.session = session
+        self.config = config
         self.reports_path = session.get_reports_path()
         self.reports_path.mkdir(parents=True, exist_ok=True)
 

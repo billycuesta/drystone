@@ -8,6 +8,7 @@ from drystone.storage.session import AuditSession
 from drystone.reports.formats import (
     MarkdownFormatter,
     JSONFormatter,
+    PCIDSSFormatter,
 )
 from drystone.models.config import WizardConfig
 
@@ -70,17 +71,19 @@ class ReportGenerator:
         generated_reports = {}
 
         for format_name in formats:
-            if format_name not in self.FORMATTERS:
+            if self.config.report_type == 'pci-dss' and format_name == 'markdown':
+                formatter_class = PCIDSSFormatter
+            elif format_name in self.FORMATTERS:
+                formatter_class = self.FORMATTERS[format_name]
+            else:
                 raise ValueError(
                     f"Unknown format: {format_name}\n"
                     f"Available: {', '.join(self.FORMATTERS.keys())}"
                 )
 
-            formatter_class = self.FORMATTERS[format_name]
-
             try:
-                # Pass filtered data to the formatter
-                formatter = formatter_class(filtered_findings_data, self.session)
+                # Pass config to the formatter
+                formatter = formatter_class(filtered_findings_data, self.session, self.config)
                 report_path = formatter.generate()
                 generated_reports[format_name] = report_path
             except Exception as e:
