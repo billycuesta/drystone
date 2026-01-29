@@ -305,6 +305,8 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
             questionary.Choice("Internet Exposure Audit", "exposure", checked="exposure" in current_skills),
             questionary.Choice("Network Policies Audit", "network", checked="network" in current_skills),
             questionary.Choice("Vulnerability Scanning", "vulns", checked="vulns" in current_skills),
+            questionary.Choice("Alerting & Monitoring Audit", "alerting", checked="alerting" in current_skills),
+            questionary.Choice("Account Hardening Audit", "hardening", checked="hardening" in current_skills),
         ],
         validate=lambda x: len(x) > 0 or "Select at least one skill",
     ).ask()

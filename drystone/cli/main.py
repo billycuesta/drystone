@@ -40,7 +40,7 @@ def cli() -> None:
 @click.option(
     "--skills",
     multiple=True,
-    type=click.Choice(["iam", "exposure", "network", "vulns"]),
+    type=click.Choice(["iam", "exposure", "network", "vulns", "alerting", "hardening"]),
     help="Skills to execute (can specify multiple times)",
 )
 @click.option(
@@ -169,6 +169,8 @@ def audit(
         "exposure": ("drystone.skills.exposure", "ExposureSkill"),
         "network": ("drystone.skills.network", "NetworkSkill"),
         "vulns": ("drystone.skills.vulns", "VulnsSkill"),
+        "alerting": ("drystone.skills.alerting", "AlertingSkill"),
+        "hardening": ("drystone.skills.hardening", "HardeningSkill"),
     }
 
     skill_instances = {}
@@ -308,7 +310,7 @@ def version() -> None:
 @click.argument("skill_name", required=False)
 def skill(skill_name: str = None) -> None:
     """Manage security skills."""
-    available_skills = ["iam", "exposure", "network", "vulns"]
+    available_skills = ["iam", "exposure", "network", "vulns", "alerting", "hardening"]
 
     if not skill_name:
         click.echo("Available Skills:")
