@@ -343,6 +343,69 @@ None identified. Project ready for next phase.
 
 ---
 
-**Total Sessions:** 7
+---
+
+## Session: 2026-01-30 - Evidence Snippets in Findings Reports
+
+**Date:** 2026-01-30
+**Duration:** ~90 minutes
+**Branch:** main
+**Objective:** Implement evidence snippet extraction and rendering to display raw AWS API responses within findings in security reports.
+
+### Results
+
+- Implemented 5-phase feature: Model → Agent → Formatters → Tests → Docs
+- Added EvidenceSnippet model to findings with evidence_path and preview_lines
+- Enhanced agent evidence extractor with ARG_MAX protection for large prompts
+- Implemented evidence rendering in markdown reports (code block format)
+- Implemented evidence rendering in PCI DSS reports (tabular format)
+- Created comprehensive test suite: 15 unit tests with 100% pass rate
+- Production code: 467 lines (model + agent + formatters)
+- Test code: 250+ lines with 100% coverage for new functionality
+
+### Commits
+
+- `fe34b42` - feat: add evidence snippets to findings in reports
+
+### Files Modified
+
+**Production Code:**
+- `drystone/models/findings.py` - New EvidenceSnippet model with metadata
+- `drystone/agent/client.py` - Evidence extractor with ARG_MAX protection and path normalization
+- `drystone/reports/formats/markdown.py` - Evidence snippet rendering in code blocks
+- `drystone/reports/formats/pci_dss.py` - Evidence snippet rendering in control justifications
+
+**Test Code:**
+- `tests/models/test_evidence_snippets.py` - EvidenceSnippet model validation (5 tests)
+- `tests/reports/test_evidence_rendering.py` - Evidence rendering in reports (10 tests)
+
+### Key Decisions
+
+1. **Evidence Path Format:** Use dot-notation paths for evidence field access (e.g., "users.0.policies")
+2. **Preview Lines:** Default to 20 lines for snippet preview, configurable in model
+3. **ARG_MAX Protection:** Prevent prompt overflow when extracting large evidence snippets
+4. **Tabular Format for PCI DSS:** Display evidence in Evidence-Justification columns for compliance reports
+5. **Code Block Format for General:** Display evidence in markdown code blocks for readability
+
+### Testing Status
+
+- Unit tests: 15 (all passing)
+- Integration: Manual testing with sample findings
+- Edge cases: Handled missing evidence paths, empty snippets, large evidence extracts
+
+### Blockers
+
+None identified. Feature complete and ready for production.
+
+### Impact
+
+- Users can now see relevant AWS API responses inline with findings
+- Evidence snippets provide context for security findings
+- Supports both general security and PCI DSS compliance reporting formats
+- Prevents agent prompt overflow with intelligent evidence extraction
+
+---
+
+**Total Sessions:** 8
 **Active Development:** Complete - Ready for Phase 5 Testing Infrastructure
 **Next Focus:** Sprint 1 - Comprehensive Testing Framework (unit, integration, e2e)
