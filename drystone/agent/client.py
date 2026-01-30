@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import warnings
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -389,7 +390,39 @@ class AgentClient:
 
 
     def _call_claude_cli(self, prompt: str) -> str:
-        """Call Claude via CLI subprocess using absolute path for security.
+        """Call Claude via CLI subprocess with ARG_MAX protection.
+
+        Detects large prompts and uses temp file strategy to bypass macOS ARG_MAX limit (256KB).
+        This fixes truncation issues where large evidence causes "Unterminated string" JSON errors.
+
+        Strategy:
+        - Small prompts (<100KB): Use -p flag (fast path, existing behavior)
+        - Large prompts (≥100KB): Use temp file strategy to avoid ARG_MAX
+
+        Args:
+            prompt: Full prompt (system + user)
+
+        Returns:
+            Response text from Claude
+
+        Raises:
+            AgentError: If subprocess fails
+        """
+        # Calculate prompt size in bytes
+        prompt_bytes = len(prompt.encode('utf-8'))
+        ARG_MAX_SAFE_LIMIT = 100_000  # 100KB (conservative, allows headroom)
+
+        if prompt_bytes >= ARG_MAX_SAFE_LIMIT:
+            # Large prompt → use temp file strategy
+            return self._call_claude_cli_with_file(prompt)
+        else:
+            # Small prompt → use -p flag (existing fast path)
+            return self._call_claude_cli_direct(prompt)
+
+    def _call_claude_cli_direct(self, prompt: str) -> str:
+        """Call Claude CLI with prompt as argument (for small prompts).
+
+        Fast path for prompts <100KB using -p flag.
 
         Args:
             prompt: Full prompt (system + user)
@@ -406,7 +439,7 @@ class AgentClient:
                 input="",  # Empty stdin
                 capture_output=True,
                 text=True,
-                timeout=300,  # 5 minutes - Claude CLI can be slow with large prompts
+                timeout=300,  # 5 minutes
             )
 
             if result.returncode != 0:
@@ -421,6 +454,83 @@ class AgentClient:
             raise AgentError("Claude CLI call timed out (>300s). Prompt may be too large.")
         except Exception as e:
             raise AgentError(f"Claude CLI error: {e}")
+
+    def _call_claude_cli_with_file(self, prompt: str) -> str:
+        """Call Claude CLI using temp file for large prompts (>100KB).
+
+        Avoids ARG_MAX limit (256KB on macOS) by writing full prompt to temp file
+        and creating a small meta-prompt that references it.
+
+        Strategy:
+        1. Write full prompt (system + evidence + checklist) to temp file
+        2. Create short meta-prompt: "Read and execute instructions at {file}"
+        3. Call Claude CLI with short prompt
+        4. Clean up temp file in finally block
+
+        Args:
+            prompt: Full prompt (system + user)
+
+        Returns:
+            Response text from Claude
+
+        Raises:
+            AgentError: If file creation or subprocess fails
+        """
+        temp_file = None
+        try:
+            # Write full prompt to temp file in scratchpad
+            with tempfile.NamedTemporaryFile(
+                mode='w',
+                suffix='.txt',
+                prefix='claude_prompt_',
+                delete=False,
+                encoding='utf-8'
+            ) as f:
+                f.write(prompt)
+                temp_file = f.name
+
+            # Create short meta-prompt that references the file
+            meta_prompt = f"""Lee el archivo en esta ruta y sigue sus instrucciones exactamente:
+
+Archivo: {temp_file}
+
+INSTRUCCIONES CRÍTICAS:
+1. Lee el contenido COMPLETO del archivo
+2. El archivo contiene instrucciones de análisis, evidencia, y checklist
+3. Sigue el formato JSON de respuesta especificado en el archivo
+4. NO trunces tu respuesta, asegúrate de cerrar todos los JSON brackets
+5. Retorna SOLO JSON válido
+
+IMPORTANTE: La respuesta debe ser válida, con todos los brackets cerrados correctamente."""
+
+            # Call Claude CLI with short meta-prompt
+            result = subprocess.run(
+                [self.claude_cli_path, "-p", meta_prompt],
+                input="",
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+
+            if result.returncode != 0:
+                raise AgentError(
+                    f"Claude CLI error: {result.stderr}\n"
+                    f"Make sure Claude Code CLI is installed: npm install -g @anthropic-ai/claude-code"
+                )
+
+            return result.stdout
+
+        except subprocess.TimeoutExpired:
+            raise AgentError("Claude CLI call timed out (>300s). Large prompt may exceed time limit.")
+        except Exception as e:
+            raise AgentError(f"Claude CLI file-based call failed: {e}")
+        finally:
+            # Clean up temp file
+            if temp_file and Path(temp_file).exists():
+                try:
+                    Path(temp_file).unlink()
+                except OSError:
+                    pass  # Best effort cleanup
 
     def _call_claude_api(self, prompt: str) -> str:
         """Call Claude via Anthropic API.
@@ -808,7 +918,10 @@ RANGO DE FINDINGS A REPORTAR:
         return "\n".join(guide_lines)
 
     def _parse_json_response(self, text: str) -> dict:
-        """Parse JSON response, handle markdown wrapping.
+        """Parse JSON response with truncation detection.
+
+        Detects truncated responses (missing closing brackets) which can happen
+        when Claude CLI returns incomplete output due to ARG_MAX or stdin size limits.
 
         Args:
             text: Raw response text from Claude
@@ -817,7 +930,7 @@ RANGO DE FINDINGS A REPORTAR:
             Parsed JSON dictionary
 
         Raises:
-            AgentError: If JSON invalid or cannot be extracted
+            AgentError: If JSON invalid, truncated, or cannot be extracted
         """
         # Remove markdown code blocks if present
         if "```json" in text:
@@ -825,12 +938,22 @@ RANGO DE FINDINGS A REPORTAR:
         elif "```" in text:
             text = text.split("```")[1].split("```")[0]
 
+        text = text.strip()
+
+        # Detect truncation: response should end with } or ]
+        if text and text[-1] not in ['}', ']']:
+            last_chars = text[-200:] if len(text) > 200 else text
+            raise AgentError(
+                f"Response appears truncated (doesn't end with }} or ])\n"
+                f"Last 200 chars: {last_chars}"
+            )
+
         # Try to parse JSON
         try:
-            return json.loads(text.strip())
+            return json.loads(text)
         except json.JSONDecodeError as e:
             # Log first 500 chars for debugging
-            preview = text.strip()[:500]
+            preview = text[:500]
             raise AgentError(
                 f"Invalid JSON response from API: {e}\n"
                 f"Response preview: {preview}"

@@ -40,7 +40,7 @@ class WizardConfig(BaseModel):
     # Step 5: Skills to execute
     skills: List[str] = Field(
         default=["iam"],
-        description="Security skills to execute (iam, exposure, network, vulns)"
+        description="Security skills to execute (iam, exposure, network, vulns, alerting, hardening)"
     )
 
     # Step 6: Output formats
@@ -261,7 +261,7 @@ class WizardConfig(BaseModel):
     @validator("skills")
     def validate_skills(cls, v: List[str]) -> List[str]:
         """Validate skill names."""
-        valid_skills = {"iam", "exposure", "network", "vulns"}
+        valid_skills = {"iam", "exposure", "network", "vulns", "alerting", "hardening"}
         invalid = set(v) - valid_skills
         if invalid:
             raise ValueError(f"Invalid skills: {invalid}. Valid: {valid_skills}")
