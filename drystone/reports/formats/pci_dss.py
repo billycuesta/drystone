@@ -45,7 +45,17 @@ class PCIDSSFormatter(BaseFormatter):
         account_id = self.session.account_id
         skills_audited = ", ".join(self.config.skills).upper()
         timestamp = self.findings.get("analyzed_at", datetime.utcnow().isoformat())
-        return f"""# PCI DSS v4.0 Compliance Report - {client_name}
+
+        banner = """ ██████╗ ██████╗ ██╗   ██╗███████╗████████╗ ██████╗ ███╗   ██╗███████╗
+ ██╔══██╗██╔══██╗╚██╗ ██╔╝██╔════╝╚══██╔══╝██╔═══██╗████╗  ██║██╔════╝
+ ██║  ██║██████╔╝ ╚████╔╝ ███████╗   ██║   ██║   ██║██╔██╗ ██║█████╗
+ ██║  ██║██╔══██╗  ╚██╔╝  ╚════██║   ██║   ██║   ██║██║╚██╗██║██╔══╝
+ ██████╔╝██║  ██║   ██║   ███████║   ██║   ╚██████╔╝██║ ╚████║███████╗
+ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝   ╚═╝    ╚═════╝ ╚═╝  ╚═══╝╚══════╝"""
+
+        return f"""{banner}
+
+# PCI DSS v4.0 Compliance Report - {client_name}
 
 **AWS Account:** {account_id} | **Skills Audited:** {skills_audited} | **Date:** {timestamp}
 """
@@ -240,5 +250,6 @@ class PCIDSSFormatter(BaseFormatter):
 **Checklist Versions:**
 {versions}
 
-🤖 Generated with Drystone - AWS Security Audit CLI
+🔒 **Drystone** v1.0.0 - AWS Security Audit CLI
+Generated with [Drystone](https://github.com/billycuesta/drystone)
 """
