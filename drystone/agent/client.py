@@ -490,18 +490,15 @@ class AgentClient:
                 temp_file = f.name
 
             # Create short meta-prompt that references the file
-            meta_prompt = f"""Lee el archivo en esta ruta y sigue sus instrucciones exactamente:
+            # NOTE: Must be direct and technical (not conversational) to avoid Claude
+            # interpreting it as a general instruction instead of analysis task
+            meta_prompt = f"""You are an AWS security analysis agent. Read and execute the analysis task from the file below.
 
-Archivo: {temp_file}
+File: {temp_file}
 
-INSTRUCCIONES CRÍTICAS:
-1. Lee el contenido COMPLETO del archivo
-2. El archivo contiene instrucciones de análisis, evidencia, y checklist
-3. Sigue el formato JSON de respuesta especificado en el archivo
-4. NO trunces tu respuesta, asegúrate de cerrar todos los JSON brackets
-5. Retorna SOLO JSON válido
-
-IMPORTANTE: La respuesta debe ser válida, con todos los brackets cerrados correctamente."""
+OUTPUT REQUIREMENT: Return ONLY valid JSON (no markdown, no explanations, no text).
+The JSON must be complete with all brackets/braces properly closed.
+Start with {{ and end with }} or []."""
 
             # Call Claude CLI with short meta-prompt
             result = subprocess.run(
