@@ -36,6 +36,7 @@ class MarkdownFormatter(BaseFormatter):
         parts = [
             self._header(),
             self._executive_summary(),
+            self._architecture_diagram(),
             self._remediation_timeline(),
             self._pci_dss_compliance_summary(),
             self._findings_by_severity(),
@@ -118,6 +119,30 @@ This report presents security findings from the {skill.upper()} security assessm
             chart += f"{severity:<10} {bars}  {percentage}%\n"
 
         return chart
+
+    def _architecture_diagram(self) -> str:
+        """Render architecture diagram if present in findings.
+
+        Returns empty string if no architecture field exists (non-alerting skills).
+        """
+        architecture = self.findings.get("architecture")
+        if not architecture:
+            return ""
+
+        diagram = architecture.get("flow_diagram", "")
+        critical_gaps = architecture.get("critical_gaps", [])
+
+        section = "## 🏗️ Architecture Overview\n\n"
+        section += "```\n"
+        section += diagram
+        section += "```\n"
+
+        if critical_gaps:
+            section += "\n### 🚨 Critical Gaps Identified\n\n"
+            for gap in critical_gaps:
+                section += f"- {gap}\n"
+
+        return section
 
     def _remediation_timeline(self) -> str:
         """Generate prioritized remediation timeline."""

@@ -30,6 +30,7 @@ class PCIDSSFormatter(BaseFormatter):
         parts = [
             self._header(),
             self._executive_summary(),
+            self._architecture_diagram(),
             self._compliance_table(),
             self._critical_non_compliances(),
             self._compliance_statistics(),
@@ -75,6 +76,30 @@ class PCIDSSFormatter(BaseFormatter):
 **Critical Non-Compliances:** {len(critical_findings)} controls
 **Remediation Effort:** High (estimated 30-60 days)
 """
+
+    def _architecture_diagram(self) -> str:
+        """Render architecture diagram if present in findings.
+
+        Returns empty string if no architecture field exists (non-alerting skills).
+        """
+        architecture = self.findings.get("architecture")
+        if not architecture:
+            return ""
+
+        diagram = architecture.get("flow_diagram", "")
+        critical_gaps = architecture.get("critical_gaps", [])
+
+        section = "## 🏗️ Architecture Overview\n\n"
+        section += "```\n"
+        section += diagram
+        section += "```\n"
+
+        if critical_gaps:
+            section += "\n### 🚨 Critical Gaps Identified\n\n"
+            for gap in critical_gaps:
+                section += f"- {gap}\n"
+
+        return section
 
     def _compliance_table(self) -> str:
         """Generate the main PCI DSS control compliance table."""

@@ -64,6 +64,13 @@ class ReportGenerator:
                 f"File: {findings_path}"
             )
 
+        # Post-process alerting skill to add architecture diagram
+        if skill == "alerting":
+            from drystone.skills.alerting.post_processor import AlertingPostProcessor
+
+            processor = AlertingPostProcessor(self.session)
+            findings_data = processor.process(findings_data)
+
         # Filter findings by severity
         filtered_findings_data = self._filter_findings_by_severity(findings_data)
 
