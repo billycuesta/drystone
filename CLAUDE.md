@@ -354,7 +354,7 @@ cat audit-logs/*/findings/new_skill.json | python -m json.tool
 }
 ```
 
-### Finding Format
+### Finding Format (v2.1 - With Evidence Snippets)
 
 ```json
 {
@@ -362,10 +362,37 @@ cat audit-logs/*/findings/new_skill.json | python -m json.tool
   "severity": "Critical",
   "risk_score": 9.5,
   "title": "Root account used for daily operations",
+  "description": "Root account has active access keys and no MFA...",
   "evidence_refs": ["evidence/iam/users.json#root"],
-  "remediation": "Create IAM user with admin permissions"
+  "evidence_snippet": {
+    "User": "root",
+    "AccessKeys": [
+      {
+        "AccessKeyId": "AKIA...",
+        "Status": "Active",
+        "CreateDate": "2025-01-15"
+      }
+    ],
+    "MFADevices": []
+  },
+  "affected_resources": ["arn:aws:iam::123456789012:root"],
+  "remediation": "Delete root access keys, enable MFA",
+  "cis_reference": "1.5",
+  "pci_dss": [
+    {
+      "control": "8.4.1",
+      "reason": "MFA required for all non-console admin access"
+    }
+  ]
 }
 ```
+
+**Cambios en v2.1:**
+- ✅ `evidence_snippet`: JSON snippet extraído por el agente (NUEVO)
+- ✅ Renderizado con syntax highlighting en reportes
+- ✅ Límite de ~20 líneas para legibilidad
+- ✅ Fallback a `evidence_refs` si snippet no disponible
+- ✅ Campo opcional (backward compatible)
 
 ### Checklist Format (v2.0 - PCI DSS Mapped)
 

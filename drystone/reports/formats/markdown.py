@@ -232,6 +232,8 @@ This report presents security findings from the {skill.upper()} security assessm
         remediation = finding.get("remediation", "")
         affected = finding.get("affected_resources", [])
         cis_ref = finding.get("cis_reference")
+        evidence_snippet = finding.get("evidence_snippet")
+        evidence_refs = finding.get("evidence_refs", [])
 
         detail = f"""### [{finding_id}] {title}
 
@@ -240,6 +242,22 @@ This report presents security findings from the {skill.upper()} security assessm
 **Description:**
 {description}
 """
+
+        # Render evidence snippet if present
+        if evidence_snippet or evidence_refs:
+            detail += "\n**Evidence:**\n"
+
+            if evidence_snippet:
+                detail += "```json\n"
+                detail += json.dumps(evidence_snippet, indent=2, ensure_ascii=False)
+                detail += "\n```\n"
+
+            if evidence_refs:
+                detail += "\n*References:*\n"
+                for ref in evidence_refs[:5]:
+                    detail += f"- `{ref}`\n"
+                if len(evidence_refs) > 5:
+                    detail += f"- ... and {len(evidence_refs) - 5} more\n"
 
         if affected:
             detail += f"\n**Affected Resources:**\n"

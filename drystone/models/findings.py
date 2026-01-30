@@ -1,7 +1,7 @@
 """Finding models for AI agent analysis output."""
 
 from datetime import datetime
-from typing import List, Optional, Literal
+from typing import Any, Dict, List, Optional, Literal
 
 from pydantic import BaseModel, Field
 
@@ -31,6 +31,14 @@ class Finding(BaseModel):
         default_factory=list,
         description="References to evidence files (e.g., 'evidence/iam/users.json#root')",
     )
+    evidence_snippet: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "JSON snippet of the relevant evidence that justifies this finding. "
+            "Should contain only the problematic configuration, not the entire file. "
+            "Max ~20 lines recommended for readability."
+        ),
+    )
     affected_resources: List[str] = Field(
         default_factory=list, description="ARNs or identifiers of affected resources"
     )
@@ -56,6 +64,16 @@ class Finding(BaseModel):
                 "title": "Root account without MFA",
                 "description": "Root account has no MFA devices configured...",
                 "evidence_refs": ["evidence/iam/users.json#root"],
+                "evidence_snippet": {
+                    "User": "root",
+                    "MFADevices": [],
+                    "AccessKeys": [
+                        {
+                            "AccessKeyId": "AKIA...",
+                            "Status": "Active"
+                        }
+                    ]
+                },
                 "affected_resources": ["arn:aws:iam::123456789012:root"],
                 "remediation": "Enable MFA on root account...",
                 "cis_reference": "1.5",

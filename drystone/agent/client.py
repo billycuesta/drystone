@@ -795,6 +795,11 @@ Requisitos de respuesta:
       "title": "Título breve",
       "description": "Descripción detallada del hallazgo",
       "evidence_refs": ["evidence/skill/file.json#path"],
+      "evidence_snippet": {{
+        "PasswordPolicy": {{"MinimumPasswordLength": 2, "RequireSymbols": false}},
+        "User": "root",
+        "MFADevices": []
+      }},
       "affected_resources": ["arn:aws:iam::..."],
       "remediation": "Pasos concretos de remediación",
       "cis_reference": "CIS ID",
@@ -848,7 +853,54 @@ RANGO DE FINDINGS A REPORTAR:
 5. Incluye affected_resources con identifiers reales
 6. Mapea cada finding a controles PCI DSS del checklist
 7. overall_risk_score = promedio ponderado por severity
-8. Retorna SOLO JSON válido, sin markdown, sin explicaciones"""
+8. Retorna SOLO JSON válido, sin markdown, sin explicaciones
+
+===== PASO 5b: EVIDENCE SNIPPETS (CRÍTICO) =====
+Para cada finding, INCLUYE un evidence_snippet que justifique el hallazgo:
+
+**Qué incluir:**
+- JSON object con la configuración PROBLEMÁTICA específica
+- Solo la parte relevante que causó el finding (no archivo completo)
+- Máximo ~20 líneas de JSON para legibilidad
+- Si hay múltiples evidencias, prioriza la más crítica
+
+**Ejemplos:**
+Password policy débil:
+"evidence_snippet": {{
+  "PasswordPolicy": {{
+    "MinimumPasswordLength": 2,
+    "RequireSymbols": false,
+    "RequireNumbers": false
+  }}
+}}
+
+MFA deshabilitado:
+"evidence_snippet": {{
+  "User": "root",
+  "MFADevices": []
+}}
+
+Security Group permisivo:
+"evidence_snippet": {{
+  "GroupId": "sg-12345",
+  "IpPermissions": [{{
+    "FromPort": 22,
+    "ToPort": 22,
+    "IpRanges": [{{"CidrIp": "0.0.0.0/0"}}]
+  }}]
+}}
+
+CloudWatch alarm faltante:
+"evidence_snippet": {{
+  "MonitoredMetrics": ["UnauthorizedAPICallsEventCount"],
+  "MissingAlarms": ["Root account usage", "IAM policy changes"]
+}}
+
+**NO incluir:**
+- ❌ Archivos completos
+- ❌ 50+ líneas de JSON
+- ❌ Información sensitiva
+- ❌ null si no tienes snippet relevante (campo es opcional)"""
 
         return prompt
 

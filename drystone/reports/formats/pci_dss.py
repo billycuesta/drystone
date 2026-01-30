@@ -195,10 +195,31 @@ class PCIDSSFormatter(BaseFormatter):
         critical_findings = [f for f in self.findings.get("findings", []) if f.get("severity") == "Critical"]
         if not critical_findings:
             return ""
-        
+
         lines = ["## 🎯 Critical Non-Compliances (Must Fix)\n"]
-        for i, finding in enumerate(critical_findings[:3], 1):
-             lines.append(f"1. **{finding.get('pci_dss', [{'control': 'N/A'}])[0]['control']}** - {finding['title']} (Finding {finding['id']})")
+        for i, finding in enumerate(critical_findings[:10], 1):
+            finding_id = finding.get("id", "N/A")
+            title = finding.get("title", "Unknown")
+            risk_score = finding.get("risk_score", 0)
+            remediation = finding.get("remediation", "")
+            evidence_snippet = finding.get("evidence_snippet")
+            evidence_refs = finding.get("evidence_refs", [])
+            pci_control = finding.get("pci_dss", [{"control": "N/A"}])[0]["control"]
+
+            lines.append(f"### {i}. **[{pci_control}]** {title} (ID: {finding_id})\n")
+            lines.append(f"**Risk Score:** {risk_score:.1f}/10\n")
+
+            # Render evidence snippet if present
+            if evidence_snippet:
+                lines.append("\n**Evidence:**\n")
+                lines.append("```json\n")
+                lines.append(json.dumps(evidence_snippet, indent=2, ensure_ascii=False))
+                lines.append("\n```\n")
+            elif evidence_refs:
+                lines.append(f"\n**Evidence:** `{', '.join(evidence_refs[:3])}`\n")
+
+            lines.append(f"\n**Remediation:**\n{remediation}\n\n")
+
         return "\n".join(lines)
 
     def _compliance_statistics(self) -> str:
