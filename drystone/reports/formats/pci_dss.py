@@ -92,7 +92,7 @@ class PCIDSSFormatter(BaseFormatter):
         section = "## 🏗️ Architecture Overview\n\n"
         section += "```\n"
         section += diagram
-        section += "```\n"
+        section += "\n```\n"
 
         if critical_gaps:
             section += "\n### 🚨 Critical Gaps Identified\n\n"

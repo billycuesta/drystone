@@ -135,7 +135,7 @@ This report presents security findings from the {skill.upper()} security assessm
         section = "## 🏗️ Architecture Overview\n\n"
         section += "```\n"
         section += diagram
-        section += "```\n"
+        section += "\n```\n"
 
         if critical_gaps:
             section += "\n### 🚨 Critical Gaps Identified\n\n"
