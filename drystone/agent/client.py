@@ -349,10 +349,14 @@ class AgentClient:
         # Auto-create chunker if not provided
         if chunker is None:
             # Adjust limits per provider
+            # NOTE: These limits control when CHUNKING activates, not LLM context limits
+            # Chunking ensures no single analysis exceeds output capacity (5K for Nova Lite)
             provider_type = self.config.get('type', 'claude-cli')
 
             if provider_type == 'bedrock':
-                max_tokens = 100000  # Nova Lite: 300K context (use ~1/3 for safety)
+                # Nova Lite: 300K input context, but only 5K output tokens
+                # Chunk at 30K to ensure analysis fits in 5K output + prompt overhead
+                max_tokens = 30000
             elif provider_type == 'claude-cli':
                 max_tokens = 20000  # CLI has OS argument limit, be conservative
             else:
