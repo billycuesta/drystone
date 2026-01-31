@@ -750,38 +750,20 @@ Requisitos de respuesta:
 ===== REGLAS DE EXCLUSIÓN MUTUA (ANTI-DUPLICADOS) =====
 ⚠️ CRÍTICO: Algunos findings son mutuamente excluyentes. NUNCA reportes ambos simultáneamente.
 
-PARA AWS CONFIG:
-- SI ConfigurationRecorders array CONTIENE 1+ recorders:
-  → Genera SOLO HRD-006 (habilitado parcialmente)
-  → NO generes HRD-001 (no habilitado)
-- SI ConfigurationRecorders array está VACÍO:
-  → Genera SOLO HRD-001 (no habilitado)
-  → NO generes HRD-006
+1. AWS CONFIG (HRD-001 vs HRD-006):
+   - Si ConfigurationRecorders > 0: Genera SOLO HRD-006 (parcial)
+   - Si ConfigurationRecorders = 0: Genera SOLO HRD-001 (deshabilitado)
 
-PARA SECURITY HUB:
-- SI HubArn + SubscribedAt presentes en evidencia:
-  → Security Hub ESTÁ HABILITADO
-  → NO generes HRD-002 (no habilitado)
-  → Evalúa solo HRD-003, HRD-004, HRD-005, HRD-007, etc.
-- SI HubArn ausente O error response:
-  → Security Hub NO HABILITADO
-  → Genera SOLO HRD-002
-  → NO generes HRD-003, HRD-004, HRD-005, HRD-007 (requieren Hub activo)
+2. SECURITY HUB (HRD-002 vs HRD-003/007):
+   - Si HubArn presente: HUB ESTÁ HABILITADO → NO generes HRD-002 → Evalúa HRD-003, 007, etc.
+   - Si HubArn ausente: HUB ESTÁ DESHABILITADO → SOLO HRD-002 → NO generes HRD-003, 007
 
-TABLA DE DETECCIÓN DE ESTADO (CRÍTICA):
-| Servicio       | Campo Evidencia          | Estado   | Findings Permitidos       | Findings Prohibidos   |
-|----------------|--------------------------|----------|---------------------------|-----------------------|
-| Security Hub   | HubArn presente          | ENABLED  | HRD-003,004,005,007,...   | HRD-002               |
-| Security Hub   | HubArn ausente           | DISABLED | HRD-002                   | HRD-003,004,005,007   |
-| AWS Config     | ConfigurationRecorders>0 | PARTIAL  | HRD-006                   | HRD-001               |
-| AWS Config     | ConfigurationRecorders=0 | DISABLED | HRD-001                   | HRD-006               |
-| GuardDuty      | DetectorIds array >0     | ENABLED  | (evaluable)               | (skip GD-specific)    |
-| GuardDuty      | DetectorIds array =0     | DISABLED | (N/A)                     | (skip GD-specific)    |
+3. GUARDUTY DEPENDENCIAS:
+   - Si DetectorIds vacío: GuardDuty deshabilitado → NO generes HRD-009, HRD-014
 
-PRINCIPIO CONSERVADOR:
-- Si evidencia es CLARA (HubArn existe, recorders existen), CONFÍA en la evidencia explícita
-- Si evidencia es AMBIGUA, NO reportes finding sin claridad
-- NUNCA reportes hallazgos que contradicen evidencia explícita"""
+4. PRINCIPIO CONSERVADOR:
+   - Confía en evidencia CLARA (HubArn = habilitado, recorders = parcial)
+   - NUNCA reportes findings que contradicen evidencia explícita"""
 
     def _build_analysis_prompt(
         self, skill_name: str, evidence: Dict[str, Any], checklist: Dict[str, Any]
