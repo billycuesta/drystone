@@ -113,6 +113,7 @@ class FindingsNormalizer:
             >>> normalized = normalizer.normalize(findings)
             >>> normalized[0].id  # Returns "IAM-008"
         """
+        logger.info(f"Normalizing {len(findings)} findings...")
         normalized = []
         seen_ids = set()
 
@@ -122,15 +123,18 @@ class FindingsNormalizer:
 
             # 2. Skip duplicates
             if normalized_id in seen_ids:
+                logger.info(f"  ⏭️  Skipped duplicate: {finding.id} → {normalized_id}")
                 continue
             seen_ids.add(normalized_id)
 
             # 3. Skip false positives
             if self._is_false_positive(finding):
+                logger.info(f"  ❌ Rejected false positive: {finding.id} (severity: {finding.severity})")
                 continue
 
             # 4. Validate against evidence (if available)
             if self.evidence and not self._validate_against_evidence(normalized_id, finding):
+                logger.info(f"  ❌ Rejected by evidence validation: {normalized_id} (severity: {finding.severity})")
                 continue
 
             # 5. Calibrate severity
@@ -145,6 +149,7 @@ class FindingsNormalizer:
             finding.severity = severity
             finding.risk_score = risk_score
 
+            logger.info(f"  ✅ Accepted: {normalized_id} | {severity} | risk={risk_score:.1f}")
             normalized.append(finding)
 
         return normalized
