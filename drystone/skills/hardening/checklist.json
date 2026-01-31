@@ -5,10 +5,10 @@
   "items": [
     {
       "id": "HRD-001",
-      "title": "AWS Config no habilitado en ninguna region",
+      "title": "AWS Config no habilitado en la región configurada",
       "severity": "Critical",
-      "description": "AWS Config is not enabled in any active region, resulting in a complete lack of continuous configuration monitoring, change tracking, and audit trail for resource configurations.",
-      "remediation": "Enable AWS Config in all active AWS regions with an appropriate IAM role and S3 bucket for configuration history and snapshots. Consider using a multi-region aggregator for centralized view.",
+      "description": "AWS Config is not enabled in the audited region (e.g., eu-west-1), resulting in a complete lack of continuous configuration monitoring, change tracking, and audit trail for resource configurations in that region.",
+      "remediation": "Enable AWS Config in the audited region with an appropriate IAM role and S3 bucket for configuration history and snapshots. For production environments, consider extending enablement to all active AWS regions using a multi-region aggregator for centralized view.",
       "pci_dss": [
         {
           "control": "10.2.1",
@@ -26,10 +26,10 @@
     },
     {
       "id": "HRD-002",
-      "title": "Security Hub no habilitado en ninguna region",
+      "title": "Security Hub no habilitado en la región configurada",
       "severity": "Critical",
-      "description": "AWS Security Hub is not enabled in any active region, leading to a lack of centralized security posture management, aggregated findings from multiple services, and continuous compliance checks against industry standards.",
-      "remediation": "Enable AWS Security Hub in all active AWS regions. Configure it to automatically enable and aggregate findings from integrated AWS services (e.g., GuardDuty, Inspector, Config) and partner solutions.",
+      "description": "AWS Security Hub is not enabled in the audited region (e.g., eu-west-1), leading to a lack of centralized security posture management, aggregated findings from multiple services, and continuous compliance checks against industry standards in that region.",
+      "remediation": "Enable AWS Security Hub in the audited region. Configure it to automatically enable and aggregate findings from integrated AWS services (e.g., GuardDuty, Inspector, Config) and partner solutions. For production environments, consider extending enablement to all active AWS regions.",
       "pci_dss": [
         {
           "control": "12.2.1",
@@ -90,10 +90,10 @@
     },
     {
       "id": "HRD-006",
-      "title": "AWS Config habilitado parcialmente (no todas las regiones)",
+      "title": "AWS Config habilitado pero con estado incompleto",
       "severity": "High",
-      "description": "AWS Config is only enabled in some, but not all, active AWS regions. This results in blind spots where resource configurations are not being monitored, potentially leading to unrecorded changes and compliance gaps.",
-      "remediation": "Extend AWS Config enablement to all active AWS regions to ensure comprehensive coverage. Verify that configuration recorders are in 'RECORDING' state in all enabled regions.",
+      "description": "AWS Config is enabled in the audited region, but configuration recorders are not in full 'RECORDING' state or there are incomplete settings. This results in partial monitoring where some resource configurations may not be fully tracked.",
+      "remediation": "Verify that all AWS Config configuration recorders in the audited region are in 'RECORDING' state. Configure an S3 bucket for storing configuration snapshots and enable delivery channels. For multi-region deployments, extend AWS Config enablement to all active AWS regions.",
       "pci_dss": [
         {
           "control": "10.2.1",

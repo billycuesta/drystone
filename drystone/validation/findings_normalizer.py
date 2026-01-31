@@ -4,15 +4,20 @@ Reduces variance between different AI models by:
 1. Normalizing finding IDs (IAM-008-001 → IAM-008)
 2. Calibrating severities against checklist constraints
 3. Filtering false positives and duplicates
-4. Recalculating risk scores with consistent formula
+4. Validating findings against evidence (evidence-based filtering)
+5. Resolving mutually exclusive findings (anti-duplicates)
+6. Recalculating risk scores with consistent formula
 
 SKILL-AGNOSTIC: Works with any skill (IAM, Exposure, Network, Vulns).
 """
 
 import re
-from typing import List, Dict, Any, Tuple
+import logging
+from typing import List, Dict, Any, Tuple, Optional
 
 from drystone.models.findings import Finding, FindingsSummary
+
+logger = logging.getLogger(__name__)
 
 
 class FindingsNormalizer:
@@ -43,6 +48,19 @@ class FindingsNormalizer:
         'Low': (1.0, 2.9),
     }
 
+    # Mutually exclusive findings pairs: (ID1, ID2) → resolution strategy
+    # Strategy: "keep_specific" (keep more specific/detailed finding)
+    #           "keep_higher" (keep higher severity finding)
+    MUTUAL_EXCLUSIONS = {
+        # Hardening: Config state
+        ("HRD-001", "HRD-006"): "keep_specific",  # Config: disabled vs partial
+        # Hardening: Security Hub state
+        ("HRD-002", "HRD-003"): "keep_specific",  # Hub: disabled vs no standards
+        # Hardening: Compliance score ranges (overlapping ranges)
+        ("HRD-004", "HRD-008"): "keep_higher",    # Compliance: <50% vs 50-70%
+        ("HRD-008", "HRD-011"): "keep_higher",    # Compliance: 50-70% vs 70-85%
+    }
+
     def __init__(self, checklist: Dict[str, Any], skill_name: str):
         """Initialize normalizer with checklist reference.
 
@@ -59,6 +77,7 @@ class FindingsNormalizer:
 
         self.checklist = checklist
         self.skill_name = skill_name.upper()  # IAM, EXPOSURE, NETWORK, VULNS
+        self.evidence: Optional[Dict[str, Any]] = None  # Optional evidence for validation
 
         # Build mapping: {ID → checklist item}
         # Example: {"IAM-001": {...}, "IAM-007": {...}, ...}
@@ -75,8 +94,9 @@ class FindingsNormalizer:
         1. Normalize each finding ID (remove sub-IDs)
         2. Skip duplicates (keep first occurrence of normalized ID)
         3. Skip false positives (e.g., "DISREGARD THIS FINDING")
-        4. Calibrate severity against checklist constraints
-        5. Return normalized list
+        4. Skip findings that contradict evidence (if evidence provided)
+        5. Calibrate severity against checklist constraints
+        6. Return normalized list
 
         Args:
             findings: Raw findings from AI model
@@ -109,7 +129,11 @@ class FindingsNormalizer:
             if self._is_false_positive(finding):
                 continue
 
-            # 4. Calibrate severity
+            # 4. Validate against evidence (if available)
+            if self.evidence and not self._validate_against_evidence(normalized_id, finding):
+                continue
+
+            # 5. Calibrate severity
             severity, risk_score = self._calibrate_severity(
                 normalized_id,
                 finding.severity,
@@ -241,6 +265,134 @@ class FindingsNormalizer:
 
         return expected_severity, current_risk_score
 
+    def _validate_against_evidence(
+        self,
+        finding_id: str,
+        finding: Finding
+    ) -> bool:
+        """Validate finding against actual evidence to detect false positives.
+
+        Checks if finding contradicts explicit evidence about service state.
+        Returns False (reject) if evidence clearly shows finding is incorrect.
+
+        Args:
+            finding_id: Normalized finding ID (e.g., "HRD-002")
+            finding: Finding object to validate
+
+        Returns:
+            True if finding is valid, False if contradicts evidence (should be filtered)
+
+        Examples:
+            - HRD-002 "Security Hub disabled" is FALSE if HubArn exists in evidence → return False
+            - HRD-001 "Config disabled" is FALSE if ConfigurationRecorders > 0 → return False
+            - HRD-003 "No standards enabled" is FALSE if Security Hub not enabled → return False
+        """
+        if not self.evidence:
+            return True  # No evidence to validate against
+
+        # Security Hub false positive detection
+        if finding_id == "HRD-002":
+            hub_status = self.evidence.get("security-hub-status", {})
+            # If HubArn exists and is not empty, Security Hub IS enabled
+            if hub_status.get("HubArn"):
+                logger.warning(
+                    f"Rejected {finding_id} - Security Hub IS enabled (HubArn present). "
+                    f"Evidence: HubArn={hub_status.get('HubArn')}"
+                )
+                return False  # False positive: Hub is actually enabled
+
+        # Security Hub standards check (HRD-003, HRD-007) - only valid if Hub is enabled
+        if finding_id in ["HRD-003", "HRD-007"]:
+            hub_status = self.evidence.get("security-hub-status", {})
+            # These findings only make sense if Security Hub is enabled
+            if not hub_status.get("HubArn"):
+                logger.warning(
+                    f"Rejected {finding_id} - Security Hub is NOT enabled. "
+                    f"Cannot evaluate Hub-specific findings without enabled Hub."
+                )
+                return False  # Can't evaluate if Hub is disabled
+
+        # AWS Config false positive detection
+        if finding_id == "HRD-001":
+            config_recorders = self.evidence.get("config-recorders", {})
+            recorders = config_recorders.get("ConfigurationRecorders", [])
+            # If recorders array has items, Config IS enabled (at least partially)
+            if len(recorders) > 0:
+                logger.warning(
+                    f"Rejected {finding_id} - Config IS enabled ({len(recorders)} recorders). "
+                    f"Should be HRD-006 instead."
+                )
+                return False  # False positive: Config is actually enabled
+
+        # AWS Config enabled check (HRD-006) - only valid if Config is partially enabled
+        if finding_id == "HRD-006":
+            config_recorders = self.evidence.get("config-recorders", {})
+            recorders = config_recorders.get("ConfigurationRecorders", [])
+            # This finding only makes sense if Config is enabled but incomplete
+            if len(recorders) == 0:
+                logger.warning(
+                    f"Rejected {finding_id} - Config is NOT enabled (no recorders). "
+                    f"Should be HRD-001 instead."
+                )
+                return False  # False positive: Config is disabled, not partial
+
+        # GuardDuty validation (HRD-009, HRD-014)
+        if finding_id in ["HRD-009", "HRD-014"]:
+            gd_detectors = self.evidence.get("guardduty-detectors", [])
+            # These findings only make sense if GuardDuty is enabled
+            if not gd_detectors or len(gd_detectors) == 0:
+                logger.warning(
+                    f"Rejected {finding_id} - GuardDuty is NOT enabled. "
+                    f"Cannot evaluate GuardDuty-specific findings."
+                )
+                return False
+
+        return True  # Finding is valid against evidence
+
+    def _resolve_mutual_exclusions(self, findings: List[Finding]) -> List[Finding]:
+        """Resolve mutually exclusive findings.
+
+        If both findings in an exclusion pair are present, keep only one
+        according to the resolution strategy (keep_specific or keep_higher).
+
+        Args:
+            findings: List of findings that may contain exclusive pairs
+
+        Returns:
+            Findings list with exclusions resolved (no conflicting pairs)
+
+        Example:
+            If both HRD-001 (disabled) and HRD-006 (partial) present:
+            Keep HRD-006 (more specific)
+        """
+        findings_dict = {f.id: f for f in findings}
+        to_remove = set()
+
+        for (id1, id2), strategy in self.MUTUAL_EXCLUSIONS.items():
+            if id1 in findings_dict and id2 in findings_dict:
+                # Both present - resolve conflict
+                f1, f2 = findings_dict[id1], findings_dict[id2]
+
+                if strategy == "keep_specific":
+                    # Keep the more specific finding (higher ID number = more detailed)
+                    id1_num = int(id1.split('-')[1])
+                    id2_num = int(id2.split('-')[1])
+                    to_remove_id = id1 if id1_num < id2_num else id2
+                    logger.info(
+                        f"Mutual exclusion: {id1} vs {id2} → keeping more specific ({to_remove_id})"
+                    )
+                    to_remove.add(to_remove_id)
+
+                elif strategy == "keep_higher":
+                    # Keep higher severity
+                    to_remove_id = id1 if f1.risk_score < f2.risk_score else id2
+                    logger.info(
+                        f"Mutual exclusion: {id1} vs {id2} → keeping higher severity ({to_remove_id})"
+                    )
+                    to_remove.add(to_remove_id)
+
+        return [f for f in findings if f.id not in to_remove]
+
     def recalculate_summary(self, findings: List[Finding]) -> FindingsSummary:
         """Recalculate summary statistics after normalization.
 
@@ -306,4 +458,4 @@ class FindingsNormalizer:
         )
 
 
-__all__ = ["FindingsNormalizer"]
+__all__ = ["FindingsNormalizer", "logger"]

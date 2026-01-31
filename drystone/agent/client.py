@@ -463,8 +463,8 @@ class AgentClient:
 
         Strategy:
         1. Write full prompt (system + evidence + checklist) to temp file
-        2. Create short meta-prompt: "Read and execute instructions at {file}"
-        3. Call Claude CLI with short prompt
+        2. Create meta-prompt with full task content embedded (not just file path)
+        3. Call Claude CLI with combined prompt
         4. Clean up temp file in finally block
 
         Args:
@@ -489,18 +489,22 @@ class AgentClient:
                 f.write(prompt)
                 temp_file = f.name
 
-            # Create short meta-prompt that references the file
-            # NOTE: Must be direct and technical (not conversational) to avoid Claude
-            # interpreting it as a general instruction instead of analysis task
-            meta_prompt = f"""You are an AWS security analysis agent. Read and execute the analysis task from the file below.
+            # Create meta-prompt with full task content embedded
+            # NOTE: Claude Code CLI cannot read arbitrary temp files, so we must pass
+            # the full content. The meta-prompt wraps the actual analysis task.
+            meta_prompt = f"""You are an AWS security analysis agent. Execute the following security analysis task and return ONLY valid JSON.
 
-File: {temp_file}
+====== START ANALYSIS TASK ======
+{prompt}
+====== END ANALYSIS TASK ======
 
-OUTPUT REQUIREMENT: Return ONLY valid JSON (no markdown, no explanations, no text).
-The JSON must be complete with all brackets/braces properly closed.
-Start with {{ and end with }} or []."""
+CRITICAL OUTPUT REQUIREMENTS:
+1. Return ONLY valid JSON (no markdown, no explanations, no text before or after)
+2. JSON must be complete with all brackets/braces properly closed
+3. Start with {{ and end with }} or []
+4. Do not include any other text or commentary"""
 
-            # Call Claude CLI with short meta-prompt
+            # Call Claude CLI with combined prompt
             result = subprocess.run(
                 [self.claude_cli_path, "-p", meta_prompt],
                 input="",
@@ -741,7 +745,43 @@ Requisitos de respuesta:
 - Usar schema exacto proporcionado
 - Revisar TODOS los checks del checklist
 - overall_risk_score = promedio ponderado de severity
-- Máximo de findings: según rango dinámico (calculado por app)"""
+- Máximo de findings: según rango dinámico (calculado por app)
+
+===== REGLAS DE EXCLUSIÓN MUTUA (ANTI-DUPLICADOS) =====
+⚠️ CRÍTICO: Algunos findings son mutuamente excluyentes. NUNCA reportes ambos simultáneamente.
+
+PARA AWS CONFIG:
+- SI ConfigurationRecorders array CONTIENE 1+ recorders:
+  → Genera SOLO HRD-006 (habilitado parcialmente)
+  → NO generes HRD-001 (no habilitado)
+- SI ConfigurationRecorders array está VACÍO:
+  → Genera SOLO HRD-001 (no habilitado)
+  → NO generes HRD-006
+
+PARA SECURITY HUB:
+- SI HubArn + SubscribedAt presentes en evidencia:
+  → Security Hub ESTÁ HABILITADO
+  → NO generes HRD-002 (no habilitado)
+  → Evalúa solo HRD-003, HRD-004, HRD-005, HRD-007, etc.
+- SI HubArn ausente O error response:
+  → Security Hub NO HABILITADO
+  → Genera SOLO HRD-002
+  → NO generes HRD-003, HRD-004, HRD-005, HRD-007 (requieren Hub activo)
+
+TABLA DE DETECCIÓN DE ESTADO (CRÍTICA):
+| Servicio       | Campo Evidencia          | Estado   | Findings Permitidos       | Findings Prohibidos   |
+|----------------|--------------------------|----------|---------------------------|-----------------------|
+| Security Hub   | HubArn presente          | ENABLED  | HRD-003,004,005,007,...   | HRD-002               |
+| Security Hub   | HubArn ausente           | DISABLED | HRD-002                   | HRD-003,004,005,007   |
+| AWS Config     | ConfigurationRecorders>0 | PARTIAL  | HRD-006                   | HRD-001               |
+| AWS Config     | ConfigurationRecorders=0 | DISABLED | HRD-001                   | HRD-006               |
+| GuardDuty      | DetectorIds array >0     | ENABLED  | (evaluable)               | (skip GD-specific)    |
+| GuardDuty      | DetectorIds array =0     | DISABLED | (N/A)                     | (skip GD-specific)    |
+
+PRINCIPIO CONSERVADOR:
+- Si evidencia es CLARA (HubArn existe, recorders existen), CONFÍA en la evidencia explícita
+- Si evidencia es AMBIGUA, NO reportes finding sin claridad
+- NUNCA reportes hallazgos que contradicen evidencia explícita"""
 
     def _build_analysis_prompt(
         self, skill_name: str, evidence: Dict[str, Any], checklist: Dict[str, Any]
@@ -773,7 +813,16 @@ Requisitos de respuesta:
         # Generate severity guide from checklist
         severity_guide = self._generate_severity_guide(checklist)
 
+        # Extract audit region from evidence metadata if available
+        audit_region = evidence.get("_audit_metadata", {}).get("_region", "unknown")
+        audit_scope = evidence.get("_audit_metadata", {}).get("_scope", "single-region")
+
         prompt = f"""Analiza la siguiente evidencia AWS {skill_name.upper()} contra el checklist de seguridad.
+
+===== CONTEXTO DE AUDITORÍA =====
+Región auditada: {audit_region}
+Alcance: {audit_scope} (solo la región especificada, no multi-región)
+Interpretación: Los controles se evalúan ÚNICAMENTE para la región configurada
 
 ===== EVIDENCIA AWS =====
 {json.dumps(evidence, indent=2, default=str)}

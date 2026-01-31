@@ -98,7 +98,7 @@ class BaseSkill(ABC):
 
         # 3a. Normalize findings (reduce variance between models)
         print("  Normalizing findings...")
-        findings = self._normalize_findings(findings, checklist)
+        findings = self._normalize_findings(findings, checklist, evidence=evidence)
 
         # 4. Save findings
         findings_dir = session.get_findings_path()
@@ -122,7 +122,8 @@ class BaseSkill(ABC):
     def _normalize_findings(
         self,
         findings: "SkillFindings",
-        checklist: Dict[str, Any]
+        checklist: Dict[str, Any],
+        evidence: Dict[str, Any] = None
     ) -> "SkillFindings":
         """Normalize findings to reduce variance between AI models.
 
@@ -130,30 +131,40 @@ class BaseSkill(ABC):
         Reduces variance by:
         1. Normalizing IDs (remove sub-IDs like IAM-008-001 → IAM-008)
         2. Filtering false positives (DISREGARD markers, invalid IDs)
-        3. Calibrating severities against checklist constraints
-        4. Recalculating summary statistics
+        3. Validating against evidence (detect contradictions)
+        4. Resolving mutually exclusive findings (anti-duplicates)
+        5. Calibrating severities against checklist constraints
+        6. Recalculating summary statistics
 
         Args:
             findings: Raw findings from AI model
             checklist: Security checklist for this skill
+            evidence: AWS evidence data for validation (optional)
 
         Returns:
             SkillFindings with normalized findings and updated summary
 
         Example:
             >>> findings = agent_client.analyze_evidence(...)
-            >>> findings = self._normalize_findings(findings, checklist)
-            >>> # Now findings.findings has normalized IDs, severities, risk scores
+            >>> findings = self._normalize_findings(findings, checklist, evidence)
+            >>> # Now findings.findings has normalized IDs, severities, risk scores, no false positives
         """
         from drystone.validation.findings_normalizer import FindingsNormalizer
 
         # Create normalizer for this skill
         normalizer = FindingsNormalizer(checklist, skill_name=self.name)
 
+        # Optionally pass evidence for validation
+        if evidence:
+            normalizer.evidence = evidence
+
         # Normalize findings
         findings.findings = normalizer.normalize(findings.findings)
 
-        # Recalculate summary
+        # Resolve mutually exclusive findings (anti-duplicates)
+        findings.findings = normalizer._resolve_mutual_exclusions(findings.findings)
+
+        # Recalculate summary after all filtering
         findings.summary = normalizer.recalculate_summary(findings.findings)
 
         return findings

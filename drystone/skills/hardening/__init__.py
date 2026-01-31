@@ -57,12 +57,34 @@ class HardeningSkill(BaseSkill):
         try:
             sh_client = boto3.client("securityhub", **client_kwargs)
 
-            # Get hub status
+            # Get hub status with explicit enabled flag
             try:
                 hub = sh_client.describe_hub()
-                self._save_json(evidence_path / "security-hub-status.json", hub)
+                hub_status = {
+                    "enabled": True,  # Explicit status flag
+                    "HubArn": hub.get("HubArn"),
+                    "SubscribedAt": hub.get("SubscribedAt"),
+                    "AutoEnableControls": hub.get("AutoEnableControls"),
+                    "ControlFindingGenerator": hub.get("ControlFindingGenerator"),
+                    "EnabledStandardsSubscriptions": hub.get("EnabledStandardsSubscriptions", []),
+                }
+                self._save_json(evidence_path / "security-hub-status.json", hub_status)
+            except sh_client.exceptions.InvalidAccessException:
+                # Hub is not enabled
+                hub_status = {
+                    "enabled": False,
+                    "reason": "not_enabled",
+                    "error": "InvalidAccessException - Security Hub is not enabled"
+                }
+                self._save_json(evidence_path / "security-hub-status.json", hub_status)
             except Exception as e:
                 logger.warning(f"Could not describe Security Hub: {e}")
+                hub_status = {
+                    "enabled": False,
+                    "reason": "error",
+                    "error": str(e)
+                }
+                self._save_json(evidence_path / "security-hub-status.json", hub_status)
 
             # List findings (filtered by severity: Critical, High only)
             findings_list = []
@@ -124,12 +146,23 @@ class HardeningSkill(BaseSkill):
         try:
             config_client = boto3.client("config", **client_kwargs)
 
-            # Get recorder status
+            # Get recorder status with explicit enabled flag
             try:
-                recorders = config_client.describe_configuration_recorders()
-                self._save_json(evidence_path / "config-recorders.json", recorders)
+                recorders_response = config_client.describe_configuration_recorders()
+                recorders = recorders_response.get("ConfigurationRecorders", [])
+                config_status = {
+                    "enabled": len(recorders) > 0,  # Explicit status flag
+                    "ConfigurationRecorders": recorders,
+                }
+                self._save_json(evidence_path / "config-recorders.json", config_status)
             except Exception as e:
                 logger.warning(f"Could not describe Config recorders: {e}")
+                config_status = {
+                    "enabled": False,
+                    "ConfigurationRecorders": [],
+                    "error": str(e)
+                }
+                self._save_json(evidence_path / "config-recorders.json", config_status)
 
             # Get delivery channels
             try:
@@ -201,18 +234,25 @@ class HardeningSkill(BaseSkill):
         try:
             gd_client = boto3.client("guardduty", **client_kwargs)
 
-            # List detectors
+            # List detectors with explicit enabled flag
             try:
                 detectors = gd_client.list_detectors()
-                detectors_list = []
+                detectors_list = detectors.get("DetectorIds", [])
 
-                for detector_id in detectors.get("DetectorIds", []):
+                # Explicit status: GuardDuty is enabled if there are detectors
+                gd_status = {
+                    "enabled": len(detectors_list) > 0,  # Explicit status flag
+                    "DetectorIds": detectors_list,
+                    "Detectors": []
+                }
+
+                for detector_id in detectors_list:
                     detector_detail = gd_client.get_detector(DetectorId=detector_id)
-                    detectors_list.append({
+                    detector_info = {
                         "DetectorId": detector_id,
                         "Status": detector_detail.get("Status"),
                         "FindingPublishingFrequency": detector_detail.get("FindingPublishingFrequency"),
-                    })
+                    }
 
                     # Get findings (up to 50, filtered by severity: Medium and above)
                     try:
@@ -227,14 +267,24 @@ class HardeningSkill(BaseSkill):
                                 }
                             }
                         )
-                        detector_detail["FindingIds"] = findings.get("FindingIds", [])
+                        detector_info["FindingIds"] = findings.get("FindingIds", [])
                     except Exception as e:
                         logger.warning(f"Could not list GuardDuty findings for detector {detector_id}: {e}")
-                        detector_detail["FindingIds"] = []
+                        detector_info["FindingIds"] = []
 
-                self._save_json(evidence_path / "guardduty-detectors.json", detectors_list)
+                    gd_status["Detectors"].append(detector_info)
+
+                self._save_json(evidence_path / "guardduty-detectors.json", gd_status)
             except Exception as e:
                 logger.warning(f"Could not list GuardDuty detectors: {e}")
+                # Save empty status if error
+                gd_status = {
+                    "enabled": False,
+                    "DetectorIds": [],
+                    "Detectors": [],
+                    "error": str(e)
+                }
+                self._save_json(evidence_path / "guardduty-detectors.json", gd_status)
 
         except Exception as e:
             logger.error(f"Could not collect GuardDuty data: {e}")
@@ -339,6 +389,17 @@ class HardeningSkill(BaseSkill):
 
         except Exception as e:
             logger.error(f"Could not collect account settings: {e}")
+
+        # === AUDIT METADATA ===
+        # Save region and scope information for evidence validation
+        from datetime import datetime
+        audit_metadata = {
+            "_region": aws_client.region_name,
+            "_timestamp": datetime.now().isoformat(),
+            "_scope": "single-region",
+            "_skill": self.name,
+        }
+        self._save_json(evidence_path / "_audit_metadata.json", audit_metadata)
 
         print(f"\n✅ Hardening collection complete")
 
