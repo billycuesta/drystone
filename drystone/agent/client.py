@@ -161,10 +161,10 @@ class AgentClient:
                 raise AgentError(f"Failed to initialize Gemini client: {e}")
 
     def _setup_bedrock(self) -> None:
-        """Setup AWS Bedrock provider (Amazon Nova Micro).
+        """Setup AWS Bedrock provider (Amazon Nova Lite).
 
-        Uses Amazon Nova Micro model (amazon.nova-micro-v1:0) - AWS's efficient
-        foundation model optimized for speed and cost.
+        Uses Amazon Nova Lite model (amazon.nova-lite-v1:0) - balanced model with
+        300K context window, suitable for large AWS evidence (275+ KB).
         Uses separate AWS credentials for Bedrock (can be different from audit credentials).
         Region hardcoded to eu-west-1 where Bedrock is enabled.
         """
@@ -206,9 +206,10 @@ class AgentClient:
             self.bedrock_client = boto3.client('bedrock-runtime', **bedrock_kwargs)
 
             # Model configuration
-            # Using Amazon Nova Micro via Inference Profile (fast, cost-effective)
-            # Nova Micro has 5000 token limit (sufficient for typical evidence analysis)
-            self.bedrock_model_id = "arn:aws:bedrock:eu-west-1:781978598807:inference-profile/eu.amazon.nova-micro-v1:0"
+            # Using Amazon Nova Lite via Inference Profile (balanced: 300K context, cost-effective)
+            # Nova Lite supports large evidence (275+ KB) without truncation
+            # Context: 300K input | Output: 5K tokens
+            self.bedrock_model_id = "arn:aws:bedrock:eu-west-1:781978598807:inference-profile/eu.amazon.nova-lite-v1:0"
             self.max_tokens = 5000
             self.temperature = 0.0
             self.use_cli = False
@@ -224,7 +225,7 @@ class AgentClient:
     def get_display_name(self) -> str:
         """Get user-friendly display name for the configured AI provider.
 
-        Returns display name like "AWS Bedrock (Nova Micro)" or "Claude API (Opus 4.5)".
+        Returns display name like "AWS Bedrock (Nova Lite)" or "Claude API (Opus 4.5)".
         Defensive: if cannot determine exact model, returns generic provider name.
 
         Returns:
@@ -232,14 +233,16 @@ class AgentClient:
         """
         if self.provider_type == "bedrock":
             # Extract model name from ARN or model ID
-            # ARN format: arn:aws:bedrock:region:account:inference-profile/eu.amazon.nova-micro-v1:0
-            # Model ID format: amazon.nova-micro-v1:0
+            # ARN format: arn:aws:bedrock:region:account:inference-profile/eu.amazon.nova-lite-v1:0
+            # Model ID format: amazon.nova-lite-v1:0
             model_id = self.bedrock_model_id
 
-            if "nova-micro" in model_id:
-                return "AWS Bedrock (Nova Micro)"
-            elif "nova-lite" in model_id:
+            if "nova-lite" in model_id:
                 return "AWS Bedrock (Nova Lite)"
+            elif "nova-micro" in model_id:
+                return "AWS Bedrock (Nova Micro)"
+            elif "nova-pro" in model_id:
+                return "AWS Bedrock (Nova Pro)"
             elif "claude-3-sonnet" in model_id:
                 return "AWS Bedrock (Claude 3 Sonnet)"
             else:
@@ -349,7 +352,7 @@ class AgentClient:
             provider_type = self.config.get('type', 'claude-cli')
 
             if provider_type == 'bedrock':
-                max_tokens = 15000  # Nova Micro has smaller context
+                max_tokens = 100000  # Nova Lite: 300K context (use ~1/3 for safety)
             elif provider_type == 'claude-cli':
                 max_tokens = 20000  # CLI has OS argument limit, be conservative
             else:
@@ -585,16 +588,16 @@ CRITICAL OUTPUT REQUIREMENTS:
             raise AgentError(f"Gemini API call failed: {e}")
 
     def _call_bedrock_api(self, system_prompt: str, user_prompt: str) -> str:
-        """Call Amazon Nova Micro via AWS Bedrock Runtime API.
+        """Call Amazon Nova Lite via AWS Bedrock Runtime API.
 
-        Nova Micro requires separated system and user prompts in the request body.
+        Nova Lite requires separated system and user prompts in the request body.
 
         Args:
             system_prompt: System prompt (instructions)
             user_prompt: User prompt (analysis request with evidence)
 
         Returns:
-            Response text from Nova Micro via Bedrock
+            Response text from Nova Lite via Bedrock
 
         Raises:
             AgentError: If Bedrock API call fails
@@ -635,7 +638,7 @@ CRITICAL OUTPUT REQUIREMENTS:
             # Parse response
             response_body = json.loads(response['body'].read())
 
-            # Extract text from Nova Micro response format
+            # Extract text from Nova Lite response format
             # Response structure: {"output": {"message": {"content": [{"text": "..."}]}}}
             if ('output' in response_body and
                 'message' in response_body['output'] and
@@ -645,7 +648,7 @@ CRITICAL OUTPUT REQUIREMENTS:
 
             # Defensive error with response keys for debugging
             raise AgentError(
-                f"Invalid response structure from Bedrock Nova Micro. "
+                f"Invalid response structure from Bedrock Nova Lite. "
                 f"Got keys: {list(response_body.keys())}"
             )
 
