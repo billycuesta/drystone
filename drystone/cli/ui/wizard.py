@@ -393,7 +393,7 @@ def run_ai_menu(current_config: Optional[dict] = None) -> dict:
                 checked=(current_provider == "gemini-api")
             ),
             questionary.Choice(
-                "AWS Bedrock (Amazon Nova Micro)", "bedrock",
+                "AWS Bedrock (Amazon Nova Lite)", "bedrock",
                 checked=(current_provider == "bedrock")
             ),
         ],

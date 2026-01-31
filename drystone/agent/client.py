@@ -311,7 +311,7 @@ class AgentClient:
             full_prompt = f"{system_prompt}\n\n{user_prompt}"
             response_text = self._call_gemini_api(full_prompt)
         elif self.provider_type == "bedrock":
-            # Bedrock (Nova Micro) requires separated prompts
+            # Bedrock (Nova Lite) requires separated prompts
             response_text = self._call_bedrock_api(system_prompt, user_prompt)
 
         # 3. Parse JSON response
@@ -603,7 +603,7 @@ CRITICAL OUTPUT REQUIREMENTS:
             AgentError: If Bedrock API call fails
         """
         try:
-            # Bedrock request format for Amazon Nova Micro
+            # Bedrock request format for Amazon Nova Lite
             # https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-nova.html
             request_body = {
                 "system": [
