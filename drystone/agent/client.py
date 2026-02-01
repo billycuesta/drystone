@@ -161,10 +161,12 @@ class AgentClient:
                 raise AgentError(f"Failed to initialize Gemini client: {e}")
 
     def _setup_bedrock(self) -> None:
-        """Setup AWS Bedrock provider (Amazon Nova Lite).
+        """Setup AWS Bedrock provider (Claude 3.5 Sonnet).
 
-        Uses Amazon Nova Lite model (amazon.nova-lite-v1:0) - balanced model with
-        300K context window, suitable for large AWS evidence (275+ KB).
+        Uses Claude 3.5 Sonnet model via Bedrock inference profile.
+        - Context: 200K input tokens
+        - Output: 8K tokens (better for complex findings with evidence snippets)
+        - Superior JSON handling and analysis quality
         Uses separate AWS credentials for Bedrock (can be different from audit credentials).
         Region hardcoded to eu-west-1 where Bedrock is enabled.
         """
@@ -206,11 +208,11 @@ class AgentClient:
             self.bedrock_client = boto3.client('bedrock-runtime', **bedrock_kwargs)
 
             # Model configuration
-            # Using Amazon Nova Lite via Inference Profile (balanced: 300K context, cost-effective)
-            # Nova Lite supports large evidence (275+ KB) without truncation
-            # Context: 300K input | Output: 5K tokens
-            self.bedrock_model_id = "arn:aws:bedrock:eu-west-1:781978598807:inference-profile/eu.amazon.nova-lite-v1:0"
-            self.max_tokens = 5000
+            # Using Claude 3.5 Sonnet via Bedrock Inference Profile
+            # Superior JSON handling and output capacity
+            # Context: 200K input | Output: 8K tokens (vs 4K for 3.0)
+            self.bedrock_model_id = "arn:aws:bedrock:eu-west-1:781978598807:inference-profile/eu.anthropic.claude-3-5-sonnet-20241022-v2:0"
+            self.max_tokens = 8000
             self.temperature = 0.0
             self.use_cli = False
 
@@ -233,18 +235,19 @@ class AgentClient:
         """
         if self.provider_type == "bedrock":
             # Extract model name from ARN or model ID
-            # ARN format: arn:aws:bedrock:region:account:inference-profile/eu.amazon.nova-lite-v1:0
-            # Model ID format: amazon.nova-lite-v1:0
+            # ARN format: arn:aws:bedrock:region:account:inference-profile/eu.anthropic.claude-3-5-sonnet-20241022-v2:0
             model_id = self.bedrock_model_id
 
-            if "nova-lite" in model_id:
+            if "claude-3-5-sonnet" in model_id:
+                return "AWS Bedrock (Claude 3.5 Sonnet)"
+            elif "claude-3-sonnet" in model_id:
+                return "AWS Bedrock (Claude 3.5 Sonnet)"
+            elif "nova-lite" in model_id:
                 return "AWS Bedrock (Nova Lite)"
             elif "nova-micro" in model_id:
                 return "AWS Bedrock (Nova Micro)"
             elif "nova-pro" in model_id:
                 return "AWS Bedrock (Nova Pro)"
-            elif "claude-3-sonnet" in model_id:
-                return "AWS Bedrock (Claude 3 Sonnet)"
             else:
                 return "AWS Bedrock"
 
@@ -311,7 +314,7 @@ class AgentClient:
             full_prompt = f"{system_prompt}\n\n{user_prompt}"
             response_text = self._call_gemini_api(full_prompt)
         elif self.provider_type == "bedrock":
-            # Bedrock (Nova Lite) requires separated prompts
+            # Bedrock (Claude 3.5 Sonnet) requires separated prompts
             response_text = self._call_bedrock_api(system_prompt, user_prompt)
 
         # 3. Parse JSON response
@@ -354,10 +357,10 @@ class AgentClient:
             provider_type = self.config.get('type', 'claude-cli')
 
             if provider_type == 'bedrock':
-                # Nova Lite: 300K input context, but only 5K output tokens (NOT configurable)
-                # Chunk at 10K to ensure generated findings JSON < 5K
-                # Smaller evidence = fewer findings = smaller JSON output
-                max_tokens = 10000
+                # Claude 3.5 Sonnet: 200K input context, 4K output tokens
+                # Better context handling than Nova Lite
+                # Chunk at 40K for balance between chunk count and analysis quality
+                max_tokens = 40000
             elif provider_type == 'claude-cli':
                 max_tokens = 20000  # CLI has OS argument limit, be conservative
             else:
@@ -593,16 +596,16 @@ CRITICAL OUTPUT REQUIREMENTS:
             raise AgentError(f"Gemini API call failed: {e}")
 
     def _call_bedrock_api(self, system_prompt: str, user_prompt: str) -> str:
-        """Call Amazon Nova Lite via AWS Bedrock Runtime API.
+        """Call Claude 3.5 Sonnet via AWS Bedrock Runtime API.
 
-        Nova Lite requires separated system and user prompts in the request body.
+        Sonnet requires separated system and user prompts in the request body.
 
         Args:
             system_prompt: System prompt (instructions)
             user_prompt: User prompt (analysis request with evidence)
 
         Returns:
-            Response text from Nova Lite via Bedrock
+            Response text from Claude 3.5 Sonnet via Bedrock
 
         Raises:
             AgentError: If Bedrock API call fails
@@ -643,7 +646,7 @@ CRITICAL OUTPUT REQUIREMENTS:
             # Parse response
             response_body = json.loads(response['body'].read())
 
-            # Extract text from Nova Lite response format
+            # Extract text from Claude 3.5 Sonnet response format
             # Response structure: {"output": {"message": {"content": [{"text": "..."}]}}}
             if ('output' in response_body and
                 'message' in response_body['output'] and
@@ -653,7 +656,7 @@ CRITICAL OUTPUT REQUIREMENTS:
 
             # Defensive error with response keys for debugging
             raise AgentError(
-                f"Invalid response structure from Bedrock Nova Lite. "
+                f"Invalid response structure from Bedrock Claude 3.5 Sonnet. "
                 f"Got keys: {list(response_body.keys())}"
             )
 
