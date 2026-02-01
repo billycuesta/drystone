@@ -113,7 +113,7 @@ class FindingsNormalizer:
             >>> normalized = normalizer.normalize(findings)
             >>> normalized[0].id  # Returns "IAM-008"
         """
-        logger.info(f"Normalizing {len(findings)} findings...")
+        logger.debug(f"Normalizing {len(findings)} findings...")
         normalized = []
         seen_ids = set()
 
@@ -123,18 +123,18 @@ class FindingsNormalizer:
 
             # 2. Skip duplicates
             if normalized_id in seen_ids:
-                logger.info(f"  ⏭️  Skipped duplicate: {finding.id} → {normalized_id}")
+                logger.debug(f"  ⏭️  Skipped duplicate: {finding.id} → {normalized_id}")
                 continue
             seen_ids.add(normalized_id)
 
             # 3. Skip false positives
             if self._is_false_positive(finding):
-                logger.info(f"  ❌ Rejected false positive: {finding.id} (severity: {finding.severity})")
+                logger.debug(f"  ❌ Rejected false positive: {finding.id} (severity: {finding.severity})")
                 continue
 
             # 4. Validate against evidence (if available)
             if self.evidence and not self._validate_against_evidence(normalized_id, finding):
-                logger.info(f"  ❌ Rejected by evidence validation: {normalized_id} (severity: {finding.severity})")
+                logger.debug(f"  ❌ Rejected by evidence validation: {normalized_id} (severity: {finding.severity})")
                 continue
 
             # 5. Calibrate severity
@@ -149,7 +149,7 @@ class FindingsNormalizer:
             finding.severity = severity
             finding.risk_score = risk_score
 
-            logger.info(f"  ✅ Accepted: {normalized_id} | {severity} | risk={risk_score:.1f}")
+            logger.debug(f"  ✅ Accepted: {normalized_id} | {severity} | risk={risk_score:.1f}")
             normalized.append(finding)
 
         return normalized
@@ -383,7 +383,7 @@ class FindingsNormalizer:
                     id1_num = int(id1.split('-')[1])
                     id2_num = int(id2.split('-')[1])
                     to_remove_id = id1 if id1_num < id2_num else id2
-                    logger.info(
+                    logger.debug(
                         f"Mutual exclusion: {id1} vs {id2} → keeping more specific ({to_remove_id})"
                     )
                     to_remove.add(to_remove_id)
@@ -391,7 +391,7 @@ class FindingsNormalizer:
                 elif strategy == "keep_higher":
                     # Keep higher severity
                     to_remove_id = id1 if f1.risk_score < f2.risk_score else id2
-                    logger.info(
+                    logger.debug(
                         f"Mutual exclusion: {id1} vs {id2} → keeping higher severity ({to_remove_id})"
                     )
                     to_remove.add(to_remove_id)
