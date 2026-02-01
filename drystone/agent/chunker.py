@@ -61,17 +61,17 @@ class EvidenceChunker:
         self,
         filename: str,
         data: Any,
-        resources_per_chunk: int = 30
+        resources_per_chunk: int = 15
     ) -> Iterator[EvidenceChunk]:
         """Chunk large arrays into smaller chunks.
 
         For files exceeding max_tokens, subdivide by resource count.
-        Example: inspector-findings.json with 475 findings → 16 chunks of 30 findings.
+        Example: security-hub-findings.json with 500+ findings → more chunks of 15 findings each.
 
         Args:
             filename: Source file name
             data: File data (must be list)
-            resources_per_chunk: Max resources per chunk (default: 30 for CLI)
+            resources_per_chunk: Max resources per chunk (default: 15 for safety with models like Nova Lite)
 
         Yields:
             EvidenceChunk instances with subdivided data

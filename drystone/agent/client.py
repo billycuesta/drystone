@@ -354,10 +354,10 @@ class AgentClient:
             provider_type = self.config.get('type', 'claude-cli')
 
             if provider_type == 'bedrock':
-                # Nova Lite: 300K input context, but only 5K output tokens
-                # Chunk at 20K to ensure JSON response fits in 5K output limit
-                # Smaller chunks = smaller findings JSON = less truncation risk
-                max_tokens = 20000
+                # Nova Lite: 300K input context, but only 5K output tokens (NOT configurable)
+                # Chunk at 10K to ensure generated findings JSON < 5K
+                # Smaller evidence = fewer findings = smaller JSON output
+                max_tokens = 10000
             elif provider_type == 'claude-cli':
                 max_tokens = 20000  # CLI has OS argument limit, be conservative
             else:
