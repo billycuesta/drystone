@@ -772,6 +772,25 @@ Requisitos de respuesta:
    - Confía en evidencia CLARA (HubArn = habilitado, recorders = parcial)
    - NUNCA reportes findings que contradicen evidencia explícita"""
 
+    def _get_skill_code(self, skill_name: str) -> str:
+        """Map skill name to abbreviated code for IDs.
+
+        Args:
+            skill_name: Full skill name (e.g., "hardening", "iam")
+
+        Returns:
+            Abbreviated code (e.g., "HRD", "IAM")
+        """
+        skill_codes = {
+            "iam": "IAM",
+            "exposure": "EXP",
+            "network": "NET",
+            "vulns": "VULN",
+            "hardening": "HRD",
+            "alerting": "ALR",
+        }
+        return skill_codes.get(skill_name.lower(), skill_name.upper()[:3])
+
     def _build_analysis_prompt(
         self, skill_name: str, evidence: Dict[str, Any], checklist: Dict[str, Any]
     ) -> str:
@@ -787,6 +806,9 @@ Requisitos de respuesta:
         Returns:
             Formatted prompt for Claude with anti-variance instructions
         """
+        # Get skill code (e.g., "HRD" for hardening, not "HARDENING")
+        skill_code = self._get_skill_code(skill_name)
+
         # Evidence count
         evidence_count = sum(
             len(v) if isinstance(v, list) else 1
@@ -861,7 +883,7 @@ Interpretación: Los controles se evalúan ÚNICAMENTE para la región configura
 
 ===== CALIBRACIÓN ESPECÍFICA DEL SKILL =====
 Skill: {skill_name.upper()}
-ID format: {skill_name.upper()}-XXX (ej: {skill_name.upper()}-001, {skill_name.upper()}-015)
+ID format: {skill_code}-XXX (ej: {skill_code}-001, {skill_code}-015)
 Checklist items: {total_checklist_items}
 
 RANGO DE FINDINGS A REPORTAR:
@@ -872,8 +894,8 @@ RANGO DE FINDINGS A REPORTAR:
 {severity_guide}
 
 ===== INSTRUCCIONES ANTI-VARIANZA =====
-1. ✅ Usa IDs del checklist: {skill_name.upper()}-001, {skill_name.upper()}-002, etc
-2. ❌ NUNCA uses sub-IDs: {skill_name.upper()}-008-001 está PROHIBIDO
+1. ✅ Usa IDs del checklist: {skill_code}-001, {skill_code}-002, etc
+2. ❌ NUNCA uses sub-IDs: {skill_code}-008-001 está PROHIBIDO
 3. ❌ NUNCA inventes IDs fuera del checklist
 4. ❌ NUNCA generes "DISREGARD THIS FINDING" text
 5. ✅ Máximo 1 finding por checklist item
