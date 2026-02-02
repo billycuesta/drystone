@@ -1,8 +1,6 @@
-"""AI agent client for security analysis.
+"""AI agent client for security analysis via Claude.
 
-Provides multi-provider architecture for AI analysis:
-- Claude (Anthropic) - primary
-- Gemini, OpenAI (planned)
+Supports Claude CLI and Claude API for AWS security analysis.
 """
 
 import json
@@ -15,16 +13,6 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import anthropic
-import botocore.exceptions
-
-# Suppress deprecation warning for google.generativeai
-# TODO: Migrate to google.genai when available
-try:
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=FutureWarning)
-        import google.generativeai as genai
-except ImportError:
-    genai = None
 
 from drystone.models.findings import SkillFindings
 from drystone.agent.chunker import EvidenceChunker, FindingsAggregator
@@ -42,8 +30,7 @@ class AgentClient:
     Analyzes collected evidence against security checklists
     and generates findings with recommendations.
 
-    Currently supports Claude (Anthropic).
-    Designed for extensibility to Gemini, OpenAI in future.
+    Supports Claude CLI and Claude API (Anthropic).
 
     Example:
         >>> agent = AgentClient(api_key="sk-ant-...")
@@ -62,8 +49,8 @@ class AgentClient:
         Args:
             provider_config: Configuration dictionary with:
                 {
-                    'type': 'claude-api' | 'claude-cli' | 'gemini-api',
-                    'api_key': 'sk-ant-...' (optional, required for API-based)
+                    'type': 'claude-api' | 'claude-cli',
+                    'api_key': 'sk-ant-...' (optional, required for claude-api)
                 }
 
         Raises:
@@ -77,22 +64,16 @@ class AgentClient:
         self.use_cli = False
 
         # Validate provider type
-        valid_types = {"claude-api", "claude-cli", "gemini-api", "bedrock"}
+        valid_types = {"claude-api", "claude-cli"}
         if self.provider_type not in valid_types:
             raise AgentError(
                 f"Provider type '{self.provider_type}' not supported. "
                 f"Valid: {valid_types}"
             )
 
-        # Configure Claude
+        # Configure Claude (CLI or API)
         if self.provider_type.startswith("claude"):
             self._setup_claude()
-        # Configure Gemini
-        elif self.provider_type.startswith("gemini"):
-            self._setup_gemini()
-        # Configure Bedrock
-        elif self.provider_type == "bedrock":
-            self._setup_bedrock()
 
     def _setup_claude(self) -> None:
         """Setup Claude provider (API or CLI)."""
@@ -139,119 +120,16 @@ class AgentClient:
 
         return claude_path
 
-    def _setup_gemini(self) -> None:
-        """Setup Gemini API provider."""
-        if self.provider_type == "gemini-api":
-            # Use Gemini API
-            if not self.api_key:
-                raise AgentError("Gemini API key required for 'gemini-api' provider")
-
-            if genai is None:
-                raise AgentError(
-                    "google-generativeai library not installed.\n"
-                    "Install: pip install google-generativeai"
-                )
-
-            try:
-                genai.configure(api_key=self.api_key)
-                self.gemini_model = genai.GenerativeModel("gemini-pro")
-                self.use_cli = False
-                self.provider_name = "gemini"
-            except Exception as e:
-                raise AgentError(f"Failed to initialize Gemini client: {e}")
-
-    def _setup_bedrock(self) -> None:
-        """Setup AWS Bedrock provider (Claude 3.5 Sonnet).
-
-        Uses Claude 3.5 Sonnet model via Bedrock inference profile.
-        - Context: 200K input tokens
-        - Output: 8K tokens (better for complex findings with evidence snippets)
-        - Superior JSON handling and analysis quality
-        Uses separate AWS credentials for Bedrock (can be different from audit credentials).
-        Region hardcoded to eu-west-1 where Bedrock is enabled.
-        """
-        self.provider_name = "bedrock"
-
-        # Extract Bedrock AWS credentials from provider_config
-        # These are separate credentials for Bedrock (can be from a different AWS account)
-        # Priority: bedrock_* fields, fall back to aws_* if bedrock_* not provided
-        bedrock_access_key = self.provider_config.get('bedrock_access_key_id')
-        bedrock_secret_key = self.provider_config.get('bedrock_secret_access_key')
-        bedrock_session_token = self.provider_config.get('bedrock_session_token')
-
-        # Fall back to audit credentials if Bedrock credentials not provided
-        if not bedrock_access_key:
-            bedrock_access_key = self.provider_config.get('aws_access_key_id')
-        if not bedrock_secret_key:
-            bedrock_secret_key = self.provider_config.get('aws_secret_access_key')
-
-        if not bedrock_access_key or not bedrock_secret_key:
-            raise AgentError(
-                "AWS credentials required for Bedrock provider.\n"
-                "Provide bedrock_access_key_id and bedrock_secret_access_key, or ensure aws_access_key_id and aws_secret_access_key are configured."
-            )
-
-        try:
-            import boto3
-
-            # Create Bedrock Runtime client
-            # Region: eu-west-1 (hardcoded - where company has Bedrock enabled)
-            bedrock_kwargs = {
-                'region_name': 'eu-west-1',
-                'aws_access_key_id': bedrock_access_key,
-                'aws_secret_access_key': bedrock_secret_key,
-            }
-            # Add session token only if provided (for temporary credentials)
-            if bedrock_session_token:
-                bedrock_kwargs['aws_session_token'] = bedrock_session_token
-
-            self.bedrock_client = boto3.client('bedrock-runtime', **bedrock_kwargs)
-
-            # Model configuration
-            # Using Claude 3.5 Sonnet via Bedrock Inference Profile
-            # Superior JSON handling and output capacity
-            # Context: 200K input | Output: 8K tokens (vs 4K for 3.0)
-            self.bedrock_model_id = "arn:aws:bedrock:eu-west-1:781978598807:inference-profile/eu.anthropic.claude-3-5-sonnet-20241022-v2:0"
-            self.max_tokens = 8000
-            self.temperature = 0.0
-            self.use_cli = False
-
-        except ImportError:
-            raise AgentError(
-                "boto3 library required for Bedrock.\n"
-                "Install: pip install boto3"
-            )
-        except Exception as e:
-            raise AgentError(f"Failed to initialize Bedrock client: {e}")
 
     def get_display_name(self) -> str:
         """Get user-friendly display name for the configured AI provider.
 
-        Returns display name like "AWS Bedrock (Nova Lite)" or "Claude API (Opus 4.5)".
-        Defensive: if cannot determine exact model, returns generic provider name.
+        Returns display name like "Claude API (Opus 4.5)" or "Claude CLI".
 
         Returns:
             Display name string for UI output
         """
-        if self.provider_type == "bedrock":
-            # Extract model name from ARN or model ID
-            # ARN format: arn:aws:bedrock:region:account:inference-profile/eu.anthropic.claude-3-5-sonnet-20241022-v2:0
-            model_id = self.bedrock_model_id
-
-            if "claude-3-5-sonnet" in model_id:
-                return "AWS Bedrock (Claude 3.5 Sonnet)"
-            elif "claude-3-sonnet" in model_id:
-                return "AWS Bedrock (Claude 3.5 Sonnet)"
-            elif "nova-lite" in model_id:
-                return "AWS Bedrock (Nova Lite)"
-            elif "nova-micro" in model_id:
-                return "AWS Bedrock (Nova Micro)"
-            elif "nova-pro" in model_id:
-                return "AWS Bedrock (Nova Pro)"
-            else:
-                return "AWS Bedrock"
-
-        elif self.provider_type == "claude-api":
+        if self.provider_type == "claude-api":
             # Use self.model (e.g., "claude-opus-4-5-20251101")
             if hasattr(self, 'model') and 'opus' in self.model:
                 return "Claude API (Opus 4.5)"
@@ -262,9 +140,6 @@ class AgentClient:
 
         elif self.provider_type == "claude-cli":
             return "Claude CLI"
-
-        elif self.provider_type == "gemini-api":
-            return "Gemini API"
 
         else:
             return "AI Provider"  # Fallback
@@ -277,11 +152,11 @@ class AgentClient:
     ) -> SkillFindings:
         """Analyze AWS evidence against security checklist.
 
-        Uses Claude CLI (subprocess) if available, otherwise Anthropic API.
+        Uses Claude CLI (subprocess) if available, otherwise Claude API.
 
         Flow:
         1. Builds analysis prompt with evidence and checklist
-        2. Calls Claude (CLI or API) or Bedrock
+        2. Calls Claude (CLI or API)
         3. Parses JSON response
         4. Validates with Pydantic model
         5. Returns structured findings
@@ -301,21 +176,12 @@ class AgentClient:
         system_prompt = self._get_system_prompt()
         user_prompt = self._build_analysis_prompt(skill_name, evidence, checklist)
 
-        # 2. Call LLM (CLI or API)
-        if self.provider_type.startswith("claude"):
-            # Claude providers use combined prompt
-            full_prompt = f"{system_prompt}\n\n{user_prompt}"
-            if self.use_cli:
-                response_text = self._call_claude_cli(full_prompt)
-            else:
-                response_text = self._call_claude_api(full_prompt)
-        elif self.provider_type == "gemini-api":
-            # Gemini uses combined prompt
-            full_prompt = f"{system_prompt}\n\n{user_prompt}"
-            response_text = self._call_gemini_api(full_prompt)
-        elif self.provider_type == "bedrock":
-            # Bedrock (Claude 3.5 Sonnet) requires separated prompts
-            response_text = self._call_bedrock_api(system_prompt, user_prompt)
+        # 2. Call LLM (Claude CLI or API)
+        full_prompt = f"{system_prompt}\n\n{user_prompt}"
+        if self.use_cli:
+            response_text = self._call_claude_cli(full_prompt)
+        else:
+            response_text = self._call_claude_api(full_prompt)
 
         # 3. Parse JSON response
         try:
@@ -353,15 +219,9 @@ class AgentClient:
         if chunker is None:
             # Adjust limits per provider
             # NOTE: These limits control when CHUNKING activates, not LLM context limits
-            # Chunking ensures no single analysis exceeds output capacity (5K for Nova Lite)
             provider_type = self.config.get('type', 'claude-cli')
 
-            if provider_type == 'bedrock':
-                # Claude 3.5 Sonnet: 200K input context, 4K output tokens
-                # Better context handling than Nova Lite
-                # Chunk at 40K for balance between chunk count and analysis quality
-                max_tokens = 40000
-            elif provider_type == 'claude-cli':
+            if provider_type == 'claude-cli':
                 max_tokens = 20000  # CLI has OS argument limit, be conservative
             else:
                 max_tokens = 40000  # API has better limits
@@ -569,109 +429,6 @@ CRITICAL OUTPUT REQUIREMENTS:
             raise AgentError(f"API call failed: {e}")
         except (IndexError, AttributeError) as e:
             raise AgentError(f"Invalid API response format: {e}")
-
-    def _call_gemini_api(self, prompt: str) -> str:
-        """Call Gemini via Google Generative AI API.
-
-        Args:
-            prompt: Full prompt (system + user)
-
-        Returns:
-            Response text from Gemini
-
-        Raises:
-            AgentError: If API call fails
-        """
-        try:
-            response = self.gemini_model.generate_content(
-                prompt,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=0.0,
-                    max_output_tokens=16000,
-                ),
-            )
-            return response.text
-
-        except Exception as e:
-            raise AgentError(f"Gemini API call failed: {e}")
-
-    def _call_bedrock_api(self, system_prompt: str, user_prompt: str) -> str:
-        """Call Claude 3.5 Sonnet via AWS Bedrock Runtime API.
-
-        Sonnet requires separated system and user prompts in the request body.
-
-        Args:
-            system_prompt: System prompt (instructions)
-            user_prompt: User prompt (analysis request with evidence)
-
-        Returns:
-            Response text from Claude 3.5 Sonnet via Bedrock
-
-        Raises:
-            AgentError: If Bedrock API call fails
-        """
-        try:
-            # Bedrock request format for Amazon Nova Lite
-            # https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-nova.html
-            request_body = {
-                "system": [
-                    {
-                        "text": system_prompt
-                    }
-                ],
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "text": user_prompt
-                            }
-                        ]
-                    }
-                ],
-                "inferenceConfig": {
-                    "maxTokens": self.max_tokens,
-                    "temperature": self.temperature
-                }
-            }
-
-            # Call Bedrock InvokeModel API
-            response = self.bedrock_client.invoke_model(
-                modelId=self.bedrock_model_id,
-                body=json.dumps(request_body),
-                contentType="application/json",
-                accept="application/json",
-            )
-
-            # Parse response
-            response_body = json.loads(response['body'].read())
-
-            # Extract text from Claude 3.5 Sonnet response format
-            # Response structure: {"output": {"message": {"content": [{"text": "..."}]}}}
-            if ('output' in response_body and
-                'message' in response_body['output'] and
-                'content' in response_body['output']['message'] and
-                len(response_body['output']['message']['content']) > 0):
-                return response_body['output']['message']['content'][0]['text']
-
-            # Defensive error with response keys for debugging
-            raise AgentError(
-                f"Invalid response structure from Bedrock Claude 3.5 Sonnet. "
-                f"Got keys: {list(response_body.keys())}"
-            )
-
-        except botocore.exceptions.ClientError as e:
-            error_code = e.response.get("Error", {}).get("Code", "Unknown")
-            if error_code == "ValidationException":
-                raise AgentError(f"Bedrock validation error: {e}")
-            elif error_code == "ModelTimeoutException":
-                raise AgentError(f"Bedrock model timeout (prompt too large?): {e}")
-            elif error_code == "ThrottlingException":
-                raise AgentError(f"Bedrock throttling (rate limit exceeded): {e}")
-            else:
-                raise AgentError(f"Bedrock API call failed: {e}")
-        except Exception as e:
-            raise AgentError(f"Bedrock API call failed: {e}")
 
     def _get_system_prompt(self) -> str:
         """Get system prompt for AI agent - SKILL-AGNOSTIC version.

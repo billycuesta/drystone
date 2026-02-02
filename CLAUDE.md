@@ -506,26 +506,25 @@ ruff check drystone/
 
 ## Recent Context (Last 3 Sessions)
 
+**2026-02-02:** Provider Consolidation - Claude Only
+- ✅ Removed AWS Bedrock integration (persistent timeouts, complexity)
+- ✅ Removed Google Gemini API (unmaintained, unnecessary)
+- ✅ Consolidated to 2 providers: Claude CLI (default) + Claude API (premium)
+- ✅ Cleaned 200+ lines of dead code from client.py
+- ✅ Simplified wizard to show only Claude options
+- ✅ Updated validation and documentation
+
 **2026-01-30:** Evidence Snippets in Findings Reports
 - Implemented end-to-end feature for displaying AWS API response snippets within findings
 - Added EvidenceSnippet model with evidence_path and preview_lines configuration
 - Enhanced agent evidence extractor with ARG_MAX protection for large prompts
 - Implemented evidence rendering in both markdown and PCI DSS report formats
 - 15 unit tests (100% pass rate) covering model validation, extraction, and rendering
-- Next: Phase 5 Testing Infrastructure - comprehensive test coverage for all modules
 
 **2026-01-29:** Project Finalization and GitHub Sync
 - Completed synchronization with GitHub (23 commits)
 - Verified Phase 0-4 completion (100%)
 - Phase 5 (Testing Infrastructure) identified as critical next step
-- All documentation updated and current
-
-**2026-01-28:** Advanced Reporting and Skills Implementation
-- Enhanced PCI DSS compliance reporting with 3-column control tables
-- Added Alerting and Hardening skills to available audits
-- Integrated skill validation and selection in wizard
-- Report generation now supports both General and PCI DSS formats
-- 19 unit tests with 100% pass rate
 
 ## Session History
 
@@ -559,12 +558,36 @@ ruff check drystone/
 
 ---
 
+### Session: 2026-02-02 (Provider Consolidation - Claude Only)
+**Phase:** Phase 1b Agent Analysis
+
+**Accomplishments:**
+- ✅ Removed AWS Bedrock integration (timeouts, complexity)
+- ✅ Removed Google Gemini API integration (unnecessary)
+- ✅ Consolidated to 2 providers: Claude CLI (default) + Claude API (paid)
+- ✅ Cleaned up 200+ lines of dead code (bedrock, gemini, imports)
+- ✅ Updated wizard to show only Claude options
+- ✅ Updated all documentation and validation logic
+
+**Why:**
+- Bedrock had persistent timeout issues with large evidence
+- Gemini integration was unmaintained
+- Claude CLI is free, fast, and reliable for most use cases
+- Claude API available as premium option with better context windows
+
+**Files Modified:**
+- `drystone/agent/client.py` - Removed 6 methods, 3 setups
+- `drystone/cli/ui/wizard.py` - Simplified provider selection
+- Removed imports: `botocore`, `google.generativeai`
+
+---
+
 ### Previous Session: 2026-01-18 (Provider Cleanup)
 **Phase:** Phase 1b Agent Analysis
 
 **Accomplishments:**
 - Removed non-functional gemini-cli provider option
-- Validated all 3 remaining providers working (claude-api, claude-cli, gemini-api)
+- Validated all 2 remaining providers working (claude-api, claude-cli)
 - Cleaned up dead code paths (40 lines removed)
 
 ---

@@ -388,14 +388,6 @@ def run_ai_menu(current_config: Optional[dict] = None) -> dict:
                 "Claude API Key", "claude-api",
                 checked=(current_provider == "claude-api")
             ),
-            questionary.Choice(
-                "Google Gemini API", "gemini-api",
-                checked=(current_provider == "gemini-api")
-            ),
-            questionary.Choice(
-                "AWS Bedrock (Claude 3.5 Sonnet)", "bedrock",
-                checked=(current_provider == "bedrock")
-            ),
         ],
     ).ask()
 
@@ -406,99 +398,16 @@ def run_ai_menu(current_config: Optional[dict] = None) -> dict:
     result = {
         "ai_provider": ai_provider,
         "ai_api_key": None,
-        "bedrock_access_key_id": None,
-        "bedrock_secret_access_key": None,
-        "bedrock_session_token": None,
-        "bedrock_credentials_file": None,
-        "bedrock_profile": None,
-        "bedrock_use_same_credentials": False,
     }
 
-    if ai_provider in ["claude-api", "gemini-api"]:
-        api_key_name = "Claude API" if ai_provider == "claude-api" else "Gemini API"
+    if ai_provider == "claude-api":
         result["ai_api_key"] = questionary.password(
-            f"Enter your {api_key_name} key:",
+            "Enter your Claude API key:",
             validate=lambda x: len(x) > 0 or "API key cannot be empty",
         ).ask()
 
         if result["ai_api_key"] is None:
             raise KeyboardInterrupt("Wizard cancelled")
-
-    elif ai_provider == "bedrock":
-        print("\n📝 Configure your AWS credentials for Bedrock")
-        
-        bedrock_cred_choice = questionary.select(
-            "How to provide Bedrock credentials?",
-            choices=[
-                questionary.Choice("Use same credentials as AWS audit (Recommended)", "same"),
-                questionary.Choice("Enter manually", "manual"),
-                questionary.Choice("Read from JSON file", "file"),
-                questionary.Choice("Use AWS profile", "profile"),
-                questionary.Choice("Use environment variables", "env"),
-            ],
-            default="same"
-        ).ask()
-
-        if bedrock_cred_choice is None:
-            raise KeyboardInterrupt("Wizard cancelled")
-
-        if bedrock_cred_choice == "same":
-            result["bedrock_use_same_credentials"] = True
-        elif bedrock_cred_choice == "manual":
-            result["bedrock_access_key_id"] = questionary.text(
-                "AWS Access Key ID (for Bedrock in your org):",
-                validate=lambda x: len(x) > 0 or "Access Key ID cannot be empty",
-            ).ask()
-            if result["bedrock_access_key_id"] is None: raise KeyboardInterrupt("Wizard cancelled")
-
-            result["bedrock_secret_access_key"] = questionary.password(
-                "AWS Secret Access Key (for Bedrock):",
-                validate=lambda x: len(x) > 0 or "Secret Access Key cannot be empty",
-            ).ask()
-            if result["bedrock_secret_access_key"] is None: raise KeyboardInterrupt("Wizard cancelled")
-
-            result["bedrock_session_token"] = questionary.password(
-                "AWS Session Token (optional, press Enter to skip):",
-                default="",
-            ).ask()
-            if result["bedrock_session_token"] is None: raise KeyboardInterrupt("Wizard cancelled")
-            if not result["bedrock_session_token"].strip(): result["bedrock_session_token"] = None
-        
-        elif bedrock_cred_choice == "file":
-            # Validate file repeatedly until valid or cancelled
-            while True:
-                result["bedrock_credentials_file"] = questionary.text(
-                    "Path to Bedrock credentials JSON file:",
-                    default="~/.aws/bedrock-creds.json",
-                    validate=lambda x: len(x) > 0 or "Path cannot be empty",
-                ).ask()
-                if result["bedrock_credentials_file"] is None: raise KeyboardInterrupt("Wizard cancelled")
-
-                # Validate file exists and is readable
-                if validate_credentials_file(result["bedrock_credentials_file"]):
-                    break
-                else:
-                    print("Please provide a valid path to a Bedrock credentials JSON file.\n")
-
-        elif bedrock_cred_choice == "profile":
-            # Validate profile repeatedly until valid or cancelled
-            while True:
-                result["bedrock_profile"] = questionary.text(
-                    "AWS profile name for Bedrock:",
-                    default="default",
-                    validate=lambda x: len(x) > 0 or "Profile name cannot be empty",
-                ).ask()
-                if result["bedrock_profile"] is None: raise KeyboardInterrupt("Wizard cancelled")
-
-                # Validate profile exists in ~/.aws/credentials
-                if validate_aws_profile(result["bedrock_profile"]):
-                    break
-                else:
-                    print("Please provide a valid AWS profile name.\n")
-
-        elif bedrock_cred_choice == "env":
-            # Nothing to ask, will be loaded at runtime
-            print("   INFO: Credentials will be loaded from environment variables (BEDROCK_AWS_... or AWS_...).")
 
 
     return result
