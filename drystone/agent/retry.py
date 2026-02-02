@@ -15,7 +15,7 @@ import logging
 from typing import Callable, TypeVar, Optional
 from functools import wraps
 from drystone.validation.output_validators import validate_findings
-from drystone.models.findings import Findings
+from drystone.models.findings import SkillFindings
 
 logger = logging.getLogger(__name__)
 
@@ -201,22 +201,22 @@ def retry_with_backoff(
 
 # Alternative: Non-decorator retry function (for when decorator not suitable)
 def analyze_with_retry(
-    analyze_func: Callable[..., Findings],
+    analyze_func: Callable[..., SkillFindings],
     skill_name: str,
     max_retries: int = 3,
     **kwargs
-) -> Findings:
+) -> SkillFindings:
     """
     Execute analyze function with retry logic.
 
     Args:
-        analyze_func: Function to call (should return Findings)
+        analyze_func: Function to call (should return SkillFindings)
         skill_name: Name of skill being analyzed
         max_retries: Maximum retry attempts
         **kwargs: Arguments to pass to analyze_func
 
     Returns:
-        Findings: Analysis results
+        SkillFindings: Analysis results
 
     Raises:
         Exception: If fails after max_retries attempts

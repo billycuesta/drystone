@@ -13,7 +13,7 @@ Pattern from Shannon: Agent-specific validators in constants.ts
 
 from typing import Protocol, Callable
 from dataclasses import dataclass
-from drystone.models.findings import Findings
+from drystone.models.findings import SkillFindings
 import logging
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 class SkillValidator(Protocol):
     """Protocol for skill-specific validators."""
-    def __call__(self, findings: Findings) -> bool:
+    def __call__(self, findings: SkillFindings) -> bool:
         """
         Validate findings structure and content.
 
@@ -31,7 +31,7 @@ class SkillValidator(Protocol):
         ...
 
 
-def validate_iam_findings(findings: Findings) -> bool:
+def validate_iam_findings(findings: SkillFindings) -> bool:
     """Validate IAM findings structure and content."""
     try:
         # Check summary exists
@@ -47,21 +47,50 @@ def validate_iam_findings(findings: Findings) -> bool:
             )
             return False
 
+        # Check severity breakdown consistency
+        severity_counts = {
+            'Critical': 0,
+            'High': 0,
+            'Medium': 0,
+            'Low': 0
+        }
+
         # Check all findings have required fields
         for finding in findings.findings:
             if not all([finding.id, finding.severity, finding.title, finding.description]):
                 logger.error(f"IAM finding {finding.id} missing required fields")
                 return False
 
-            # Check severity is valid
-            if finding.severity not in ['critical', 'high', 'medium', 'low']:
+            # Check severity is valid (capitalized: Critical, High, Medium, Low)
+            if finding.severity not in ['Critical', 'High', 'Medium', 'Low']:
                 logger.error(f"IAM finding {finding.id} has invalid severity: {finding.severity}")
                 return False
 
-            # Check CIS reference exists
-            if not finding.cis_id:
-                logger.error(f"IAM finding {finding.id} missing cis_id")
+            # Check risk_score is valid
+            if not (0.0 <= finding.risk_score <= 10.0):
+                logger.error(f"IAM finding {finding.id} has invalid risk_score: {finding.risk_score}")
                 return False
+
+            # Check CIS reference exists
+            if not finding.cis_reference:
+                logger.error(f"IAM finding {finding.id} missing cis_reference")
+                return False
+
+            # Count severity
+            severity_counts[finding.severity] += 1
+
+        # Verify severity breakdown matches summary
+        if (severity_counts['Critical'] != findings.summary.critical or
+            severity_counts['High'] != findings.summary.high or
+            severity_counts['Medium'] != findings.summary.medium or
+            severity_counts['Low'] != findings.summary.low):
+            logger.error(
+                f"IAM validation failed: severity counts mismatch. "
+                f"Found: {severity_counts}, Summary: "
+                f"critical={findings.summary.critical}, high={findings.summary.high}, "
+                f"medium={findings.summary.medium}, low={findings.summary.low}"
+            )
+            return False
 
         logger.info(f"IAM validation passed: {findings.summary.total_findings} findings")
         return True
@@ -71,7 +100,7 @@ def validate_iam_findings(findings: Findings) -> bool:
         return False
 
 
-def validate_hardening_findings(findings: Findings) -> bool:
+def validate_hardening_findings(findings: SkillFindings) -> bool:
     """Validate hardening findings structure."""
     try:
         if not findings.summary:
@@ -101,7 +130,7 @@ def validate_hardening_findings(findings: Findings) -> bool:
         return False
 
 
-def validate_vulns_findings(findings: Findings) -> bool:
+def validate_vulns_findings(findings: SkillFindings) -> bool:
     """Validate vulns (Inspector v2) findings."""
     try:
         if not findings.summary:
@@ -126,7 +155,7 @@ def validate_vulns_findings(findings: Findings) -> bool:
         return False
 
 
-def validate_exposure_findings(findings: Findings) -> bool:
+def validate_exposure_findings(findings: SkillFindings) -> bool:
     """Validate exposure findings."""
     try:
         if not findings.summary:
@@ -145,7 +174,7 @@ def validate_exposure_findings(findings: Findings) -> bool:
         return False
 
 
-def validate_network_findings(findings: Findings) -> bool:
+def validate_network_findings(findings: SkillFindings) -> bool:
     """Validate network findings."""
     try:
         if not findings.summary:
@@ -164,7 +193,7 @@ def validate_network_findings(findings: Findings) -> bool:
         return False
 
 
-def validate_alerting_findings(findings: Findings) -> bool:
+def validate_alerting_findings(findings: SkillFindings) -> bool:
     """Validate alerting findings."""
     try:
         if not findings.summary:
@@ -194,13 +223,13 @@ SKILL_VALIDATORS: dict[str, SkillValidator] = {
 }
 
 
-def validate_findings(skill_name: str, findings: Findings) -> bool:
+def validate_findings(skill_name: str, findings: SkillFindings) -> bool:
     """
     Validate findings for a given skill.
 
     Args:
         skill_name: Name of the skill (e.g., 'iam', 'hardening')
-        findings: Findings object to validate
+        findings: SkillFindings object to validate
 
     Returns:
         bool: True if valid, False otherwise
