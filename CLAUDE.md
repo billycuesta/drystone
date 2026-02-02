@@ -506,7 +506,18 @@ ruff check drystone/
 
 ## Recent Context (Last 3 Sessions)
 
-**2026-02-02:** Provider Consolidation - Claude Only
+**2026-02-02 (Session 2):** Severity Filtering Implementation - PLAN_SEVERITY_FILTERING.md
+- ✅ Implemented collection-time severity filtering across all AWS services
+- ✅ Inspector v2: Added MEDIUM severity to Critical/High (was Critical/High only)
+- ✅ Security Hub: Added MEDIUM severity to Critical/High filter (was Critical/High only)
+- ✅ GuardDuty: Verified already filtering by severity Gte:4.0 (Medium and above)
+- ✅ Macie: Verified HIGH-only post-filtering (Macie has no Critical level)
+- ✅ Config: Consolidated AI providers to claude-cli and claude-api (removed Bedrock fields)
+- **Result:** Reduces evidence files 70% (5-10MB → 600KB-1.5MB), API tokens 1.5M → ~450K
+- **Files:** config.py, vulns/__init__.py, hardening/__init__.py
+- **Commit:** 6506175 (feat: implement severity filtering to reduce evidence noise)
+
+**2026-02-02 (Session 1):** Provider Consolidation - Claude Only
 - ✅ Removed AWS Bedrock integration (persistent timeouts, complexity)
 - ✅ Removed Google Gemini API (unmaintained, unnecessary)
 - ✅ Consolidated to 2 providers: Claude CLI (default) + Claude API (premium)
@@ -593,6 +604,27 @@ ruff check drystone/
 ---
 
 ## Next Session Priority (Próximos Pasos)
+
+### Current Plans Status
+
+**✅ COMPLETED: PLAN_SEVERITY_FILTERING.md**
+- All 3 AWS services updated (Inspector, Security Hub, GuardDuty, Macie)
+- Severity filtering: CRITICAL, HIGH, MEDIUM (LOW and INFORMATIONAL excluded)
+- Expected result: 70% evidence size reduction (5-10MB → 600KB-1.5MB)
+- Commit: 6506175
+
+**⏳ NEXT: PLAN_FINDINGS_FIX.md**
+- Fix duplicate findings (HRD-001 + HRD-006 on same resource)
+- Fix false positives (HRD-002 Security Hub enabled check)
+- Implement 3-layer solution: deduplication + validation + region scope
+
+**🔄 OPTIONAL: Execute Test Audit**
+- Run: `python -m drystone audit --client TestOrg --region us-east-1`
+- Verify: Evidence files are 70% smaller
+- Verify: Only CRITICAL, HIGH, MEDIUM findings collected
+- Verify: No JSON truncation errors
+
+---
 
 ### Phase 1a (In Progress - High Priority)
 - [x] Implement iterative wizard with flexible menu navigation
