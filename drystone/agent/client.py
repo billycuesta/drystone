@@ -16,6 +16,8 @@ import anthropic
 
 from drystone.models.findings import SkillFindings
 from drystone.agent.chunker import EvidenceChunker, FindingsAggregator
+from drystone.validation.output_validators import validate_findings
+from drystone.agent.retry import analyze_with_retry, is_retryable_error
 
 
 class AgentError(Exception):
@@ -194,6 +196,10 @@ class AgentClient:
             findings = SkillFindings(**findings_data)
         except Exception as e:
             raise AgentError(f"Response validation failed: {e}")
+
+        # 5. NEW: Validate output format (post-agent check)
+        if not validate_findings(skill_name, findings):
+            raise AgentError(f"Output validation failed for {skill_name}: findings structure invalid")
 
         return findings
 

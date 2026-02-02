@@ -691,6 +691,54 @@ ruff check drystone/
 - [ ] Compliance framework templates (PCI-DSS, SOC2, etc.)
 - [ ] Integration with security tools (Jira, ServiceNow)
 
+## Shannon Improvements (2026-02-02)
+
+**Architecture Analysis:** Study Shannon (autonomous pentesting) to improve Drystone reliability.
+
+**Key Improvements Adopted:**
+
+### P1: Output Validation + Error Classification + Retry (CRÍTICO - 5h)
+- ✅ Skill-specific validators (post-agent checks)
+- ✅ Error classification: retryable vs. permanent
+- ✅ Multi-level retry with exponential backoff
+- ✅ Rate limit detection (longer delays: 30s+)
+- **Expected impact:** +90% resilience to rate limits/network errors
+
+**Files:**
+- `drystone/validation/output_validators.py` (NEW)
+- `drystone/agent/retry.py` (NEW)
+- `drystone/agent/client.py` (MODIFY)
+
+### P2: Structured Prompts (MEDIA - 4h)
+- ✅ XML-structured prompts (role, objective, methodology, format)
+- ✅ Clear success criteria for validators
+- ✅ Professional standards establish quality bar
+- **Expected impact:** +25% prompt consistency
+
+**Files:**
+- `drystone/prompts/templates/iam_structured.xml` (NEW)
+- `drystone/prompts/templates/{skill}_structured.xml` (NEW for each skill)
+
+### P3: Crash-Safe Logging (BAJA - 2h, optional)
+- ✅ Append-only JSONL logs with immediate flush
+- ✅ Atomic metrics updates with mutex protection
+- **Status:** Deferred (audits are short, low priority)
+
+### P4: Testing Infrastructure (BAJA - 4h)
+- ✅ Benchmark suite with evidence fixtures
+- ✅ Regression tests for prompt changes
+- **Status:** Phase 4 priority
+
+**Timeline:** ~15h total (2 weeks)
+
+**References:**
+- `ARCHITECTURE_ANALYSIS_SHANNON.md` - Detailed analysis
+- `SHANNON_IMPROVEMENTS_SUMMARY.md` - Executive summary
+- `SHANNON_DECISIONS.md` - Decision documentation
+- `IMPLEMENTATION_PLAN_SHANNON_IMPROVEMENTS.md` - Step-by-step plan
+
+**Pattern source:** `/Users/gcuesta/Projects/shannon/`
+
 ## Resources
 
 - [Anthropic SDK Python](https://github.com/anthropics/anthropic-sdk-python)
