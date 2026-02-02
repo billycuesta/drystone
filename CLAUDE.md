@@ -506,15 +506,31 @@ ruff check drystone/
 
 ## Recent Context (Last 3 Sessions)
 
+**2026-02-02 (Session 3):** Phase 1 Shannon Improvements - Output Validation & Retry Logic
+- ✅ Implemented output_validators.py (242 lines) with 4-layer validation
+  - JSONValidator: Structural integrity checks
+  - FindingsValidator: Business logic validation (severity, risk_score)
+  - SeverityValidator: Valid severity enforcement
+  - RiskScoreValidator: Numeric range validation (0-10)
+- ✅ Implemented retry.py (266 lines) with intelligent retry strategy
+  - RetryStrategy: Exponential backoff (1s → 2s → 4s, max 3 attempts)
+  - ErrorClassifier: Categorizes 4 error types (Validation, JSON, Timeout, API)
+  - RetryHandler: Routes errors to appropriate action (retry vs fail)
+- ✅ Integrated validators into client.py and config.py (33 lines)
+- ✅ Test suite: 21/21 tests passing (221 lines, 100% coverage)
+- ✅ Created 6 comprehensive documentation files (2,894 lines total)
+  - ARCHITECTURE_ANALYSIS_SHANNON.md, IMPLEMENTATION_PLAN_SHANNON_IMPROVEMENTS.md, etc.
+- **Result:** Robust error handling, 70% evidence reduction (from Phase 2), no breaking changes
+- **Files:** validation/output_validators.py, agent/retry.py, and 6 doc files
+- **Commit:** d71cfab (feat: Phase 1 - Output validation & retry logic)
+
 **2026-02-02 (Session 2):** Severity Filtering Implementation - PLAN_SEVERITY_FILTERING.md
 - ✅ Implemented collection-time severity filtering across all AWS services
 - ✅ Inspector v2: Added MEDIUM severity to Critical/High (was Critical/High only)
 - ✅ Security Hub: Added MEDIUM severity to Critical/High filter (was Critical/High only)
 - ✅ GuardDuty: Verified already filtering by severity Gte:4.0 (Medium and above)
 - ✅ Macie: Verified HIGH-only post-filtering (Macie has no Critical level)
-- ✅ Config: Consolidated AI providers to claude-cli and claude-api (removed Bedrock fields)
 - **Result:** Reduces evidence files 70% (5-10MB → 600KB-1.5MB), API tokens 1.5M → ~450K
-- **Files:** config.py, vulns/__init__.py, hardening/__init__.py
 - **Commit:** 6506175 (feat: implement severity filtering to reduce evidence noise)
 
 **2026-02-02 (Session 1):** Provider Consolidation - Claude Only
@@ -522,20 +538,7 @@ ruff check drystone/
 - ✅ Removed Google Gemini API (unmaintained, unnecessary)
 - ✅ Consolidated to 2 providers: Claude CLI (default) + Claude API (premium)
 - ✅ Cleaned 200+ lines of dead code from client.py
-- ✅ Simplified wizard to show only Claude options
-- ✅ Updated validation and documentation
-
-**2026-01-30:** Evidence Snippets in Findings Reports
-- Implemented end-to-end feature for displaying AWS API response snippets within findings
-- Added EvidenceSnippet model with evidence_path and preview_lines configuration
-- Enhanced agent evidence extractor with ARG_MAX protection for large prompts
-- Implemented evidence rendering in both markdown and PCI DSS report formats
-- 15 unit tests (100% pass rate) covering model validation, extraction, and rendering
-
-**2026-01-29:** Project Finalization and GitHub Sync
-- Completed synchronization with GitHub (23 commits)
-- Verified Phase 0-4 completion (100%)
-- Phase 5 (Testing Infrastructure) identified as critical next step
+- ✅ Updated wizard to show only Claude options
 
 ## Session History
 
