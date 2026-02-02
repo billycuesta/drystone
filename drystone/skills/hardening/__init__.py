@@ -86,17 +86,18 @@ class HardeningSkill(BaseSkill):
                 }
                 self._save_json(evidence_path / "security-hub-status.json", hub_status)
 
-            # List findings (filtered by severity: Critical, High only)
+            # List findings (filtered by severity: Critical, High, Medium)
             findings_list = []
             try:
                 paginator = sh_client.get_paginator('get_findings')
 
-                # Filter criteria for Security Hub (only Critical, High + Active)
-                # MEDIUM excluded: 80% are low-impact findings (consistent with Inspector filtering)
+                # Filter criteria for Security Hub (Critical, High, Medium + Active)
+                # Filters out Low and Informational (70% noise reduction)
                 filters = {
                     'SeverityLabel': [
                         {'Value': 'CRITICAL', 'Comparison': 'EQUALS'},
-                        {'Value': 'HIGH', 'Comparison': 'EQUALS'}
+                        {'Value': 'HIGH', 'Comparison': 'EQUALS'},
+                        {'Value': 'MEDIUM', 'Comparison': 'EQUALS'}
                     ],
                     'RecordState': [
                         {'Value': 'ACTIVE', 'Comparison': 'EQUALS'}

@@ -56,9 +56,9 @@ class WizardConfig(BaseModel):
     )
 
     # Step 7: AI Provider for analysis
-    ai_provider: Literal["claude-api", "claude-cli", "gemini-api", "bedrock"] = Field(
+    ai_provider: Literal["claude-api", "claude-cli"] = Field(
         default="claude-cli",
-        description="AI provider for security analysis"
+        description="AI provider for security analysis (claude-cli or claude-api)"
     )
 
     # Step 8: AI API Key (if needed)
@@ -67,29 +67,6 @@ class WizardConfig(BaseModel):
         description="API key for AI provider (if using API-based option)"
     )
 
-    # Step 8.5: Bedrock AWS Credentials (separate from client credentials)
-    bedrock_access_key_id: Optional[str] = Field(
-        default=None,
-        description="AWS Access Key ID for Bedrock (if using bedrock provider)"
-    )
-
-    bedrock_secret_access_key: Optional[str] = Field(
-        default=None,
-        description="AWS Secret Access Key for Bedrock"
-    )
-
-    bedrock_session_token: Optional[str] = Field(
-        default=None,
-        description="AWS Session Token for Bedrock (optional, for temporary credentials)"
-    )
-    
-    # OPCIÓN 2: Custom credential file JSON (NEW)
-    bedrock_credentials_file: Optional[Path] = Field(default=None, description="Path to Bedrock credentials file")
-
-    # OPCIÓN 3: AWS profile estándar (NEW)
-    bedrock_profile: Optional[str] = Field(default=None, description="Bedrock profile name")
-    
-    bedrock_use_same_credentials: bool = Field(default=False, description="Reuse AWS credentials for Bedrock")
 
     # Step 6: Minimum severity to collect and report
     min_severity: Literal["low", "medium", "high", "critical"] = Field(
