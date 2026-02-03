@@ -55,6 +55,25 @@ security-scan-*.json
 .env.local
 .env.*.local
 
+# Local development
+.claude.json
+.drystone/
+
+# Virtual Environments (additional patterns)
+venv_*/
+drystone_env/
+
+# Development Plans & Internal Documentation (not for public repo)
+PLAN_*.md
+SHANNON_*.md
+ARCHITECTURE_*.md
+IMPLEMENTATION_*.md
+README_SHANNON_*.md
+PROJECT_STATE.md
+SESSION_TRACKER.md
+QUICK_START_*.md
+WIZARD_TESTING.md
+
 # OS
 .DS_Store
 Thumbs.db
