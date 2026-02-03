@@ -10,8 +10,6 @@ from pydantic import BaseModel, Field, validator
 # nosec B105 - Example credentials from AWS documentation, not real secrets
 _EXAMPLE_AWS_ACCESS_KEY = "AKIAIOSFODNN7EXAMPLE"  # nosec
 _EXAMPLE_AWS_SECRET_KEY = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"  # nosec
-_EXAMPLE_BEDROCK_ACCESS_KEY = "AKIAIOSFODNN7BEDROCK" # nosec
-_EXAMPLE_BEDROCK_SECRET_KEY = "wJalrXUtnFEMI/BEDROCK/bPxRfiCYEXAMPLEKEY"  # nosec
 
 
 class WizardConfig(BaseModel):
@@ -89,11 +87,8 @@ class WizardConfig(BaseModel):
                 "aws_region": "us-east-1",
                 "skills": ["iam", "exposure"],
                 "output_formats": ["markdown", "json"],
-                "ai_provider": "bedrock",
+                "ai_provider": "claude-cli",
                 "ai_api_key": None,
-                "bedrock_access_key_id": _EXAMPLE_BEDROCK_ACCESS_KEY,
-                "bedrock_secret_access_key": _EXAMPLE_BEDROCK_SECRET_KEY,
-                "bedrock_session_token": None,
                 "created_at": "2026-01-17T10:30:00",
                 "non_interactive": False,
             }
@@ -179,54 +174,6 @@ class WizardConfig(BaseModel):
             return (access_key, secret_key, os.environ.get("AWS_SESSION_TOKEN"))
 
         return None
-    
-    def get_bedrock_credentials(self) -> tuple[str, str, Optional[str]]:
-        """Get Bedrock credentials with priority: manual > file > env."""
-
-        # Option: Reuse AWS audit credentials for Bedrock
-        if self.bedrock_use_same_credentials:
-            return self.get_aws_credentials()
-
-        # Priority 1: Manual entry (direct credentials)
-        if self.bedrock_access_key_id and self.bedrock_secret_access_key:
-            return (
-                self.bedrock_access_key_id,
-                self.bedrock_secret_access_key,
-                self.bedrock_session_token,
-            )
-
-        # Priority 2: Credential file (custom JSON or AWS profile)
-        if self.bedrock_credentials_file:
-            return self._load_from_file(self.bedrock_credentials_file)
-
-        if self.bedrock_profile:
-            return self._load_from_aws_profile(profile_name=self.bedrock_profile)
-
-        # Priority 3: Environment variables (fallback)
-        if env_vars := self._check_bedrock_env_vars():
-            return env_vars
-
-        raise ValueError("No Bedrock credentials configured")
-
-    def _check_bedrock_env_vars(self) -> Optional[tuple[str, str, Optional[str]]]:
-        """Check for Bedrock credentials in environment variables."""
-        import os
-
-        # Try Bedrock-specific env vars first
-        access_key = os.environ.get("BEDROCK_AWS_ACCESS_KEY_ID")
-        secret_key = os.environ.get("BEDROCK_AWS_SECRET_ACCESS_KEY")
-
-        if access_key and secret_key:
-            return (access_key, secret_key, os.environ.get("BEDROCK_AWS_SESSION_TOKEN"))
-
-        # Fallback: use standard AWS env vars
-        access_key = os.environ.get("AWS_ACCESS_KEY_ID")
-        secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
-
-        if access_key and secret_key:
-            return (access_key, secret_key, os.environ.get("AWS_SESSION_TOKEN"))
-
-        return None
 
     @validator("aws_region")
     def validate_region(cls, v: str) -> str:
@@ -282,16 +229,6 @@ class WizardConfig(BaseModel):
             data.pop("aws_session_token", None)
 
         # Always preserve aws_credentials_file and aws_profile (they're not sensitive)
-        # They will be None if not used, which is fine
-
-        # If using a file, profile, env vars, or same-as-aws for Bedrock, don't save direct keys
-        # BUT keep the file/profile paths for reconfiguration
-        if (self.bedrock_credentials_file or self.bedrock_profile or self.bedrock_use_same_credentials or not self.bedrock_access_key_id):
-            data.pop("bedrock_access_key_id", None)
-            data.pop("bedrock_secret_access_key", None)
-            data.pop("bedrock_session_token", None)
-
-        # Always preserve bedrock_credentials_file and bedrock_profile (they're not sensitive)
         # They will be None if not used, which is fine
 
         data["created_at"] = self.created_at.isoformat()

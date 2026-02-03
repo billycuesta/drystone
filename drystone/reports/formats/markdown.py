@@ -32,18 +32,29 @@ class MarkdownFormatter(BaseFormatter):
         return report_path
 
     def _build_markdown(self) -> str:
-        """Build complete markdown report."""
+        """Build complete markdown report.
+
+        Note: PCI DSS sections only included for PCI DSS compliance reports,
+        not for general security reports.
+        """
         parts = [
             self._header(),
             self._executive_summary(),
             self._architecture_diagram(),
             self._remediation_timeline(),
-            self._pci_dss_compliance_summary(),
+        ]
+
+        # Only include PCI DSS summary for PCI compliance reports
+        if self.config.report_type == "pci-dss":
+            parts.append(self._pci_dss_compliance_summary())
+
+        parts.extend([
             self._findings_by_severity(),
             self._observations(),
             self._references(),
             self._footer(),
-        ]
+        ])
+
         # Filter out empty sections
         parts = [p for p in parts if p]
         return "\n\n".join(parts)
@@ -331,13 +342,19 @@ This report presents security findings from the {skill.upper()} security assessm
 """
 
     def _references(self) -> str:
-        """Generate references section."""
-        return """## 📚 References
+        """Generate references section.
+
+        Note: PCI DSS references only included in PCI compliance reports.
+        """
+        refs = """## 📚 References
 
 - CIS AWS Foundations Benchmark v1.5.0
-- PCI DSS v4.0 Requirements
-- AWS Security Best Practices
-"""
+- AWS Security Best Practices"""
+
+        if self.config.report_type == "pci-dss":
+            refs += "\n- PCI DSS v4.0 Requirements"
+
+        return refs + "\n"
 
     def _footer(self) -> str:
         """Generate report footer."""
@@ -346,7 +363,7 @@ This report presents security findings from the {skill.upper()} security assessm
 ## 📝 Notes
 
 - This report contains sensitive security information. Handle with care.
-- Recommendations are based on AWS security best practices and CIS Benchmarks.
+- Recommendations are based on AWS security best practices.
 - For questions or clarifications, contact your security team.
 
 ---

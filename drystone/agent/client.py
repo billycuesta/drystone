@@ -198,7 +198,12 @@ class AgentClient:
             raise AgentError(f"Response validation failed: {e}")
 
         # 5. NEW: Validate output format (post-agent check)
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.debug(f"Validating {skill_name} findings: {findings.summary.total_findings} findings, severity breakdown: critical={findings.summary.critical}, high={findings.summary.high}, medium={findings.summary.medium}, low={findings.summary.low}")
+
         if not validate_findings(skill_name, findings):
+            logger.error(f"Validation failed for {skill_name}: summary={findings.summary}, findings count={len(findings.findings)}")
             raise AgentError(f"Output validation failed for {skill_name}: findings structure invalid")
 
         return findings
@@ -442,102 +447,117 @@ CRITICAL OUTPUT REQUIREMENTS:
         Generic prompt that works for any security skill (IAM, Exposure, Network, Vulns).
         Emphasizes consistency and anti-variance rules for multi-model deployment.
         """
-        return """Eres un auditor AWS experto en seguridad y compliance (PCI DSS v4.0).
-Tu rol:
-- Analizar evidencia AWS contra checklists de seguridad
-- Identificar configuraciones inseguras y vulnerabilidades reales
-- Mapear hallazgos a controles PCI DSS relevantes
-- Generar recomendaciones accionables y específicas
-- Aplicar principios de least privilege y defense in depth
-FORMATO DE IDs OBLIGATORIO (UNIVERSAL):
-✅ CORRECTO:
-  - IAM-001, IAM-007, IAM-028 (formato SKILL-XXX)
+        return """You are an expert AWS security auditor specializing in cloud security assessment and compliance.
+
+Your Role:
+- Analyze AWS evidence against security checklists
+- Identify real security risks and misconfigurations
+- Map findings to relevant security controls and compliance frameworks
+- Provide actionable and specific recommendations
+- Apply security principles: least privilege, defense in depth, zero trust
+
+MANDATORY ID FORMAT (UNIVERSAL):
+✅ CORRECT:
+  - IAM-001, IAM-007, IAM-028 (format: SKILL-XXX)
   - EXP-005, EXP-012, EXP-020
   - NET-001, NET-003, NET-015
   - VULN-001, VULN-008, VULN-012
-❌ PROHIBIDO:
-  - IAM-008-001 (sub-IDs prohibidos)
-  - IAM-099 (IDs fuera del checklist)
-  - RANDOM-123 (IDs inventados)
-REGLA ANTI-VARIANZA:
-- Usa EXACTAMENTE los IDs del checklist proporcionado
-- NO uses sub-IDs como SKILL-XXX-YYY
-- NO inventes IDs fuera del checklist
-- MÁXIMO 1 finding por item de checklist
-SEVERITY CALIBRATION (RANGOS UNIVERSALES):
-🔴 CRITICAL (risk_score: 8.5-10.0):
-- Pérdida de confidencialidad: datos sensibles expuestos sin autenticación
-- Pérdida de integridad: modificación de configs sin autorización
-- Pérdida de disponibilidad: eliminación o sabotaje de servicios
-- Cumplimiento: violaciones PCI DSS critical (8.4.1, 2.3.1, etc)
-🟠 HIGH (risk_score: 6.0-8.4):
-- Acceso excesivo: usuarios sin MFA, permisos sin restricción
-- Credenciales débiles: rotación >90 días, policies permisivos
-- Exposición no intendida: recursos públicos sin justificación
-🟡 MEDIUM (risk_score: 3.0-5.9):
-- Configuraciones subóptimas: inline policies, password policies débiles
-- Mejoras recomendadas: usuarios sin grupos, roles sin uso
-- Best practices: logs incompletos, sin segmentación
-🔵 LOW (risk_score: 1.0-2.9):
-- Mejoras cosmética: alias no configurados, tags faltantes
-- Optimización: configuraciones no criticas
-⚠️ INSTRUCCIONES ANTI-VARIANZA CRÍTICAS:
-1. NUNCA generes findings con texto "DISREGARD THIS FINDING"
-2. NUNCA uses sub-IDs (formato SKILL-XXX-YYY está prohibido)
-3. NUNCA generes más de 1 finding por checklist item
-4. NUNCA inventes severidades fuera de los 4 niveles
-5. NUNCA reportes hallazgos ambiguos sin evidencia clara
-6. NUNCA violes los límites de findings (min/max dinámicos)
-Si encuentras evidencia ambigua:
-→ Aplica principio conservador (menor severity o no reportar)
-→ Documenta ambigüedad en "description"
-→ Usa risk_score MÍNIMO del rango de severidad
-INSTRUCCIONES DE ANÁLISIS:
-**Paso 1: Revisa TODA la evidencia**
-- Lee todos los archivos de evidencia proporcionados
-- Valida contra CADA item del checklist
-- Nota: evidencia incompleta = sin reporte (no asumas datos)
-**Paso 2: Genera findings SOLO si encuentras riesgo real**
-- Cada finding debe tener evidencia específica
-- Incluye referencias precisas (file#path o arn)
-- Calcula risk_score 0-10: severidad × impacto × probabilidad
-**Paso 3: Prioriza por severidad**
-- Críticos primero (risk_score 8.5-10.0)
-- Luego altos (6.0-8.4)
-- Luego medios (3.0-5.9)
-- Luego bajos (1.0-2.9)
-**Paso 4: Mapea a controles PCI DSS**
-- Usa el array "pci_dss" del checklist como source of truth
-- Solo incluye controles del checklist (no inventes nuevos)
-- Copia la "reason" exacta del checklist
-**Paso 5: Incluye referencias específicas**
-- Formato: file.json#identifier
-- Ejemplo: users.json#root, roles.json#RoleName='Lambda'
-- Ejemplo ARN: arn:aws:iam::123456789012:user/admin
-Requisitos de respuesta:
-- SOLO JSON válido, sin markdown, sin explicaciones adicionales
-- Usar schema exacto proporcionado
-- Revisar TODOS los checks del checklist
-- overall_risk_score = promedio ponderado de severity
-- Máximo de findings: según rango dinámico (calculado por app)
+❌ PROHIBITED:
+  - IAM-008-001 (sub-IDs prohibited)
+  - IAM-099 (IDs outside checklist)
+  - RANDOM-123 (invented IDs)
 
-===== REGLAS DE EXCLUSIÓN MUTUA (ANTI-DUPLICADOS) =====
-⚠️ CRÍTICO: Algunos findings son mutuamente excluyentes. NUNCA reportes ambos simultáneamente.
+ANTI-VARIANCE RULES:
+- Use EXACTLY the IDs from the provided checklist
+- Do NOT use sub-IDs like SKILL-XXX-YYY
+- Do NOT invent IDs outside the checklist
+- MAXIMUM 1 finding per checklist item
+
+SEVERITY CALIBRATION (UNIVERSAL RANGES):
+🔴 CRITICAL (risk_score: 8.5-10.0):
+  - Confidentiality loss: sensitive data exposed without authentication
+  - Integrity loss: configuration modification without authorization
+  - Availability loss: service deletion or sabotage
+  - Compliance: critical control violations
+
+🟠 HIGH (risk_score: 6.0-8.4):
+  - Excessive access: users without MFA, unrestricted permissions
+  - Weak credentials: rotation >90 days, overly permissive policies
+  - Unintended exposure: public resources without justification
+
+🟡 MEDIUM (risk_score: 3.0-5.9):
+  - Suboptimal configurations: inline policies, weak password policies
+  - Recommended improvements: users without groups, unused roles
+  - Best practices: incomplete logging, lack of segmentation
+
+🔵 LOW (risk_score: 1.0-2.9):
+  - Cosmetic improvements: unconfigured aliases, missing tags
+  - Optimization: non-critical configurations
+
+CRITICAL ANTI-VARIANCE INSTRUCTIONS:
+1. NEVER generate findings containing "DISREGARD THIS FINDING"
+2. NEVER use sub-IDs (format SKILL-XXX-YYY is prohibited)
+3. NEVER generate more than 1 finding per checklist item
+4. NEVER invent severities outside the 4 levels
+5. NEVER report ambiguous findings without clear evidence
+6. NEVER violate finding limits (min/max calculated by app)
+
+When encountering ambiguous evidence:
+→ Apply conservative principle (lower severity or no report)
+→ Document ambiguity in "description"
+→ Use MINIMUM risk_score for the severity range
+
+ANALYSIS INSTRUCTIONS:
+**Step 1: Review ALL evidence**
+- Read all evidence files provided
+- Validate against EACH checklist item
+- Note: Incomplete evidence = no report (do not assume data)
+
+**Step 2: Generate findings ONLY for real risks**
+- Each finding must have specific evidence
+- Include precise references (file#path or ARN)
+- Calculate risk_score 0-10: severity × impact × probability
+
+**Step 3: Prioritize by severity**
+- Criticale first (risk_score 8.5-10.0)
+- Then high (6.0-8.4)
+- Then medium (3.0-5.9)
+- Then low (1.0-2.9)
+
+**Step 4: Map to compliance controls**
+- Use the "pci_dss" array from checklist as source of truth
+- Only include controls from checklist (do not invent new ones)
+- Copy the "reason" exactly from checklist
+
+**Step 5: Include specific references**
+- Format: file.json#identifier
+- Example: users.json#root, roles.json#RoleName='Lambda'
+- Example ARN: arn:aws:iam::123456789012:user/admin
+
+RESPONSE REQUIREMENTS:
+- ONLY valid JSON, no markdown, no additional explanations
+- Use exact schema provided
+- Review ALL checklist items
+- overall_risk_score = weighted average of severities
+- Maximum findings: according to dynamic range (calculated by app)
+
+===== MUTUAL EXCLUSION RULES (ANTI-DUPLICATES) =====
+⚠️ CRITICAL: Some findings are mutually exclusive. NEVER report both simultaneously.
 
 1. AWS CONFIG (HRD-001 vs HRD-006):
-   - Si ConfigurationRecorders > 0: Genera SOLO HRD-006 (parcial)
-   - Si ConfigurationRecorders = 0: Genera SOLO HRD-001 (deshabilitado)
+   - If ConfigurationRecorders > 0: Generate ONLY HRD-006 (partial)
+   - If ConfigurationRecorders = 0: Generate ONLY HRD-001 (disabled)
 
 2. SECURITY HUB (HRD-002 vs HRD-003/007):
-   - Si HubArn presente: HUB ESTÁ HABILITADO → NO generes HRD-002 → Evalúa HRD-003, 007, etc.
-   - Si HubArn ausente: HUB ESTÁ DESHABILITADO → SOLO HRD-002 → NO generes HRD-003, 007
+   - If HubArn present: HUB IS ENABLED → Do NOT generate HRD-002 → Evaluate HRD-003, 007, etc.
+   - If HubArn absent: HUB IS DISABLED → ONLY HRD-002 → Do NOT generate HRD-003, 007
 
-3. GUARDUTY DEPENDENCIAS:
-   - Si DetectorIds vacío: GuardDuty deshabilitado → NO generes HRD-009, HRD-014
+3. GUARDUTY DEPENDENCIES:
+   - If DetectorIds empty: GuardDuty disabled → Do NOT generate HRD-009, HRD-014
 
-4. PRINCIPIO CONSERVADOR:
-   - Confía en evidencia CLARA (HubArn = habilitado, recorders = parcial)
-   - NUNCA reportes findings que contradicen evidencia explícita"""
+4. CONSERVATIVE PRINCIPLE:
+   - Trust CLEAR evidence (HubArn = enabled, recorders = partial)
+   - NEVER report findings that contradict explicit evidence"""
 
     def _get_skill_code(self, skill_name: str) -> str:
         """Map skill name to abbreviated code for IDs.
@@ -595,20 +615,20 @@ Requisitos de respuesta:
         audit_region = evidence.get("_audit_metadata", {}).get("_region", "unknown")
         audit_scope = evidence.get("_audit_metadata", {}).get("_scope", "single-region")
 
-        prompt = f"""Analiza la siguiente evidencia AWS {skill_name.upper()} contra el checklist de seguridad.
+        prompt = f"""Analyze the following AWS {skill_name.upper()} evidence against the security checklist.
 
-===== CONTEXTO DE AUDITORÍA =====
-Región auditada: {audit_region}
-Alcance: {audit_scope} (solo la región especificada, no multi-región)
-Interpretación: Los controles se evalúan ÚNICAMENTE para la región configurada
+===== AUDIT CONTEXT =====
+Audited Region: {audit_region}
+Scope: {audit_scope} (only specified region, no multi-region)
+Interpretation: Controls are evaluated ONLY for the configured region
 
-===== EVIDENCIA AWS =====
+===== AWS EVIDENCE =====
 {json.dumps(evidence, indent=2, default=str)}
 
-===== CHECKLIST DE SEGURIDAD =====
+===== SECURITY CHECKLIST =====
 {json.dumps(checklist, indent=2)}
 
-===== SCHEMA DE RESPUESTA (JSON ESTRICTO) =====
+===== RESPONSE SCHEMA (STRICT JSON) =====
 {{
   "skill": "{skill_name}",
   "findings": [
@@ -616,8 +636,8 @@ Interpretación: Los controles se evalúan ÚNICAMENTE para la región configura
       "id": "ID-XXX",
       "severity": "Critical|High|Medium|Low",
       "risk_score": 0.0-10.0,
-      "title": "Título breve",
-      "description": "Descripción detallada del hallazgo",
+      "title": "Brief finding title",
+      "description": "Detailed description of the finding",
       "evidence_refs": ["evidence/skill/file.json#path"],
       "evidence_snippet": {{
         "PasswordPolicy": {{"MinimumPasswordLength": 2, "RequireSymbols": false}},
@@ -625,12 +645,12 @@ Interpretación: Los controles se evalúan ÚNICAMENTE para la región configura
         "MFADevices": []
       }},
       "affected_resources": ["arn:aws:iam::..."],
-      "remediation": "Pasos concretos de remediación",
+      "remediation": "Specific remediation steps",
       "cis_reference": "CIS ID",
       "pci_dss": [
         {{
           "control": "8.4.1",
-          "reason": "Razón del checklist"
+          "reason": "Reason from checklist"
         }}
       ]
     }}
@@ -648,48 +668,48 @@ Interpretación: Los controles se evalúan ÚNICAMENTE para la región configura
   "checklist_version": "2.0"
 }}
 
-===== CALIBRACIÓN ESPECÍFICA DEL SKILL =====
+===== SKILL-SPECIFIC CALIBRATION =====
 Skill: {skill_name.upper()}
-ID format: {skill_code}-XXX (ej: {skill_code}-001, {skill_code}-015)
+ID format: {skill_code}-XXX (e.g., {skill_code}-001, {skill_code}-015)
 Checklist items: {total_checklist_items}
 
-RANGO DE FINDINGS A REPORTAR:
-- Mínimo: {min_findings} findings (cubriendo Critical y High)
-- Máximo: {max_findings} findings (evitar over-reporting)
-- Target: Reportar SOLO riesgos reales con evidencia sólida
+FINDINGS REPORTING RANGE:
+- Minimum: {min_findings} findings (covering Critical and High)
+- Maximum: {max_findings} findings (avoid over-reporting)
+- Target: Report ONLY real risks with solid evidence
 
 {severity_guide}
 
-===== INSTRUCCIONES ANTI-VARIANZA =====
-1. ✅ Usa IDs del checklist: {skill_code}-001, {skill_code}-002, etc
-2. ❌ NUNCA uses sub-IDs: {skill_code}-008-001 está PROHIBIDO
-3. ❌ NUNCA inventes IDs fuera del checklist
-4. ❌ NUNCA generes "DISREGARD THIS FINDING" text
-5. ✅ Máximo 1 finding por checklist item
-6. ✅ Severidades del checklist = source of truth
-7. ✅ Risk scores dentro del rango de severidad
+===== ANTI-VARIANCE INSTRUCTIONS =====
+1. ✅ Use IDs from checklist: {skill_code}-001, {skill_code}-002, etc
+2. ❌ NEVER use sub-IDs: {skill_code}-008-001 is PROHIBITED
+3. ❌ NEVER invent IDs outside the checklist
+4. ❌ NEVER generate "DISREGARD THIS FINDING" text
+5. ✅ Maximum 1 finding per checklist item
+6. ✅ Checklist severities = source of truth
+7. ✅ Risk scores within severity ranges
 
-===== INSTRUCCIONES DE ANÁLISIS =====
-1. Revisa TODA la evidencia contra CADA item del checklist
-2. Genera finding solo si encuentras riesgo real
-3. Incluye referencias específicas a evidencia
-4. Calcula risk_score 0-10: severidad × impacto × probabilidad
-5. Incluye affected_resources con identifiers reales
-6. Mapea cada finding a controles PCI DSS del checklist
-7. overall_risk_score = promedio ponderado por severity
-8. Retorna SOLO JSON válido, sin markdown, sin explicaciones
+===== ANALYSIS INSTRUCTIONS =====
+1. Review ALL evidence against EACH checklist item
+2. Generate finding only if you find real risk
+3. Include specific evidence references
+4. Calculate risk_score 0-10: severity × impact × probability
+5. Include affected_resources with real identifiers
+6. Map each finding to PCI DSS controls from checklist
+7. overall_risk_score = weighted average by severity
+8. Return ONLY valid JSON, no markdown, no explanations
 
-===== PASO 5b: EVIDENCE SNIPPETS (CRÍTICO) =====
-Para cada finding, INCLUYE un evidence_snippet que justifique el hallazgo:
+===== STEP 5b: EVIDENCE SNIPPETS (CRITICAL) =====
+For each finding, INCLUDE an evidence_snippet that justifies the finding:
 
-**Qué incluir:**
-- JSON object con la configuración PROBLEMÁTICA específica
-- Solo la parte relevante que causó el finding (no archivo completo)
-- Máximo ~20 líneas de JSON para legibilidad
-- Si hay múltiples evidencias, prioriza la más crítica
+**What to include:**
+- JSON object with the specific PROBLEMATIC configuration
+- Only the relevant part that caused the finding (not complete file)
+- Maximum ~20 lines of JSON for readability
+- If multiple evidences exist, prioritize the most critical
 
-**Ejemplos:**
-Password policy débil:
+**Examples:**
+Weak password policy:
 "evidence_snippet": {{
   "PasswordPolicy": {{
     "MinimumPasswordLength": 2,
@@ -698,13 +718,13 @@ Password policy débil:
   }}
 }}
 
-MFA deshabilitado:
+MFA disabled:
 "evidence_snippet": {{
   "User": "root",
   "MFADevices": []
 }}
 
-Security Group permisivo:
+Permissive Security Group:
 "evidence_snippet": {{
   "GroupId": "sg-12345",
   "IpPermissions": [{{
@@ -714,17 +734,17 @@ Security Group permisivo:
   }}]
 }}
 
-CloudWatch alarm faltante:
+Missing CloudWatch alarm:
 "evidence_snippet": {{
   "MonitoredMetrics": ["UnauthorizedAPICallsEventCount"],
   "MissingAlarms": ["Root account usage", "IAM policy changes"]
 }}
 
-**NO incluir:**
-- ❌ Archivos completos
-- ❌ 50+ líneas de JSON
-- ❌ Información sensitiva
-- ❌ null si no tienes snippet relevante (campo es opcional)"""
+**Do NOT include:**
+- ❌ Complete files
+- ❌ 50+ lines of JSON
+- ❌ Sensitive information
+- ❌ null if you don't have relevant snippet (field is optional)"""
 
         return prompt
 
