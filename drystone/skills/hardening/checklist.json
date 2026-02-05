@@ -90,7 +90,7 @@
     },
     {
       "id": "HRD-006",
-      "title": "AWS Config habilitado pero con estado incompleto",
+      "title": "AWS Config habilitado pero incompleto en la región configurada",
       "severity": "High",
       "description": "AWS Config is enabled in the audited region, but configuration recorders are not in full 'RECORDING' state or there are incomplete settings. This results in partial monitoring where some resource configurations may not be fully tracked.",
       "remediation": "Verify that all AWS Config configuration recorders in the audited region are in 'RECORDING' state. Configure an S3 bucket for storing configuration snapshots and enable delivery channels. For multi-region deployments, extend AWS Config enablement to all active AWS regions.",

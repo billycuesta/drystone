@@ -47,6 +47,60 @@ HARDENING_CHECKLIST = {
     ]
 }
 
+# Sample IAM checklist
+IAM_CHECKLIST = {
+    "skill": "iam",
+    "items": [
+        {
+            "id": "IAM-001",
+            "title": "Root account sin MFA",
+            "severity": "Critical",
+        },
+        {
+            "id": "IAM-002",
+            "title": "Root account con MFA parcial",
+            "severity": "High",
+        },
+        {
+            "id": "IAM-003",
+            "title": "Usuarios inactivos",
+            "severity": "Medium",
+        },
+        {
+            "id": "IAM-004",
+            "title": "Usuarios sin MFA",
+            "severity": "High",
+        },
+        {
+            "id": "IAM-007",
+            "title": "Access keys viejas (>90 dias)",
+            "severity": "Medium",
+        },
+    ]
+}
+
+# Sample Alerting checklist
+ALERTING_CHECKLIST = {
+    "skill": "alerting",
+    "items": [
+        {
+            "id": "ALR-001",
+            "title": "CloudTrail deshabilitado",
+            "severity": "Critical",
+        },
+        {
+            "id": "ALR-003",
+            "title": "CloudTrail sin CloudWatch Logs",
+            "severity": "Critical",
+        },
+        {
+            "id": "ALR-005",
+            "title": "Alarmas sin configurar",
+            "severity": "High",
+        },
+    ]
+}
+
 
 def make_finding(finding_id, severity, risk_score, title, description):
     """Helper to create a Finding with all required fields."""
@@ -297,6 +351,150 @@ class TestSummaryRecalculation:
         # HRD-003 and HRD-006 should remain
         assert summary.total_findings >= 1
         assert summary.critical >= 0
+
+
+class TestIAMEvidenceValidation:
+    """Test IAM-specific evidence validation."""
+
+    def test_iam_001_rejected_when_root_mfa_enabled(self):
+        """Test that IAM-001 is rejected when root account has MFA."""
+        normalizer = FindingsNormalizer(IAM_CHECKLIST, "iam")
+
+        evidence = {
+            "account-summary": {
+                "AccountMFAEnabled": True,
+            }
+        }
+        normalizer.evidence = evidence
+
+        finding = make_finding("IAM-001", "Critical", 9.5, "Root sin MFA", "Root has no MFA")
+
+        # Should reject (MFA is enabled)
+        is_valid = normalizer._validate_against_evidence("IAM-001", finding)
+        assert is_valid is False
+
+    def test_iam_003_rejected_when_no_inactive_users(self):
+        """Test that IAM-003 is rejected when no inactive users exist."""
+        normalizer = FindingsNormalizer(IAM_CHECKLIST, "iam")
+
+        evidence = {
+            "users": [
+                {
+                    "UserName": "active-user",
+                    "PasswordLastUsed": "2026-01-31T10:00:00",
+                    "AccessKeys": [{"AccessKeyId": "AKIA...", "CreateDate": "2026-01-01"}],
+                },
+                {
+                    "UserName": "another-active",
+                    "PasswordLastUsed": "2026-02-01T10:00:00",
+                    "AccessKeys": [{"AccessKeyId": "AKIA...", "CreateDate": "2026-01-15"}],
+                },
+            ]
+        }
+        normalizer.evidence = evidence
+
+        finding = make_finding("IAM-003", "Medium", 5.0, "Inactive users", "Many inactive")
+
+        # Should reject (no inactive users)
+        is_valid = normalizer._validate_against_evidence("IAM-003", finding)
+        assert is_valid is False
+
+    def test_iam_007_rejected_when_no_old_keys(self):
+        """Test that IAM-007 is rejected when no old access keys exist."""
+        normalizer = FindingsNormalizer(IAM_CHECKLIST, "iam")
+
+        evidence = {
+            "users": [
+                {
+                    "UserName": "user1",
+                    "AccessKeys": [
+                        {
+                            "AccessKeyId": "AKIA...",
+                            "CreateDate": "2026-01-15T10:00:00",  # Recent key
+                        }
+                    ],
+                },
+            ]
+        }
+        normalizer.evidence = evidence
+
+        finding = make_finding("IAM-007", "Medium", 5.0, "Old keys", "Has old keys")
+
+        # Should reject (no old keys)
+        is_valid = normalizer._validate_against_evidence("IAM-007", finding)
+        assert is_valid is False
+
+
+class TestAlertingEvidenceValidation:
+    """Test Alerting-specific evidence validation."""
+
+    def test_alr_001_rejected_when_cloudtrail_enabled(self):
+        """Test that ALR-001 is rejected when CloudTrail is enabled."""
+        normalizer = FindingsNormalizer(ALERTING_CHECKLIST, "alerting")
+
+        evidence = {
+            "cloudtrail-trails": [
+                {"TrailName": "default", "IsMultiRegionTrail": False}
+            ]
+        }
+        normalizer.evidence = evidence
+
+        finding = make_finding("ALR-001", "Critical", 9.5, "CloudTrail disabled", "Not enabled")
+
+        # Should reject (CloudTrail IS enabled)
+        is_valid = normalizer._validate_against_evidence("ALR-001", finding)
+        assert is_valid is False
+
+    def test_alr_003_rejected_when_no_trails(self):
+        """Test that ALR-003 is rejected when CloudTrail is disabled."""
+        normalizer = FindingsNormalizer(ALERTING_CHECKLIST, "alerting")
+
+        evidence = {
+            "cloudtrail-trails": []
+        }
+        normalizer.evidence = evidence
+
+        finding = make_finding("ALR-003", "Critical", 9.5, "No CloudWatch logs", "Not configured")
+
+        # Should reject (need trail for logs issue)
+        is_valid = normalizer._validate_against_evidence("ALR-003", finding)
+        assert is_valid is False
+
+
+class TestMutualExclusionsNewPairs:
+    """Test new mutual exclusion pairs (IAM and Alerting)."""
+
+    def test_mutual_exclusion_iam_003_004(self):
+        """Test that IAM-003 and IAM-004 are mutually exclusive."""
+        normalizer = FindingsNormalizer(IAM_CHECKLIST, "iam")
+
+        findings = [
+            make_finding("IAM-003", "Medium", 5.0, "Inactive users", "Users inactive"),
+            make_finding("IAM-004", "High", 7.0, "No MFA", "MFA missing"),
+        ]
+
+        normalized = normalizer.normalize(findings)
+        resolved = normalizer._resolve_mutual_exclusions(normalized)
+
+        # Should keep IAM-004 (higher ID = more specific)
+        assert len(resolved) == 1
+        assert resolved[0].id == "IAM-004"
+
+    def test_mutual_exclusion_alr_001_003(self):
+        """Test that ALR-001 and ALR-003 are mutually exclusive."""
+        normalizer = FindingsNormalizer(ALERTING_CHECKLIST, "alerting")
+
+        findings = [
+            make_finding("ALR-001", "Critical", 9.5, "CloudTrail disabled", "Not enabled"),
+            make_finding("ALR-003", "Critical", 9.0, "No logs", "Not configured"),
+        ]
+
+        normalized = normalizer.normalize(findings)
+        resolved = normalizer._resolve_mutual_exclusions(normalized)
+
+        # Should keep ALR-003 (higher ID = more specific)
+        assert len(resolved) == 1
+        assert resolved[0].id == "ALR-003"
 
 
 if __name__ == "__main__":

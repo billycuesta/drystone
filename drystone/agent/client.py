@@ -541,6 +541,26 @@ RESPONSE REQUIREMENTS:
 - overall_risk_score = weighted average of severities
 - Maximum findings: according to dynamic range (calculated by app)
 
+===== EVIDENCE DETECTION EXAMPLES =====
+These examples show how to correctly interpret service state:
+
+1. SECURITY HUB STATUS:
+   - If HubArn = "arn:aws:securityhub:..." → Hub IS ENABLED (evaluate HRD-003, HRD-007)
+   - If HubArn is empty or null → Hub IS DISABLED (report HRD-002 only)
+
+2. AWS CONFIG STATUS:
+   - If ConfigurationRecorders has items > 0 → Config IS ENABLED (evaluate HRD-006 state)
+   - If ConfigurationRecorders = [] → Config IS DISABLED (report HRD-001 only)
+
+3. CLOUDTRAIL STATUS:
+   - If Trails.length = 0 → CloudTrail disabled → ONLY ALR-001
+   - If Trails > 0 BUT LogGroupArn = null → ONLY ALR-003 (no CloudWatch)
+   - If LogGroupArn exists BUT alarms = 0 → ONLY ALR-005-014
+
+4. GUARDDUTY STATUS:
+   - If DetectorIds = [] → GuardDuty disabled (no findings for HRD-009, HRD-014)
+   - If DetectorIds > 0 → GuardDuty enabled (evaluate findings status)
+
 ===== MUTUAL EXCLUSION RULES (ANTI-DUPLICATES) =====
 ⚠️ CRITICAL: Some findings are mutually exclusive. NEVER report both simultaneously.
 
@@ -557,7 +577,18 @@ RESPONSE REQUIREMENTS:
 
 4. CONSERVATIVE PRINCIPLE:
    - Trust CLEAR evidence (HubArn = enabled, recorders = partial)
-   - NEVER report findings that contradict explicit evidence"""
+   - NEVER report findings that contradict explicit evidence
+
+5. CLOUDTRAIL DEPENDENCIES (ALR-001 vs ALR-003 vs ALR-005-014):
+   - If trails.length = 0: CloudTrail disabled → ONLY ALR-001
+   - If trails.length > 0 BUT LogGroupArn = null: ONLY ALR-003 (no logs)
+   - If LogGroupArn exists BUT alarms = 0: ONLY ALR-005-014 (missing alarms)
+   - Never generate multiple states (disabled + no logs + no alarms)
+
+6. REGION SCOPE ENFORCEMENT:
+   - If audit_scope = "single-region": Evaluate ONLY configured region
+   - Do NOT penalize for lack of multi-region coverage
+   - IsMultiRegionTrail is INFORMATIONAL (not CRITICAL) in single-region audits"""
 
     def _get_skill_code(self, skill_name: str) -> str:
         """Map skill name to abbreviated code for IDs.
@@ -619,8 +650,14 @@ RESPONSE REQUIREMENTS:
 
 ===== AUDIT CONTEXT =====
 Audited Region: {audit_region}
-Scope: {audit_scope} (only specified region, no multi-region)
+Scope: {audit_scope} (single-region audit)
 Interpretation: Controls are evaluated ONLY for the configured region
+
+⚠️ REGION-AWARE VALIDATION:
+- If a service is not available in {audit_region}, do NOT generate findings
+- Do NOT penalize for lack of multi-region coverage (e.g., multi-region trails)
+- Verify IsMultiRegionTrail as INFORMATIONAL only (not CRITICAL)
+- Trust evidence._audit_metadata._region as source of truth
 
 ===== AWS EVIDENCE =====
 {json.dumps(evidence, indent=2, default=str)}

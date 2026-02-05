@@ -59,6 +59,18 @@ class FindingsNormalizer:
         # Hardening: Compliance score ranges (overlapping ranges)
         ("HRD-004", "HRD-008"): "keep_higher",    # Compliance: <50% vs 50-70%
         ("HRD-008", "HRD-011"): "keep_higher",    # Compliance: 50-70% vs 70-85%
+
+        # IAM: User state
+        ("IAM-003", "IAM-004"): "keep_specific",  # Inactive user vs no MFA
+        ("IAM-005", "IAM-007"): "keep_specific",  # No rotation vs old keys
+        ("IAM-008", "IAM-009"): "keep_specific",  # Weak policy vs no policy
+
+        # IAM: Root account
+        ("IAM-001", "IAM-002"): "keep_higher",    # No MFA vs partial MFA
+
+        # Alerting: CloudTrail state
+        ("ALR-001", "ALR-003"): "keep_specific",  # Disabled vs no logs
+        ("ALR-003", "ALR-005"): "keep_specific",  # No logs vs no alarms
     }
 
     def __init__(self, checklist: Dict[str, Any], skill_name: str):
@@ -134,7 +146,7 @@ class FindingsNormalizer:
 
             # 4. Validate against evidence (if available)
             if self.evidence and not self._validate_against_evidence(normalized_id, finding):
-                logger.debug(f"  ❌ Rejected by evidence validation: {normalized_id} (severity: {finding.severity})")
+                logger.warning(f"  ❌ Rejected {normalized_id} - contradicts evidence (severity: {finding.severity})")
                 continue
 
             # 5. Calibrate severity
@@ -352,6 +364,71 @@ class FindingsNormalizer:
                 )
                 return False
 
+        # IAM: Root account MFA
+        if finding_id == "IAM-001":
+            account_summary = self.evidence.get("account-summary", {})
+            if account_summary.get("AccountMFAEnabled"):
+                logger.warning(
+                    f"Rejected {finding_id} - Root account MFA IS enabled. "
+                    f"Evidence: AccountMFAEnabled={account_summary.get('AccountMFAEnabled')}"
+                )
+                return False  # Root MFA IS enabled
+
+        # IAM: Inactive users
+        if finding_id == "IAM-003":
+            users = self.evidence.get("users", [])
+            inactive = [u for u in users if not u.get("PasswordLastUsed") and not u.get("AccessKeys")]
+            if len(inactive) == 0:
+                logger.warning(
+                    f"Rejected {finding_id} - No inactive users found. "
+                    f"Evidence: {len(users)} users, all have activity."
+                )
+                return False  # No inactive users found
+
+        # IAM: Old access keys (> 90 days)
+        if finding_id == "IAM-007":
+            from datetime import datetime, timedelta
+            users = self.evidence.get("users", [])
+            old_keys = []
+            for user in users:
+                for key in user.get("AccessKeys", []):
+                    create_date = key.get("CreateDate")
+                    if isinstance(create_date, str):
+                        try:
+                            create_date = datetime.fromisoformat(create_date.replace("Z", "+00:00"))
+                        except (ValueError, TypeError):
+                            continue
+                    if create_date and isinstance(create_date, datetime):
+                        age_days = (datetime.now(create_date.tzinfo) - create_date).days
+                        if age_days > 90:
+                            old_keys.append(key)
+            if len(old_keys) == 0:
+                logger.warning(
+                    f"Rejected {finding_id} - No old access keys found (>90 days). "
+                    f"All keys are recent or missing CreateDate."
+                )
+                return False  # No old keys found
+
+        # Alerting: CloudTrail disabled
+        if finding_id == "ALR-001":
+            trails = self.evidence.get("cloudtrail-trails", [])
+            if len(trails) > 0:
+                logger.warning(
+                    f"Rejected {finding_id} - CloudTrail IS enabled ({len(trails)} trails). "
+                    f"Should be ALR-003 (no logs) or ALR-005+ (other issues)."
+                )
+                return False  # CloudTrail IS enabled (should be ALR-003 or ALR-005+)
+
+        # Alerting: CloudTrail logs disabled (ALR-003 only valid if Trail exists)
+        if finding_id == "ALR-003":
+            trails = self.evidence.get("cloudtrail-trails", [])
+            if len(trails) == 0:
+                logger.warning(
+                    f"Rejected {finding_id} - CloudTrail is NOT enabled (no trails). "
+                    f"Should be ALR-001 instead."
+                )
+                return False  # Can't have "no logs" if trail doesn't exist
+
         return True  # Finding is valid against evidence
 
     def _resolve_mutual_exclusions(self, findings: List[Finding]) -> List[Finding]:
@@ -383,16 +460,18 @@ class FindingsNormalizer:
                     id1_num = int(id1.split('-')[1])
                     id2_num = int(id2.split('-')[1])
                     to_remove_id = id1 if id1_num < id2_num else id2
-                    logger.debug(
-                        f"Mutual exclusion: {id1} vs {id2} → keeping more specific ({to_remove_id})"
+                    kept_id = id2 if to_remove_id == id1 else id1
+                    logger.info(
+                        f"Mutual exclusion resolved: {id1} vs {id2} → kept {kept_id} (more specific)"
                     )
                     to_remove.add(to_remove_id)
 
                 elif strategy == "keep_higher":
                     # Keep higher severity
                     to_remove_id = id1 if f1.risk_score < f2.risk_score else id2
-                    logger.debug(
-                        f"Mutual exclusion: {id1} vs {id2} → keeping higher severity ({to_remove_id})"
+                    kept_id = id2 if to_remove_id == id1 else id1
+                    logger.info(
+                        f"Mutual exclusion resolved: {id1} vs {id2} → kept {kept_id} (higher severity: {max(f1.risk_score, f2.risk_score)})"
                     )
                     to_remove.add(to_remove_id)
 
