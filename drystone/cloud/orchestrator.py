@@ -2,7 +2,7 @@
 
 Coordinates the full audit flow:
 1. Collect evidence from AWS
-2. Analyze with Claude agent
+2. Analyze with Gemini agent
 3. Validate results (NEW - hybrid validation)
 4. Generate reports
 5. Save session data
@@ -12,9 +12,11 @@ Key principle: App orchestrates, agent analyzes, validator reviews.
 
 import json
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 from drystone.models.config import WizardConfig
 from drystone.validation import (
@@ -24,6 +26,80 @@ from drystone.validation import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class SkillProgressTracker:
+    """Track and report skill progress during parallel execution.
+
+    Provides real-time progress updates with ETA estimation.
+    Thread-safe using locks for concurrent access.
+
+    Example:
+        >>> tracker = SkillProgressTracker(6)
+        >>> tracker.start()
+        >>> tracker.record_completion("iam", "PASS")
+        [1/6] iam (PASS) - ETA: 45s
+    """
+
+    def __init__(self, total_skills: int):
+        """Initialize progress tracker.
+
+        Args:
+            total_skills: Total number of skills to audit
+        """
+        self.total = total_skills
+        self.completed = 0
+        self.lock = threading.Lock()
+        self.start_time = None
+        self.skill_times = {}
+
+    def start(self) -> None:
+        """Mark the start of audit."""
+        self.start_time = datetime.now()
+        logger.info(f"Progress tracker started: {self.total} skills")
+
+    def record_completion(
+        self,
+        skill_name: str,
+        status: str,
+        duration: Optional[float] = None,
+    ) -> None:
+        """Record completion of a skill.
+
+        Thread-safe. Updates progress, calculates ETA.
+
+        Args:
+            skill_name: Name of the completed skill
+            status: Completion status ("PASS", "FAIL", "NEEDS_REVIEW")
+            duration: Optional duration in seconds
+        """
+        with self.lock:
+            self.completed += 1
+            if duration:
+                self.skill_times[skill_name] = duration
+
+            elapsed = (datetime.now() - self.start_time).total_seconds()
+            avg_time = elapsed / self.completed if self.completed > 0 else 0
+            remaining_skills = self.total - self.completed
+            est_remaining = avg_time * remaining_skills
+
+            # Format ETA
+            eta_str = f"{est_remaining:.0f}s" if est_remaining > 0 else "done"
+
+            logger.info(
+                f"[{self.completed}/{self.total}] {skill_name:15} ({status:11}) "
+                f"- ETA: {eta_str}"
+            )
+
+    def summary(self) -> str:
+        """Get progress summary string."""
+        elapsed = (datetime.now() - self.start_time).total_seconds() if self.start_time else 0
+        pct = 100 * self.completed / self.total if self.total > 0 else 0
+
+        return (
+            f"Progress: {self.completed}/{self.total} ({pct:.0f}%) "
+            f"- Elapsed: {elapsed:.1f}s"
+        )
 
 
 class AuditOrchestrator:
@@ -38,6 +114,7 @@ class AuditOrchestrator:
         self.config = config
         self.audit_id = datetime.now().isoformat()
         self.results = {}
+        self.results_lock = threading.Lock()  # Protect self.results in parallel execution
 
     def run_skill_audit(
         self,
@@ -50,7 +127,7 @@ class AuditOrchestrator:
 
         Flow:
         1. Collect evidence from AWS
-        2. Analyze with Claude agent
+        2. Analyze with Gemini agent
         3. Validate checklist coverage (programmatic, free)
         4. Validate findings quality (agent review, $0.02)
         5. Generate report
@@ -273,14 +350,60 @@ class AuditOrchestrator:
         # PASS otherwise
         return "PASS"
 
+    def _run_skill_audit_thread_safe(
+        self,
+        skill: Dict[str, Any],
+    ) -> Tuple[str, Dict[str, Any]]:
+        """Thread-safe wrapper for run_skill_audit.
+
+        Can be safely called from multiple threads concurrently.
+        Handles result storage with lock protection.
+
+        Args:
+            skill: Skill config dict with name, collector, analyzer, checklist_path
+
+        Returns:
+            Tuple of (skill_name, result_dict)
+
+        Raises:
+            Exception: Any exception from run_skill_audit (caller handles)
+        """
+        skill_name = skill["name"]
+        logger.debug(f"[Thread-{threading.current_thread().name}] Starting {skill_name}")
+
+        try:
+            # Run the actual audit (thread-safe AWS API calls)
+            result = self.run_skill_audit(
+                skill_name=skill_name,
+                collector_class=skill["collector"],
+                analyzer_class=skill["analyzer"],
+                checklist_path=skill["checklist_path"],
+            )
+
+            # Store result with lock protection
+            with self.results_lock:
+                self.results[skill_name] = result
+
+            logger.debug(f"[Thread-{threading.current_thread().name}] Completed {skill_name}")
+            return skill_name, result
+
+        except Exception as e:
+            logger.error(f"[Thread-{threading.current_thread().name}] Error in {skill_name}: {e}")
+            raise
+
     def run_full_audit(
         self,
         skills: List[Dict[str, Any]],
+        max_workers: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Run full audit across multiple skills.
+        """Run full audit across multiple skills IN PARALLEL.
+
+        Uses ThreadPoolExecutor to run skill audits concurrently.
+        If one skill fails, others continue (error resilience).
 
         Args:
             skills: List of skill configs with collector, analyzer, checklist_path
+            max_workers: Number of parallel workers (default: number of skills)
 
         Returns:
             dict: {
@@ -298,17 +421,69 @@ class AuditOrchestrator:
             }
         """
 
-        logger.info("Starting full audit across all skills")
+        if not skills:
+            logger.warning("No skills to audit")
+            return self._create_empty_audit_result()
 
-        for skill in skills:
-            self.run_skill_audit(
-                skill_name=skill["name"],
-                collector_class=skill["collector"],
-                analyzer_class=skill["analyzer"],
-                checklist_path=skill["checklist_path"],
-            )
+        # Determine parallelism (default: all skills in parallel)
+        max_workers = max_workers or len(skills)
+        logger.info(
+            f"Starting parallel audit: {len(skills)} skills, {max_workers} workers"
+        )
 
-        # Compute summary
+        # Initialize progress tracker
+        tracker = SkillProgressTracker(len(skills))
+        tracker.start()
+
+        # PARALLEL EXECUTION with ThreadPoolExecutor
+        failed = []
+        skill_durations = {}
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all skill audit tasks with start time
+            futures = {}
+            start_times = {}
+
+            for skill in skills:
+                skill_name = skill["name"]
+                start_times[skill_name] = datetime.now()
+                futures[
+                    executor.submit(self._run_skill_audit_thread_safe, skill)
+                ] = skill_name
+
+            # Collect results as they complete (order independent)
+            for future in as_completed(futures):
+                skill_name = futures[future]
+                try:
+                    result_name, result = future.result()
+                    status = result["validation"]["status"]
+
+                    # Calculate duration
+                    duration = (datetime.now() - start_times[skill_name]).total_seconds()
+                    skill_durations[skill_name] = duration
+
+                    # Record in progress tracker
+                    tracker.record_completion(skill_name, status, duration)
+
+                except Exception as e:
+                    # Calculate duration even on error
+                    duration = (datetime.now() - start_times[skill_name]).total_seconds()
+                    skill_durations[skill_name] = duration
+
+                    failed.append((skill_name, str(e)))
+                    tracker.record_completion(skill_name, "FAIL", duration)
+                    # Continue with other skills (error resilience)
+
+        # Log summary of failures
+        if failed:
+            logger.warning(f"⚠️  {len(failed)} skill(s) failed during audit:")
+            for skill_name, error in failed:
+                logger.warning(f"   - {skill_name}: {error}")
+
+        # Log progress summary
+        logger.info(tracker.summary())
+
+        # Compute summary statistics
         statuses = [r["validation"]["status"] for r in self.results.values()]
         total_findings = sum(
             len(r["findings"]) for r in self.results.values()
@@ -330,12 +505,35 @@ class AuditOrchestrator:
         else:
             overall_status = "PASS"
 
+        logger.info(
+            f"✅ Parallel audit complete: "
+            f"{summary['passed_skills']} passed, "
+            f"{summary['review_skills']} review, "
+            f"{summary['failed_skills']} failed"
+        )
+
         return {
             "audit_id": self.audit_id,
             "status": overall_status,
             "timestamp": datetime.now().isoformat(),
             "skills": self.results,
             "summary": summary,
+        }
+
+    def _create_empty_audit_result(self) -> Dict[str, Any]:
+        """Create empty audit result when no skills provided."""
+        return {
+            "audit_id": self.audit_id,
+            "status": "PASS",
+            "timestamp": datetime.now().isoformat(),
+            "skills": {},
+            "summary": {
+                "total_skills": 0,
+                "passed_skills": 0,
+                "review_skills": 0,
+                "failed_skills": 0,
+                "total_findings": 0,
+            },
         }
 
     def save_results(self, output_dir: Path) -> None:
