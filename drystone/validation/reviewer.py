@@ -1,6 +1,6 @@
 """AI-powered findings reviewer for quality validation.
 
-Provides skill-agnostic validation using Claude API to review findings
+Provides skill-agnostic validation using Gemini API to review findings
 quality, severity appropriateness, and completeness. Single reviewer
 class works across IAM, Exposure, Network, and Vulns skills.
 """
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class FindingsReviewer:
-    """Validate findings quality using Claude API (skill-agnostic).
+    """Validate findings quality using Gemini API (skill-agnostic).
 
     This reviewer applies to all skills (IAM, Exposure, Network, Vulns)
     without modification. It checks:
@@ -100,7 +100,7 @@ class FindingsReviewer:
                 "recommendations": [],
             }
 
-        # Build prompt for Claude
+        # Build prompt for Gemini
         prompt = self._build_review_prompt(
             skill=skill,
             evidence=evidence,
@@ -109,7 +109,7 @@ class FindingsReviewer:
         )
 
         try:
-            logger.debug(f"Sending review request to Claude API for {skill}")
+            logger.debug(f"Sending review request to Gemini API for {skill}")
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=4096,
@@ -129,8 +129,8 @@ class FindingsReviewer:
             return review_data
 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse Claude response as JSON: {e}")
-            raise RuntimeError(f"Invalid JSON response from Claude: {e}")
+            logger.error(f"Failed to parse Gemini response as JSON: {e}")
+            raise RuntimeError(f"Invalid JSON response from Gemini: {e}")
         except Exception as e:
             logger.error(f"API error during review: {e}")
             raise RuntimeError(f"API call failed: {e}")
@@ -142,7 +142,7 @@ class FindingsReviewer:
         checklist: Dict[str, Any],
         findings: List[Dict[str, Any]],
     ) -> str:
-        """Build prompt for Claude reviewer.
+        """Build prompt for Gemini reviewer.
 
         Args:
             skill: Skill name
@@ -151,7 +151,7 @@ class FindingsReviewer:
             findings: Current findings
 
         Returns:
-            str: Prompt for Claude API
+            str: Prompt for Gemini API
         """
 
         # Prepare evidence summary (truncate if too large)

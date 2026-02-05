@@ -102,7 +102,7 @@ Each skill's `collect()` method:
 def analyze(self, session: AuditSession, agent_client: AgentClient) -> Path:
     # 1. Read evidence files
     # 2. Load checklist
-    # 3. Send to Claude API
+    # 3. Send to Gemini API
     # 4. NORMALIZE findings (_normalize_findings() call)
     # 5. Save to findings/SKILL.json
 ```
@@ -127,12 +127,12 @@ drystone audit
     └─ HardeningSkill.collect() → evidence/hardening/*.json
     ↓
 4. Orchestrator runs analysis for each skill:
-    ├─ IAMSkill.analyze()          (reads checklist → Claude → normalizes → findings/iam.json)
-    ├─ ExposureSkill.analyze()     (reads checklist → Claude → normalizes → findings/exposure.json)
-    ├─ NetworkSkill.analyze()      (reads checklist → Claude → normalizes → findings/network.json)
-    ├─ VulnsSkill.analyze()        (reads checklist → Claude → normalizes → findings/vulns.json)
-    ├─ AlertingSkill.analyze()     (reads checklist → Claude → normalizes → findings/alerting.json)
-    └─ HardeningSkill.analyze()    (reads checklist → Claude → normalizes → findings/hardening.json)
+    ├─ IAMSkill.analyze()          (reads checklist → Gemini → normalizes → findings/iam.json)
+    ├─ ExposureSkill.analyze()     (reads checklist → Gemini → normalizes → findings/exposure.json)
+    ├─ NetworkSkill.analyze()      (reads checklist → Gemini → normalizes → findings/network.json)
+    ├─ VulnsSkill.analyze()        (reads checklist → Gemini → normalizes → findings/vulns.json)
+    ├─ AlertingSkill.analyze()     (reads checklist → Gemini → normalizes → findings/alerting.json)
+    └─ HardeningSkill.analyze()    (reads checklist → Gemini → normalizes → findings/hardening.json)
     ↓
 5. Generate reports (cross-skill correlation, risk scoring)
     ↓
@@ -144,7 +144,7 @@ drystone audit
 ## Variance Reduction (Auto-Applied)
 
 ### Problem (Before)
-- **IAM-007 (Inline policies):** Bedrock = Medium (3.0), Claude = High (7.5)
+- **IAM-007 (Inline policies):** Bedrock = Medium (3.0), Gemini = High (7.5)
 - **Quantity variance:** 53% difference between models
 - **False positives:** "DISREGARD THIS FINDING" in output
 

@@ -32,7 +32,7 @@ RETRYABLE_ERROR_PATTERNS = [
     'server error', '5xx', '500', '502', '503', '504',
     'internal server error', 'service unavailable', 'bad gateway',
     'temporarily unavailable', 'overloaded',
-    # Claude API specific
+    # Gemini API specific
     'mcp server', 'model unavailable', 'api error',
     'service temporarily unavailable', 'terminated',
     # Billing (retryable - wait for credits)

@@ -1,6 +1,6 @@
 # Drystone 🪨
 
-AWS Security Audit CLI powered by Claude.
+AWS Security Audit CLI powered by Gemini.
 
 ## Status
 
@@ -49,7 +49,7 @@ python -m drystone audit --client "ACME Corp" --region us-east-1 --skills iam --
 
 ### 🚧 Phase 1+: AWS Integration (coming soon)
 - AWS data collection (boto3)
-- Claude API analysis
+- Gemini API analysis
 - Multi-LLM support (Anthropic, Gemini, OpenAI)
 - Modular skills (IAM, Exposure, Network, Vulns)
 - Orchestration engine
@@ -66,7 +66,7 @@ python -m drystone audit --client "ACME Corp" --region us-east-1 --skills iam --
 
 **Planned:**
 - **boto3** - AWS SDK (Phase 1)
-- **anthropic** - Claude API (Phase 1)
+- **google** - Gemini API (Phase 1)
 - **openai** - ChatGPT API (Phase 3)
 - **google-generativeai** - Gemini API (Phase 3)
 
@@ -158,5 +158,5 @@ audit-logs/{session_id}/
 
 ## Documentation
 
-- **CLAUDE.md** - Developer guide for Claude Code
+- **GEMINI.md** - Developer guide for Gemini Code
 - **PROJECT_PLAN.md** - Complete implementation plan and architecture

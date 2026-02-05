@@ -19,7 +19,7 @@ from drystone.models import WizardConfig
 @click.group()
 @click.version_option(__version__, prog_name="drystone")
 def cli() -> None:
-    """🪨 Drystone - AWS Security Audit CLI powered by Claude."""
+    """🪨 Drystone - AWS Security Audit CLI powered by Gemini."""
     pass
 
 

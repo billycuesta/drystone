@@ -240,17 +240,17 @@ class NetworkSkill(BaseSkill):
             json.dump(data, f, indent=2, default=str)
 
     def analyze(self, session: AuditSession, agent_client: "AgentClient") -> Path:
-        """Analyze collected network evidence using Claude API.
+        """Analyze collected network evidence using Gemini API.
 
         1. Read all evidence files
         2. Read security checklist
-        3. Send to Claude API for analysis
+        3. Send to Gemini API for analysis
         4. Save findings to findings/network.json
         5. Print summary
 
         Args:
             session: Audit session with collected evidence
-            agent_client: Claude AI client for analysis
+            agent_client: Gemini AI client for analysis
 
         Returns:
             Path to saved findings JSON file
