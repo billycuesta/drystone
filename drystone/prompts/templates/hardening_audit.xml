@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+HARDENING AUDIT TEMPLATE
+Extends base_audit.xml with Hardening-specific considerations.
+Focus: AWS Config, Security Hub, compliance standards, security controls.
+-->
+<audit_task extends="base_audit.xml">
+  <skill_specific>
+    <skill_name>Hardening</skill_name>
+    <skill_code>HRD</skill_code>
+
+    <focus_areas>
+      <area>AWS Security Hub enablement and standards evaluation</area>
+      <area>AWS Config rules compliance and configuration tracking</area>
+      <area>CIS AWS Foundations Benchmark adherence</area>
+      <area>PCI DSS v4.0 control compliance</area>
+      <area>NIST 800-53 and 800-171 framework alignment</area>
+      <area>CloudTrail logging, S3 access logging, VPC Flow Logs</area>
+      <area>KMS encryption for sensitive data and services</area>
+      <area>Backup and disaster recovery readiness</area>
+    </focus_areas>
+
+    <hardening_specific_rules>
+      <rule id="hrd_1">
+        <title>Security Hub Not Enabled</title>
+        <description>Security Hub should be enabled to aggregate findings</description>
+        <action>Flag accounts without Security Hub enabled (Critical)</action>
+      </rule>
+      <rule id="hrd_2">
+        <title>CIS Standards Not Enabled</title>
+        <description>AWS Foundational Security Best Practices or CIS standards disabled</description>
+        <action>Check EnabledStandards includes CIS benchmark</action>
+      </rule>
+      <rule id="hrd_3">
+        <title>AWS Config Not Recording</title>
+        <description>AWS Config should track all resource configurations</description>
+        <action>Verify AWS Config is RecordingEnabled and has recorder running</action>
+      </rule>
+      <rule id="hrd_4">
+        <title>CloudTrail Disabled</title>
+        <description>CloudTrail should log all API calls for audit trail</description>
+        <action>Flag accounts without CloudTrail or disabled trails</action>
+      </rule>
+      <rule id="hrd_5">
+        <title>S3 Access Logging</title>
+        <description>S3 buckets should have access logging enabled for audit trail</description>
+        <action>Check LoggingEnabled for S3 bucket pairs (source -> log bucket)</action>
+      </rule>
+      <rule id="hrd_6">
+        <title>VPC Flow Logs</title>
+        <description>VPC Flow Logs should be enabled for network traffic visibility</description>
+        <action>Verify FlowLogsEnabled for all VPCs</action>
+      </rule>
+      <rule id="hrd_7">
+        <title>KMS Encryption</title>
+        <description>Sensitive services should use customer-managed KMS keys</description>
+        <action>Check RDS, EBS, S3 for KMS encryption with customer-managed keys</action>
+      </rule>
+      <rule id="hrd_8">
+        <title>Backup Plan Coverage</title>
+        <description>Critical data should have active backup plans (AWS Backup)</description>
+        <action>Verify BackupPlanCount > 0 and plans include critical resources</action>
+      </rule>
+      <rule id="hrd_9">
+        <title>GuardDuty Disabled</title>
+        <description>GuardDuty should monitor for threats and anomalies</description>
+        <action>Flag if GuardDutyStatus != ENABLED or findings not reviewed</action>
+      </rule>
+      <rule id="hrd_10">
+        <title>Macie Not Enabled</title>
+        <description>Macie should scan S3 for sensitive data discovery</description>
+        <action>Check if Macie is enabled and has found sensitive data</action>
+      </rule>
+    </hardening_specific_rules>
+
+    <evidence_focus>
+      <focus item="security-hub-standards.json">
+        <check>EnabledStandards includes CIS, PCI DSS, NIST 800-53</check>
+        <check>ComplianceStatus for each control (PASSED, FAILED, NOT_AVAILABLE)</check>
+      </focus>
+      <focus item="aws-config-recorder.json">
+        <check>IsRecording == true</check>
+        <check>LastStatusChangeTime is recent (not stopped)</check>
+        <check>RecordedResourceTypes includes essential types</check>
+      </focus>
+      <focus item="cloudtrail-trails.json">
+        <check>IsMultiRegionTrail values for audit scope</check>
+        <check>IsLogging == true for all trails</check>
+        <check>IncludeGlobalServiceEvents == true</check>
+        <check>S3BucketName and LogFileValidationEnabled</check>
+      </focus>
+      <focus item="s3-logging.json">
+        <check>Source buckets have LoggingEnabled</check>
+        <check>TargetBucket points to dedicated log bucket</check>
+        <check>Log bucket has appropriate retention policy</check>
+      </focus>
+      <focus item="vpc-flow-logs.json">
+        <check>VPC Flow Logs FlowLogStatus == ACTIVE</check>
+        <check>Destination is CloudWatch Logs or S3</check>
+      </focus>
+      <focus item="backup-plans.json">
+        <check>BackupPlanCount > 0</check>
+        <check>Plans cover critical resources (RDS, EBS, DynamoDB)</check>
+        <check>RetentionDays is reasonable (minimum 30 days)</check>
+      </focus>
+      <focus item="guardduty-status.json">
+        <check>GuardDutyStatus == ENABLED</check>
+        <check>FindingPublishingFrequency configured</check>
+      </focus>
+    </evidence_focus>
+
+  </skill_specific>
+
+  <remediation_templates>
+    <template id="enable_security_hub">
+      <title>Enable AWS Security Hub</title>
+      <steps>
+        <step>1. Go to AWS Security Hub console</step>
+        <step>2. Click "Enable Security Hub"</step>
+        <step>3. Review and accept service-linked role creation</step>
+        <step>4. Select compliance standards: AWS Foundational Security Best Practices, CIS, PCI DSS, NIST</step>
+        <step>5. Integrate with partner findings if needed</step>
+        <step>6. Create SNS topic for Security Hub notifications</step>
+        <step>7. Review findings dashboard for immediate visibility</step>
+      </steps>
+    </template>
+    <template id="enable_cloudtrail">
+      <title>Enable CloudTrail Logging</title>
+      <steps>
+        <step>1. Go to CloudTrail console</step>
+        <step>2. Click "Create Trail"</step>
+        <step>3. Enable multi-region trail (IsMultiRegionTrail = true)</step>
+        <step>4. Create S3 bucket for logs (enable versioning and MFA delete)</step>
+        <step>5. Enable CloudTrail log file validation</step>
+        <step>6. Enable log insights for query capability</step>
+        <step>7. Set up CloudWatch Logs group for real-time analysis</step>
+      </steps>
+    </template>
+    <template id="enable_config_recorder">
+      <title>Enable AWS Config Recorder</title>
+      <steps>
+        <step>1. Go to AWS Config console</step>
+        <step>2. Click "Set up AWS Config" or "Create Recorder"</step>
+        <step>3. Create S3 bucket for config snapshots</step>
+        <step>4. Create IAM role with ConfigRole permissions</step>
+        <step>5. Select "Record all supported resources" or specific types</step>
+        <step>6. Enable recorder and start recording</step>
+        <step>7. Verify IsRecording == true</step>
+      </steps>
+    </template>
+    <template id="enable_vpc_flow_logs">
+      <title>Enable VPC Flow Logs</title>
+      <steps>
+        <step>1. Go to VPC > Your VPCs > [VPC Name]</step>
+        <step>2. Select "Flow Logs" tab</step>
+        <step>3. Click "Create Flow Log"</step>
+        <step>4. Choose destination: CloudWatch Logs or S3</step>
+        <step>5. Create IAM role for log delivery</step>
+        <step>6. Select format (default is fine)</step>
+        <step>7. Enable and monitor for suspicious traffic</step>
+      </steps>
+    </template>
+    <template id="setup_backup_plan">
+      <title>Create AWS Backup Plan</title>
+      <steps>
+        <step>1. Go to AWS Backup console</step>
+        <step>2. Click "Create Backup Plan"</step>
+        <step>3. Choose "Build a new plan" and define backup rules</step>
+        <step>4. Set backup frequency: daily, weekly, monthly</step>
+        <step>5. Set retention period (minimum 30 days recommended)</step>
+        <step>6. Assign resources: RDS, EBS, DynamoDB, EFS, etc.</step>
+        <step>7. Review and create plan</step>
+        <step>8. Verify first backup completes successfully</step>
+      </steps>
+    </template>
+    <template id="enable_kms_encryption">
+      <title>Enable KMS Encryption for RDS/EBS/S3</title>
+      <steps>
+        <step>1. Create customer-managed KMS key in AWS KMS console</step>
+        <step>2. For RDS: Create snapshot of unencrypted instance</step>
+        <step>3. Restore from snapshot with "Enable encryption" and select KMS key</step>
+        <step>4. Update application connection strings to new encrypted instance</step>
+        <step>5. For EBS: Create snapshot, then create encrypted volume from snapshot</step>
+        <step>6. For S3: Enable "Default encryption" with customer-managed KMS key</step>
+        <step>7. Verify encryption is active before deleting old unencrypted resources</step>
+      </steps>
+    </template>
+  </remediation_templates>
+
+  <compliance_focus>
+    <framework name="CIS AWS Foundations">
+      <description>Center for Internet Security benchmarks for AWS security</description>
+      <controls>Logging, IAM, Networking, Monitoring (30+ controls)</controls>
+    </framework>
+    <framework name="PCI DSS v4.0">
+      <description>Payment Card Industry Data Security Standard</description>
+      <controls>Access control, encryption, logging, network controls</controls>
+    </framework>
+    <framework name="NIST 800-53">
+      <description>NIST security and privacy controls for federal systems</description>
+      <controls>AC-2, AU-2, AU-4, CA-7, CM-2, SI-12 (key audit controls)</controls>
+    </framework>
+  </compliance_focus>
+
+</audit_task>

@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+VULNS AUDIT TEMPLATE
+Extends base_audit.xml with Vulnerability-specific considerations.
+Focus: AWS Inspector v2, CVEs, patch management, configuration vulnerabilities.
+-->
+<audit_task extends="base_audit.xml">
+  <skill_specific>
+    <skill_name>Vulns</skill_name>
+    <skill_code>VUL</skill_code>
+
+    <focus_areas>
+      <area>EC2 instance vulnerabilities (CVEs, patches, agent status)</area>
+      <area>Container image vulnerabilities (ECR scanning)</area>
+      <area>Lambda function dependencies and vulnerabilities</area>
+      <area>Patch compliance and missing security patches</area>
+      <area>Configuration vulnerabilities (weak settings, exposed services)</area>
+      <area>Severity severity distribution and risk scoring</area>
+    </focus_areas>
+
+    <vulns_specific_rules>
+      <rule id="vul_1">
+        <title>Critical CVE Detection</title>
+        <description>CVEs with CVSS >= 9.0 are Critical findings</description>
+        <action>Flag all Critical/High severity CVEs from Inspector v2</action>
+      </rule>
+      <rule id="vul_2">
+        <title>Unpatched Instances</title>
+        <description>EC2 instances without patches for 30+ days are High risk</description>
+        <metric>Check PatchableStatus in SSM Compliance data</metric>
+      </rule>
+      <rule id="vul_3">
+        <title>Inspector Agent Status</title>
+        <description>EC2 instances without Inspector agent are Medium risk</description>
+        <action>Flag instances with AgentStatus != ACTIVE or HEALTHY</action>
+      </rule>
+      <rule id="vul_4">
+        <title>Container Image Vulnerabilities</title>
+        <description>Container images in ECR with unscanned or High/Critical CVEs</description>
+        <action>Check ImageScanStatus and ImageScanFindingsSummary</action>
+      </rule>
+      <rule id="vul_5">
+        <title>Lambda Dependency Vulnerabilities</title>
+        <description>Lambda functions with vulnerable dependencies (via CodeGuruReviewer)</description>
+        <action>Analyze Lambda layer dependencies for known CVEs</action>
+      </rule>
+      <rule id="vul_6">
+        <title>Missing Security Patches</title>
+        <description>Packages with available security patches not installed</description>
+        <metric>Count MissingPatches in SSM patch compliance reports</metric>
+      </rule>
+    </vulns_specific_rules>
+
+    <evidence_focus>
+      <focus item="inspector-findings.json">
+        <check>Findings sorted by severity (Critical, High, Medium, Low)</check>
+        <check>CVSS scores >= 7.0 for High severity</check>
+        <check>Package vulnerability details (name, version, fix available)</check>
+      </focus>
+      <focus item="ssm-patch-compliance.json">
+        <check>Instances with PatchableStatus != COMPLIANT</check>
+        <check>MissingPatches count per instance</check>
+        <check>Last patch date (>30 days old is concerning)</check>
+      </focus>
+      <focus item="ecr-image-scans.json">
+        <check>Images with ImageScanStatus == FAILED or unscanned</check>
+        <check>High/Critical vulnerabilities in image layers</check>
+      </focus>
+      <focus item="inspector-agent-status.json">
+        <check>Instances with AgentStatus != ACTIVE or HEALTHY</check>
+        <check>AgentVersion outdated or missing</check>
+      </focus>
+    </evidence_focus>
+
+  </skill_specific>
+
+  <remediation_templates>
+    <template id="patch_critical_cve">
+      <title>Apply Security Patch for Critical CVE</title>
+      <steps>
+        <step>1. Identify affected EC2 instances from vulnerability report</step>
+        <step>2. Create snapshot or AMI backup before patching</step>
+        <step>3. Use AWS Systems Manager Patch Manager to apply patches</step>
+        <step>4. Schedule maintenance window for automatic patching</step>
+        <step>5. Verify patch installation with SSM compliance check</step>
+        <step>6. Re-run Inspector scan to confirm vulnerability resolved</step>
+      </steps>
+    </template>
+    <template id="enable_inspector_agent">
+      <title>Enable Inspector Agent on EC2 Instance</title>
+      <steps>
+        <step>1. Go to EC2 > Instances > [Instance]</step>
+        <step>2. Check IAM role has AmazonSSMManagedInstanceCore and SSMPatchAssociation</step>
+        <step>3. Use Systems Manager to run command: aws ssm send-command for agent installation</step>
+        <step>4. Or: Launch new instance with AmazonInspector2AgentPolicy IAM role</step>
+        <step>5. Verify agent status in Inspector console (should show ACTIVE)</step>
+        <step>6. Allow 5-10 minutes for first scan to complete</step>
+      </steps>
+    </template>
+    <template id="remediate_container_vuln">
+      <title>Fix Container Image Vulnerability</title>
+      <steps>
+        <step>1. Identify vulnerable image from ECR scan results</step>
+        <step>2. Update base image in Dockerfile to latest patched version</step>
+        <step>3. Update application dependencies to fixed versions</step>
+        <step>4. Rebuild and re-tag image in ECR</step>
+        <step>5. Run ECR image scan on new image</step>
+        <step>6. Verify scan shows no High/Critical vulnerabilities</step>
+        <step>7. Deploy updated image to production</step>
+      </steps>
+    </template>
+    <template id="update_lambda_dependencies">
+      <title>Update Lambda Function Dependencies</title>
+      <steps>
+        <step>1. Review CodeGuruReviewer findings for Lambda function</step>
+        <step>2. Identify vulnerable packages in requirements.txt or package.json</step>
+        <step>3. Update packages to patched versions</step>
+        <step>4. Test Lambda function locally with updated dependencies</step>
+        <step>5. Create new Lambda layer with updated dependencies</step>
+        <step>6. Deploy updated Lambda version</step>
+        <step>7. Re-run CodeGuruReviewer scan to confirm resolution</step>
+      </steps>
+    </template>
+  </remediation_templates>
+
+  <severity_calibration>
+    <note>Vulns severity is CVSS-based from Inspector v2</note>
+    <critical>CVSS >= 9.0 OR Critical CVE in active workload</critical>
+    <high>CVSS 7.0-8.9 OR High CVE affecting multiple instances</high>
+    <medium>CVSS 4.0-6.9 OR patch available but not urgently needed</medium>
+    <low>CVSS 0.1-3.9 OR low-severity informational findings</low>
+  </severity_calibration>
+
+</audit_task>

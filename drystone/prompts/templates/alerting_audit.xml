@@ -1,0 +1,262 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+ALERTING AUDIT TEMPLATE
+Extends base_audit.xml with Alerting architecture-specific considerations.
+Focus: Security event detection, notification chains, alert architecture.
+-->
+<audit_task extends="base_audit.xml">
+  <skill_specific>
+    <skill_name>Alerting</skill_name>
+    <skill_code>ALR</skill_code>
+
+    <focus_areas>
+      <area>CloudTrail event sources and API call logging</area>
+      <area>CloudWatch Events (EventBridge) rule configuration</area>
+      <area>SNS topics for alert distribution</area>
+      <area>Alert recipients (email, Slack, incident response systems)</area>
+      <area>Critical security event detection (root account usage, IAM changes)</area>
+      <area>Notification delivery and escalation paths</area>
+      <area>Alert deduplication and rate limiting</area>
+    </focus_areas>
+
+    <alerting_specific_rules>
+      <rule id="alr_1">
+        <title>Root Account Usage Not Detected</title>
+        <description>CloudTrail should track root account usage with immediate alert</description>
+        <action>Verify CloudTrail logs root console signin and API calls</action>
+        <action>Check EventBridge rule exists for root account activity</action>
+      </rule>
+      <rule id="alr_2">
+        <title>IAM Policy Changes Not Alerted</title>
+        <description>IAM policy changes enable privilege escalation, need immediate alert</description>
+        <action>Check CloudTrail logs PutUserPolicy, AttachUserPolicy, AttachGroupPolicy</action>
+        <action>Verify EventBridge detects policy changes</action>
+      </rule>
+      <rule id="alr_3">
+        <title>CloudTrail Not Enabled</title>
+        <description>CloudTrail must be enabled to log API calls for alert triggers</description>
+        <action>Verify CloudTrail IsLogging == true and trail exists</action>
+      </rule>
+      <rule id="alr_4">
+        <title>EventBridge Rules Missing</title>
+        <description>EventBridge (CloudWatch Events) rules forward events to alerts</description>
+        <action>Check for rules targeting SNS topic for security events</action>
+      </rule>
+      <rule id="alr_5">
+        <title>SNS Topic Not Configured</title>
+        <description>SNS topic must be configured to distribute alerts to recipients</description>
+        <action>Verify SNS topic exists and has subscriptions (email, Slack, etc.)</action>
+      </rule>
+      <rule id="alr_6">
+        <title>Alert Recipients Missing</title>
+        <description>Alerts must reach on-call security team, not just logged</description>
+        <action>Verify SNS topic has email/SMS/Slack subscriptions</action>
+        <action>Confirm recipients are active and monitored</action>
+      </rule>
+      <rule id="alr_7">
+        <title>Unencrypted SNS Communication</title>
+        <description>SNS topics should enforce HTTPS and encryption</description>
+        <action>Check SNS policy requires HTTPS (no HTTP)</action>
+      </rule>
+      <rule id="alr_8">
+        <title>No Escalation for Missed Alerts</title>
+        <description>If primary alert fails, escalation path must exist</description>
+        <action>Verify fallback alert mechanism (email + Slack + SMS)</action>
+      </rule>
+    </alerting_specific_rules>
+
+    <evidence_focus>
+      <focus item="cloudtrail-events.json">
+        <check>ConsoleLogin events for root account</check>
+        <check>IAM API calls: PutUserPolicy, AttachUserPolicy, AttachGroupPolicy</check>
+        <check>Security group changes: AuthorizeSecurityGroupIngress</check>
+        <check>Network ACL changes: CreateNetworkAclEntry</check>
+        <check>KMS key policy changes: PutKeyPolicy</check>
+      </focus>
+      <focus item="eventbridge-rules.json">
+        <check>Rules matching root account activity patterns</check>
+        <check>Rules for IAM policy changes</check>
+        <check>Rules for security group modifications</check>
+        <check>Target: SNS topic for alert distribution</check>
+        <check>State: ENABLED (not DISABLED)</check>
+      </focus>
+      <focus item="sns-topics.json">
+        <check>Topic exists for security alerts</check>
+        <check>KMSMasterKeyId set (encryption enabled)</check>
+        <check>Subscriptions list (email, Slack webhook, HTTP endpoint)</check>
+        <check>TopicAttributes: HTTPS enforcement policy</check>
+      </focus>
+      <focus item="sns-subscriptions.json">
+        <check>Email subscriptions: confirmed (SubscriptionArnStatus)</check>
+        <check>SMS subscriptions: valid phone numbers</check>
+        <check>Lambda subscriptions: function exists and active</check>
+        <check>HTTP(S) endpoints: Slack webhooks, incident response systems</check>
+      </focus>
+      <focus item="cloudwatch-logs.json">
+        <check>Log groups exist for CloudTrail and EventBridge</check>
+        <check>Metric filters detect critical patterns</check>
+        <check>Alarms trigger SNS topic when metrics exceed threshold</check>
+      </focus>
+    </evidence_focus>
+
+  </skill_specific>
+
+  <architecture_diagram>
+    <description>Alert architecture flow</description>
+    <flow>
+      <step_1>CloudTrail → Logs all API calls (root, IAM, security)</step_1>
+      <step_2>EventBridge Rules → Match patterns (root login, policy change, etc.)</step_2>
+      <step_3>SNS Topic → Receives matched events</step_3>
+      <step_4>SNS Subscriptions → Distribute to:
+        - Email (primary)
+        - Slack (team visibility)
+        - SMS (critical alerts)
+        - Lambda (custom processing)
+        - HTTP endpoint (incident response system)</step_4>
+      <step_5>Alert Recipients → Security team responds within SLA</step_5>
+    </flow>
+    <critical_gaps>
+      <gap id="gap_1">
+        <description>CloudTrail disabled or not logging</description>
+        <impact>No event source for alerts</impact>
+        <severity>Critical</severity>
+      </gap>
+      <gap id="gap_2">
+        <description>EventBridge rule missing or disabled</description>
+        <impact>Events not detected/forwarded to SNS</impact>
+        <severity>Critical</severity>
+      </gap>
+      <gap id="gap_3">
+        <description>SNS topic not configured or topic deleted</description>
+        <impact>Alerts not delivered to team</impact>
+        <severity>Critical</severity>
+      </gap>
+      <gap id="gap_4">
+        <description>No SNS subscriptions (email/Slack/SMS)</description>
+        <impact>Alerts logged but not reaching human eyes</impact>
+        <severity>Critical</severity>
+      </gap>
+      <gap id="gap_5">
+        <description>Unconfirmed email subscriptions</description>
+        <impact>Email alerts not delivered (pending confirmation)</impact>
+        <severity>High</severity>
+      </gap>
+    </critical_gaps>
+  </architecture_diagram>
+
+  <remediation_templates>
+    <template id="setup_cloudtrail">
+      <title>Configure CloudTrail for Alert Triggers</title>
+      <steps>
+        <step>1. Go to CloudTrail console</step>
+        <step>2. Create trail: enable multi-region, log API calls</step>
+        <step>3. Create S3 bucket with MFA delete protection</step>
+        <step>4. Enable CloudTrail log file validation</step>
+        <step>5. Enable log insights for query</step>
+        <step>6. Verify IsLogging == true</step>
+        <step>7. Allow 5-10 minutes for logs to appear in S3</step>
+      </steps>
+    </template>
+    <template id="create_eventbridge_rule">
+      <title>Create EventBridge Rule for Root Account Activity</title>
+      <steps>
+        <step>1. Go to EventBridge (CloudWatch Events) console</step>
+        <step>2. Click "Create Rule"</step>
+        <step>3. Define pattern:
+          {
+            "source": ["aws.signin"],
+            "detail-type": ["AWS Console Sign In"],
+            "detail": {
+              "userIdentity": {
+                "principalId": ["111122223333:root"]
+              }
+            }
+          }</step>
+        <step>4. Add target: SNS topic</step>
+        <step>5. Test rule: sign in as root, verify SNS message sent</step>
+        <step>6. Enable rule (State: ENABLED)</step>
+      </steps>
+    </template>
+    <template id="create_iam_change_rule">
+      <title>Create EventBridge Rule for IAM Policy Changes</title>
+      <steps>
+        <step>1. Go to EventBridge console</step>
+        <step>2. Click "Create Rule"</step>
+        <step>3. Define pattern for IAM changes:
+          {
+            "source": ["aws.iam"],
+            "detail-type": ["AWS API Call via CloudTrail"],
+            "detail": {
+              "eventName": [
+                "PutUserPolicy",
+                "AttachUserPolicy",
+                "AttachGroupPolicy",
+                "PutGroupPolicy"
+              ]
+            }
+          }</step>
+        <step>4. Add target: SNS topic</step>
+        <step>5. Enable rule</step>
+      </steps>
+    </template>
+    <template id="create_sns_topic">
+      <title>Create SNS Topic for Security Alerts</title>
+      <steps>
+        <step>1. Go to SNS console > Topics</step>
+        <step>2. Click "Create Topic"</step>
+        <step>3. Name: "SecurityAlerts" or similar</step>
+        <step>4. Enable encryption: select customer-managed KMS key</step>
+        <step>5. Set access policy: allow EventBridge, CloudWatch</step>
+        <step>6. Create topic</step>
+        <step>7. Add subscriptions: Email, SMS, Slack webhook</step>
+      </steps>
+    </template>
+    <template id="add_email_subscription">
+      <title>Add Email Subscription to SNS Topic</title>
+      <steps>
+        <step>1. Go to SNS > Topics > [Topic Name]</step>
+        <step>2. Click "Create subscription"</step>
+        <step>3. Protocol: Email</step>
+        <step>4. Endpoint: security-team@company.com</step>
+        <step>5. Create subscription</step>
+        <step>6. Check email inbox for AWS SNS confirmation link</step>
+        <step>7. Click confirmation link to activate subscription</step>
+        <step>8. Verify SubscriptionArn shows confirmed status</step>
+      </steps>
+    </template>
+    <template id="add_slack_notification">
+      <title>Add Slack Notification to SNS Topic</title>
+      <steps>
+        <step>1. Go to Slack App Directory > Incoming Webhooks</step>
+        <step>2. Click "Add to Slack" and authorize</step>
+        <step>3. Choose channel: #security-alerts</step>
+        <step>4. Copy Webhook URL</step>
+        <step>5. Go to SNS > Topics > [Topic Name] > Create subscription</step>
+        <step>6. Protocol: HTTPS</step>
+        <step>7. Endpoint: [Slack Webhook URL]</step>
+        <step>8. Create subscription</step>
+        <step>9. Test: publish message to SNS topic, verify Slack notification</step>
+      </steps>
+    </template>
+  </remediation_templates>
+
+  <quality_criteria_alerting>
+    <criterion name="end_to_end_alert">
+      <description>Alert must flow from CloudTrail → EventBridge → SNS → Email/Slack</description>
+      <metric>Trigger security event and verify all steps execute</metric>
+    </criterion>
+    <criterion name="alert_latency">
+      <description>Alert should reach team within 5-10 minutes of event</description>
+      <metric>Measure time from event to email/Slack receipt</metric>
+    </criterion>
+    <criterion name="alert_accuracy">
+      <description>Alerts must be actionable (no false positives)</description>
+      <metric>Define EventBridge patterns to exclude noise</metric>
+    </criterion>
+    <criterion name="recipient_availability">
+      <description>Alert recipients must be available 24/7</description>
+      <metric>Verify on-call rotation and escalation path</metric>
+    </criterion>
+  </quality_criteria_alerting>
+
+</audit_task>
