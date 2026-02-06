@@ -105,7 +105,31 @@ class HardeningSkill(BaseSkill):
                 }
 
                 for page in paginator.paginate(Filters=filters):
-                    findings_list.extend(page.get("Findings", []))
+                    raw_findings = page.get("Findings", [])
+
+                    # Post-process: simplify findings (remove verbose fields)
+                    for finding in raw_findings:
+                        # Remove verbose nested objects that bloat payloads
+                        finding.pop('Compliance', None)  # Detailed compliance data
+                        finding.pop('SourceUrl', None)  # URLs (rarely actionable)
+                        finding.pop('Types', None)  # Type classification details
+                        finding.pop('ProcessPath', None)  # Process info (not critical)
+                        finding.pop('NetworkPathDetails', None)  # Network details
+                        finding.pop('Vulnerabilities', None)  # Nested vuln info
+                        finding.pop('PatchSummary', None)  # Patch details (verbose)
+                        finding.pop('ProductFields', None)  # Product-specific data
+                        finding.pop('FirstObservedAt', None)  # Timestamps (not critical)
+                        finding.pop('LastObservedAt', None)
+                        finding.pop('UpdatedAt', None)
+
+                        # Simplify Resources (keep only essential)
+                        if 'Resources' in finding:
+                            for resource in finding['Resources']:
+                                # Remove detailed metadata
+                                resource.pop('Details', None)  # IPs, subnets, etc
+                                resource.pop('Tags', None)  # Tag metadata
+
+                    findings_list.extend(raw_findings)
             except Exception as e:
                 logger.warning(f"Could not paginate Security Hub findings: {e}")
 
