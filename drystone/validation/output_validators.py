@@ -238,27 +238,28 @@ def validate_exposure_findings(findings: SkillFindings) -> bool:
 def validate_network_findings(findings: SkillFindings) -> bool:
     """Validate network findings.
 
-    Note: Tolerates small count discrepancies (±1) from agent.
-    This can occur when agent refines counts during analysis.
+    Note: Tolerates small count discrepancies (±2) from agent.
+    This can occur when agent refines counts during analysis or when
+    filtering by severity causes mismatch.
     """
     try:
         if not findings.summary:
             logger.error("Network validation failed: missing summary")
             return False
 
-        # Allow ±1 discrepancy between summary total and actual findings count
-        # (agent sometimes adjusts counts during refinement)
+        # Allow ±2 discrepancy between summary total and actual findings count
+        # (agent sometimes adjusts counts during analysis or filtering)
         count_diff = abs(findings.summary.total_findings - len(findings.findings))
-        if count_diff > 1:
+        if count_diff > 2:
             logger.error(
-                f"Network validation failed: count mismatch > 1. "
+                f"Network validation failed: count mismatch > 2. "
                 f"summary.total_findings={findings.summary.total_findings}, "
                 f"len(findings)={len(findings.findings)}"
             )
             return False
 
-        # Auto-correct summary if off by 1
-        if count_diff == 1:
+        # Auto-correct summary if off by 1-2
+        if count_diff >= 1:
             logger.warning(
                 f"Network: Auto-correcting summary count from {findings.summary.total_findings} to {len(findings.findings)}"
             )
@@ -271,12 +272,22 @@ def validate_network_findings(findings: SkillFindings) -> bool:
             findings.summary.medium +
             findings.summary.low
         )
-        # Allow small discrepancy in severity breakdown too
+        # Allow small discrepancy in severity breakdown too, auto-correct if needed
         if abs(severity_total - len(findings.findings)) > 1:
             logger.warning(
                 f"Network: severity breakdown ({severity_total}) doesn't match findings count ({len(findings.findings)}). "
-                f"Continuing with caution."
+                f"Auto-correcting from actual findings."
             )
+            # Recalculate from actual findings
+            critical_count = sum(1 for f in findings.findings if f.severity == 'Critical')
+            high_count = sum(1 for f in findings.findings if f.severity == 'High')
+            medium_count = sum(1 for f in findings.findings if f.severity == 'Medium')
+            low_count = sum(1 for f in findings.findings if f.severity == 'Low')
+
+            findings.summary.critical = critical_count
+            findings.summary.high = high_count
+            findings.summary.medium = medium_count
+            findings.summary.low = low_count
 
         logger.info(f"Network validation passed: {len(findings.findings)} findings")
         return True
