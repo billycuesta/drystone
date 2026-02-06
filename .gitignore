@@ -37,6 +37,7 @@ env/
 *~
 .DS_Store
 Thumbs.db
+SECURITY_AUDIT_REPORT.md
 
 # Testing
 .pytest_cache/

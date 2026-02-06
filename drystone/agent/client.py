@@ -325,8 +325,9 @@ class AgentClient:
             )
 
             if result.returncode != 0:
+                error_msg = result.stderr if result.stderr else result.stdout if result.stdout else "(no error message)"
                 raise AgentError(
-                    f"Claude CLI error: {result.stderr}\n"
+                    f"Claude CLI error (exit code {result.returncode}): {error_msg[:500]}\n"
                     f"Make sure Claude Code CLI is installed: npm install -g @anthropic-ai/claude-code"
                 )
 
@@ -396,8 +397,9 @@ CRITICAL OUTPUT REQUIREMENTS:
             )
 
             if result.returncode != 0:
+                error_msg = result.stderr if result.stderr else result.stdout if result.stdout else "(no error message)"
                 raise AgentError(
-                    f"Claude CLI error: {result.stderr}\n"
+                    f"Claude CLI error (exit code {result.returncode}): {error_msg[:500]}\n"
                     f"Make sure Claude Code CLI is installed: npm install -g @anthropic-ai/claude-code"
                 )
 
@@ -851,13 +853,16 @@ Missing CloudWatch alarm:
         return "\n".join(guide_lines)
 
     def _parse_json_response(self, text: str) -> dict:
-        """Parse JSON response with truncation detection.
+        """Parse JSON response with markdown/truncation handling.
 
-        Detects truncated responses (missing closing brackets) which can happen
-        when Claude CLI returns incomplete output due to ARG_MAX or stdin size limits.
+        Robust extraction of JSON from Claude responses that may contain markdown.
+        Handles:
+        - ` ```json...``` ` code blocks (standard)
+        - Raw JSON embedded in markdown text
+        - Truncated responses (detects missing closing brackets)
 
         Args:
-            text: Raw response text from Claude
+            text: Raw response text from Claude (may contain markdown)
 
         Returns:
             Parsed JSON dictionary
@@ -865,7 +870,9 @@ Missing CloudWatch alarm:
         Raises:
             AgentError: If JSON invalid, truncated, or cannot be extracted
         """
-        # Remove markdown code blocks if present
+        original_text = text
+
+        # Step 1: Try to extract from code blocks first
         if "```json" in text:
             text = text.split("```json")[1].split("```")[0]
         elif "```" in text:
@@ -873,21 +880,83 @@ Missing CloudWatch alarm:
 
         text = text.strip()
 
-        # Detect truncation: response should end with } or ]
-        if text and text[-1] not in ['}', ']']:
-            last_chars = text[-200:] if len(text) > 200 else text
-            raise AgentError(
-                f"Response appears truncated (doesn't end with }} or ])\n"
-                f"Last 200 chars: {last_chars}"
-            )
-
-        # Try to parse JSON
+        # Step 2: Try direct parsing first (most common case)
         try:
             return json.loads(text)
-        except json.JSONDecodeError as e:
-            # Log first 500 chars for debugging
-            preview = text[:500]
+        except json.JSONDecodeError:
+            # Step 3: If that fails, try to extract JSON from markdown
+            # Look for { ... } or [ ... ] blocks in the text
+            extracted = self._extract_json_from_text(text)
+            if extracted:
+                try:
+                    return json.loads(extracted)
+                except json.JSONDecodeError:
+                    pass
+
+            # Step 4: If still failing, check if text appears truncated
+            if text and text[-1] not in ['}', ']']:
+                last_chars = text[-200:] if len(text) > 200 else text
+                raise AgentError(
+                    f"Response appears truncated (doesn't end with }} or ])\n"
+                    f"Last 200 chars: {last_chars}"
+                )
+
+            # Step 5: Give up and report the error
+            preview = original_text[:500]
             raise AgentError(
-                f"Invalid JSON response from API: {e}\n"
+                f"Invalid JSON response from API\n"
                 f"Response preview: {preview}"
             )
+
+    def _extract_json_from_text(self, text: str) -> Optional[str]:
+        """Extract JSON object or array from text containing markdown.
+
+        Finds the first valid { ... } or [ ... ] block in the text.
+        Handles nested braces/brackets.
+
+        Args:
+            text: Text that may contain JSON embedded in markdown
+
+        Returns:
+            Extracted JSON string, or None if not found
+        """
+        # Find first { or [
+        start_obj = text.find('{')
+        start_arr = text.find('[')
+
+        # Determine which comes first
+        if start_obj == -1 and start_arr == -1:
+            return None
+
+        start = min(
+            start_obj if start_obj >= 0 else float('inf'),
+            start_arr if start_arr >= 0 else float('inf')
+        )
+
+        if start == float('inf'):
+            return None
+
+        # Extract from start, finding matching closing bracket
+        text = text[int(start):]
+
+        # Count brackets to find the matching closing one
+        if text[0] == '{':
+            bracket_count = 0
+            for i, char in enumerate(text):
+                if char == '{':
+                    bracket_count += 1
+                elif char == '}':
+                    bracket_count -= 1
+                    if bracket_count == 0:
+                        return text[:i+1]
+        elif text[0] == '[':
+            bracket_count = 0
+            for i, char in enumerate(text):
+                if char == '[':
+                    bracket_count += 1
+                elif char == ']':
+                    bracket_count -= 1
+                    if bracket_count == 0:
+                        return text[:i+1]
+
+        return None

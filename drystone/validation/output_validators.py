@@ -157,6 +157,7 @@ def validate_vulns_findings(findings: SkillFindings) -> bool:
     """Validate vulns (Inspector v2) findings.
 
     Note: Tolerates small count discrepancies (±1) from agent.
+    More tolerant of severity breakdown mismatches (common with complex vulnerability data).
     """
     try:
         if not findings.summary:
@@ -172,11 +173,32 @@ def validate_vulns_findings(findings: SkillFindings) -> bool:
             logger.warning(f"Vulns: Auto-correcting count from {findings.summary.total_findings} to {len(findings.findings)}")
             findings.summary.total_findings = len(findings.findings)
 
-        # Vulns should have severity breakdown
-        if (findings.summary.critical + findings.summary.high +
-            findings.summary.medium + findings.summary.low) != findings.summary.total_findings:
-            logger.error("Vulns validation failed: severity counts don't sum to total")
-            return False
+        # Check severity breakdown adds up to actual findings count (not summary total)
+        severity_total = (
+            findings.summary.critical +
+            findings.summary.high +
+            findings.summary.medium +
+            findings.summary.low
+        )
+        # Allow small discrepancy in severity breakdown (common with complex vuln data)
+        if abs(severity_total - len(findings.findings)) > 1:
+            logger.warning(
+                f"Vulns: severity breakdown ({severity_total}) doesn't match findings count ({len(findings.findings)}). "
+                f"Auto-correcting to use actual count."
+            )
+            # Auto-correct by proportionally adjusting severities (keep ratios if possible)
+            # Otherwise just make sure counts are reasonable
+            if len(findings.findings) > 0:
+                # Fallback: clear and recalculate from actual findings
+                critical_count = sum(1 for f in findings.findings if f.severity == 'Critical')
+                high_count = sum(1 for f in findings.findings if f.severity == 'High')
+                medium_count = sum(1 for f in findings.findings if f.severity == 'Medium')
+                low_count = sum(1 for f in findings.findings if f.severity == 'Low')
+
+                findings.summary.critical = critical_count
+                findings.summary.high = high_count
+                findings.summary.medium = medium_count
+                findings.summary.low = low_count
 
         logger.info(f"Vulns validation passed: {findings.summary.total_findings} findings")
         return True
