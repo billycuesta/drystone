@@ -1,18 +1,20 @@
 """
 Output validators for each skill.
 
-Each validator is a deterministic function that checks if agent output is valid.
-Validators are called AFTER agent analysis to detect:
-- Missing required fields
-- Invalid JSON structure
-- Semantic errors (e.g., total_findings != len(findings))
-- Domain-specific errors (e.g., missing CIS control ID)
+RECONCILIATION APPROACH (not tolerance patches):
+- Validator's job is to reconcile Claude's response with reality
+- Trust the actual findings array (what Claude really generated)
+- Reconcile summary values (estimates that may be wrong)
+- Log discrepancies but NEVER reject for count mismatches
+- Only reject for: missing required fields, invalid data types, semantic errors
 
-Pattern from Shannon: Agent-specific validators in constants.ts
+Philosophy:
+- Claude's array of findings = ground truth
+- Claude's summary.total_findings = estimate (may be wrong, ignore it)
+- Our job: make summary match reality, not reject findings
 """
 
-from typing import Protocol, Callable
-from dataclasses import dataclass
+from typing import Protocol
 from drystone.models.findings import SkillFindings
 import logging
 
@@ -23,89 +25,101 @@ class SkillValidator(Protocol):
     """Protocol for skill-specific validators."""
     def __call__(self, findings: SkillFindings) -> bool:
         """
-        Validate findings structure and content.
+        Validate and reconcile findings structure.
 
         Returns:
-            bool: True if valid, False otherwise (triggers retry)
+            bool: True if valid (or reconciled), False only for critical errors
         """
         ...
 
 
-def validate_iam_findings(findings: SkillFindings) -> bool:
-    """Validate IAM findings structure and content.
+def _reconcile_summary(findings: SkillFindings, skill_name: str) -> None:
+    """Reconcile summary values to match actual findings array.
 
-    Note: Tolerates small count discrepancies (±2) from agent.
-    This can occur when agent refines counts during analysis.
+    Args:
+        findings: SkillFindings object (modified in-place)
+        skill_name: Name of the skill (for logging)
     """
+    actual_count = len(findings.findings)
+    estimated_count = findings.summary.total_findings
+
+    # Reconcile total_findings
+    if estimated_count != actual_count:
+        logger.warning(
+            f"{skill_name}: Reconciling total_findings: "
+            f"estimated={estimated_count}, actual={actual_count}"
+        )
+        findings.summary.total_findings = actual_count
+
+    # Reconcile severity breakdown
+    critical_count = sum(1 for f in findings.findings if f.severity == 'Critical')
+    high_count = sum(1 for f in findings.findings if f.severity == 'High')
+    medium_count = sum(1 for f in findings.findings if f.severity == 'Medium')
+    low_count = sum(1 for f in findings.findings if f.severity == 'Low')
+
+    severity_total = critical_count + high_count + medium_count + low_count
+    estimated_severity_total = (
+        findings.summary.critical +
+        findings.summary.high +
+        findings.summary.medium +
+        findings.summary.low
+    )
+
+    if severity_total != actual_count:
+        logger.warning(
+            f"{skill_name}: Severity breakdown mismatch: "
+            f"breakdown_sum={severity_total}, actual_count={actual_count}. "
+            f"Reconciling to actual."
+        )
+
+    if (findings.summary.critical != critical_count or
+        findings.summary.high != high_count or
+        findings.summary.medium != medium_count or
+        findings.summary.low != low_count):
+
+        logger.warning(
+            f"{skill_name}: Updating severity counts: "
+            f"critical {findings.summary.critical}→{critical_count}, "
+            f"high {findings.summary.high}→{high_count}, "
+            f"medium {findings.summary.medium}→{medium_count}, "
+            f"low {findings.summary.low}→{low_count}"
+        )
+        findings.summary.critical = critical_count
+        findings.summary.high = high_count
+        findings.summary.medium = medium_count
+        findings.summary.low = low_count
+
+
+def validate_iam_findings(findings: SkillFindings) -> bool:
+    """Validate IAM findings and reconcile summary."""
     try:
-        # Check summary exists
         if not findings.summary:
             logger.error("IAM validation failed: missing summary")
             return False
 
-        # Allow ±2 discrepancy between summary total and actual findings count
-        count_diff = abs(findings.summary.total_findings - len(findings.findings))
-        if count_diff > 2:
-            logger.error(
-                f"IAM validation failed: summary.total_findings ({findings.summary.total_findings}) "
-                f"!= len(findings) ({len(findings.findings)}) - difference too large ({count_diff})"
-            )
-            return False
+        if not findings.findings:
+            logger.warning("IAM: No findings generated (empty array)")
 
-        # Auto-correct summary if off by 1-2
-        if count_diff >= 1:
-            logger.warning(
-                f"IAM: Auto-correcting summary count from {findings.summary.total_findings} to {len(findings.findings)}"
-            )
-            findings.summary.total_findings = len(findings.findings)
-
-        # Check severity breakdown consistency
-        severity_counts = {
-            'Critical': 0,
-            'High': 0,
-            'Medium': 0,
-            'Low': 0
-        }
-
-        # Check all findings have required fields
+        # Validate each finding has required fields
         for finding in findings.findings:
             if not all([finding.id, finding.severity, finding.title, finding.description]):
                 logger.error(f"IAM finding {finding.id} missing required fields")
                 return False
 
-            # Check severity is valid (capitalized: Critical, High, Medium, Low)
             if finding.severity not in ['Critical', 'High', 'Medium', 'Low']:
-                logger.error(f"IAM finding {finding.id} has invalid severity: {finding.severity}")
+                logger.error(f"IAM finding {finding.id} invalid severity: {finding.severity}")
                 return False
 
-            # Check risk_score is valid
             if not (0.0 <= finding.risk_score <= 10.0):
-                logger.error(f"IAM finding {finding.id} has invalid risk_score: {finding.risk_score}")
+                logger.error(f"IAM finding {finding.id} invalid risk_score: {finding.risk_score}")
                 return False
 
-            # Check CIS reference exists
             if not finding.cis_reference:
                 logger.error(f"IAM finding {finding.id} missing cis_reference")
                 return False
 
-            # Count severity
-            severity_counts[finding.severity] += 1
-
-        # Verify severity breakdown adds up correctly (more tolerant)
-        # Agent sometimes miscounts individual severities, but total usually matches findings
-        severity_total = (severity_counts['Critical'] + severity_counts['High'] +
-                         severity_counts['Medium'] + severity_counts['Low'])
-
-        if severity_total != len(findings.findings):
-            logger.warning(
-                f"IAM: Severity breakdown doesn't sum to findings count. "
-                f"Found total: {severity_total}, findings count: {len(findings.findings)}"
-            )
-            # Auto-correct summary severities to match actual findings
-            findings.summary.critical = severity_counts['Critical']
-            findings.summary.high = severity_counts['High']
-            findings.summary.medium = severity_counts['Medium']
-            findings.summary.low = severity_counts['Low']
+        # Reconcile summary to match actual findings
+        _reconcile_summary(findings, "IAM")
 
         logger.info(f"IAM validation passed: {findings.summary.total_findings} findings")
         return True
@@ -116,34 +130,27 @@ def validate_iam_findings(findings: SkillFindings) -> bool:
 
 
 def validate_hardening_findings(findings: SkillFindings) -> bool:
-    """Validate hardening findings structure.
-
-    Note: Tolerates small count discrepancies (±1) from agent.
-    """
+    """Validate hardening findings and reconcile summary."""
     try:
         if not findings.summary:
             logger.error("Hardening validation failed: missing summary")
             return False
 
-        count_diff = abs(findings.summary.total_findings - len(findings.findings))
-        if count_diff > 1:
-            logger.error(f"Hardening validation failed: count mismatch (diff={count_diff})")
-            return False
+        if not findings.findings:
+            logger.warning("Hardening: No findings generated (empty array)")
 
-        if count_diff == 1:
-            logger.warning(f"Hardening: Auto-correcting count from {findings.summary.total_findings} to {len(findings.findings)}")
-            findings.summary.total_findings = len(findings.findings)
+        # Validate findings
+        for finding in findings.findings:
+            if not finding.id or not finding.severity or not finding.title:
+                logger.error(f"Hardening finding missing required fields")
+                return False
 
-        # Hardening should have security-specific checks
-        # At minimum, check for Security Hub enabled checks
-        required_check_patterns = ['HRD-001', 'HRD-002', 'HRD-003']
-        found_ids = {f.id for f in findings.findings}
-        has_required_checks = any(pattern in found_ids for pattern in required_check_patterns)
+            if finding.severity not in ['Critical', 'High', 'Medium', 'Low']:
+                logger.error(f"Hardening finding {finding.id} invalid severity: {finding.severity}")
+                return False
 
-        if not has_required_checks:
-            logger.warning(
-                f"Hardening validation: missing core checks. Found: {found_ids}"
-            )
+        # Reconcile summary
+        _reconcile_summary(findings, "Hardening")
 
         logger.info(f"Hardening validation passed: {findings.summary.total_findings} findings")
         return True
@@ -154,51 +161,27 @@ def validate_hardening_findings(findings: SkillFindings) -> bool:
 
 
 def validate_vulns_findings(findings: SkillFindings) -> bool:
-    """Validate vulns (Inspector v2) findings.
-
-    Note: Tolerates small count discrepancies (±1) from agent.
-    More tolerant of severity breakdown mismatches (common with complex vulnerability data).
-    """
+    """Validate vulns (Inspector v2) findings and reconcile summary."""
     try:
         if not findings.summary:
             logger.error("Vulns validation failed: missing summary")
             return False
 
-        count_diff = abs(findings.summary.total_findings - len(findings.findings))
-        if count_diff > 1:
-            logger.error(f"Vulns validation failed: count mismatch (diff={count_diff})")
-            return False
+        if not findings.findings:
+            logger.warning("Vulns: No findings generated (empty array)")
 
-        if count_diff == 1:
-            logger.warning(f"Vulns: Auto-correcting count from {findings.summary.total_findings} to {len(findings.findings)}")
-            findings.summary.total_findings = len(findings.findings)
+        # Validate findings
+        for finding in findings.findings:
+            if not finding.id or not finding.severity:
+                logger.error(f"Vulns finding missing required fields")
+                return False
 
-        # Check severity breakdown adds up to actual findings count (not summary total)
-        severity_total = (
-            findings.summary.critical +
-            findings.summary.high +
-            findings.summary.medium +
-            findings.summary.low
-        )
-        # Allow small discrepancy in severity breakdown (common with complex vuln data)
-        if abs(severity_total - len(findings.findings)) > 1:
-            logger.warning(
-                f"Vulns: severity breakdown ({severity_total}) doesn't match findings count ({len(findings.findings)}). "
-                f"Auto-correcting to use actual count."
-            )
-            # Auto-correct by proportionally adjusting severities (keep ratios if possible)
-            # Otherwise just make sure counts are reasonable
-            if len(findings.findings) > 0:
-                # Fallback: clear and recalculate from actual findings
-                critical_count = sum(1 for f in findings.findings if f.severity == 'Critical')
-                high_count = sum(1 for f in findings.findings if f.severity == 'High')
-                medium_count = sum(1 for f in findings.findings if f.severity == 'Medium')
-                low_count = sum(1 for f in findings.findings if f.severity == 'Low')
+            if finding.severity not in ['Critical', 'High', 'Medium', 'Low']:
+                logger.error(f"Vulns finding {finding.id} invalid severity: {finding.severity}")
+                return False
 
-                findings.summary.critical = critical_count
-                findings.summary.high = high_count
-                findings.summary.medium = medium_count
-                findings.summary.low = low_count
+        # Reconcile summary
+        _reconcile_summary(findings, "Vulns")
 
         logger.info(f"Vulns validation passed: {findings.summary.total_findings} findings")
         return True
@@ -209,23 +192,27 @@ def validate_vulns_findings(findings: SkillFindings) -> bool:
 
 
 def validate_exposure_findings(findings: SkillFindings) -> bool:
-    """Validate exposure findings.
-
-    Note: Tolerates small count discrepancies (±1) from agent.
-    """
+    """Validate exposure findings and reconcile summary."""
     try:
         if not findings.summary:
             logger.error("Exposure validation failed: missing summary")
             return False
 
-        count_diff = abs(findings.summary.total_findings - len(findings.findings))
-        if count_diff > 1:
-            logger.error(f"Exposure validation failed: count mismatch (diff={count_diff})")
-            return False
+        if not findings.findings:
+            logger.warning("Exposure: No findings generated (empty array)")
 
-        if count_diff == 1:
-            logger.warning(f"Exposure: Auto-correcting count from {findings.summary.total_findings} to {len(findings.findings)}")
-            findings.summary.total_findings = len(findings.findings)
+        # Validate findings
+        for finding in findings.findings:
+            if not finding.id or not finding.severity:
+                logger.error(f"Exposure finding missing required fields")
+                return False
+
+            if finding.severity not in ['Critical', 'High', 'Medium', 'Low']:
+                logger.error(f"Exposure finding {finding.id} invalid severity: {finding.severity}")
+                return False
+
+        # Reconcile summary
+        _reconcile_summary(findings, "Exposure")
 
         logger.info(f"Exposure validation passed: {findings.summary.total_findings} findings")
         return True
@@ -236,60 +223,29 @@ def validate_exposure_findings(findings: SkillFindings) -> bool:
 
 
 def validate_network_findings(findings: SkillFindings) -> bool:
-    """Validate network findings.
-
-    Note: Tolerates small count discrepancies (±2) from agent.
-    This can occur when agent refines counts during analysis or when
-    filtering by severity causes mismatch.
-    """
+    """Validate network findings and reconcile summary."""
     try:
         if not findings.summary:
             logger.error("Network validation failed: missing summary")
             return False
 
-        # Allow ±2 discrepancy between summary total and actual findings count
-        # (agent sometimes adjusts counts during analysis or filtering)
-        count_diff = abs(findings.summary.total_findings - len(findings.findings))
-        if count_diff > 2:
-            logger.error(
-                f"Network validation failed: count mismatch > 2. "
-                f"summary.total_findings={findings.summary.total_findings}, "
-                f"len(findings)={len(findings.findings)}"
-            )
-            return False
+        if not findings.findings:
+            logger.warning("Network: No findings generated (empty array)")
 
-        # Auto-correct summary if off by 1-2
-        if count_diff >= 1:
-            logger.warning(
-                f"Network: Auto-correcting summary count from {findings.summary.total_findings} to {len(findings.findings)}"
-            )
-            findings.summary.total_findings = len(findings.findings)
+        # Validate findings
+        for finding in findings.findings:
+            if not finding.id or not finding.severity:
+                logger.error(f"Network finding missing required fields")
+                return False
 
-        # Check severity breakdown adds up to actual findings count (not summary total)
-        severity_total = (
-            findings.summary.critical +
-            findings.summary.high +
-            findings.summary.medium +
-            findings.summary.low
-        )
-        # Allow small discrepancy in severity breakdown too, auto-correct if needed
-        if abs(severity_total - len(findings.findings)) > 1:
-            logger.warning(
-                f"Network: severity breakdown ({severity_total}) doesn't match findings count ({len(findings.findings)}). "
-                f"Auto-correcting from actual findings."
-            )
-            # Recalculate from actual findings
-            critical_count = sum(1 for f in findings.findings if f.severity == 'Critical')
-            high_count = sum(1 for f in findings.findings if f.severity == 'High')
-            medium_count = sum(1 for f in findings.findings if f.severity == 'Medium')
-            low_count = sum(1 for f in findings.findings if f.severity == 'Low')
+            if finding.severity not in ['Critical', 'High', 'Medium', 'Low']:
+                logger.error(f"Network finding {finding.id} invalid severity: {finding.severity}")
+                return False
 
-            findings.summary.critical = critical_count
-            findings.summary.high = high_count
-            findings.summary.medium = medium_count
-            findings.summary.low = low_count
+        # Reconcile summary
+        _reconcile_summary(findings, "Network")
 
-        logger.info(f"Network validation passed: {len(findings.findings)} findings")
+        logger.info(f"Network validation passed: {findings.summary.total_findings} findings")
         return True
 
     except Exception as e:
@@ -298,23 +254,27 @@ def validate_network_findings(findings: SkillFindings) -> bool:
 
 
 def validate_alerting_findings(findings: SkillFindings) -> bool:
-    """Validate alerting findings.
-
-    Note: Tolerates small count discrepancies (±1) from agent.
-    """
+    """Validate alerting findings and reconcile summary."""
     try:
         if not findings.summary:
             logger.error("Alerting validation failed: missing summary")
             return False
 
-        count_diff = abs(findings.summary.total_findings - len(findings.findings))
-        if count_diff > 1:
-            logger.error(f"Alerting validation failed: count mismatch (diff={count_diff})")
-            return False
+        if not findings.findings:
+            logger.warning("Alerting: No findings generated (empty array)")
 
-        if count_diff == 1:
-            logger.warning(f"Alerting: Auto-correcting count from {findings.summary.total_findings} to {len(findings.findings)}")
-            findings.summary.total_findings = len(findings.findings)
+        # Validate findings
+        for finding in findings.findings:
+            if not finding.id or not finding.severity:
+                logger.error(f"Alerting finding missing required fields")
+                return False
+
+            if finding.severity not in ['Critical', 'High', 'Medium', 'Low']:
+                logger.error(f"Alerting finding {finding.id} invalid severity: {finding.severity}")
+                return False
+
+        # Reconcile summary
+        _reconcile_summary(findings, "Alerting")
 
         logger.info(f"Alerting validation passed: {findings.summary.total_findings} findings")
         return True
@@ -337,14 +297,14 @@ SKILL_VALIDATORS: dict[str, SkillValidator] = {
 
 def validate_findings(skill_name: str, findings: SkillFindings) -> bool:
     """
-    Validate findings for a given skill.
+    Validate and reconcile findings for a given skill.
 
     Args:
         skill_name: Name of the skill (e.g., 'iam', 'hardening')
         findings: SkillFindings object to validate
 
     Returns:
-        bool: True if valid, False otherwise
+        bool: True if valid (or reconciled), False only for critical errors
     """
     validator = SKILL_VALIDATORS.get(skill_name)
     if not validator:
