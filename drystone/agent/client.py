@@ -321,7 +321,7 @@ class AgentClient:
                 input="",  # Empty stdin
                 capture_output=True,
                 text=True,
-                timeout=300,  # 5 minutes
+                timeout=120,  # 2 minutes (shorter for faster failure detection)
             )
 
             if result.returncode != 0:
@@ -393,7 +393,7 @@ CRITICAL OUTPUT REQUIREMENTS:
                 input="",
                 capture_output=True,
                 text=True,
-                timeout=300,
+                timeout=120,  # 2 minutes (faster failure detection)
             )
 
             if result.returncode != 0:
