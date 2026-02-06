@@ -68,13 +68,13 @@ class VulnsSkill(BaseSkill):
             try:
                 paginator = inspector_client.get_paginator('list_findings')
 
-                # Filter criteria for Inspector v2 (only Critical, High, Medium)
-                # Note: severity parameter uses CRITICAL, HIGH, MEDIUM values
+                # Filter criteria for Inspector v2 (only Critical, High)
+                # Note: severity parameter uses CRITICAL, HIGH values
+                # MEDIUM excluded to focus on critical/actionable findings
                 filter_criteria = {
                     'severity': [
                         {'comparison': 'EQUALS', 'value': 'CRITICAL'},
                         {'comparison': 'EQUALS', 'value': 'HIGH'},
-                        {'comparison': 'EQUALS', 'value': 'MEDIUM'},
                     ]
                 }
 

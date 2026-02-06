@@ -91,13 +91,13 @@ class HardeningSkill(BaseSkill):
             try:
                 paginator = sh_client.get_paginator('get_findings')
 
-                # Filter criteria for Security Hub (Critical, High, Medium + Active)
-                # Filters out Low and Informational (70% noise reduction)
+                # Filter criteria for Security Hub (Critical, High + Active)
+                # MEDIUM excluded to focus on critical/actionable findings
+                # Reduces noise and focuses on high-impact security issues
                 filters = {
                     'SeverityLabel': [
                         {'Value': 'CRITICAL', 'Comparison': 'EQUALS'},
-                        {'Value': 'HIGH', 'Comparison': 'EQUALS'},
-                        {'Value': 'MEDIUM', 'Comparison': 'EQUALS'}
+                        {'Value': 'HIGH', 'Comparison': 'EQUALS'}
                     ],
                     'RecordState': [
                         {'Value': 'ACTIVE', 'Comparison': 'EQUALS'}
