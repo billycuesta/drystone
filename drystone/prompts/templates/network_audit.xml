@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+NETWORK AUDIT TEMPLATE
+Extends base_audit.xml with Network-specific considerations.
+Focus: Network segmentation, security groups, NACLs, routing, VPC endpoints.
+-->
+<audit_task extends="base_audit.xml">
+  <skill_specific>
+    <skill_name>Network</skill_name>
+    <skill_code>NET</skill_code>
+
+    <focus_areas>
+      <area>Security group rules (ingress/egress restrictions)</area>
+      <area>Network ACL rules and default deny enforcement</area>
+      <area>VPC isolation and subnet segregation</area>
+      <area>Internet gateway exposure and public routing</area>
+      <area>Network traffic monitoring and VPC Flow Logs</area>
+      <area>VPC endpoints and private service access</area>
+      <area>VPN and Direct Connect security</area>
+    </focus_areas>
+
+    <network_specific_rules>
+      <rule id="net_1">
+        <title>Security Group SSH/RDP Exposure</title>
+        <description>Allowing 22 (SSH) or 3389 (RDP) from 0.0.0.0/0 is Critical</description>
+        <action>Flag ingress rules allowing SSH/RDP from unrestricted sources</action>
+      </rule>
+      <rule id="net_2">
+        <title>Public Internet Gateway</title>
+        <description>IGW existence combined with public subnet routing is Medium (if intended)</description>
+        <action>Verify route tables have appropriate restrictions to IGW</action>
+      </rule>
+      <rule id="net_3">
+        <title>Default VPC Usage</title>
+        <description>Using AWS default VPC is Medium risk (should use custom VPC)</description>
+        <action>Check if resources are in default VPC vs. custom VPCs</action>
+      </rule>
+      <rule id="net_4">
+        <title>VPC Flow Logs</title>
+        <description>Missing VPC Flow Logs is High risk (no traffic visibility)</description>
+        <action>Verify Flow Logs are enabled and sent to CloudWatch/S3</action>
+      </rule>
+      <rule id="net_5">
+        <title>NACL Rules</title>
+        <description>Permissive NACL rules allowing all traffic are Medium risk</description>
+        <action>Check for rules allowing all ports (0-65535) from any source</action>
+      </rule>
+      <rule id="net_6">
+        <title>Overpermissive Security Groups</title>
+        <description>Security groups allowing 0.0.0.0/0 for application ports are High risk</description>
+        <action>Identify DB ports (3306, 5432) or app ports exposed to internet</action>
+      </rule>
+    </network_specific_rules>
+
+    <evidence_focus>
+      <focus item="security-groups.json">
+        <check>Ingress rules allowing 22, 3389, 80, 443 from 0.0.0.0/0</check>
+        <check>Database ports (3306, 5432, 1433) exposed to internet</check>
+        <check>Custom application ports with public access</check>
+      </focus>
+      <focus item="network-acls.json">
+        <check>Default NACL allowing all traffic</check>
+        <check>Custom NACLs with gaps in rule coverage</check>
+      </focus>
+      <focus item="route-tables.json">
+        <check>Routes pointing to IGW</check>
+        <check>Routes with 0.0.0.0/0 destination and public IGW</check>
+      </focus>
+      <focus item="vpcs.json">
+        <check>Default VPC usage vs. custom VPCs</check>
+        <check>VPC Flow Logs enablement</check>
+      </focus>
+      <focus item="vpc-endpoints.json">
+        <check>Gateway endpoints for S3, DynamoDB (should be used)</check>
+        <check>Interface endpoints for private service access</check>
+      </focus>
+    </evidence_focus>
+
+  </skill_specific>
+
+  <remediation_templates>
+    <template id="sg_ssh_exposure">
+      <title>Restrict SSH/RDP Access</title>
+      <steps>
+        <step>1. Go to EC2 > Security Groups > [Group Name]</step>
+        <step>2. Find ingress rule allowing 22 or 3389 from 0.0.0.0/0</step>
+        <step>3. Edit rule: change source from 0.0.0.0/0 to specific IP or security group</step>
+        <step>4. If bastion needed, use bastion host with restricted access</step>
+        <step>5. Consider using Systems Manager Session Manager (no SSH needed)</step>
+      </steps>
+    </template>
+    <template id="enable_vpc_flow_logs">
+      <title>Enable VPC Flow Logs</title>
+      <steps>
+        <step>1. Go to VPC > Your VPCs > [VPC Name]</step>
+        <step>2. Select Flow Logs tab > Create Flow Log</step>
+        <step>3. Choose destination: CloudWatch Logs or S3</step>
+        <step>4. Create IAM role for CloudWatch Logs delivery</step>
+        <step>5. Enable and monitor for suspicious traffic patterns</step>
+      </steps>
+    </template>
+    <template id="remove_internet_exposure">
+      <title>Remove Internet Exposure from Database</title>
+      <steps>
+        <step>1. Identify database security group allowing internet access</step>
+        <step>2. Remove/restrict ingress rules for database ports</step>
+        <step>3. Create separate security group for database (restricted)</step>
+        <step>4. Attach to database instances</step>
+        <step>5. Use VPC endpoints or private connectivity for access</step>
+      </steps>
+    </template>
+  </remediation_templates>
+
+</audit_task>

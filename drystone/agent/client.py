@@ -18,6 +18,7 @@ from drystone.models.findings import SkillFindings
 from drystone.agent.chunker import EvidenceChunker, FindingsAggregator
 from drystone.validation.output_validators import validate_findings
 from drystone.agent.retry import analyze_with_retry, is_retryable_error
+from drystone.prompts import get_audit_template
 
 
 class AgentError(Exception):
@@ -174,9 +175,15 @@ class AgentClient:
         Raises:
             AgentError: If call fails or response invalid
         """
-        # 1. Get prompts
+        # 1. Get prompts (try templates first, fallback to legacy)
         system_prompt = self._get_system_prompt()
-        user_prompt = self._build_analysis_prompt(skill_name, evidence, checklist)
+        try:
+            # Try structured template approach (Shannon pattern)
+            user_prompt = self._build_analysis_prompt_from_template(skill_name, evidence, checklist)
+        except Exception as e:
+            # Fallback to legacy prompt if templates fail
+            logger.warning(f"Template prompt failed for {skill_name}, using legacy: {e}")
+            user_prompt = self._build_analysis_prompt(skill_name, evidence, checklist)
 
         # 2. Call LLM (Claude CLI or API)
         full_prompt = f"{system_prompt}\n\n{user_prompt}"
@@ -786,6 +793,72 @@ Missing CloudWatch alarm:
 - ❌ null if you don't have relevant snippet (field is optional)"""
 
         return prompt
+
+    def _build_analysis_prompt_from_template(
+        self,
+        skill_name: str,
+        evidence: Dict[str, Any],
+        checklist: Dict[str, Any],
+    ) -> str:
+        """Build analysis prompt using structured XML templates (Shannon pattern).
+
+        Falls back to legacy prompt if templates unavailable.
+
+        Args:
+            skill_name: Skill identifier (e.g., 'iam', 'network')
+            evidence: AWS evidence data
+            checklist: Security checklist
+
+        Returns:
+            Formatted prompt for Claude
+        """
+        try:
+            # Get skill code and calibration values
+            skill_code = self._get_skill_code(skill_name)
+            total_checklist_items = len(checklist.get('items', []))
+            min_findings = max(8, int(total_checklist_items * 0.6))
+            max_findings = int(total_checklist_items * 0.8)
+
+            # Get region metadata
+            audit_region = evidence.get("_audit_metadata", {}).get("_region", "unknown")
+            audit_scope = evidence.get("_audit_metadata", {}).get("_scope", "single-region")
+
+            # Evidence count
+            evidence_count = sum(
+                len(v) if isinstance(v, list) else 1
+                for v in evidence.values()
+                if v is not None and not str(k).startswith("_")
+            )
+
+            # Generate severity guide
+            severity_guide = self._generate_severity_guide(checklist)
+
+            # Context for template substitution
+            context = {
+                "SKILL_NAME": skill_name,
+                "SKILL_UPPER": skill_name.upper(),
+                "SKILL_CODE": skill_code,
+                "AUDIT_REGION": audit_region,
+                "AUDIT_SCOPE": audit_scope,
+                "EVIDENCE_JSON": json.dumps(evidence, indent=2, default=str),
+                "CHECKLIST_JSON": json.dumps(checklist, indent=2),
+                "TOTAL_CHECKLIST_ITEMS": total_checklist_items,
+                "MIN_FINDINGS": min_findings,
+                "MAX_FINDINGS": max_findings,
+                "EVIDENCE_COUNT": evidence_count,
+                "SEVERITY_GUIDE": severity_guide,
+            }
+
+            # Load and render template
+            template = get_audit_template(skill_name, context)
+            return template
+
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Could not load template for {skill_name}: {e}. Falling back to legacy prompt.")
+            # Fallback to legacy prompt
+            return self._build_analysis_prompt(skill_name, evidence, checklist)
 
     def _generate_severity_guide(self, checklist: Dict[str, Any]) -> str:
         """Generate severity calibration guide from checklist.

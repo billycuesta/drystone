@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+IAM AUDIT TEMPLATE
+Extends base_audit.xml with IAM-specific considerations.
+Focus: Identity, access control, privilege escalation, credentials.
+-->
+<audit_task extends="base_audit.xml">
+  <skill_specific>
+    <skill_name>IAM</skill_name>
+    <skill_code>IAM</skill_code>
+
+    <focus_areas>
+      <area>Root account protection (MFA, access keys, usage)</area>
+      <area>IAM user and role security (aging credentials, unused access)</area>
+      <area>Privilege escalation vectors (AssumeRole, inline policies)</area>
+      <area>Password policies and credential management</area>
+      <area>External identity federation and trust relationships</area>
+      <area>Cross-account access and assume role chains</area>
+    </focus_areas>
+
+    <iam_specific_rules>
+      <rule id="iam_1">
+        <title>Root Account Critical</title>
+        <description>Root account findings are ALWAYS Critical if credentials are active</description>
+        <action>Flag any root access keys, root MFA absence, or root console usage</action>
+      </rule>
+      <rule id="iam_2">
+        <title>Credential Age</title>
+        <description>Access keys older than 90 days are High/Medium depending on usage</description>
+        <metric>Check CreateDate against current timestamp</metric>
+      </rule>
+      <rule id="iam_3">
+        <title>Privilege Escalation</title>
+        <description>Policies allowing iam:* or sts:AssumeRole without restrictions are Critical</description>
+        <action>Analyze inline and attached policies for overly permissive grants</action>
+      </rule>
+      <rule id="iam_4">
+        <title>MFA Enforcement</title>
+        <description>Users with console access MUST have MFA enabled</description>
+        <metric>Check MFADevices array is non-empty for console users</metric>
+      </rule>
+      <rule id="iam_5">
+        <title>Unused Access</title>
+        <description>Users with no recent activity (>90 days) should be disabled or removed</description>
+        <metric>Check PasswordLastUsed and AccessKeyLastUsedDate</metric>
+      </rule>
+    </iam_specific_rules>
+
+    <evidence_focus>
+      <focus item="users.json">
+        <check>Root user existence and credential status</check>
+        <check>MFA devices for each user</check>
+        <check>Access key creation dates and last used dates</check>
+      </focus>
+      <focus item="roles.json">
+        <check>AssumeRolePolicyDocument for external trust relationships</check>
+        <check>Trust chain depth and cross-account access</check>
+      </focus>
+      <focus item="policies.json">
+        <check>Inline policies with wildcard permissions (iam:*, s3:*)</check>
+        <check>Policies allowing privilege escalation</check>
+      </focus>
+      <focus item="account_summary.json">
+        <check>AccountAccessKeysPresent and RootAccountMFAEnabled</check>
+        <check>UnusedPasswordPolicyIndicators</check>
+      </focus>
+    </evidence_focus>
+
+  </skill_specific>
+
+  <remediation_templates>
+    <template id="root_credentials">
+      <title>Remove Root Access Keys</title>
+      <steps>
+        <step>1. Sign in as root or use IAM user with root permissions</step>
+        <step>2. Navigate to Security Credentials in AWS Console</step>
+        <step>3. Delete all active access keys</step>
+        <step>4. Create IAM users with delegated permissions instead</step>
+        <step>5. Verify MFA is enabled on root account</step>
+      </steps>
+    </template>
+    <template id="no_mfa">
+      <title>Enable MFA on User</title>
+      <steps>
+        <step>1. Go to IAM > Users > [User]</step>
+        <step>2. Click "Security Credentials" tab</step>
+        <step>3. Assign MFA device (virtual or hardware)</step>
+        <step>4. Test MFA functionality</step>
+      </steps>
+    </template>
+    <template id="overpermissive_policy">
+      <title>Restrict Overpermissive Policy</title>
+      <steps>
+        <step>1. Review the policy statement allowing iam:* or Action: "*"</step>
+        <step>2. Replace with least-privilege specific actions</step>
+        <step>3. Add resource restrictions (not just "*")</step>
+        <step>4. Add conditions if applicable (IP restrictions, MFA requirement)</step>
+        <step>5. Test with affected user/role to ensure functionality</step>
+      </steps>
+    </template>
+  </remediation_templates>
+
+</audit_task>
