@@ -1,4 +1,4 @@
-# Drystone 🪨
+# Drystone 🐡
 
 **AWS Security Audit CLI powered by Claude**
 
@@ -291,7 +291,7 @@ audit-logs/ACME_Corp_2026-02-06_14-30-45/
 ```bash
 $ python -m drystone audit
 
-🪨 DRYSTONE - AWS Security Audit CLI
+🐡 DRYSTONE - AWS Security Audit CLI
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ? Client name: ACME Corp
