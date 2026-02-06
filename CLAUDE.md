@@ -158,6 +158,32 @@ mypy drystone/
 pytest tests/
 ```
 
+## ⚠️ Important: Virtual Environment
+
+**NEVER delete `drystone_env/` during any cleanup or maintenance operations.**
+
+The virtual environment (`drystone_env/`) is critical for project functionality and contains all installed dependencies. It should be preserved through:
+- Cleanup operations
+- Git operations
+- Documentation updates
+- Any other project maintenance
+
+**What CAN be safely deleted:**
+- `audit-logs/` - Test/validation sessions (regenerated on next audit)
+- `__pycache__/` - Python bytecode cache
+- `.pytest_cache/` - Pytest cache
+- `.egg-info/` - pip metadata (regenerated with `pip install`)
+- Old virtual environments (e.g., `venv_py314/`, `venv_py39/`)
+- Obsolete documentation files
+- Test output directories
+
+**What should NEVER be deleted:**
+- `drystone_env/` - **Active virtual environment**
+- `drystone/` - Source code
+- `.git/` - Repository
+- `tests/` - Test suite
+- `scripts/` - Utility scripts
+
 ## Code Conventions
 
 - **Evidence:** Always collect raw AWS API data before analysis; use Pydantic models
