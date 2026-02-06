@@ -24,6 +24,7 @@ from drystone.validation import (
     FindingsReviewer,
     validate_report_completeness,
 )
+from drystone.logging import MetricsTracker, CrashSafeLogger
 
 logger = logging.getLogger(__name__)
 
@@ -395,6 +396,8 @@ class AuditOrchestrator:
         self,
         skills: List[Dict[str, Any]],
         max_workers: Optional[int] = None,
+        metrics_file: Optional[Path] = None,
+        logs_dir: Optional[Path] = None,
     ) -> Dict[str, Any]:
         """Run full audit across multiple skills IN PARALLEL.
 
@@ -404,6 +407,8 @@ class AuditOrchestrator:
         Args:
             skills: List of skill configs with collector, analyzer, checklist_path
             max_workers: Number of parallel workers (default: number of skills)
+            metrics_file: Optional path to metrics JSON file (for tracking)
+            logs_dir: Optional directory for audit logs
 
         Returns:
             dict: {
@@ -431,6 +436,11 @@ class AuditOrchestrator:
             f"Starting parallel audit: {len(skills)} skills, {max_workers} workers"
         )
 
+        # Initialize metrics tracker (for concurrent execution monitoring)
+        metrics_tracker = None
+        if metrics_file:
+            metrics_tracker = MetricsTracker(metrics_file)
+
         # Initialize progress tracker
         tracker = SkillProgressTracker(len(skills))
         tracker.start()
@@ -447,6 +457,11 @@ class AuditOrchestrator:
             for skill in skills:
                 skill_name = skill["name"]
                 start_times[skill_name] = datetime.now()
+
+                # Record skill start in metrics
+                if metrics_tracker:
+                    metrics_tracker.record_skill_start(skill_name)
+
                 futures[
                     executor.submit(self._run_skill_audit_thread_safe, skill)
                 ] = skill_name
@@ -462,6 +477,13 @@ class AuditOrchestrator:
                     duration = (datetime.now() - start_times[skill_name]).total_seconds()
                     skill_durations[skill_name] = duration
 
+                    # Record metrics on completion
+                    if metrics_tracker:
+                        findings_count = len(result.get("findings", []))
+                        risk_score = result.get("findings", [{}])[0].get("risk_score", 0.0) if result.get("findings") else 0.0
+                        metrics_tracker.record_skill_findings(skill_name, findings_count, risk_score)
+                        metrics_tracker.record_skill_complete(skill_name, status == "PASS")
+
                     # Record in progress tracker
                     tracker.record_completion(skill_name, status, duration)
 
@@ -469,6 +491,10 @@ class AuditOrchestrator:
                     # Calculate duration even on error
                     duration = (datetime.now() - start_times[skill_name]).total_seconds()
                     skill_durations[skill_name] = duration
+
+                    # Record failure in metrics
+                    if metrics_tracker:
+                        metrics_tracker.record_skill_complete(skill_name, False)
 
                     failed.append((skill_name, str(e)))
                     tracker.record_completion(skill_name, "FAIL", duration)
@@ -482,6 +508,16 @@ class AuditOrchestrator:
 
         # Log progress summary
         logger.info(tracker.summary())
+
+        # Log metrics summary if tracking was enabled
+        if metrics_tracker:
+            metrics_summary = metrics_tracker.get_summary()
+            logger.info(
+                f"📊 Metrics Summary: {metrics_summary['completion_rate']} skills completed, "
+                f"{metrics_summary['total_findings']} total findings, "
+                f"{metrics_summary['validation_failures']} validation failures, "
+                f"elapsed time: {metrics_summary['elapsed_time']}"
+            )
 
         # Compute summary statistics
         statuses = [r["validation"]["status"] for r in self.results.values()]
@@ -518,6 +554,7 @@ class AuditOrchestrator:
             "timestamp": datetime.now().isoformat(),
             "skills": self.results,
             "summary": summary,
+            "metrics": metrics_tracker.get_metrics() if metrics_tracker else None,
         }
 
     def _create_empty_audit_result(self) -> Dict[str, Any]:

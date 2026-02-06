@@ -4,6 +4,7 @@ Supports Claude CLI and Claude API for AWS security analysis.
 """
 
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -19,6 +20,9 @@ from drystone.agent.chunker import EvidenceChunker, FindingsAggregator
 from drystone.validation.output_validators import validate_findings
 from drystone.agent.retry import analyze_with_retry, is_retryable_error
 from drystone.prompts import get_audit_template
+from drystone.logging import CrashSafeLogger
+
+logger = logging.getLogger(__name__)
 
 
 class AgentError(Exception):
@@ -46,7 +50,7 @@ class AgentClient:
         7.5
     """
 
-    def __init__(self, provider_config: Optional[Dict[str, str]] = None):
+    def __init__(self, provider_config: Optional[Dict[str, str]] = None, crash_safe_logger: Optional[CrashSafeLogger] = None):
         """Initialize agent client.
 
         Args:
@@ -55,6 +59,7 @@ class AgentClient:
                     'type': 'claude-api' | 'claude-cli',
                     'api_key': 'sk-ant-...' (optional, required for claude-api)
                 }
+            crash_safe_logger: Optional crash-safe logger for audit events
 
         Raises:
             AgentError: If configuration invalid or backend unavailable
@@ -65,6 +70,7 @@ class AgentClient:
         self.api_key = self.provider_config.get('api_key')
         self.client = None
         self.use_cli = False
+        self.crash_safe_logger = crash_safe_logger
 
         # Validate provider type
         valid_types = {"claude-api", "claude-cli"}
@@ -175,6 +181,12 @@ class AgentClient:
         Raises:
             AgentError: If call fails or response invalid
         """
+        # Log skill analysis start
+        evidence_count = sum(len(v) if isinstance(v, list) else 1 for v in evidence.values())
+        checklist_items = len(checklist.get("items", []))
+        if self.crash_safe_logger:
+            self.crash_safe_logger.log_skill_start(evidence_count, checklist_items)
+
         # 1. Get prompts (try templates first, fallback to legacy)
         system_prompt = self._get_system_prompt()
         try:
@@ -202,16 +214,25 @@ class AgentClient:
         try:
             findings = SkillFindings(**findings_data)
         except Exception as e:
+            if self.crash_safe_logger:
+                self.crash_safe_logger.log_validation_error(f"Pydantic validation failed: {e}", {"skill": skill_name})
             raise AgentError(f"Response validation failed: {e}")
 
         # 5. NEW: Validate output format (post-agent check)
-        import logging
-        logger = logging.getLogger(__name__)
         logger.debug(f"Validating {skill_name} findings: {findings.summary.total_findings} findings, severity breakdown: critical={findings.summary.critical}, high={findings.summary.high}, medium={findings.summary.medium}, low={findings.summary.low}")
 
         if not validate_findings(skill_name, findings):
             logger.error(f"Validation failed for {skill_name}: summary={findings.summary}, findings count={len(findings.findings)}")
+            if self.crash_safe_logger:
+                self.crash_safe_logger.log_validation_error(
+                    f"Output validation failed for {skill_name}: findings structure invalid",
+                    {"skill": skill_name, "summary": findings.summary.dict(), "findings_count": len(findings.findings)}
+                )
             raise AgentError(f"Output validation failed for {skill_name}: findings structure invalid")
+
+        # Log skill analysis completion
+        if self.crash_safe_logger:
+            self.crash_safe_logger.log_skill_complete(len(findings.findings), findings.summary.overall_risk_score)
 
         return findings
 
