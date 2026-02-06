@@ -19,8 +19,11 @@ class PCIDSSFormatter(BaseFormatter):
     def generate(self) -> Path:
         """Generate the PCI DSS markdown report file."""
         markdown_content = self._build_pci_report()
-        # Note: The plan shows pci-dss-compliance.md. This might need adjustment in generator.
-        report_path = self.reports_path / f"pci-dss-compliance-report.{self.file_extension}"
+
+        # Include skill name in filename to avoid overwriting when multiple skills
+        skill_name = self.findings.get("skill", "audit").lower()
+        report_path = self.reports_path / f"pci-dss-compliance-report-{skill_name}.{self.file_extension}"
+
         with open(report_path, "w") as f:
             f.write(markdown_content)
         return report_path

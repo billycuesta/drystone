@@ -24,7 +24,10 @@ class MarkdownFormatter(BaseFormatter):
             Path to generated markdown file
         """
         markdown_content = self._build_markdown()
-        report_path = self.reports_path / f"audit-report.{self.file_extension}"
+
+        # Include skill name in filename to avoid overwriting when multiple skills
+        skill_name = self.findings.get("skill", "audit").lower()
+        report_path = self.reports_path / f"audit-report-{skill_name}.{self.file_extension}"
 
         with open(report_path, "w") as f:
             f.write(markdown_content)

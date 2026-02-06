@@ -23,7 +23,10 @@ class JSONFormatter(BaseFormatter):
             Path to generated JSON file
         """
         json_content = self._build_json()
-        report_path = self.reports_path / f"findings-export.{self.file_extension}"
+
+        # Include skill name in filename to avoid overwriting when multiple skills
+        skill_name = self.findings.get("skill", "audit").lower()
+        report_path = self.reports_path / f"findings-export-{skill_name}.{self.file_extension}"
 
         with open(report_path, "w") as f:
             json.dump(json_content, f, indent=2, default=str)

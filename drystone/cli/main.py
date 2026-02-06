@@ -239,16 +239,11 @@ def audit(
 
     # Analyze skills in PARALLEL using ThreadPoolExecutor
     # This dramatically speeds up multi-skill audits (4-5x faster)
-    from drystone.cloud.orchestrator import SkillAuditor
-    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     click.echo("   🚀 Running skills in PARALLEL for maximum speed...\n")
 
     all_findings = {}
-    auditor = SkillAuditor(config, session, agent)
-
-    # Execute each skill in parallel using ThreadPoolExecutor
-    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     with ThreadPoolExecutor(max_workers=len(skill_instances)) as executor:
         futures = {}
