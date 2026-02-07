@@ -1,0 +1,110 @@
+{
+  "timestamp": "2026-02-07T15:00:38+00:00",
+  "summary": {
+    "total": 4,
+    "passed": 0,
+    "failed": 4,
+    "errors": 0,
+    "skipped": 0,
+    "pass_rate": 0.0,
+    "duration_total_sec": 202.61
+  },
+  "results": [
+    {
+      "combination": {
+        "skills": [
+          "iam"
+        ],
+        "report_type": "general",
+        "format": "markdown",
+        "test_id": "iam_general_markdown",
+        "multi_skill": false
+      },
+      "status": "FAIL",
+      "duration": 51.368604915973265,
+      "attempt": 1,
+      "exit_code": 0,
+      "error_message": "Findings file missing for skill 'iam': /Users/gcuesta/Projects/drystone/audit-logs/E2ETest_iam_general_markdown_2026-02-07T15-57-16/findings/iam.json",
+      "stack_trace": null,
+      "session_path": "/Users/gcuesta/Projects/drystone/audit-logs/E2ETest_iam_general_markdown_2026-02-07T15-57-16",
+      "artifacts": {
+        "session": "/Users/gcuesta/Projects/drystone/audit-logs/E2ETest_iam_general_markdown_2026-02-07T15-57-16",
+        "evidence:iam": "/Users/gcuesta/Projects/drystone/audit-logs/E2ETest_iam_general_markdown_2026-02-07T15-57-16/evidence/iam",
+        "findings:iam": "/Users/gcuesta/Projects/drystone/audit-logs/E2ETest_iam_general_markdown_2026-02-07T15-57-16/findings/iam.json"
+      },
+      "log_path": "/Users/gcuesta/Projects/drystone/test-results/lot2026_smoke_20260207T155715/logs/iam_general_markdown.attempt1.log"
+    },
+    {
+      "combination": {
+        "skills": [
+          "iam"
+        ],
+        "report_type": "general",
+        "format": "json",
+        "test_id": "iam_general_json",
+        "multi_skill": false
+      },
+      "status": "FAIL",
+      "duration": 49.89796979201492,
+      "attempt": 1,
+      "exit_code": 0,
+      "error_message": "Findings file missing for skill 'iam': /Users/gcuesta/Projects/drystone/audit-logs/E2ETest_iam_general_json_2026-02-07T15-58-07/findings/iam.json",
+      "stack_trace": null,
+      "session_path": "/Users/gcuesta/Projects/drystone/audit-logs/E2ETest_iam_general_json_2026-02-07T15-58-07",
+      "artifacts": {
+        "session": "/Users/gcuesta/Projects/drystone/audit-logs/E2ETest_iam_general_json_2026-02-07T15-58-07",
+        "evidence:iam": "/Users/gcuesta/Projects/drystone/audit-logs/E2ETest_iam_general_json_2026-02-07T15-58-07/evidence/iam",
+        "findings:iam": "/Users/gcuesta/Projects/drystone/audit-logs/E2ETest_iam_general_json_2026-02-07T15-58-07/findings/iam.json"
+      },
+      "log_path": "/Users/gcuesta/Projects/drystone/test-results/lot2026_smoke_20260207T155715/logs/iam_general_json.attempt1.log"
+    },
+    {
+      "combination": {
+        "skills": [
+          "iam"
+        ],
+        "report_type": "pci-dss",
+        "format": "markdown",
+        "test_id": "iam_pci-dss_markdown",
+        "multi_skill": false
+      },
+      "status": "FAIL",
+      "duration": 50.36870691704098,
+      "attempt": 1,
+      "exit_code": 0,
+      "error_message": "Findings file missing for skill 'iam': /Users/gcuesta/Projects/drystone/audit-logs/E2ETest_iam_pci-dss_markdown_2026-02-07T15-58-57/findings/iam.json",
+      "stack_trace": null,
+      "session_path": "/Users/gcuesta/Projects/drystone/audit-logs/E2ETest_iam_pci-dss_markdown_2026-02-07T15-58-57",
+      "artifacts": {
+        "session": "/Users/gcuesta/Projects/drystone/audit-logs/E2ETest_iam_pci-dss_markdown_2026-02-07T15-58-57",
+        "evidence:iam": "/Users/gcuesta/Projects/drystone/audit-logs/E2ETest_iam_pci-dss_markdown_2026-02-07T15-58-57/evidence/iam",
+        "findings:iam": "/Users/gcuesta/Projects/drystone/audit-logs/E2ETest_iam_pci-dss_markdown_2026-02-07T15-58-57/findings/iam.json"
+      },
+      "log_path": "/Users/gcuesta/Projects/drystone/test-results/lot2026_smoke_20260207T155715/logs/iam_pci-dss_markdown.attempt1.log"
+    },
+    {
+      "combination": {
+        "skills": [
+          "iam"
+        ],
+        "report_type": "pci-dss",
+        "format": "json",
+        "test_id": "iam_pci-dss_json",
+        "multi_skill": false
+      },
+      "status": "FAIL",
+      "duration": 50.97349020797992,
+      "attempt": 1,
+      "exit_code": 0,
+      "error_message": "Findings file missing for skill 'iam': /Users/gcuesta/Projects/drystone/audit-logs/E2ETest_iam_pci-dss_json_2026-02-07T15-59-48/findings/iam.json",
+      "stack_trace": null,
+      "session_path": "/Users/gcuesta/Projects/drystone/audit-logs/E2ETest_iam_pci-dss_json_2026-02-07T15-59-48",
+      "artifacts": {
+        "session": "/Users/gcuesta/Projects/drystone/audit-logs/E2ETest_iam_pci-dss_json_2026-02-07T15-59-48",
+        "evidence:iam": "/Users/gcuesta/Projects/drystone/audit-logs/E2ETest_iam_pci-dss_json_2026-02-07T15-59-48/evidence/iam",
+        "findings:iam": "/Users/gcuesta/Projects/drystone/audit-logs/E2ETest_iam_pci-dss_json_2026-02-07T15-59-48/findings/iam.json"
+      },
+      "log_path": "/Users/gcuesta/Projects/drystone/test-results/lot2026_smoke_20260207T155715/logs/iam_pci-dss_json.attempt1.log"
+    }
+  ]
+}

@@ -1,0 +1,316 @@
+2026-02-07T19:08:19.441Z [ERROR] Failed to save config with lock: Error: ENOENT: no such file or directory, lstat '/Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json'
+2026-02-07T19:08:19.442Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299442
+2026-02-07T19:08:19.442Z [DEBUG] Setting permissions for new file: 600
+2026-02-07T19:08:19.442Z [DEBUG] Temp file written successfully, size: 50 bytes
+2026-02-07T19:08:19.442Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299442 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.442Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.442Z [DEBUG] [init] configureGlobalMTLS starting
+2026-02-07T19:08:19.442Z [DEBUG] [init] configureGlobalMTLS complete
+2026-02-07T19:08:19.442Z [DEBUG] [init] configureGlobalAgents starting
+2026-02-07T19:08:19.442Z [DEBUG] [init] configureGlobalAgents complete
+2026-02-07T19:08:19.443Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299443
+2026-02-07T19:08:19.443Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.443Z [DEBUG] Temp file written successfully, size: 130 bytes
+2026-02-07T19:08:19.443Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.443Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299443 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.443Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.446Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299446
+2026-02-07T19:08:19.446Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.446Z [DEBUG] Temp file written successfully, size: 167 bytes
+2026-02-07T19:08:19.446Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.446Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299446 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.446Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.447Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299447
+2026-02-07T19:08:19.447Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.447Z [DEBUG] Temp file written successfully, size: 202 bytes
+2026-02-07T19:08:19.447Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.447Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299447 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.447Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.448Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299448
+2026-02-07T19:08:19.448Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.448Z [DEBUG] Temp file written successfully, size: 238 bytes
+2026-02-07T19:08:19.448Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.448Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299448 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.449Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.454Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299454
+2026-02-07T19:08:19.454Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.454Z [DEBUG] Temp file written successfully, size: 275 bytes
+2026-02-07T19:08:19.454Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.454Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299454 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.454Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.456Z [DEBUG] Applying permission update: Adding 74 allow rule(s) to destination 'localSettings': ["Bash(tree:*)","WebFetch(domain:github.com)","WebSearch","Bash(go version:*)","Bash(go env:*)","Bash(gh --version:*)","Bash(brew install:*)","Bash(echo:*)","Bash(git init:*)","Bash(git config:*)","Bash(git branch:*)","Bash(gh repo create:*)","Bash(git add:*)","Bash(git commit:*)","Bash(go mod init:*)","Bash(go get:*)","Bash(go mod tidy:*)","Bash(git push)","Bash(go build:*)","Bash(./bin/drystone:*)","Bash(pip install:*)","Bash(brew list:*)","Bash(brew search:*)","Bash(python3 -m pip install:*)","Bash(python3:*)","Bash(git push:*)","Bash(aws sts get-caller-identity:*)","Bash(python -m pip install:*)","Bash(drystone --help:*)","Bash(git reset:*)","Bash(ls:*)","Bash(xargs -I {} sh -c 'echo \"\"Última sesión: {}\"\" && ls -lh {}evidence/iam/ 2>/dev/null | tail -8')","Bash(wc:*)","Bash(gemini --version:*)","Bash(gemini --help:*)","Bash(timeout 10 gemini:*)","Bash(cat:*)","Bash(python:*)","Bash(source .venv/bin/activate)","Bash(pip3 install:*)","Bash(find:*)","Bash(/opt/homebrew/bin/python3 -m pip:*)","Bash(/opt/homebrew/bin/python3 -m pytest:*)","Bash(python3.9:*)","Bash(python3.9 -m pytest:*)","Bash(/Users/gcuesta/Library/Python/3.9/bin/python3:*)","Bash(/opt/homebrew/bin/python3 -m py_compile:*)","Bash(grep:*)","Bash(/opt/homebrew/bin/python3:*)","Bash(xargs -I {} {} /tmp/test_creds_loading.py)","Bash(./drystone_env/bin/python:*)","Bash(__NEW_LINE_31750bf73960d924__ echo \"✅ Archivos temporales eliminados\")","Bash(source:*)","Bash(du -h:*)","Bash(git rm:*)","Bash(tee:*)","Bash(getconf:*)","Bash(xargs:*)","Bash(/Users/gcuesta/Projects/drystone/.venv/bin/python -m pytest:*)","Bash(/Users/gcuesta/Projects/drystone/.venv/bin/python:*)","Bash(/opt/homebrew/bin/pip3 install:*)","Bash(/Users/gcuesta/Library/Python/3.9/bin/pytest:*)","Bash(git restore:*)","Bash(pip3 --version:*)","Bash(PYTHONPATH=/Users/gcuesta/Projects/drystone python3:*)","Bash(done)","Bash( while read file)","Bash(do echo \"Removing: $file\" git rm --cached \"$file\" done)","Bash(chmod:*)","Bash(while read dir)","Bash(do echo \"=== $dir ===\" ls audit-logs/$dir/findings/)","Bash(env:*)","Bash(pytest:*)","Bash(claude:*)"]
+2026-02-07T19:08:19.456Z [DEBUG] [STARTUP] Loading MCP configs...
+2026-02-07T19:08:19.457Z [DEBUG] Found 0 plugins (0 enabled, 0 disabled)
+2026-02-07T19:08:19.457Z [DEBUG] [claudeai-mcp] Checking gate (cached)...
+2026-02-07T19:08:19.457Z [DEBUG] [claudeai-mcp] Gate returned: false
+2026-02-07T19:08:19.457Z [DEBUG] [claudeai-mcp] Disabled via gate
+2026-02-07T19:08:19.468Z [DEBUG] [ToolSearch:optimistic] mode=tst-auto, ENABLE_TOOL_SEARCH=undefined, result=true
+2026-02-07T19:08:19.468Z [DEBUG] [STARTUP] Running setup()...
+2026-02-07T19:08:19.470Z [DEBUG] Loading skills from: managed=/Library/Application Support/ClaudeCode/.claude/skills, user=/Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude/skills, project=[]
+2026-02-07T19:08:19.470Z [DEBUG] Error log sink initialized
+2026-02-07T19:08:19.470Z [DEBUG] getPluginSkills: Processing 0 enabled plugins
+2026-02-07T19:08:19.470Z [DEBUG] Total plugin skills loaded: 0
+2026-02-07T19:08:19.470Z [DEBUG] Total plugin commands loaded: 0
+2026-02-07T19:08:19.471Z [DEBUG] [STARTUP] setup() completed in 3ms
+2026-02-07T19:08:19.471Z [DEBUG] [STARTUP] Loading commands and agents...
+2026-02-07T19:08:19.471Z [DEBUG] Registered 0 hooks from 0 plugins
+2026-02-07T19:08:19.471Z [DEBUG] Total plugin agents loaded: 0
+2026-02-07T19:08:19.471Z [DEBUG] Loaded 0 unique skills (managed: 0, user: 0, project: 0, additional: 0, legacy commands: 0)
+2026-02-07T19:08:19.471Z [DEBUG] getSkills returning: 0 skill dir commands, 0 plugin skills, 2 bundled skills
+2026-02-07T19:08:19.472Z [DEBUG] [STARTUP] Commands and agents loaded in 1ms
+2026-02-07T19:08:19.472Z [DEBUG] [LSP MANAGER] initializeLspServerManager() called
+2026-02-07T19:08:19.472Z [DEBUG] [LSP MANAGER] Created manager instance, state=pending
+2026-02-07T19:08:19.472Z [DEBUG] [LSP MANAGER] Starting async initialization (generation 1)
+2026-02-07T19:08:19.472Z [DEBUG] Total LSP servers loaded: 0
+2026-02-07T19:08:19.473Z [DEBUG] [STARTUP] MCP configs loaded in 17ms
+2026-02-07T19:08:19.473Z [DEBUG] [LSP SERVER MANAGER] getAllLspServers returned 0 server(s)
+2026-02-07T19:08:19.473Z [DEBUG] LSP manager initialized with 0 servers
+2026-02-07T19:08:19.473Z [DEBUG] LSP server manager initialized successfully
+2026-02-07T19:08:19.473Z [DEBUG] LSP notification handlers registered successfully for all 0 server(s)
+2026-02-07T19:08:19.496Z [DEBUG] installed_plugins.json doesn't exist, returning empty V2 object
+2026-02-07T19:08:19.496Z [DEBUG] Initialized versioned plugins system with 0 plugins
+2026-02-07T19:08:19.497Z [DEBUG] Fast mode unavailable: Fast mode is not available in the Agent SDK
+2026-02-07T19:08:19.501Z [DEBUG] Watching for changes in setting files /Users/gcuesta/Projects/drystone/.claude/settings.json, /Users/gcuesta/Projects/drystone/.claude/settings.local.json...
+2026-02-07T19:08:19.510Z [DEBUG] [Perfetto] initializePerfettoTracing called, env value: undefined
+2026-02-07T19:08:19.511Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude/todos/90dbf394-45fe-4714-aa4f-e9f66bee7701-agent-90dbf394-45fe-4714-aa4f-e9f66bee7701.json.tmp.46149.1770491299511
+2026-02-07T19:08:19.511Z [DEBUG] Temp file written successfully, size: 2 bytes
+2026-02-07T19:08:19.511Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude/todos/90dbf394-45fe-4714-aa4f-e9f66bee7701-agent-90dbf394-45fe-4714-aa4f-e9f66bee7701.json.tmp.46149.1770491299511 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude/todos/90dbf394-45fe-4714-aa4f-e9f66bee7701-agent-90dbf394-45fe-4714-aa4f-e9f66bee7701.json
+2026-02-07T19:08:19.511Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude/todos/90dbf394-45fe-4714-aa4f-e9f66bee7701-agent-90dbf394-45fe-4714-aa4f-e9f66bee7701.json written atomically
+2026-02-07T19:08:19.512Z [DEBUG] Getting matching hook commands for SessionStart with query: startup
+2026-02-07T19:08:19.512Z [DEBUG] Found 0 hook matchers in settings
+2026-02-07T19:08:19.512Z [DEBUG] Matched 0 unique hooks for query "startup" (0 before deduplication)
+2026-02-07T19:08:19.515Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299515
+2026-02-07T19:08:19.515Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.515Z [DEBUG] Temp file written successfully, size: 352 bytes
+2026-02-07T19:08:19.516Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.516Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299515 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.516Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.516Z [DEBUG] Total plugin output styles loaded: 0
+2026-02-07T19:08:19.522Z [DEBUG] LSP Diagnostics: getLSPDiagnosticAttachments called
+2026-02-07T19:08:19.522Z [DEBUG] LSP Diagnostics: Checking registry - 0 pending
+2026-02-07T19:08:19.522Z [DEBUG] Hooks: Found 0 total hooks in registry
+2026-02-07T19:08:19.522Z [DEBUG] Hooks: checkForNewResponses returning 0 responses
+2026-02-07T19:08:19.524Z [DEBUG] Getting matching hook commands for UserPromptSubmit with query: undefined
+2026-02-07T19:08:19.524Z [DEBUG] Found 0 hook matchers in settings
+2026-02-07T19:08:19.524Z [DEBUG] Matched 0 unique hooks for query "no match query" (0 before deduplication)
+2026-02-07T19:08:19.524Z [DEBUG] autocompact: tokens=46257 threshold=167000 effectiveWindow=180000
+2026-02-07T19:08:19.747Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299747
+2026-02-07T19:08:19.747Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.747Z [DEBUG] Temp file written successfully, size: 424 bytes
+2026-02-07T19:08:19.747Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.747Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299747 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.747Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.748Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299748
+2026-02-07T19:08:19.748Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.748Z [DEBUG] Temp file written successfully, size: 452 bytes
+2026-02-07T19:08:19.748Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.748Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299748 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.748Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.748Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299748
+2026-02-07T19:08:19.748Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.748Z [DEBUG] Temp file written successfully, size: 504 bytes
+2026-02-07T19:08:19.748Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.748Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299748 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.748Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.748Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299748
+2026-02-07T19:08:19.748Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.749Z [DEBUG] Temp file written successfully, size: 644 bytes
+2026-02-07T19:08:19.749Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.749Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299748 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.749Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.749Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299749
+2026-02-07T19:08:19.749Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.749Z [DEBUG] Temp file written successfully, size: 688 bytes
+2026-02-07T19:08:19.749Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.749Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299749 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.749Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.749Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299749
+2026-02-07T19:08:19.749Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.749Z [DEBUG] Temp file written successfully, size: 727 bytes
+2026-02-07T19:08:19.749Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.749Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299749 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.750Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.750Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299750
+2026-02-07T19:08:19.750Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.750Z [DEBUG] Temp file written successfully, size: 766 bytes
+2026-02-07T19:08:19.750Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.750Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299750 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.750Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.750Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299750
+2026-02-07T19:08:19.750Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.750Z [DEBUG] Temp file written successfully, size: 804 bytes
+2026-02-07T19:08:19.750Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.750Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299750 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.751Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.751Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299751
+2026-02-07T19:08:19.751Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.751Z [DEBUG] Temp file written successfully, size: 836 bytes
+2026-02-07T19:08:19.751Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.751Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299751 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.751Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.751Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299751
+2026-02-07T19:08:19.751Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.751Z [DEBUG] Temp file written successfully, size: 866 bytes
+2026-02-07T19:08:19.751Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.751Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299751 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.752Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.752Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299752
+2026-02-07T19:08:19.752Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.752Z [DEBUG] Temp file written successfully, size: 899 bytes
+2026-02-07T19:08:19.752Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.752Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299752 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.752Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.752Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299752
+2026-02-07T19:08:19.752Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.752Z [DEBUG] Temp file written successfully, size: 951 bytes
+2026-02-07T19:08:19.752Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.752Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299752 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.753Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.753Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299753
+2026-02-07T19:08:19.753Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.753Z [DEBUG] Temp file written successfully, size: 987 bytes
+2026-02-07T19:08:19.753Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.753Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299753 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.753Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.753Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299753
+2026-02-07T19:08:19.753Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.753Z [DEBUG] Temp file written successfully, size: 1017 bytes
+2026-02-07T19:08:19.753Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.753Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299753 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.753Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.754Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299754
+2026-02-07T19:08:19.754Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.754Z [DEBUG] Temp file written successfully, size: 1041 bytes
+2026-02-07T19:08:19.754Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.754Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299754 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.754Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.754Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299754
+2026-02-07T19:08:19.754Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.754Z [DEBUG] Temp file written successfully, size: 1077 bytes
+2026-02-07T19:08:19.754Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.754Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299754 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.754Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.754Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299754
+2026-02-07T19:08:19.754Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.754Z [DEBUG] Temp file written successfully, size: 1109 bytes
+2026-02-07T19:08:19.755Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.755Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299754 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.755Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.755Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299755
+2026-02-07T19:08:19.755Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.755Z [DEBUG] Temp file written successfully, size: 1144 bytes
+2026-02-07T19:08:19.755Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.755Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299755 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.755Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.755Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299755
+2026-02-07T19:08:19.755Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.755Z [DEBUG] Temp file written successfully, size: 1189 bytes
+2026-02-07T19:08:19.755Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.755Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299755 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.756Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.756Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299756
+2026-02-07T19:08:19.756Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.756Z [DEBUG] Temp file written successfully, size: 1233 bytes
+2026-02-07T19:08:19.756Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.756Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299756 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.756Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.756Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299756
+2026-02-07T19:08:19.756Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.756Z [DEBUG] Temp file written successfully, size: 1268 bytes
+2026-02-07T19:08:19.756Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.756Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299756 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.756Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.757Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299757
+2026-02-07T19:08:19.757Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.757Z [DEBUG] Temp file written successfully, size: 1299 bytes
+2026-02-07T19:08:19.757Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.757Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299757 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.757Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.757Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299757
+2026-02-07T19:08:19.757Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.757Z [DEBUG] Temp file written successfully, size: 1346 bytes
+2026-02-07T19:08:19.757Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.757Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299757 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.757Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.757Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299757
+2026-02-07T19:08:19.757Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.758Z [DEBUG] Temp file written successfully, size: 1384 bytes
+2026-02-07T19:08:19.758Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.758Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299757 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.758Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.758Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299758
+2026-02-07T19:08:19.758Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.758Z [DEBUG] Temp file written successfully, size: 1422 bytes
+2026-02-07T19:08:19.758Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.758Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299758 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.758Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.758Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299758
+2026-02-07T19:08:19.758Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.758Z [DEBUG] Temp file written successfully, size: 1467 bytes
+2026-02-07T19:08:19.758Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.758Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299758 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.758Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.759Z [DEBUG] Tool search disabled for model 'claude-haiku-4-5-20251001': model does not support tool_reference blocks. This feature is only available on Claude Sonnet 4+, Opus 4+, and newer models.
+2026-02-07T19:08:19.760Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299760
+2026-02-07T19:08:19.760Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.760Z [DEBUG] Temp file written successfully, size: 1534 bytes
+2026-02-07T19:08:19.760Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.760Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299760 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.761Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.761Z [DEBUG] attribution header x-anthropic-billing-header: cc_version=2.1.36.c6f; cc_entrypoint=cli; cch=00000;
+2026-02-07T19:08:19.761Z [DEBUG] [API:request] Creating client, ANTHROPIC_CUSTOM_HEADERS present: false, has Authorization header: false
+2026-02-07T19:08:19.761Z [DEBUG] [API:auth] OAuth token check starting
+2026-02-07T19:08:19.761Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299761
+2026-02-07T19:08:19.761Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.762Z [DEBUG] Temp file written successfully, size: 1566 bytes
+2026-02-07T19:08:19.762Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.762Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299761 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.762Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.762Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299762
+2026-02-07T19:08:19.762Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.762Z [DEBUG] Temp file written successfully, size: 1612 bytes
+2026-02-07T19:08:19.762Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.762Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299762 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.762Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.762Z [DEBUG] Fast mode unavailable: Fast mode is not available in the Agent SDK
+2026-02-07T19:08:19.763Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299763
+2026-02-07T19:08:19.763Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.763Z [DEBUG] Temp file written successfully, size: 1651 bytes
+2026-02-07T19:08:19.763Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.763Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299763 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.763Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.763Z [DEBUG] [API:auth] OAuth token check complete
+2026-02-07T19:08:19.763Z [DEBUG] Writing to temp file: /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299763
+2026-02-07T19:08:19.763Z [DEBUG] Preserving file permissions: 100600
+2026-02-07T19:08:19.763Z [DEBUG] Temp file written successfully, size: 1679 bytes
+2026-02-07T19:08:19.763Z [DEBUG] Applied original permissions to temp file
+2026-02-07T19:08:19.763Z [DEBUG] Renaming /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json.tmp.46149.1770491299763 to /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json
+2026-02-07T19:08:19.763Z [DEBUG] File /Users/gcuesta/Projects/drystone/test-results/homes/iam_pci-dss_markdown_b30cabee/.claude.json written atomically
+2026-02-07T19:08:19.763Z [DEBUG] Fast mode unavailable: Fast mode is not available in the Agent SDK
+2026-02-07T19:08:19.764Z [DEBUG] [API:request] Creating client, ANTHROPIC_CUSTOM_HEADERS present: false, has Authorization header: false
+2026-02-07T19:08:19.764Z [DEBUG] [API:auth] OAuth token check starting
+2026-02-07T19:08:19.764Z [DEBUG] Fast mode unavailable: Fast mode is not available in the Agent SDK
+2026-02-07T19:08:19.764Z [DEBUG] [API:auth] OAuth token check complete
+2026-02-07T19:08:19.764Z [DEBUG] Fast mode unavailable: Fast mode is not available in the Agent SDK
+2026-02-07T19:08:19.765Z [ERROR] API error (attempt 1/11): Could not resolve authentication method. Expected either apiKey or authToken to be set. Or for one of the "X-Api-Key" or "Authorization" headers to be explicitly omitted
+2026-02-07T19:08:19.766Z [ERROR] Error in API request: Could not resolve authentication method. Expected either apiKey or authToken to be set. Or for one of the "X-Api-Key" or "Authorization" headers to be explicitly omitted
+2026-02-07T19:08:19.766Z [ERROR] Error: Error: Could not resolve authentication method. Expected either apiKey or authToken to be set. Or for one of the "X-Api-Key" or "Authorization" headers to be explicitly omitted
+    at validateHeaders (/$bunfs/root/claude:336:1013)
+    at buildHeaders (/$bunfs/root/claude:336:8517)
+    at async buildRequest (/$bunfs/root/claude:336:7583)
+    at async makeRequest (/$bunfs/root/claude:336:3411)
+    at processTicksAndRejections (native:7:39)
+2026-02-07T19:08:19.766Z [ERROR] API error (attempt 1/11): Could not resolve authentication method. Expected either apiKey or authToken to be set. Or for one of the "X-Api-Key" or "Authorization" headers to be explicitly omitted
+2026-02-07T19:08:19.766Z [ERROR] Error in API request: Could not resolve authentication method. Expected either apiKey or authToken to be set. Or for one of the "X-Api-Key" or "Authorization" headers to be explicitly omitted
+2026-02-07T19:08:19.766Z [ERROR] Error: Error: Could not resolve authentication method. Expected either apiKey or authToken to be set. Or for one of the "X-Api-Key" or "Authorization" headers to be explicitly omitted
+    at validateHeaders (/$bunfs/root/claude:336:1013)
+    at buildHeaders (/$bunfs/root/claude:336:8517)
+    at async buildRequest (/$bunfs/root/claude:336:7583)
+    at async makeRequest (/$bunfs/root/claude:336:3411)
+    at processTicksAndRejections (native:7:39)
+2026-02-07T19:08:19.766Z [DEBUG] Getting matching hook commands for Stop with query: undefined
+2026-02-07T19:08:19.766Z [DEBUG] Found 0 hook matchers in settings
+2026-02-07T19:08:19.766Z [DEBUG] Matched 0 unique hooks for query "no match query" (0 before deduplication)
+2026-02-07T19:08:19.767Z [DEBUG] Getting matching hook commands for SessionEnd with query: other
+2026-02-07T19:08:19.767Z [DEBUG] Found 0 hook matchers in settings
+2026-02-07T19:08:19.767Z [DEBUG] Matched 0 unique hooks for query "other" (0 before deduplication)

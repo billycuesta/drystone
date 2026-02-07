@@ -2,11 +2,14 @@
 
 import json
 import re
+import logging
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, List
 
 from drystone.reports.formats.base import BaseFormatter
+
+logger = logging.getLogger(__name__)
 
 
 class MarkdownFormatter(BaseFormatter):
@@ -45,6 +48,7 @@ class MarkdownFormatter(BaseFormatter):
             self._executive_summary(),
             self._architecture_diagram(),
             self._remediation_timeline(),
+            self._correlation_section(),
         ]
 
         # Only include PCI DSS summary for PCI compliance reports
@@ -190,6 +194,165 @@ This report presents security findings from the {skill.upper()} security assessm
             timeline += f"- [ ] {f.get('id')}: {f.get('title')}\n"
 
         return timeline
+
+    def _correlation_section(self) -> str:
+        """Generate cross-skill correlation section.
+
+        Displays attack chains from correlated findings if available.
+
+        Returns:
+            Markdown section or empty string if no correlations.
+        """
+        # Check if correlated.json exists
+        corr_file = self.session.base_path / "findings" / "correlated.json"
+
+        if not corr_file.exists():
+            logger.debug("No correlated.json found, skipping correlation section")
+            return ""
+
+        # Load correlation data
+        try:
+            with open(corr_file, 'r') as f:
+                corr_data = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Failed to parse correlated.json: {e}")
+            return ""
+
+        correlations = corr_data.get("correlations", [])
+
+        if not correlations:
+            return """## 🔗 Cross-Skill Correlations
+
+✅ No cross-skill attack patterns detected. Individual findings analyzed separately.
+"""
+
+        # Sort by compound risk (highest first)
+        correlations = sorted(
+            correlations,
+            key=lambda c: c.get("compound_risk_score", 0),
+            reverse=True
+        )
+
+        # Limit to top 10
+        MAX_DISPLAYED = 10
+        displayed = correlations[:MAX_DISPLAYED]
+        hidden_count = len(correlations) - MAX_DISPLAYED
+
+        # Build section header
+        total = len(correlations)
+        skills = corr_data.get("metadata", {}).get("skills_analyzed", [])
+
+        section = f"""## 🔗 Cross-Skill Correlations ({total})
+
+**Attack Chains Detected:** {total} compound risks identified across {', '.join(skills).upper()}
+
+These correlations represent multi-stage attack scenarios where findings from different skills combine to create elevated risk.
+
+"""
+
+        # Render each correlation
+        for i, corr in enumerate(displayed, 1):
+            section += self._format_correlation(corr, i)
+            section += "\n\n---\n\n"
+
+        # Add "more" indicator if truncated
+        if hidden_count > 0:
+            section += f"*... and {hidden_count} more correlations (see findings/correlated.json)*\n\n"
+
+        return section
+
+    def _format_correlation(self, corr: Dict[str, Any], index: int) -> str:
+        """Format a single correlation finding.
+
+        Args:
+            corr: Correlation dict from correlated.json
+            index: Display index (1, 2, 3...)
+
+        Returns:
+            Markdown for single correlation
+        """
+        corr_id = corr.get("id", "CORR-???")
+        title = corr.get("title", "Unknown Attack Chain")
+        severity = corr.get("severity", "High")
+        risk_score = corr.get("compound_risk_score", 0.0)
+        description = corr.get("description", "")
+        attack_path = corr.get("attack_path", [])
+        source_findings = corr.get("source_findings", [])
+        affected_resources = corr.get("affected_resources", [])
+        remediation_priority = corr.get("remediation_priority", "N/A")
+        remediation_steps = corr.get("remediation_steps", [])
+
+        # Get severity emoji and risk label
+        emoji = self._get_severity_emoji(severity)
+        risk_label = self._format_risk_score(risk_score)
+
+        # Build output
+        output = f"""### {index}. {emoji} [{corr_id}] {title}
+
+**Severity:** {severity} | **Compound Risk:** {risk_label} | **Priority:** {remediation_priority}
+
+**Description:**
+{description}
+
+"""
+
+        # Attack Path (numbered with arrows)
+        if attack_path:
+            output += "**Attack Path:**\n"
+            for step_idx, step in enumerate(attack_path, 1):
+                arrow = "➜ " if step_idx > 1 else ""
+                output += f"{step_idx}. {arrow}{step}\n"
+            output += "\n"
+
+        # Source Findings Table
+        if source_findings:
+            output += "**Source Findings:**\n\n"
+            output += "| Skill | Finding ID | Title | Severity | Risk |\n"
+            output += "|-------|------------|-------|----------|------|\n"
+
+            for src in source_findings:
+                skill = src.get("skill", "unknown").upper()
+                finding_id = src.get("id", "N/A")
+                src_title = src.get("title", "Unknown")[:50]  # Truncate
+                sev = src.get("severity", "N/A")
+                risk = src.get("risk_score", 0.0)
+
+                # Add skill emoji
+                skill_emoji = self._get_skill_emoji(skill)
+
+                output += f"| {skill_emoji} {skill} | {finding_id} | {src_title} | {sev} | {risk:.1f} |\n"
+
+            output += "\n"
+
+        # Affected Resources (compact list)
+        if affected_resources:
+            output += f"**Affected Resources:** {len(affected_resources)} total\n"
+            for arn in affected_resources[:3]:
+                output += f"- `{arn}`\n"
+            if len(affected_resources) > 3:
+                output += f"- *... and {len(affected_resources) - 3} more*\n"
+            output += "\n"
+
+        # Remediation Steps
+        if remediation_steps:
+            output += "**Remediation Steps:**\n"
+            for step in remediation_steps:
+                output += f"{step}\n"
+            output += "\n"
+
+        return output
+
+    def _get_skill_emoji(self, skill: str) -> str:
+        """Get emoji for skill name."""
+        SKILL_EMOJIS = {
+            "IAM": "🔐",
+            "NETWORK": "🌐",
+            "EXPOSURE": "🚪",
+            "VULNS": "🐛",
+            "HARDENING": "🛡️",
+            "ALERTING": "🚨"
+        }
+        return SKILL_EMOJIS.get(skill.upper(), "🔹")
 
     def _top_affected_resources(self) -> str:
         """Show top 5 resources with most findings."""

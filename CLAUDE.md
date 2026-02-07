@@ -158,6 +158,35 @@ mypy drystone/
 pytest tests/
 ```
 
+## E2E Testing (Pre-Release)
+
+Use the E2E runner to execute Drystone end-to-end across combinations of skills, report types, and formats.
+
+Script:
+- `scripts/e2e_test_runner.py`
+
+Examples:
+
+```bash
+# Dry run (prints the plan only)
+python3 scripts/e2e_test_runner.py --credentials ~/aws-creds.json --dry-run
+
+# IAM only (4 combinations: 2 report types x 2 formats)
+python3 scripts/e2e_test_runner.py --credentials ~/aws-creds.json --skills iam
+
+# Full single-skill matrix (24 combinations)
+python3 scripts/e2e_test_runner.py --credentials ~/aws-creds.json
+
+# Include multi-skill pairs (adds 60 combinations)
+python3 scripts/e2e_test_runner.py --credentials ~/aws-creds.json --multi-skill
+```
+
+Notes:
+- Credentials file format is documented in `scripts/README.md`.
+- The runner uses an isolated `HOME` per test to avoid mutating your real `~/.drystone` config.
+- Prefer `--parallel 1-3` to reduce AWS throttling.
+- If using `claude-cli`, ensure it's authenticated (`claude /login`) or use `--ai-provider claude-api` with `ANTHROPIC_API_KEY`.
+
 ## ⚠️ Important: Virtual Environment
 
 **NEVER delete `drystone_env/` during any cleanup or maintenance operations.**
