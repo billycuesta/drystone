@@ -573,6 +573,57 @@ class AuditOrchestrator:
             },
         }
 
+    def run_correlation(self, session_dir: Path) -> Dict[str, Any]:
+        """Run cross-skill correlation analysis.
+
+        Called after all skills complete. Identifies compound risks
+        by correlating findings across skills.
+
+        GAPS RESOLVED:
+        - GAP-I1: Exact insertion point specified
+        - GAP-TS4: Error handling (graceful degradation)
+
+        Args:
+            session_dir: Path to audit session directory
+
+        Returns:
+            dict: {
+                "total_correlations": int,
+                "correlations": List[dict],
+                "patterns_applied": List[str],
+                "execution_time_seconds": float,
+                "errors": Optional[List[str]]
+            }
+        """
+        from drystone.correlation.engine import CorrelationEngine
+
+        logger.info("Starting cross-skill correlation analysis...")
+
+        try:
+            engine = CorrelationEngine(session_dir)
+            result = engine.run()
+
+            total_corr = result.get("total_correlations", 0)
+            exec_time = result.get("execution_time_seconds", 0)
+
+            logger.info(
+                f"✅ Correlation complete: {total_corr} compound risks "
+                f"identified in {exec_time:.1f}s"
+            )
+
+            return result
+
+        except Exception as e:
+            logger.error(f"❌ Correlation failed: {e}", exc_info=True)
+            # Graceful degradation (audit continues)
+            return {
+                "total_correlations": 0,
+                "correlations": [],
+                "patterns_applied": [],
+                "execution_time_seconds": 0.0,
+                "errors": [str(e)]
+            }
+
     def save_results(self, output_dir: Path) -> None:
         """Save audit results to disk.
 
@@ -608,5 +659,17 @@ class AuditOrchestrator:
             report_dir.mkdir(parents=True, exist_ok=True)
             with open(report_dir / f"{skill_name}_report.md", "w") as f:
                 f.write(result["report"])
+
+        # === NEW: Run correlation analysis (after all skills saved) ===
+        # GAPS RESOLVED: GAP-I1 (exact location)
+        if len(self.results) >= 2:  # Need at least 2 skills for correlation
+            correlation_result = self.run_correlation(output_dir)
+
+            # Log correlation summary
+            total_corr = correlation_result.get("total_correlations", 0)
+            if total_corr > 0:
+                logger.info(f"🔗 Found {total_corr} cross-skill correlations")
+        else:
+            logger.debug("Skipping correlation (< 2 skills executed)")
 
         logger.info(f"Audit results saved to {output_dir}")
