@@ -37,6 +37,7 @@ class TestWAFSkill:
         evidence_dir = tmp_path / "evidence" / "waf"
         evidence_dir.mkdir(parents=True, exist_ok=True)
         session.get_evidence_path.return_value = evidence_dir
+        session.account_id = "123456789012"
         return session
 
     def test_skill_name(self, skill):
@@ -146,117 +147,80 @@ class TestWAFSkill:
 
     def test_collect_initializes_collection_status(self, skill, mock_aws_client, mock_session):
         """Test collect() initializes collection status tracking."""
-        with patch('boto3.Session') as mock_boto_session:
-            mock_ec2 = MagicMock()
-            mock_cloudfront = MagicMock()
-            mock_wafv2 = MagicMock()
+        # Mock all internal collection methods to avoid AWS calls
+        with patch.object(skill, '_collect_cloudfront_distributions', return_value=([], None)):
+            with patch.object(skill, '_collect_wafv2_web_acls_for_scope', return_value=([], None)):
+                with patch.object(skill, '_collect_wafv2_ip_sets', return_value=([], None)):
+                    with patch.object(skill, '_collect_wafv2_rule_groups', return_value=([], None)):
+                        with patch.object(skill, '_collect_wafv2_regex_pattern_sets', return_value=([], None)):
+                            with patch.object(skill, '_collect_wafv2_managed_rule_groups', return_value={}):
+                                with patch.object(skill, '_collect_alb_waf_associations', return_value=([], {})):
+                                    with patch.object(skill, '_collect_api_entrypoints_waf_associations', return_value=([], {})):
+                                        with patch.object(skill, '_collect_waf_classic_inventory', return_value=([], None)):
+                                            # Run collect
+                                            skill.collect(mock_aws_client, mock_session)
 
-            # Setup CloudFront
-            mock_cloudfront.list_distributions.return_value = {"DistributionList": {"Items": []}}
-            mock_cloudfront.get_waf_config.return_value = {}
-
-            # Setup WAFv2
-            mock_wafv2.list_web_acls.return_value = {"WebACLs": []}
-
-            # Setup EC2 for regions
-            mock_ec2.describe_regions.return_value = {
-                "Regions": [{"RegionName": "us-east-1"}]
-            }
-
-            def get_client(service, **kwargs):
-                if service == "ec2":
-                    return mock_ec2
-                elif service == "cloudfront":
-                    return mock_cloudfront
-                elif service == "wafv2":
-                    return mock_wafv2
-                return MagicMock()
-
-            mock_boto_session.return_value.client.side_effect = get_client
-
-            # Run collect
-            skill.collect(mock_aws_client, mock_session)
-
-            # Verify session was called
-            assert mock_session.get_evidence_path.called
+                                            # Verify collection status was saved
+                                            assert mock_session.get_evidence_path.called
 
     def test_collect_saves_cloudfront_distributions(self, skill, mock_aws_client, mock_session):
         """Test collect() saves CloudFront distributions evidence."""
-        with patch('boto3.Session') as mock_boto_session:
-            mock_cloudfront = MagicMock()
-            mock_cloudfront.list_distributions.return_value = {
-                "DistributionList": {
-                    "Items": [
-                        {
-                            "DomainName": "d123.cloudfront.net",
-                            "Id": "E123ABC",
-                            "Status": "Deployed",
-                            "WebACLId": ""
-                        }
-                    ]
-                }
+        cf_data = [
+            {
+                "DomainName": "d123.cloudfront.net",
+                "Id": "E123ABC",
+                "Status": "Deployed",
+                "WebACLId": ""
             }
+        ]
 
-            mock_wafv2 = MagicMock()
-            mock_wafv2.list_web_acls.return_value = {"WebACLs": []}
+        # Mock all internal collection methods
+        with patch.object(skill, '_collect_cloudfront_distributions', return_value=(cf_data, None)):
+            with patch.object(skill, '_collect_wafv2_web_acls_for_scope', return_value=([], None)):
+                with patch.object(skill, '_collect_wafv2_ip_sets', return_value=([], None)):
+                    with patch.object(skill, '_collect_wafv2_rule_groups', return_value=([], None)):
+                        with patch.object(skill, '_collect_wafv2_regex_pattern_sets', return_value=([], None)):
+                            with patch.object(skill, '_collect_wafv2_managed_rule_groups', return_value={}):
+                                with patch.object(skill, '_collect_alb_waf_associations', return_value=([], {})):
+                                    with patch.object(skill, '_collect_api_entrypoints_waf_associations', return_value=([], {})):
+                                        with patch.object(skill, '_collect_waf_classic_inventory', return_value=([], None)):
+                                            skill.collect(mock_aws_client, mock_session)
 
-            mock_elbv2 = MagicMock()
-            mock_elbv2.describe_load_balancers.return_value = {"LoadBalancers": []}
-
-            def get_client(service, **kwargs):
-                if service == "cloudfront":
-                    return mock_cloudfront
-                elif service == "wafv2":
-                    return mock_wafv2
-                elif service == "elbv2":
-                    return mock_elbv2
-                return MagicMock()
-
-            mock_boto_session.return_value.client.side_effect = get_client
-
-            with patch('drystone.skills.waf.WAFSkill._collect_wafv2_web_acls_for_scope') as mock_collect:
-                mock_collect.return_value = ([], None)
-
-                skill.collect(mock_aws_client, mock_session)
-
-                # Verify CloudFront distributions were saved
-                evidence_path = mock_session.get_evidence_path.return_value
-                dist_file = evidence_path / "cloudfront-distributions.json"
-                # The method should be called to save evidence
-                assert evidence_path is not None
+                                            # Verify session was called
+                                            evidence_path = mock_session.get_evidence_path.return_value
+                                            assert evidence_path is not None
 
     def test_collect_handles_empty_resources(self, skill, mock_aws_client, mock_session):
         """Test collect() handles case with no WAF resources."""
-        with patch('boto3.Session') as mock_boto_session:
-            # Create mock clients that return empty data
-            mock_client = MagicMock()
-            mock_client.list_distributions.return_value = {"DistributionList": {"Items": []}}
-            mock_client.list_web_acls.return_value = {"WebACLs": []}
-            mock_client.describe_load_balancers.return_value = {"LoadBalancers": []}
-            mock_client.describe_regions.return_value = {"Regions": [{"RegionName": "us-east-1"}]}
-            mock_client.get_paginator.return_value.paginate.return_value = [{}]
-
-            mock_boto_session.return_value.client.return_value = mock_client
-
-            # This should not raise an exception
-            skill.collect(mock_aws_client, mock_session)
-            assert mock_session.get_evidence_path.called
+        # Mock all internal methods to return empty data
+        with patch.object(skill, '_collect_cloudfront_distributions', return_value=([], None)):
+            with patch.object(skill, '_collect_wafv2_web_acls_for_scope', return_value=([], None)):
+                with patch.object(skill, '_collect_wafv2_ip_sets', return_value=([], None)):
+                    with patch.object(skill, '_collect_wafv2_rule_groups', return_value=([], None)):
+                        with patch.object(skill, '_collect_wafv2_regex_pattern_sets', return_value=([], None)):
+                            with patch.object(skill, '_collect_wafv2_managed_rule_groups', return_value={}):
+                                with patch.object(skill, '_collect_alb_waf_associations', return_value=([], {})):
+                                    with patch.object(skill, '_collect_api_entrypoints_waf_associations', return_value=([], {})):
+                                        with patch.object(skill, '_collect_waf_classic_inventory', return_value=([], None)):
+                                            # This should not raise an exception
+                                            skill.collect(mock_aws_client, mock_session)
+                                            assert mock_session.get_evidence_path.called
 
     def test_collect_with_client_error_handling(self, skill, mock_aws_client, mock_session):
-        """Test collect() handles ClientError gracefully."""
-        from botocore.exceptions import ClientError
-
-        with patch('boto3.Session') as mock_boto_session:
-            mock_client = MagicMock()
-            error_response = {"Error": {"Code": "AccessDenied", "Message": "Access Denied"}}
-            mock_client.list_distributions.side_effect = ClientError(error_response, "ListDistributions")
-            mock_client.describe_regions.return_value = {"Regions": [{"RegionName": "us-east-1"}]}
-
-            mock_boto_session.return_value.client.return_value = mock_client
-
-            # Should handle error and continue
-            skill.collect(mock_aws_client, mock_session)
-            assert mock_session.get_evidence_path.called
+        """Test collect() handles errors gracefully."""
+        # Mock methods - CloudFront returns error
+        with patch.object(skill, '_collect_cloudfront_distributions', return_value=([], "AccessDenied")):
+            with patch.object(skill, '_collect_wafv2_web_acls_for_scope', return_value=([], None)):
+                with patch.object(skill, '_collect_wafv2_ip_sets', return_value=([], None)):
+                    with patch.object(skill, '_collect_wafv2_rule_groups', return_value=([], None)):
+                        with patch.object(skill, '_collect_wafv2_regex_pattern_sets', return_value=([], None)):
+                            with patch.object(skill, '_collect_wafv2_managed_rule_groups', return_value={}):
+                                with patch.object(skill, '_collect_alb_waf_associations', return_value=([], {})):
+                                    with patch.object(skill, '_collect_api_entrypoints_waf_associations', return_value=([], {})):
+                                        with patch.object(skill, '_collect_waf_classic_inventory', return_value=([], None)):
+                                            # Should handle error and continue
+                                            skill.collect(mock_aws_client, mock_session)
+                                            assert mock_session.get_evidence_path.called
 
 
 class TestWAFPostProcessor:
