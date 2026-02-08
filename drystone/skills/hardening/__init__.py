@@ -1,10 +1,17 @@
-"""Account hardening skill for AWS audit."""
+"""Account hardening skill for AWS audit.
+
+Collector design goals:
+- Evidence must be unambiguous (distinguish "empty" from "collection failed")
+- Prefer summary/typed evidence over huge raw payloads
+- Align evidence files with checklist applicability
+"""
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import boto3
+from botocore.exceptions import ClientError
 
 from drystone.cloud.aws.client import AWSClient
 from drystone.skills.base import BaseSkill
@@ -43,14 +50,26 @@ class HardeningSkill(BaseSkill):
             session: Audit session for evidence storage
         """
         client_kwargs = {
-            'aws_access_key_id': aws_client.access_key_id,
-            'aws_secret_access_key': aws_client.secret_access_key,
-            'region_name': aws_client.region_name,
+            "aws_access_key_id": aws_client.access_key_id,
+            "aws_secret_access_key": aws_client.secret_access_key,
+            "region_name": aws_client.region_name,
         }
         if aws_client.session_token:
-            client_kwargs['aws_session_token'] = aws_client.session_token
+            client_kwargs["aws_session_token"] = aws_client.session_token
 
         evidence_path = session.get_evidence_path(self.name)
+
+        collection_status: Dict[str, Any] = {
+            "region": aws_client.region_name,
+            "securityhub": {"ok": True, "error": None},
+            "securityhub_findings": {"ok": True, "error": None, "count": 0},
+            "securityhub_standards": {"ok": True, "error": None, "enabled_count": 0},
+            "config": {"ok": True, "error": None},
+            "guardduty": {"ok": True, "error": None},
+            "macie": {"ok": True, "error": None},
+            "backup": {"ok": True, "error": None},
+            "iam_account": {"ok": True, "error": None},
+        }
 
         # === SECURITY HUB ===
         print("  Collecting Security Hub findings...")
@@ -74,97 +93,206 @@ class HardeningSkill(BaseSkill):
                 hub_status = {
                     "enabled": False,
                     "reason": "not_enabled",
-                    "error": "InvalidAccessException - Security Hub is not enabled"
+                    "error": "InvalidAccessException - Security Hub is not enabled",
                 }
                 self._save_json(evidence_path / "security-hub-status.json", hub_status)
             except Exception as e:
                 logger.warning(f"Could not describe Security Hub: {e}")
-                hub_status = {
-                    "enabled": False,
-                    "reason": "error",
-                    "error": str(e)
-                }
+                hub_status = {"enabled": False, "reason": "error", "error": str(e)}
                 self._save_json(evidence_path / "security-hub-status.json", hub_status)
 
             # List findings (filtered by severity: Critical, High, Medium)
-            findings_list = []
+            findings_list: List[Dict[str, Any]] = []
             try:
-                paginator = sh_client.get_paginator('get_findings')
+                paginator = sh_client.get_paginator("get_findings")
 
-                # Filter criteria for Security Hub (Critical, High + Active)
-                # MEDIUM excluded to focus on critical/actionable findings
-                # Reduces noise and focuses on high-impact security issues
+                # Filter criteria for Security Hub (Critical, High, Medium + Active)
+                # Keep Medium to support compliance scoring and posture evaluation.
                 filters = {
-                    'SeverityLabel': [
-                        {'Value': 'CRITICAL', 'Comparison': 'EQUALS'},
-                        {'Value': 'HIGH', 'Comparison': 'EQUALS'}
+                    "SeverityLabel": [
+                        {"Value": "CRITICAL", "Comparison": "EQUALS"},
+                        {"Value": "HIGH", "Comparison": "EQUALS"},
+                        {"Value": "MEDIUM", "Comparison": "EQUALS"},
                     ],
-                    'RecordState': [
-                        {'Value': 'ACTIVE', 'Comparison': 'EQUALS'}
-                    ]
+                    "RecordState": [{"Value": "ACTIVE", "Comparison": "EQUALS"}],
                 }
 
+                # Cap findings collected to avoid extremely large evidence files.
+                max_findings = 800
+
                 for page in paginator.paginate(Filters=filters):
-                    raw_findings = page.get("Findings", [])
+                    raw_findings = page.get("Findings", []) or []
 
-                    # Post-process: simplify findings (remove verbose fields)
                     for finding in raw_findings:
-                        # Remove verbose nested objects that bloat payloads
-                        finding.pop('Compliance', None)  # Detailed compliance data
-                        finding.pop('SourceUrl', None)  # URLs (rarely actionable)
-                        finding.pop('Types', None)  # Type classification details
-                        finding.pop('ProcessPath', None)  # Process info (not critical)
-                        finding.pop('NetworkPathDetails', None)  # Network details
-                        finding.pop('Vulnerabilities', None)  # Nested vuln info
-                        finding.pop('PatchSummary', None)  # Patch details (verbose)
-                        finding.pop('ProductFields', None)  # Product-specific data
-                        finding.pop('FirstObservedAt', None)  # Timestamps (not critical)
-                        finding.pop('LastObservedAt', None)
-                        finding.pop('UpdatedAt', None)
+                        # Build a compact, stable representation.
+                        sev = finding.get("Severity") or {}
+                        compliance = finding.get("Compliance") or {}
+                        resources_out: List[Dict[str, Any]] = []
+                        for r in finding.get("Resources", []) or []:
+                            resources_out.append(
+                                {
+                                    "Type": r.get("Type"),
+                                    "Id": r.get("Id"),
+                                    "Region": r.get("Region"),
+                                    "Partition": r.get("Partition"),
+                                }
+                            )
 
-                        # Simplify Resources (keep only essential)
-                        if 'Resources' in finding:
-                            for resource in finding['Resources']:
-                                # Remove detailed metadata
-                                resource.pop('Details', None)  # IPs, subnets, etc
-                                resource.pop('Tags', None)  # Tag metadata
+                        findings_list.append(
+                            {
+                                "Id": finding.get("Id"),
+                                "GeneratorId": finding.get("GeneratorId"),
+                                "ProductName": finding.get("ProductName"),
+                                "Region": finding.get("Region"),
+                                "AwsAccountId": finding.get("AwsAccountId"),
+                                "CreatedAt": finding.get("CreatedAt"),
+                                "Title": finding.get("Title"),
+                                "Description": finding.get("Description"),
+                                "Severity": {
+                                    "Label": sev.get("Label"),
+                                    "Normalized": sev.get("Normalized"),
+                                    "Original": sev.get("Original"),
+                                },
+                                "Compliance": {
+                                    "Status": compliance.get("Status"),
+                                }
+                                if isinstance(compliance, dict)
+                                else {},
+                                "WorkflowState": finding.get("WorkflowState"),
+                                "RecordState": finding.get("RecordState"),
+                                "Resources": resources_out,
+                                "Remediation": (finding.get("Remediation") or {}).get(
+                                    "Recommendation"
+                                ),
+                            }
+                        )
 
-                    findings_list.extend(raw_findings)
+                        if len(findings_list) >= max_findings:
+                            break
+
+                    if len(findings_list) >= max_findings:
+                        break
             except Exception as e:
                 logger.warning(f"Could not paginate Security Hub findings: {e}")
+                collection_status["securityhub_findings"].update({"ok": False, "error": str(e)})
 
             self._save_json(evidence_path / "security-hub-findings.json", findings_list)
+            collection_status["securityhub_findings"]["count"] = len(findings_list)
 
-            # Get standards and compliance
+            # Findings summary (small, stable, avoids re-parsing large arrays)
+            sev_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "OTHER": 0}
+            comp_counts = {"PASSED": 0, "FAILED": 0, "WARNING": 0, "NOT_AVAILABLE": 0, "OTHER": 0}
+            for f in findings_list:
+                sev_label = ((f.get("Severity") or {}).get("Label") or "").upper()
+                if sev_label in sev_counts:
+                    sev_counts[sev_label] += 1
+                else:
+                    sev_counts["OTHER"] += 1
+
+                comp_status = ((f.get("Compliance") or {}).get("Status") or "").upper()
+                if comp_status in comp_counts:
+                    comp_counts[comp_status] += 1
+                elif comp_status:
+                    comp_counts["OTHER"] += 1
+
+            self._save_json(
+                evidence_path / "security-hub-findings-summary.json",
+                {
+                    "severity_counts": sev_counts,
+                    "compliance_status_counts": comp_counts,
+                    "total": len(findings_list),
+                },
+            )
+
+            # Enabled standards + controls (best-effort, compact)
+            enabled_standards: List[Dict[str, Any]] = []
             try:
-                standards = sh_client.describe_standards()
-                compliance_list = []
-
-                for standard in standards.get("Standards", []):
-                    std_detail = {
-                        "StandardsArn": standard.get("StandardsArn"),
-                        "Name": standard.get("Name"),
-                        "Description": standard.get("Description"),
-                    }
-
-                    # Get subscription status
-                    try:
-                        subscriptions = sh_client.describe_standards_control(
-                            StandardsSubscriptionArn=standard.get("StandardsArn")
-                        )
-                        std_detail["Controls"] = subscriptions.get("Controls", [])
-                    except Exception as e:
-                        logger.warning(f"Could not describe standards control for {standard.get('StandardsArn')}: {e}")
-                        std_detail["Controls"] = []
-
-                    compliance_list.append(std_detail)
-
-                self._save_json(evidence_path / "security-hub-standards.json", compliance_list)
+                token: Optional[str] = None
+                while True:
+                    args: Dict[str, Any] = {"MaxResults": 50}
+                    if token:
+                        args["NextToken"] = token
+                    resp = sh_client.get_enabled_standards(**args)
+                    enabled_standards.extend(resp.get("StandardsSubscriptions", []) or [])
+                    token = resp.get("NextToken")
+                    if not token:
+                        break
             except Exception as e:
-                logger.warning(f"Could not describe Security Hub standards: {e}")
+                logger.warning(f"Could not get enabled Security Hub standards: {e}")
+                collection_status["securityhub_standards"].update({"ok": False, "error": str(e)})
+
+            enabled_out: List[Dict[str, Any]] = []
+            for sub in enabled_standards:
+                sub_arn = sub.get("StandardsSubscriptionArn")
+                std_arn = sub.get("StandardsArn")
+                std_name = sub.get("StandardsSubscriptionName")
+
+                # List controls for this enabled standard.
+                controls_summary = {
+                    "total": 0,
+                    "enabled": 0,
+                    "disabled": 0,
+                }
+                controls_sample: List[Dict[str, Any]] = []
+                if sub_arn:
+                    try:
+                        ctl_token: Optional[str] = None
+                        while True:
+                            ctl_args: Dict[str, Any] = {
+                                "StandardsSubscriptionArn": sub_arn,
+                                "MaxResults": 100,
+                            }
+                            if ctl_token:
+                                ctl_args["NextToken"] = ctl_token
+                            ctl_resp = sh_client.describe_standards_controls(**ctl_args)
+                            controls = ctl_resp.get("Controls", []) or []
+                            for c in controls:
+                                controls_summary["total"] += 1
+                                if c.get("ControlStatus") == "ENABLED":
+                                    controls_summary["enabled"] += 1
+                                elif c.get("ControlStatus") == "DISABLED":
+                                    controls_summary["disabled"] += 1
+
+                                # Keep a small sample of control metadata for auditability.
+                                if len(controls_sample) < 25:
+                                    controls_sample.append(
+                                        {
+                                            "ControlId": c.get("ControlId"),
+                                            "Title": c.get("Title"),
+                                            "ControlStatus": c.get("ControlStatus"),
+                                            "SeverityRating": c.get("SeverityRating"),
+                                        }
+                                    )
+
+                            ctl_token = ctl_resp.get("NextToken")
+                            if not ctl_token:
+                                break
+                    except Exception as e:
+                        logger.warning(
+                            f"Could not describe Security Hub controls for {sub_arn}: {e}"
+                        )
+                        collection_status["securityhub_standards"].update(
+                            {"ok": False, "error": str(e)}
+                        )
+
+                enabled_out.append(
+                    {
+                        "StandardsSubscriptionArn": sub_arn,
+                        "StandardsArn": std_arn,
+                        "Name": std_name,
+                        "Status": sub.get("StandardsStatus"),
+                        "StatusReason": sub.get("StandardsStatusReason"),
+                        "ControlsSummary": controls_summary,
+                        "ControlsSample": controls_sample,
+                    }
+                )
+
+            self._save_json(evidence_path / "security-hub-enabled-standards.json", enabled_out)
+            collection_status["securityhub_standards"]["enabled_count"] = len(enabled_out)
 
         except Exception as e:
             logger.error(f"Could not collect Security Hub data: {e}")
+            collection_status["securityhub"].update({"ok": False, "error": str(e)})
 
         # === AWS CONFIG ===
         print("  Collecting AWS Config compliance...")
@@ -182,11 +310,7 @@ class HardeningSkill(BaseSkill):
                 self._save_json(evidence_path / "config-recorders.json", config_status)
             except Exception as e:
                 logger.warning(f"Could not describe Config recorders: {e}")
-                config_status = {
-                    "enabled": False,
-                    "ConfigurationRecorders": [],
-                    "error": str(e)
-                }
+                config_status = {"enabled": False, "ConfigurationRecorders": [], "error": str(e)}
                 self._save_json(evidence_path / "config-recorders.json", config_status)
 
             # Get delivery channels
@@ -195,6 +319,19 @@ class HardeningSkill(BaseSkill):
                 self._save_json(evidence_path / "config-delivery-channels.json", channels)
             except Exception as e:
                 logger.warning(f"Could not describe Config delivery channels: {e}")
+                collection_status["config"].update({"ok": False, "error": str(e)})
+
+            # Recorder status (RECORDING vs stopped)
+            try:
+                status = config_client.describe_configuration_recorder_status()
+                self._save_json(evidence_path / "config-recorder-status.json", status)
+            except Exception as e:
+                logger.warning(f"Could not describe Config recorder status: {e}")
+                self._save_json(
+                    evidence_path / "config-recorder-status.json",
+                    {"error": str(e), "ConfigurationRecordersStatus": []},
+                )
+                collection_status["config"].update({"ok": False, "error": str(e)})
 
             # Get config rules compliance
             try:
@@ -209,18 +346,83 @@ class HardeningSkill(BaseSkill):
                         )
                         rule_detail = {
                             "ConfigRuleName": rule_name,
-                            "Compliance": compliance.get("ComplianceByConfigRules", [{}])[0].get("Compliance", {}),
+                            "Compliance": compliance.get("ComplianceByConfigRules", [{}])[0].get(
+                                "Compliance", {}
+                            ),
                         }
                         compliance_list.append(rule_detail)
                     except Exception as e:
                         logger.warning(f"Could not get compliance for Config rule {rule_name}: {e}")
 
                 self._save_json(evidence_path / "config-compliance.json", compliance_list)
+
+                # Compact compliance summary
+                c_counts = {
+                    "COMPLIANT": 0,
+                    "NON_COMPLIANT": 0,
+                    "INSUFFICIENT_DATA": 0,
+                    "NOT_APPLICABLE": 0,
+                    "OTHER": 0,
+                }
+                for r in compliance_list:
+                    ct = ((r.get("Compliance") or {}).get("ComplianceType") or "").upper()
+                    if ct in c_counts:
+                        c_counts[ct] += 1
+                    elif ct:
+                        c_counts["OTHER"] += 1
+                self._save_json(
+                    evidence_path / "config-compliance-summary.json",
+                    {"counts": c_counts, "total_rules": len(compliance_list)},
+                )
             except Exception as e:
                 logger.warning(f"Could not describe Config rules: {e}")
+                collection_status["config"].update({"ok": False, "error": str(e)})
+
+            # Conformance packs (for HRD-010)
+            try:
+                packs = config_client.describe_conformance_packs().get("ConformancePackDetails", [])
+                packs_out: List[Dict[str, Any]] = []
+                for p in packs:
+                    name = p.get("ConformancePackName")
+                    packs_out.append(
+                        {
+                            "ConformancePackName": name,
+                            "ConformancePackArn": p.get("ConformancePackArn"),
+                            "ConformancePackState": p.get("ConformancePackState"),
+                            "LastUpdateRequestedTime": p.get("LastUpdateRequestedTime"),
+                        }
+                    )
+                self._save_json(evidence_path / "config-conformance-packs.json", packs_out)
+
+                # Compliance summary per pack (best-effort)
+                compliance_out: List[Dict[str, Any]] = []
+                for p in packs_out:
+                    name = p.get("ConformancePackName")
+                    if not name:
+                        continue
+                    try:
+                        comp = config_client.describe_conformance_pack_compliance(
+                            ConformancePackNames=[name]
+                        )
+                        compliance_out.append(
+                            {
+                                "ConformancePackName": name,
+                                "Compliance": (
+                                    comp.get("ConformancePackComplianceList", [{}])[0] or {}
+                                ).get("ConformancePackCompliance"),
+                            }
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not get conformance pack compliance for {name}: {e}")
+                self._save_json(
+                    evidence_path / "config-conformance-pack-compliance.json", compliance_out
+                )
+            except Exception as e:
+                logger.warning(f"Could not describe conformance packs: {e}")
 
         except Exception as e:
             logger.error(f"Could not collect Config data: {e}")
+            collection_status["config"].update({"ok": False, "error": str(e)})
 
         # === ACM CERTIFICATES ===
         print("  Collecting ACM certificates...")
@@ -228,7 +430,7 @@ class HardeningSkill(BaseSkill):
             acm_client = boto3.client("acm", **client_kwargs)
             certs_list = []
 
-            paginator = acm_client.get_paginator('list_certificates')
+            paginator = acm_client.get_paginator("list_certificates")
             for page in paginator.paginate():
                 for cert_summary in page.get("CertificateSummaryList", []):
                     cert_arn = cert_summary.get("CertificateArn")
@@ -244,7 +446,9 @@ class HardeningSkill(BaseSkill):
                             "Status": cert_detail.get("Certificate", {}).get("Status"),
                             "NotBefore": cert_detail.get("Certificate", {}).get("NotBefore"),
                             "NotAfter": cert_detail.get("Certificate", {}).get("NotAfter"),
-                            "ValidationMethod": cert_detail.get("Certificate", {}).get("ValidationMethod"),
+                            "ValidationMethod": cert_detail.get("Certificate", {}).get(
+                                "ValidationMethod"
+                            ),
                         }
                         certs_list.append(cert_info)
                     except Exception as e:
@@ -268,7 +472,7 @@ class HardeningSkill(BaseSkill):
                 gd_status = {
                     "enabled": len(detectors_list) > 0,  # Explicit status flag
                     "DetectorIds": detectors_list,
-                    "Detectors": []
+                    "Detectors": [],
                 }
 
                 for detector_id in detectors_list:
@@ -276,7 +480,9 @@ class HardeningSkill(BaseSkill):
                     detector_info = {
                         "DetectorId": detector_id,
                         "Status": detector_detail.get("Status"),
-                        "FindingPublishingFrequency": detector_detail.get("FindingPublishingFrequency"),
+                        "FindingPublishingFrequency": detector_detail.get(
+                            "FindingPublishingFrequency"
+                        ),
                     }
 
                     # Get findings (up to 50, filtered by severity: Medium and above)
@@ -285,17 +491,37 @@ class HardeningSkill(BaseSkill):
                             DetectorId=detector_id,
                             MaxResults=50,
                             FindingCriteria={
-                                'Criterion': {
-                                    'severity': {
-                                        'Gte': 4.0  # Medium (4.0-6.9), High (7.0-8.9), Critical (9.0+)
+                                "Criterion": {
+                                    "severity": {
+                                        "Gte": 4  # Medium (4.0-6.9), High (7.0-8.9), Critical (9.0+)
                                     }
                                 }
-                            }
+                            },
                         )
                         detector_info["FindingIds"] = findings.get("FindingIds", [])
                     except Exception as e:
-                        logger.warning(f"Could not list GuardDuty findings for detector {detector_id}: {e}")
+                        logger.warning(
+                            f"Could not list GuardDuty findings for detector {detector_id}: {e}"
+                        )
                         detector_info["FindingIds"] = []
+                        collection_status["guardduty"].update({"ok": False, "error": str(e)})
+
+                    # Findings statistics (compact posture signal)
+                    try:
+                        stats = gd_client.get_findings_statistics(
+                            DetectorId=detector_id,
+                            FindingStatisticTypes=["COUNT_BY_SEVERITY"],
+                            FindingCriteria={
+                                "Criterion": {
+                                    "service.archived": {"Eq": ["false"]},
+                                }
+                            },
+                        )
+                        detector_info["FindingsStatistics"] = stats.get("FindingStatistics")
+                    except Exception as e:
+                        logger.warning(
+                            f"Could not get GuardDuty findings statistics for detector {detector_id}: {e}"
+                        )
 
                     gd_status["Detectors"].append(detector_info)
 
@@ -303,53 +529,75 @@ class HardeningSkill(BaseSkill):
             except Exception as e:
                 logger.warning(f"Could not list GuardDuty detectors: {e}")
                 # Save empty status if error
-                gd_status = {
-                    "enabled": False,
-                    "DetectorIds": [],
-                    "Detectors": [],
-                    "error": str(e)
-                }
+                gd_status = {"enabled": False, "DetectorIds": [], "Detectors": [], "error": str(e)}
                 self._save_json(evidence_path / "guardduty-detectors.json", gd_status)
+                collection_status["guardduty"].update({"ok": False, "error": str(e)})
 
         except Exception as e:
             logger.error(f"Could not collect GuardDuty data: {e}")
+            collection_status["guardduty"].update({"ok": False, "error": str(e)})
 
         # === MACIE ===
         print("  Collecting Macie status...")
         try:
             macie_client = boto3.client("macie2", **client_kwargs)
 
-            # Get Macie status
+            # Get Macie status (always persist)
+            macie_enabled = False
             try:
                 status = macie_client.get_macie_session()
-                self._save_json(evidence_path / "macie-session.json", status)
+                macie_enabled = True
+                out_status = {"enabled": True, **status}
+                self._save_json(evidence_path / "macie-session.json", out_status)
             except Exception as e:
                 logger.warning(f"Could not get Macie session: {e}")
+                self._save_json(
+                    evidence_path / "macie-session.json",
+                    {"enabled": False, "error": str(e)},
+                )
+                collection_status["macie"].update({"ok": False, "error": str(e)})
 
-            # List findings (filtered by severity: High only - post-filter since API doesn't support it)
+            # List findings (filtered by severity: High only - post-filter)
             try:
                 findings_list = []
-                paginator = macie_client.get_paginator('list_findings')
-                for page in paginator.paginate(MaxResults=50):
-                    for finding_id in page.get("findingIds", []):
-                        try:
-                            finding = macie_client.get_findings(FindingIds=[finding_id])
-                            finding_details = finding.get("findings", [])
+                if macie_enabled:
+                    token: Optional[str] = None
+                    ids: List[str] = []
+                    while True:
+                        args: Dict[str, Any] = {"maxResults": 50}
+                        if token:
+                            args["nextToken"] = token
+                        page = macie_client.list_findings(**args)
+                        ids.extend(page.get("findingIds", []) or [])
+                        token = page.get("nextToken")
+                        if not token or len(ids) >= 200:
+                            break
 
-                            # Post-filter: only High severity (Macie doesn't have Critical, MEDIUM excluded for consistency)
-                            for f in finding_details:
-                                severity = f.get("severity", {}).get("description", "").upper()
-                                if severity in ["HIGH"]:
+                    # Fetch details in small batches
+                    for i in range(0, len(ids), 20):
+                        batch = ids[i : i + 20]
+                        try:
+                            finding = macie_client.get_findings(FindingIds=batch)
+                            for f in finding.get("findings", []) or []:
+                                sev_desc = (f.get("severity") or {}).get("description", "")
+                                if isinstance(sev_desc, str) and sev_desc.upper() == "HIGH":
                                     findings_list.append(f)
                         except Exception as e:
-                            logger.warning(f"Could not get Macie finding {finding_id}: {e}")
+                            logger.warning(f"Could not get Macie findings batch: {e}")
 
                 self._save_json(evidence_path / "macie-findings.json", findings_list)
             except Exception as e:
                 logger.warning(f"Could not list Macie findings: {e}")
+                self._save_json(evidence_path / "macie-findings.json", [])
+                collection_status["macie"].update({"ok": False, "error": str(e)})
 
         except Exception as e:
             logger.error(f"Could not collect Macie data: {e}")
+            self._save_json(
+                evidence_path / "macie-session.json", {"enabled": False, "error": str(e)}
+            )
+            self._save_json(evidence_path / "macie-findings.json", [])
+            collection_status["macie"].update({"ok": False, "error": str(e)})
 
         # === BACKUP VAULTS ===
         print("  Collecting backup configuration...")
@@ -359,7 +607,7 @@ class HardeningSkill(BaseSkill):
 
             # List backup vaults
             try:
-                paginator = backup_client.get_paginator('list_backup_vaults')
+                paginator = backup_client.get_paginator("list_backup_vaults")
                 for page in paginator.paginate():
                     for vault in page.get("BackupVaultList", []):
                         vault_detail = {
@@ -377,12 +625,37 @@ class HardeningSkill(BaseSkill):
             # List backup plans
             try:
                 plans = backup_client.list_backup_plans()
-                self._save_json(evidence_path / "backup-plans.json", plans.get("BackupPlansList", []))
+                plans_list = plans.get("BackupPlansList", []) or []
+                self._save_json(evidence_path / "backup-plans.json", plans_list)
+
+                # Add selections per plan (coverage signal)
+                plans_detailed: List[Dict[str, Any]] = []
+                for p in plans_list:
+                    plan_id = p.get("BackupPlanId")
+                    entry = {
+                        "BackupPlanId": plan_id,
+                        "BackupPlanArn": p.get("BackupPlanArn"),
+                        "BackupPlanName": p.get("BackupPlanName"),
+                        "VersionId": p.get("VersionId"),
+                        "CreationDate": p.get("CreationDate"),
+                        "LastExecutionDate": p.get("LastExecutionDate"),
+                        "Selections": [],
+                    }
+                    if plan_id:
+                        try:
+                            sel = backup_client.list_backup_selections(BackupPlanId=plan_id)
+                            entry["Selections"] = sel.get("BackupSelectionsList", []) or []
+                        except Exception as e:
+                            entry["SelectionsError"] = str(e)
+                    plans_detailed.append(entry)
+                self._save_json(evidence_path / "backup-plans-detailed.json", plans_detailed)
             except Exception as e:
                 logger.warning(f"Could not list backup plans: {e}")
+                collection_status["backup"].update({"ok": False, "error": str(e)})
 
         except Exception as e:
             logger.error(f"Could not collect backup data: {e}")
+            collection_status["backup"].update({"ok": False, "error": str(e)})
 
         # === ACCOUNT SETTINGS ===
         print("  Collecting account settings...")
@@ -395,6 +668,7 @@ class HardeningSkill(BaseSkill):
                 self._save_json(evidence_path / "account-summary.json", summary)
             except Exception as e:
                 logger.warning(f"Could not get account summary: {e}")
+                collection_status["iam_account"].update({"ok": False, "error": str(e)})
 
             # Account aliases
             try:
@@ -402,22 +676,28 @@ class HardeningSkill(BaseSkill):
                 self._save_json(evidence_path / "account-aliases.json", aliases)
             except Exception as e:
                 logger.warning(f"Could not list account aliases: {e}")
+                collection_status["iam_account"].update({"ok": False, "error": str(e)})
 
             # Password policy
             try:
                 pwd_policy = iam_client.get_account_password_policy()
                 self._save_json(evidence_path / "password-policy.json", pwd_policy)
             except iam_client.exceptions.NoSuchEntityException:
-                self._save_json(evidence_path / "password-policy.json", {"error": "No password policy"})
+                self._save_json(
+                    evidence_path / "password-policy.json", {"error": "No password policy"}
+                )
             except Exception as e:
                 logger.warning(f"Could not get account password policy: {e}")
+                collection_status["iam_account"].update({"ok": False, "error": str(e)})
 
         except Exception as e:
             logger.error(f"Could not collect account settings: {e}")
+            collection_status["iam_account"].update({"ok": False, "error": str(e)})
 
         # === AUDIT METADATA ===
         # Save region and scope information for evidence validation
         from datetime import datetime
+
         audit_metadata = {
             "_region": aws_client.region_name,
             "_timestamp": datetime.now().isoformat(),
@@ -425,6 +705,9 @@ class HardeningSkill(BaseSkill):
             "_skill": self.name,
         }
         self._save_json(evidence_path / "_audit_metadata.json", audit_metadata)
+
+        # === COLLECTION STATUS ===
+        self._save_json(evidence_path / "hardening-collection-status.json", collection_status)
 
         print(f"\n✅ Hardening collection complete")
 

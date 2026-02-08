@@ -13,11 +13,14 @@ SKILL-AGNOSTIC: Works with any skill (IAM, Exposure, Network, Vulns).
 
 import re
 import logging
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any, Tuple, Optional, Literal, cast
 
 from drystone.models.findings import Finding, FindingsSummary
 
 logger = logging.getLogger(__name__)
+
+
+Severity = Literal["Critical", "High", "Medium", "Low"]
 
 
 class FindingsNormalizer:
@@ -42,10 +45,10 @@ class FindingsNormalizer:
 
     # Severity ranges (risk_score bounds)
     SEVERITY_RANGES = {
-        'Critical': (8.5, 10.0),
-        'High': (6.0, 8.4),
-        'Medium': (3.0, 5.9),
-        'Low': (1.0, 2.9),
+        "Critical": (8.5, 10.0),
+        "High": (6.0, 8.4),
+        "Medium": (3.0, 5.9),
+        "Low": (1.0, 2.9),
     }
 
     # Mutually exclusive findings pairs: (ID1, ID2) → resolution strategy
@@ -57,17 +60,14 @@ class FindingsNormalizer:
         # Hardening: Security Hub state
         ("HRD-002", "HRD-003"): "keep_specific",  # Hub: disabled vs no standards
         # Hardening: Compliance score ranges (overlapping ranges)
-        ("HRD-004", "HRD-008"): "keep_higher",    # Compliance: <50% vs 50-70%
-        ("HRD-008", "HRD-011"): "keep_higher",    # Compliance: 50-70% vs 70-85%
-
+        ("HRD-004", "HRD-008"): "keep_higher",  # Compliance: <50% vs 50-70%
+        ("HRD-008", "HRD-011"): "keep_higher",  # Compliance: 50-70% vs 70-85%
         # IAM: User state
         ("IAM-003", "IAM-004"): "keep_specific",  # Inactive user vs no MFA
         ("IAM-005", "IAM-007"): "keep_specific",  # No rotation vs old keys
         ("IAM-008", "IAM-009"): "keep_specific",  # Weak policy vs no policy
-
         # IAM: Root account
-        ("IAM-001", "IAM-002"): "keep_higher",    # No MFA vs partial MFA
-
+        ("IAM-001", "IAM-002"): "keep_higher",  # No MFA vs partial MFA
         # Alerting: CloudTrail state
         ("ALR-001", "ALR-003"): "keep_specific",  # Disabled vs no logs
         ("ALR-003", "ALR-005"): "keep_specific",  # No logs vs no alarms
@@ -84,7 +84,7 @@ class FindingsNormalizer:
         Raises:
             ValueError: If checklist format invalid or skill_name not provided
         """
-        if not checklist or 'items' not in checklist:
+        if not checklist or "items" not in checklist:
             raise ValueError("Checklist must have 'items' array")
 
         self.checklist = checklist
@@ -93,11 +93,7 @@ class FindingsNormalizer:
 
         # Build mapping: {ID → checklist item}
         # Example: {"IAM-001": {...}, "IAM-007": {...}, ...}
-        self.checklist_map = {
-            item['id']: item
-            for item in checklist['items']
-            if 'id' in item
-        }
+        self.checklist_map = {item["id"]: item for item in checklist["items"] if "id" in item}
 
     def normalize(self, findings: List[Finding]) -> List[Finding]:
         """Normalize all findings to reduce variance.
@@ -141,19 +137,21 @@ class FindingsNormalizer:
 
             # 3. Skip false positives
             if self._is_false_positive(finding):
-                logger.debug(f"  ❌ Rejected false positive: {finding.id} (severity: {finding.severity})")
+                logger.debug(
+                    f"  ❌ Rejected false positive: {finding.id} (severity: {finding.severity})"
+                )
                 continue
 
             # 4. Validate against evidence (if available)
             if self.evidence and not self._validate_against_evidence(normalized_id, finding):
-                logger.warning(f"  ❌ Rejected {normalized_id} - contradicts evidence (severity: {finding.severity})")
+                logger.warning(
+                    f"  ❌ Rejected {normalized_id} - contradicts evidence (severity: {finding.severity})"
+                )
                 continue
 
             # 5. Calibrate severity
             severity, risk_score = self._calibrate_severity(
-                normalized_id,
-                finding.severity,
-                finding.risk_score
+                normalized_id, finding.severity, finding.risk_score
             )
 
             # Update finding in-place
@@ -185,7 +183,7 @@ class FindingsNormalizer:
         """
         # Pattern: SKILL-XXX (skill prefix + 3 digits)
         # Matches: IAM-001, EXP-005, NET-012, VULN-003, etc
-        match = re.match(r'([A-Z]+-\d{3})', finding_id)
+        match = re.match(r"([A-Z]+-\d{3})", finding_id)
         if match:
             return match.group(1)
 
@@ -211,8 +209,7 @@ class FindingsNormalizer:
             >>> Finding(id="IAM-001", title="Root account without MFA") → False
         """
         # Check for "DISREGARD" markers
-        if "DISREGARD" in finding.title.upper() or \
-           "DISREGARD" in finding.description.upper():
+        if "DISREGARD" in finding.title.upper() or "DISREGARD" in finding.description.upper():
             return True
 
         # Check for invalid IDs (not in checklist)
@@ -223,11 +220,8 @@ class FindingsNormalizer:
         return False
 
     def _calibrate_severity(
-        self,
-        finding_id: str,
-        current_severity: str,
-        current_risk_score: float
-    ) -> Tuple[str, float]:
+        self, finding_id: str, current_severity: str, current_risk_score: float
+    ) -> Tuple[Severity, float]:
         """Calibrate severity against checklist constraints.
 
         Uses checklist as source of truth for severity mapping.
@@ -258,9 +252,9 @@ class FindingsNormalizer:
         # Get expected severity from checklist
         if finding_id not in self.checklist_map:
             # Invalid ID: return current values (will be filtered)
-            return current_severity, current_risk_score
+            return cast(Severity, current_severity), current_risk_score
 
-        expected_severity = self.checklist_map[finding_id]['severity']
+        expected_severity = cast(Severity, self.checklist_map[finding_id]["severity"])
 
         # If AI model used wrong severity, correct it
         if current_severity != expected_severity:
@@ -282,11 +276,7 @@ class FindingsNormalizer:
 
         return expected_severity, current_risk_score
 
-    def _validate_against_evidence(
-        self,
-        finding_id: str,
-        finding: Finding
-    ) -> bool:
+    def _validate_against_evidence(self, finding_id: str, finding: Finding) -> bool:
         """Validate finding against actual evidence to detect false positives.
 
         Checks if finding contradicts explicit evidence about service state.
@@ -306,6 +296,116 @@ class FindingsNormalizer:
         """
         if not self.evidence:
             return True  # No evidence to validate against
+
+        # WAF: Applicability gating (avoid false positives when there is no in-scope surface)
+        # Evidence keys come from BaseSkill.analyze(), using json_file.stem.
+        if finding_id in {
+            "WAF-001",
+            "WAF-002",
+            "WAF-003",
+            "WAF-004",
+            "WAF-005",
+            "WAF-006",
+            "WAF-007",
+            "WAF-008",
+            "WAF-009",
+            "WAF-010",
+            "WAF-011",
+            "WAF-012",
+            "WAF-013",
+            "WAF-014",
+            "WAF-015",
+            "WAF-016",
+        }:
+            albs = self.evidence.get("alb-waf-associations", None)
+            dists = self.evidence.get("cloudfront-distributions", None)
+            web_acls = self.evidence.get("wafv2-web-acls", None)
+            ip_sets = self.evidence.get("wafv2-ip-sets", None)
+            api_entrypoints = self.evidence.get("api-entrypoints-waf-associations", None)
+            coll_status = self.evidence.get("waf-collection-status", None)
+
+            # If collection status indicates failures, treat coverage/config findings as unverifiable.
+            # Allow ONLY WAF-013 to surface the evidence-quality gap.
+            if isinstance(coll_status, dict):
+                has_failure = False
+                try:
+                    if (coll_status.get("cloudfront") or {}).get("ok") is False:
+                        has_failure = True
+                    if ((coll_status.get("wafv2") or {}).get("CLOUDFRONT") or {}).get(
+                        "ok"
+                    ) is False:
+                        has_failure = True
+                    for _, r in (
+                        ((coll_status.get("wafv2") or {}).get("REGIONAL") or {})
+                        .get("regions", {})
+                        .items()
+                    ):
+                        if isinstance(r, dict) and r.get("ok") is False:
+                            has_failure = True
+                            break
+                    for _, r in (coll_status.get("alb") or {}).get("regions", {}).items():
+                        if isinstance(r, dict) and r.get("ok") is False:
+                            has_failure = True
+                            break
+                    for _, r in (coll_status.get("api_entrypoints") or {}).items():
+                        if isinstance(r, dict) and r.get("ok") is False:
+                            has_failure = True
+                            break
+                    if (coll_status.get("waf_classic") or {}).get("ok") is False:
+                        has_failure = True
+                except Exception:
+                    # If status parsing fails, don't hard-reject.
+                    has_failure = False
+
+                if has_failure and finding_id != "WAF-013":
+                    logger.warning(
+                        f"Rejected {finding_id} - WAF collection status indicates failures; only WAF-013 is valid."
+                    )
+                    return False
+
+                if (not has_failure) and finding_id == "WAF-013":
+                    logger.warning(
+                        f"Rejected {finding_id} - No collection failures detected in waf-collection-status."
+                    )
+                    return False
+
+            # WAF-001 only makes sense if we detected at least one internet-facing ALB in-scope.
+            if finding_id == "WAF-001" and isinstance(albs, list) and len(albs) == 0:
+                logger.warning(
+                    f"Rejected {finding_id} - No internet-facing ALBs detected (alb-waf-associations is empty)."
+                )
+                return False
+
+            # WAF-002 only makes sense if we detected at least one CloudFront distribution in-scope.
+            if finding_id == "WAF-002" and isinstance(dists, list) and len(dists) == 0:
+                logger.warning(
+                    f"Rejected {finding_id} - No CloudFront distributions detected (cloudfront-distributions is empty)."
+                )
+                return False
+
+            # WAF-003..WAF-008 relate to Web ACL configuration; if we have no Web ACLs,
+            # these checks are N/A (coverage should be reported via WAF-001/WAF-002 only).
+            if finding_id in {"WAF-003", "WAF-004", "WAF-005", "WAF-006", "WAF-007", "WAF-008"}:
+                if isinstance(web_acls, list) and len(web_acls) == 0:
+                    logger.warning(
+                        f"Rejected {finding_id} - No WAFv2 Web ACLs detected (wafv2-web-acls is empty)."
+                    )
+                    return False
+
+            # WAF-009 only makes sense if IP sets exist.
+            if finding_id == "WAF-009" and isinstance(ip_sets, list) and len(ip_sets) == 0:
+                logger.warning(
+                    f"Rejected {finding_id} - No WAFv2 IP sets detected (wafv2-ip-sets is empty)."
+                )
+                return False
+
+            # WAF-014..WAF-016 only make sense if we detected any WAF-supported API entry points.
+            if finding_id in {"WAF-014", "WAF-015", "WAF-016"}:
+                if isinstance(api_entrypoints, list) and len(api_entrypoints) == 0:
+                    logger.warning(
+                        f"Rejected {finding_id} - No API entry points detected (api-entrypoints-waf-associations is empty)."
+                    )
+                    return False
 
         # Security Hub false positive detection
         if finding_id == "HRD-002":
@@ -377,7 +477,9 @@ class FindingsNormalizer:
         # IAM: Inactive users
         if finding_id == "IAM-003":
             users = self.evidence.get("users", [])
-            inactive = [u for u in users if not u.get("PasswordLastUsed") and not u.get("AccessKeys")]
+            inactive = [
+                u for u in users if not u.get("PasswordLastUsed") and not u.get("AccessKeys")
+            ]
             if len(inactive) == 0:
                 logger.warning(
                     f"Rejected {finding_id} - No inactive users found. "
@@ -388,6 +490,7 @@ class FindingsNormalizer:
         # IAM: Old access keys (> 90 days)
         if finding_id == "IAM-007":
             from datetime import datetime, timedelta
+
             users = self.evidence.get("users", [])
             old_keys = []
             for user in users:
@@ -457,8 +560,8 @@ class FindingsNormalizer:
 
                 if strategy == "keep_specific":
                     # Keep the more specific finding (higher ID number = more detailed)
-                    id1_num = int(id1.split('-')[1])
-                    id2_num = int(id2.split('-')[1])
+                    id1_num = int(id1.split("-")[1])
+                    id2_num = int(id2.split("-")[1])
                     to_remove_id = id1 if id1_num < id2_num else id2
                     kept_id = id2 if to_remove_id == id1 else id1
                     logger.info(
@@ -506,10 +609,10 @@ class FindingsNormalizer:
             >>> summary.overall_risk_score  # ≈ 7.0
         """
         total = len(findings)
-        critical = sum(1 for f in findings if f.severity == 'Critical')
-        high = sum(1 for f in findings if f.severity == 'High')
-        medium = sum(1 for f in findings if f.severity == 'Medium')
-        low = sum(1 for f in findings if f.severity == 'Low')
+        critical = sum(1 for f in findings if f.severity == "Critical")
+        high = sum(1 for f in findings if f.severity == "High")
+        medium = sum(1 for f in findings if f.severity == "Medium")
+        low = sum(1 for f in findings if f.severity == "Low")
 
         # Overall risk score = weighted average
         # Critical: 3x weight, High: 2x, Medium: 1x, Low: 0.5x
@@ -517,16 +620,13 @@ class FindingsNormalizer:
             overall_risk = 0.0
         else:
             weights = {
-                'Critical': 3.0,
-                'High': 2.0,
-                'Medium': 1.0,
-                'Low': 0.5,
+                "Critical": 3.0,
+                "High": 2.0,
+                "Medium": 1.0,
+                "Low": 0.5,
             }
 
-            weighted_sum = sum(
-                f.risk_score * weights[f.severity]
-                for f in findings
-            )
+            weighted_sum = sum(f.risk_score * weights[f.severity] for f in findings)
             total_weight = sum(weights[f.severity] for f in findings)
 
             # Round to 1 decimal place
@@ -538,7 +638,7 @@ class FindingsNormalizer:
             high=high,
             medium=medium,
             low=low,
-            overall_risk_score=overall_risk
+            overall_risk_score=overall_risk,
         )
 
 

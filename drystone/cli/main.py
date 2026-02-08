@@ -40,7 +40,7 @@ def cli() -> None:
 @click.option(
     "--skills",
     multiple=True,
-    type=click.Choice(["iam", "exposure", "network", "vulns", "alerting", "hardening"]),
+    type=click.Choice(["iam", "exposure", "network", "vulns", "alerting", "hardening", "secretsmanager", "waf"]),
     help="Skills to execute (can specify multiple times)",
 )
 @click.option(
@@ -90,30 +90,38 @@ def audit(
             except Exception as e:
                 click.echo(f"\n❌ Error during wizard: {e}")
                 import traceback
+
                 traceback.print_exc()
                 sys.exit(1)
         elif has_cli_args:
             # For now, CLI args only work with a saved config
             config = load_last_config()
             if not config:
-                click.echo("❌ No saved configuration found. Please run 'drystone audit' first to create one.")
+                click.echo(
+                    "❌ No saved configuration found. Please run 'drystone audit' first to create one."
+                )
                 sys.exit(1)
             click.echo("✅ Using saved configuration with CLI overrides\n")
             # Override config with CLI args
-            if client: config.client_name = client
-            if region: config.aws_region = region
-            if skills: config.skills = list(skills)
-            if formats: config.output_formats = list(formats)
-            if min_severity: config.min_severity = min_severity
+            if client:
+                config.client_name = client
+            if region:
+                config.aws_region = region
+            if skills:
+                config.skills = list(skills)
+            if formats:
+                config.output_formats = list(formats)
+            if min_severity:
+                config.min_severity = min_severity
 
-        else: # non-interactive and no other args
+        else:  # non-interactive and no other args
             # No interactive mode and no CLI args - try last config
             config = load_last_config()
             if not config:
                 click.echo("❌ No saved configuration found. Please run: drystone audit")
                 sys.exit(1)
             click.echo("✅ Using saved configuration\n")
-    
+
     # After config is loaded or created, update min_severity if passed via CLI
     # This ensures CLI flag takes precedence
     if min_severity and min_severity != "low":
@@ -125,6 +133,7 @@ def audit(
     except Exception as e:
         click.echo(f"\n❌ Error displaying summary: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
@@ -135,6 +144,7 @@ def audit(
     except Exception as e:
         click.echo(f"\n❌ Error saving configuration: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
@@ -147,6 +157,7 @@ def audit(
     except Exception as e:
         click.echo(f"\n❌ Error validating credentials: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
@@ -171,6 +182,8 @@ def audit(
         "vulns": ("drystone.skills.vulns", "VulnsSkill"),
         "alerting": ("drystone.skills.alerting", "AlertingSkill"),
         "hardening": ("drystone.skills.hardening", "HardeningSkill"),
+        "secretsmanager": ("drystone.skills.secretsmanager", "SecretsManagerSkill"),
+        "waf": ("drystone.skills.waf", "WAFSkill"),
     }
 
     skill_instances = {}
@@ -204,6 +217,7 @@ def audit(
         except Exception as e:
             click.echo(f"   ❌ Error collecting {skill_name}: {e}")
             import traceback
+
             traceback.print_exc()
 
     # === PHASE 3: AGENT ANALYSIS ===
@@ -220,19 +234,21 @@ def audit(
     bedrock_session_token = None
 
     if config.ai_provider == "bedrock":
-        bedrock_access_key_id, bedrock_secret_access_key, bedrock_session_token = config.get_bedrock_credentials()
+        bedrock_access_key_id, bedrock_secret_access_key, bedrock_session_token = (
+            config.get_bedrock_credentials()
+        )
 
     provider_config = {
-        'type': config.ai_provider,
-        'api_key': config.ai_api_key,
+        "type": config.ai_provider,
+        "api_key": config.ai_api_key,
         # Audit credentials (for evidence collection context)
-        'aws_access_key_id': aws_access_key_id,
-        'aws_secret_access_key': aws_secret_access_key,
-        'aws_session_token': aws_session_token,
+        "aws_access_key_id": aws_access_key_id,
+        "aws_secret_access_key": aws_secret_access_key,
+        "aws_session_token": aws_session_token,
         # Bedrock credentials (only if using Bedrock provider)
-        'bedrock_access_key_id': bedrock_access_key_id,
-        'bedrock_secret_access_key': bedrock_secret_access_key,
-        'bedrock_session_token': bedrock_session_token,
+        "bedrock_access_key_id": bedrock_access_key_id,
+        "bedrock_secret_access_key": bedrock_secret_access_key,
+        "bedrock_session_token": bedrock_session_token,
     }
 
     agent = AgentClient(provider_config=provider_config)
@@ -251,10 +267,7 @@ def audit(
         # Submit all skills to executor
         for skill_name, skill in skill_instances.items():
             future = executor.submit(
-                lambda sn=skill_name, sk=skill: (
-                    sn,
-                    sk.analyze(session, agent)
-                )
+                lambda sn=skill_name, sk=skill: (sn, sk.analyze(session, agent))
             )
             futures[future] = skill_name
 
@@ -270,12 +283,14 @@ def audit(
                     all_findings[skill_name] = findings_data
 
                 # Show summary
-                summary = findings_data['summary']
+                summary = findings_data["summary"]
                 click.echo(f"   ✅ {skill_name.capitalize()}:")
-                click.echo(f"      Total: {summary['total_findings']} | "
-                          f"Critical: {summary['critical']} | "
-                          f"High: {summary['high']} | "
-                          f"Risk: {summary['overall_risk_score']:.1f}/10\n")
+                click.echo(
+                    f"      Total: {summary['total_findings']} | "
+                    f"Critical: {summary['critical']} | "
+                    f"High: {summary['high']} | "
+                    f"Risk: {summary['overall_risk_score']:.1f}/10\n"
+                )
 
             except Exception as e:
                 click.echo(f"   ❌ Analysis error for {skill_name}: {e}\n")
@@ -330,7 +345,7 @@ def version() -> None:
 @click.argument("skill_name", required=False)
 def skill(skill_name: str = None) -> None:
     """Manage security skills."""
-    available_skills = ["iam", "exposure", "network", "vulns", "alerting", "hardening"]
+    available_skills = ["iam", "exposure", "network", "vulns", "alerting", "hardening", "waf"]
 
     if not skill_name:
         click.echo("Available Skills:")

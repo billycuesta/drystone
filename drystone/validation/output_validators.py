@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 class SkillValidator(Protocol):
     """Protocol for skill-specific validators."""
+
     def __call__(self, findings: SkillFindings) -> bool:
         """
         Validate and reconcile findings structure.
@@ -52,17 +53,17 @@ def _reconcile_summary(findings: SkillFindings, skill_name: str) -> None:
         findings.summary.total_findings = actual_count
 
     # Reconcile severity breakdown
-    critical_count = sum(1 for f in findings.findings if f.severity == 'Critical')
-    high_count = sum(1 for f in findings.findings if f.severity == 'High')
-    medium_count = sum(1 for f in findings.findings if f.severity == 'Medium')
-    low_count = sum(1 for f in findings.findings if f.severity == 'Low')
+    critical_count = sum(1 for f in findings.findings if f.severity == "Critical")
+    high_count = sum(1 for f in findings.findings if f.severity == "High")
+    medium_count = sum(1 for f in findings.findings if f.severity == "Medium")
+    low_count = sum(1 for f in findings.findings if f.severity == "Low")
 
     severity_total = critical_count + high_count + medium_count + low_count
     estimated_severity_total = (
-        findings.summary.critical +
-        findings.summary.high +
-        findings.summary.medium +
-        findings.summary.low
+        findings.summary.critical
+        + findings.summary.high
+        + findings.summary.medium
+        + findings.summary.low
     )
 
     if severity_total != actual_count:
@@ -72,11 +73,12 @@ def _reconcile_summary(findings: SkillFindings, skill_name: str) -> None:
             f"Reconciling to actual."
         )
 
-    if (findings.summary.critical != critical_count or
-        findings.summary.high != high_count or
-        findings.summary.medium != medium_count or
-        findings.summary.low != low_count):
-
+    if (
+        findings.summary.critical != critical_count
+        or findings.summary.high != high_count
+        or findings.summary.medium != medium_count
+        or findings.summary.low != low_count
+    ):
         logger.warning(
             f"{skill_name}: Updating severity counts: "
             f"critical {findings.summary.critical}→{critical_count}, "
@@ -106,7 +108,7 @@ def validate_iam_findings(findings: SkillFindings) -> bool:
                 logger.error(f"IAM finding {finding.id} missing required fields")
                 return False
 
-            if finding.severity not in ['Critical', 'High', 'Medium', 'Low']:
+            if finding.severity not in ["Critical", "High", "Medium", "Low"]:
                 logger.error(f"IAM finding {finding.id} invalid severity: {finding.severity}")
                 return False
 
@@ -145,7 +147,7 @@ def validate_hardening_findings(findings: SkillFindings) -> bool:
                 logger.error(f"Hardening finding missing required fields")
                 return False
 
-            if finding.severity not in ['Critical', 'High', 'Medium', 'Low']:
+            if finding.severity not in ["Critical", "High", "Medium", "Low"]:
                 logger.error(f"Hardening finding {finding.id} invalid severity: {finding.severity}")
                 return False
 
@@ -176,7 +178,7 @@ def validate_vulns_findings(findings: SkillFindings) -> bool:
                 logger.error(f"Vulns finding missing required fields")
                 return False
 
-            if finding.severity not in ['Critical', 'High', 'Medium', 'Low']:
+            if finding.severity not in ["Critical", "High", "Medium", "Low"]:
                 logger.error(f"Vulns finding {finding.id} invalid severity: {finding.severity}")
                 return False
 
@@ -207,7 +209,7 @@ def validate_exposure_findings(findings: SkillFindings) -> bool:
                 logger.error(f"Exposure finding missing required fields")
                 return False
 
-            if finding.severity not in ['Critical', 'High', 'Medium', 'Low']:
+            if finding.severity not in ["Critical", "High", "Medium", "Low"]:
                 logger.error(f"Exposure finding {finding.id} invalid severity: {finding.severity}")
                 return False
 
@@ -238,7 +240,7 @@ def validate_network_findings(findings: SkillFindings) -> bool:
                 logger.error(f"Network finding missing required fields")
                 return False
 
-            if finding.severity not in ['Critical', 'High', 'Medium', 'Low']:
+            if finding.severity not in ["Critical", "High", "Medium", "Low"]:
                 logger.error(f"Network finding {finding.id} invalid severity: {finding.severity}")
                 return False
 
@@ -269,7 +271,7 @@ def validate_alerting_findings(findings: SkillFindings) -> bool:
                 logger.error(f"Alerting finding missing required fields")
                 return False
 
-            if finding.severity not in ['Critical', 'High', 'Medium', 'Low']:
+            if finding.severity not in ["Critical", "High", "Medium", "Low"]:
                 logger.error(f"Alerting finding {finding.id} invalid severity: {finding.severity}")
                 return False
 
@@ -284,14 +286,58 @@ def validate_alerting_findings(findings: SkillFindings) -> bool:
         return False
 
 
+def validate_waf_findings(findings: SkillFindings) -> bool:
+    """Validate WAF findings and reconcile summary.
+
+    Notes:
+    - WAF findings may not have CIS references (cis_reference can be null).
+    - Count/summary mismatches are reconciled, not rejected.
+    """
+    try:
+        if not findings.summary:
+            logger.error("WAF validation failed: missing summary")
+            return False
+
+        if findings.findings is None:
+            logger.error("WAF validation failed: findings array is missing")
+            return False
+
+        for finding in findings.findings:
+            if (
+                not finding.id
+                or not finding.severity
+                or not finding.title
+                or not finding.description
+            ):
+                logger.error("WAF finding missing required fields")
+                return False
+
+            if finding.severity not in ["Critical", "High", "Medium", "Low"]:
+                logger.error(f"WAF finding {finding.id} invalid severity: {finding.severity}")
+                return False
+
+            if finding.risk_score is None or not (0.0 <= float(finding.risk_score) <= 10.0):
+                logger.error(f"WAF finding {finding.id} invalid risk_score: {finding.risk_score}")
+                return False
+
+        _reconcile_summary(findings, "WAF")
+        logger.info(f"WAF validation passed: {findings.summary.total_findings} findings")
+        return True
+
+    except Exception as e:
+        logger.error(f"WAF validation error: {e}", exc_info=True)
+        return False
+
+
 # Registry of validators by skill
 SKILL_VALIDATORS: dict[str, SkillValidator] = {
-    'iam': validate_iam_findings,
-    'hardening': validate_hardening_findings,
-    'vulns': validate_vulns_findings,
-    'exposure': validate_exposure_findings,
-    'network': validate_network_findings,
-    'alerting': validate_alerting_findings,
+    "iam": validate_iam_findings,
+    "hardening": validate_hardening_findings,
+    "vulns": validate_vulns_findings,
+    "exposure": validate_exposure_findings,
+    "network": validate_network_findings,
+    "alerting": validate_alerting_findings,
+    "waf": validate_waf_findings,
 }
 
 

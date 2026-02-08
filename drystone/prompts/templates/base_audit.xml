@@ -101,6 +101,14 @@ Extends with skill-specific fields.
     </constraint_5>
   </constraints>
 
+  <chunking>
+    {CHUNKING_INSTRUCTIONS}
+  </chunking>
+
+  <skill_addendum>
+    {SKILL_ADDENDUM}
+  </skill_addendum>
+
   <severity_guide>
     {SEVERITY_GUIDE}
   </severity_guide>

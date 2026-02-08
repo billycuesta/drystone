@@ -19,44 +19,87 @@ from drystone.models.findings import SkillFindings
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 # Patterns that indicate RETRYABLE errors (transient/temporary)
 RETRYABLE_ERROR_PATTERNS = [
     # Network and connection errors
-    'network', 'connection', 'timeout', 'connection reset',
-    'connection refused', 'connection timeout',
+    "network",
+    "connection",
+    "timeout",
+    "connection reset",
+    "connection refused",
+    "connection timeout",
     # Rate limiting
-    'rate limit', '429', 'too many requests', 'rate_limit_error',
+    "rate limit",
+    "429",
+    "too many requests",
+    "rate_limit_error",
     # Server errors (5xx)
-    'server error', '5xx', '500', '502', '503', '504',
-    'internal server error', 'service unavailable', 'bad gateway',
-    'temporarily unavailable', 'overloaded',
+    "server error",
+    "5xx",
+    "500",
+    "502",
+    "503",
+    "504",
+    "internal server error",
+    "service unavailable",
+    "bad gateway",
+    "temporarily unavailable",
+    "overloaded",
     # Gemini API specific
-    'mcp server', 'model unavailable', 'api error',
-    'service temporarily unavailable', 'terminated',
+    "mcp server",
+    "model unavailable",
+    "api error",
+    "service temporarily unavailable",
+    "terminated",
     # Billing (retryable - wait for credits)
-    'billing_error', 'credit balance', 'insufficient credits',
-    'usage limit reached', 'quota exceeded',
+    "billing_error",
+    "credit balance",
+    "insufficient credits",
+    "usage limit reached",
+    "quota exceeded",
     # Output validation (retryable - agent can fix)
-    'output validation failed', 'validation failed',
+    "output validation failed",
+    "validation failed",
+    # Truncation / partial output (common with CLI / long responses)
+    "truncated",
+    "doesn't end with",
+    "unterminated string",
 ]
 
 # Patterns that indicate NON-RETRYABLE errors (permanent)
 NON_RETRYABLE_ERROR_PATTERNS = [
     # Authentication (bad API key won't fix itself)
-    'authentication', 'invalid api key', 'invalid_api_key', '401',
-    'authentication_error', 'unauthorized',
+    "authentication",
+    "invalid api key",
+    "invalid_api_key",
+    "401",
+    "authentication_error",
+    "unauthorized",
     # Permission (access won't be granted)
-    'permission denied', 'forbidden', '403', 'permission_error',
+    "permission denied",
+    "forbidden",
+    "403",
+    "permission_error",
     # Bad request (malformed won't fix itself)
-    'invalid request', 'malformed', 'invalid_request', '400',
+    "invalid request",
+    "malformed",
+    "invalid_request",
+    "400",
     # Invalid target URL
-    'invalid url', 'invalid target', 'malformed url',
+    "invalid url",
+    "invalid target",
+    "malformed url",
     # Execution limits
-    'max turns', 'maximum turns', 'execution limit',
+    "max turns",
+    "maximum turns",
+    "execution limit",
     # Configuration (missing files need manual fix)
-    'enoent', 'no such file', 'cli not installed', 'not found',
+    "enoent",
+    "no such file",
+    "cli not installed",
+    "not found",
 ]
 
 
@@ -110,13 +153,13 @@ def get_retry_delay(error: Exception, attempt: int) -> float:
     message = str(error).lower()
 
     # Rate limiting gets longer base delay
-    if 'rate limit' in message or '429' in message:
+    if "rate limit" in message or "429" in message:
         delay = min(30 + attempt * 10, 120)  # 30s, 40s, 50s, max 2min
         logger.info(f"Rate limit detected: retrying in {delay}s")
         return delay
 
     # Exponential backoff with jitter for other retryable errors
-    base_delay = 2 ** attempt  # 2s, 4s, 8s, 16s...
+    base_delay = 2**attempt  # 2s, 4s, 8s, 16s...
     jitter = base_delay * 0.1  # 10% jitter
     delay = min(base_delay + jitter, 30)  # Max 30s
 
@@ -127,7 +170,7 @@ def get_retry_delay(error: Exception, attempt: int) -> float:
 def retry_with_backoff(
     max_retries: int = 3,
     skill_name: str = "unknown",
-    validator: Optional[Callable[[Findings], bool]] = None
+    validator: Optional[Callable[[T], bool]] = None,
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """
     Decorator for retry with exponential backoff.
@@ -143,6 +186,7 @@ def retry_with_backoff(
     Returns:
         Callable: Decorated function with retry logic
     """
+
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @wraps(func)
         def wrapper(*args, **kwargs) -> T:
@@ -161,9 +205,7 @@ def retry_with_backoff(
                                 )
                                 continue
                             else:
-                                raise ValueError(
-                                    f"Validation failed after {max_retries} attempts"
-                                )
+                                raise ValueError(f"Validation failed after {max_retries} attempts")
 
                     # SUCCESS: Return result
                     logger.info(f"[{skill_name}] Analysis succeeded on attempt {attempt}")
@@ -178,8 +220,7 @@ def retry_with_backoff(
                     # Check if max retries exhausted
                     if attempt >= max_retries:
                         logger.error(
-                            f"[{skill_name}] Failed after {max_retries} attempts. "
-                            f"Last error: {e}"
+                            f"[{skill_name}] Failed after {max_retries} attempts. Last error: {e}"
                         )
                         raise
 
@@ -196,15 +237,13 @@ def retry_with_backoff(
             raise Exception(f"[{skill_name}] Unreachable state after {max_retries} attempts")
 
         return wrapper
+
     return decorator
 
 
 # Alternative: Non-decorator retry function (for when decorator not suitable)
 def analyze_with_retry(
-    analyze_func: Callable[..., SkillFindings],
-    skill_name: str,
-    max_retries: int = 3,
-    **kwargs
+    analyze_func: Callable[..., SkillFindings], skill_name: str, max_retries: int = 3, **kwargs
 ) -> SkillFindings:
     """
     Execute analyze function with retry logic.
@@ -231,14 +270,11 @@ def analyze_with_retry(
             if not validator(skill_name, findings):
                 if attempt < max_retries:
                     logger.warning(
-                        f"[{skill_name}] Validation failed, "
-                        f"retry {attempt}/{max_retries}"
+                        f"[{skill_name}] Validation failed, retry {attempt}/{max_retries}"
                     )
                     continue
                 else:
-                    raise ValueError(
-                        f"Validation failed after {max_retries} attempts"
-                    )
+                    raise ValueError(f"Validation failed after {max_retries} attempts")
 
             logger.info(f"[{skill_name}] Analysis succeeded on attempt {attempt}")
             return findings
@@ -249,10 +285,7 @@ def analyze_with_retry(
                 raise
 
             if attempt >= max_retries:
-                logger.error(
-                    f"[{skill_name}] Failed after {max_retries} attempts. "
-                    f"Last error: {e}"
-                )
+                logger.error(f"[{skill_name}] Failed after {max_retries} attempts. Last error: {e}")
                 raise
 
             delay = get_retry_delay(e, attempt)

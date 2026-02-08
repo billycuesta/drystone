@@ -59,10 +59,7 @@ class ReportGenerator:
             with open(findings_path) as f:
                 findings_data = json.load(f)
         except json.JSONDecodeError as e:
-            raise ValueError(
-                f"Invalid findings JSON: {e}\n"
-                f"File: {findings_path}"
-            )
+            raise ValueError(f"Invalid findings JSON: {e}\nFile: {findings_path}")
 
         # Post-process alerting skill to add architecture diagram
         if skill == "alerting":
@@ -71,6 +68,29 @@ class ReportGenerator:
             processor = AlertingPostProcessor(self.session)
             findings_data = processor.process(findings_data)
 
+            # Persist derived architecture context so reports and findings stay consistent.
+            try:
+                with open(findings_path, "w") as f:
+                    json.dump(findings_data, f, indent=2, default=str)
+            except Exception:
+                # Best-effort only; report generation should not fail due to persistence.
+                pass
+
+        # Post-process WAF skill to add protection flow diagram
+        if skill == "waf":
+            from drystone.skills.waf.post_processor import WAFPostProcessor
+
+            processor = WAFPostProcessor(self.session)
+            findings_data = processor.process(findings_data)
+
+            # Persist derived architecture context so reports and findings stay consistent.
+            try:
+                with open(findings_path, "w") as f:
+                    json.dump(findings_data, f, indent=2, default=str)
+            except Exception:
+                # Best-effort only; report generation should not fail due to persistence.
+                pass
+
         # Filter findings by severity
         filtered_findings_data = self._filter_findings_by_severity(findings_data)
 
@@ -78,14 +98,13 @@ class ReportGenerator:
         generated_reports = {}
 
         for format_name in formats:
-            if self.config.report_type == 'pci-dss' and format_name == 'markdown':
+            if self.config.report_type == "pci-dss" and format_name == "markdown":
                 formatter_class = PCIDSSFormatter
             elif format_name in self.FORMATTERS:
                 formatter_class = self.FORMATTERS[format_name]
             else:
                 raise ValueError(
-                    f"Unknown format: {format_name}\n"
-                    f"Available: {', '.join(self.FORMATTERS.keys())}"
+                    f"Unknown format: {format_name}\nAvailable: {', '.join(self.FORMATTERS.keys())}"
                 )
 
             try:
@@ -94,9 +113,7 @@ class ReportGenerator:
                 report_path = formatter.generate()
                 generated_reports[format_name] = report_path
             except Exception as e:
-                raise RuntimeError(
-                    f"Failed to generate {format_name} report: {e}"
-                )
+                raise RuntimeError(f"Failed to generate {format_name} report: {e}")
 
         return generated_reports
 
@@ -104,23 +121,22 @@ class ReportGenerator:
         """Filter findings based on the min_severity setting and recalculate summary."""
         min_severity = self.config.min_severity
         if not min_severity or min_severity == "low":
-            return findings_data # No filtering needed
+            return findings_data  # No filtering needed
 
         severity_levels = ["low", "medium", "high", "critical"]
         try:
             min_index = severity_levels.index(min_severity)
         except ValueError:
-            return findings_data # Invalid severity, do no filtering
+            return findings_data  # Invalid severity, do no filtering
 
         # Severities to include in the report
         allowed_severities = set(severity_levels[min_index:])
 
         original_findings = findings_data.get("findings", [])
-        
+
         # Filter the findings
         filtered_findings = [
-            f for f in original_findings 
-            if f.get("severity", "low").lower() in allowed_severities
+            f for f in original_findings if f.get("severity", "low").lower() in allowed_severities
         ]
 
         # Create a new data object with filtered findings
@@ -128,18 +144,33 @@ class ReportGenerator:
         new_data["findings"] = filtered_findings
 
         # Recalculate the summary
-        summary = {
+        summary: Dict[str, object] = {
             "total_findings": len(filtered_findings),
             "critical": sum(1 for f in filtered_findings if f.get("severity") == "Critical"),
             "high": sum(1 for f in filtered_findings if f.get("severity") == "High"),
             "medium": sum(1 for f in filtered_findings if f.get("severity") == "Medium"),
             "low": sum(1 for f in filtered_findings if f.get("severity") == "Low"),
         }
-        
-        # Recalculate risk score (average of filtered findings)
-        risk_scores = [f.get("risk_score", 0.0) for f in filtered_findings if f.get("risk_score") is not None]
-        summary["overall_risk_score"] = sum(risk_scores) / len(risk_scores) if risk_scores else 0.0
-        
+
+        # Recalculate overall risk score using the same weighted approach as FindingsNormalizer.
+        weights = {
+            "Critical": 3.0,
+            "High": 2.0,
+            "Medium": 1.0,
+            "Low": 0.5,
+        }
+        weighted_sum = 0.0
+        total_weight = 0.0
+        for f in filtered_findings:
+            sev = f.get("severity")
+            rs = f.get("risk_score")
+            if sev in weights and rs is not None:
+                weighted_sum += float(rs) * weights[sev]
+                total_weight += weights[sev]
+        summary["overall_risk_score"] = (
+            round(weighted_sum / total_weight, 1) if total_weight else 0.0
+        )
+
         new_data["summary"] = summary
-        
+
         return new_data

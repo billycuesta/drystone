@@ -7,6 +7,7 @@ Templates provide consistent structure for Claude prompts (Shannon pattern).
 
 from pathlib import Path
 import logging
+import re
 from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -28,7 +29,28 @@ def load_template(skill_name: str) -> str:
     skill_template = TEMPLATE_DIR / f"{skill_name.lower()}_audit.xml"
     if skill_template.exists():
         logger.debug(f"Loading {skill_name} template from {skill_template}")
-        return skill_template.read_text()
+        skill_text = skill_template.read_text()
+
+        # Support a lightweight "extends" mechanism used by some templates.
+        # If the skill template declares extends="base_audit.xml", we inject the
+        # inner XML of the skill template into {SKILL_ADDENDUM} in base_audit.xml.
+        if 'extends="base_audit.xml"' in skill_text:
+            base_template = TEMPLATE_DIR / "base_audit.xml"
+            if base_template.exists():
+                base_text = base_template.read_text()
+
+                # Strip XML prolog and outer <audit_task ...> wrapper from the skill template.
+                cleaned = re.sub(r"^\s*<\?xml[^>]*\?>\s*", "", skill_text).strip()
+                cleaned = re.sub(r"^\s*<audit_task[^>]*>", "", cleaned)
+                cleaned = re.sub(r"</audit_task>\s*$", "", cleaned)
+                addendum_inner = cleaned.strip()
+
+                if "{SKILL_ADDENDUM}" in base_text:
+                    return base_text.replace("{SKILL_ADDENDUM}", addendum_inner)
+
+                return base_text + "\n\n" + addendum_inner
+
+        return skill_text
 
     # Fallback to base template
     base_template = TEMPLATE_DIR / "base_audit.xml"

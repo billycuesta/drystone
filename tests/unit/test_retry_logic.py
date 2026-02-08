@@ -2,11 +2,7 @@
 
 import pytest
 from unittest.mock import Mock, patch
-from drystone.agent.retry import (
-    is_retryable_error,
-    get_retry_delay,
-    analyze_with_retry
-)
+from drystone.agent.retry import is_retryable_error, get_retry_delay, analyze_with_retry
 from drystone.models.findings import SkillFindings, FindingsSummary, Finding
 
 
@@ -97,13 +93,7 @@ class TestOutputValidation:
         """Valid IAM findings should pass validation."""
         from drystone.validation.output_validators import validate_iam_findings
 
-        summary = FindingsSummary(
-            total_findings=1,
-            critical=1,
-            high=0,
-            medium=0,
-            low=0
-        )
+        summary = FindingsSummary(total_findings=1, critical=1, high=0, medium=0, low=0)
         finding = Finding(
             id="IAM-001",
             severity="Critical",
@@ -111,14 +101,9 @@ class TestOutputValidation:
             title="Test",
             description="Test finding",
             remediation="Fix it",
-            cis_reference="1.5"
+            cis_reference="1.5",
         )
-        findings = SkillFindings(
-            skill="iam",
-            findings=[finding],
-            summary=summary,
-            evidence_count=1
-        )
+        findings = SkillFindings(skill="iam", findings=[finding], summary=summary, evidence_count=1)
 
         assert validate_iam_findings(findings) is True
 
@@ -131,7 +116,7 @@ class TestOutputValidation:
         pass
 
     def test_invalid_findings_count_mismatch(self):
-        """Findings with count mismatch should fail validation."""
+        """Summary count mismatch should be reconciled (not rejected)."""
         from drystone.validation.output_validators import validate_iam_findings
 
         summary = FindingsSummary(
@@ -139,7 +124,7 @@ class TestOutputValidation:
             critical=1,
             high=0,
             medium=0,
-            low=0
+            low=0,
         )
         finding = Finding(
             id="IAM-001",
@@ -148,28 +133,18 @@ class TestOutputValidation:
             title="Test",
             description="Test finding",
             remediation="Fix it",
-            cis_reference="1.5"
+            cis_reference="1.5",
         )
-        findings = SkillFindings(
-            skill="iam",
-            findings=[finding],
-            summary=summary,
-            evidence_count=1
-        )
+        findings = SkillFindings(skill="iam", findings=[finding], summary=summary, evidence_count=1)
 
-        assert validate_iam_findings(findings) is False
+        assert validate_iam_findings(findings) is True
+        assert findings.summary.total_findings == 1
 
     def test_invalid_findings_missing_cis_id(self):
         """Findings with missing CIS ID should fail validation."""
         from drystone.validation.output_validators import validate_iam_findings
 
-        summary = FindingsSummary(
-            total_findings=1,
-            critical=1,
-            high=0,
-            medium=0,
-            low=0
-        )
+        summary = FindingsSummary(total_findings=1, critical=1, high=0, medium=0, low=0)
         finding = Finding(
             id="IAM-001",
             severity="Critical",
@@ -177,28 +152,17 @@ class TestOutputValidation:
             title="Test",
             description="Test finding",
             remediation="Fix it",
-            cis_reference=None  # Missing CIS reference
+            cis_reference=None,  # Missing CIS reference
         )
-        findings = SkillFindings(
-            skill="iam",
-            findings=[finding],
-            summary=summary,
-            evidence_count=1
-        )
+        findings = SkillFindings(skill="iam", findings=[finding], summary=summary, evidence_count=1)
 
         assert validate_iam_findings(findings) is False
 
     def test_invalid_findings_invalid_severity(self):
-        """Findings with invalid severity should fail validation."""
+        """Severity breakdown mismatch should be reconciled (not rejected)."""
         from drystone.validation.output_validators import validate_iam_findings
 
-        summary = FindingsSummary(
-            total_findings=1,
-            critical=0,
-            high=0,
-            medium=0,
-            low=0
-        )
+        summary = FindingsSummary(total_findings=1, critical=0, high=0, medium=0, low=0)
         # Can't create Finding with invalid severity due to Pydantic validation
         # So we test with valid Finding but mismatched severity count
         finding = Finding(
@@ -208,16 +172,17 @@ class TestOutputValidation:
             title="Test",
             description="Test finding",
             remediation="Fix it",
-            cis_reference="1.5"
+            cis_reference="1.5",
         )
         findings = SkillFindings(
             skill="iam",
             findings=[finding],
             summary=summary,  # Summary says 0 critical but finding IS critical
-            evidence_count=1
+            evidence_count=1,
         )
 
-        assert validate_iam_findings(findings) is False
+        assert validate_iam_findings(findings) is True
+        assert findings.summary.critical == 1
 
 
 class TestRetryWithBackoff:
@@ -248,7 +213,7 @@ class TestRetryWithBackoff:
                 raise Exception("Connection timeout")
             return "success"
 
-        with patch('time.sleep'):  # Mock sleep to avoid delays
+        with patch("time.sleep"):  # Mock sleep to avoid delays
             result = test_func()
 
         assert result == "success"
@@ -284,7 +249,7 @@ class TestRetryWithBackoff:
             call_count += 1
             raise Exception("Connection timeout")
 
-        with patch('time.sleep'):  # Mock sleep to avoid delays
+        with patch("time.sleep"):  # Mock sleep to avoid delays
             with pytest.raises(Exception):
                 test_func()
 

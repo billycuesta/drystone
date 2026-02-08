@@ -50,7 +50,11 @@ class AgentClient:
         7.5
     """
 
-    def __init__(self, provider_config: Optional[Dict[str, str]] = None, crash_safe_logger: Optional[CrashSafeLogger] = None):
+    def __init__(
+        self,
+        provider_config: Optional[Dict[str, str]] = None,
+        crash_safe_logger: Optional[CrashSafeLogger] = None,
+    ):
         """Initialize agent client.
 
         Args:
@@ -65,9 +69,9 @@ class AgentClient:
             AgentError: If configuration invalid or backend unavailable
         """
         self.provider_config = provider_config or {}
-        self.config = self.provider_config # Store config for chunker
-        self.provider_type = self.provider_config.get('type', 'claude-cli')
-        self.api_key = self.provider_config.get('api_key')
+        self.config = self.provider_config  # Store config for chunker
+        self.provider_type = self.provider_config.get("type", "claude-cli")
+        self.api_key = self.provider_config.get("api_key")
         self.client = None
         self.use_cli = False
         self.crash_safe_logger = crash_safe_logger
@@ -76,8 +80,7 @@ class AgentClient:
         valid_types = {"claude-api", "claude-cli"}
         if self.provider_type not in valid_types:
             raise AgentError(
-                f"Provider type '{self.provider_type}' not supported. "
-                f"Valid: {valid_types}"
+                f"Provider type '{self.provider_type}' not supported. Valid: {valid_types}"
             )
 
         # Configure Claude (CLI or API)
@@ -129,7 +132,6 @@ class AgentClient:
 
         return claude_path
 
-
     def get_display_name(self) -> str:
         """Get user-friendly display name for the configured AI provider.
 
@@ -140,9 +142,9 @@ class AgentClient:
         """
         if self.provider_type == "claude-api":
             # Use self.model (e.g., "claude-opus-4-5-20251101")
-            if hasattr(self, 'model') and 'opus' in self.model:
+            if hasattr(self, "model") and "opus" in self.model:
                 return "Claude API (Opus 4.5)"
-            elif hasattr(self, 'model') and 'sonnet' in self.model:
+            elif hasattr(self, "model") and "sonnet" in self.model:
                 return "Claude API (Sonnet)"
             else:
                 return "Claude API"
@@ -158,6 +160,8 @@ class AgentClient:
         skill_name: str,
         evidence: Dict[str, Any],
         checklist: Dict[str, Any],
+        *,
+        chunking: Optional[Dict[str, Any]] = None,
     ) -> SkillFindings:
         """Analyze AWS evidence against security checklist.
 
@@ -191,7 +195,12 @@ class AgentClient:
         system_prompt = self._get_system_prompt()
         try:
             # Try structured template approach (Shannon pattern)
-            user_prompt = self._build_analysis_prompt_from_template(skill_name, evidence, checklist)
+            user_prompt = self._build_analysis_prompt_from_template(
+                skill_name,
+                evidence,
+                checklist,
+                chunking=chunking,
+            )
         except Exception as e:
             # Fallback to legacy prompt if templates fail
             logger.warning(f"Template prompt failed for {skill_name}, using legacy: {e}")
@@ -215,24 +224,38 @@ class AgentClient:
             findings = SkillFindings(**findings_data)
         except Exception as e:
             if self.crash_safe_logger:
-                self.crash_safe_logger.log_validation_error(f"Pydantic validation failed: {e}", {"skill": skill_name})
+                self.crash_safe_logger.log_validation_error(
+                    f"Pydantic validation failed: {e}", {"skill": skill_name}
+                )
             raise AgentError(f"Response validation failed: {e}")
 
         # 5. NEW: Validate output format (post-agent check)
-        logger.debug(f"Validating {skill_name} findings: {findings.summary.total_findings} findings, severity breakdown: critical={findings.summary.critical}, high={findings.summary.high}, medium={findings.summary.medium}, low={findings.summary.low}")
+        logger.debug(
+            f"Validating {skill_name} findings: {findings.summary.total_findings} findings, severity breakdown: critical={findings.summary.critical}, high={findings.summary.high}, medium={findings.summary.medium}, low={findings.summary.low}"
+        )
 
         if not validate_findings(skill_name, findings):
-            logger.error(f"Validation failed for {skill_name}: summary={findings.summary}, findings count={len(findings.findings)}")
+            logger.error(
+                f"Validation failed for {skill_name}: summary={findings.summary}, findings count={len(findings.findings)}"
+            )
             if self.crash_safe_logger:
                 self.crash_safe_logger.log_validation_error(
                     f"Output validation failed for {skill_name}: findings structure invalid",
-                    {"skill": skill_name, "summary": findings.summary.dict(), "findings_count": len(findings.findings)}
+                    {
+                        "skill": skill_name,
+                        "summary": findings.summary.dict(),
+                        "findings_count": len(findings.findings),
+                    },
                 )
-            raise AgentError(f"Output validation failed for {skill_name}: findings structure invalid")
+            raise AgentError(
+                f"Output validation failed for {skill_name}: findings structure invalid"
+            )
 
         # Log skill analysis completion
         if self.crash_safe_logger:
-            self.crash_safe_logger.log_skill_complete(len(findings.findings), findings.summary.overall_risk_score)
+            self.crash_safe_logger.log_skill_complete(
+                len(findings.findings), findings.summary.overall_risk_score
+            )
 
         return findings
 
@@ -241,7 +264,7 @@ class AgentClient:
         skill_name: str,
         evidence: Dict[str, Any],
         checklist: Dict[str, Any],
-        chunker: EvidenceChunker = None
+        chunker: EvidenceChunker = None,
     ) -> "SkillFindings":
         """Analyze evidence with automatic chunking for large datasets.
 
@@ -258,9 +281,9 @@ class AgentClient:
         if chunker is None:
             # Adjust limits per provider
             # NOTE: These limits control when CHUNKING activates, not LLM context limits
-            provider_type = self.config.get('type', 'claude-cli')
+            provider_type = self.config.get("type", "claude-cli")
 
-            if provider_type == 'claude-cli':
+            if provider_type == "claude-cli":
                 max_tokens = 20000  # CLI has OS argument limit, be conservative
             else:
                 max_tokens = 40000  # API has better limits
@@ -279,14 +302,32 @@ class AgentClient:
         chunks = list(chunker.chunk_evidence(evidence))
         print(f"  📦 Processing {len(chunks)} chunks...")
 
-        for chunk in chunks:
-            print(f"     Chunk {chunk.chunk_id}/{chunk.total_chunks}: {chunk.metadata.get('source_file', 'unknown')}")
+        for i, chunk in enumerate(chunks):
+            source_file = chunk.metadata.get("source_file", "unknown")
+            extra = ""
+            if chunk.metadata.get("resource_range"):
+                extra = f" ({chunk.metadata.get('resource_range')})"
+            print(f"     Chunk {i + 1}/{len(chunks)}: {source_file}{extra}")
 
-            # Analyze this chunk
-            chunk_findings = self.analyze_evidence(
-                skill_name=skill_name,
-                evidence=chunk.evidence,  # Subset of evidence
-                checklist=checklist        # Full checklist every time
+            # Analyze this chunk (chunk-aware prompt + retry)
+            def _analyze_chunk(**_kwargs):
+                return self.analyze_evidence(
+                    skill_name=skill_name,
+                    evidence=chunk.evidence,  # Subset of evidence
+                    checklist=checklist,  # Full checklist every time
+                    chunking={
+                        "enabled": True,
+                        "index": i + 1,
+                        "total": len(chunks),
+                        "source_file": source_file,
+                        "resource_range": chunk.metadata.get("resource_range"),
+                    },
+                )
+
+            chunk_findings = analyze_with_retry(
+                _analyze_chunk,
+                skill_name,
+                max_retries=3,
             )
 
             # Aggregate findings
@@ -294,10 +335,11 @@ class AgentClient:
 
         # Return aggregated result
         final_findings = aggregator.aggregate()
-        print(f"  ✅ Aggregated {final_findings.summary.total_findings} findings from {len(chunks)} chunks")
+        print(
+            f"  ✅ Aggregated {final_findings.summary.total_findings} findings from {len(chunks)} chunks"
+        )
 
         return final_findings
-
 
     def _call_claude_cli(self, prompt: str) -> str:
         """Call Claude via CLI subprocess with ARG_MAX protection.
@@ -319,7 +361,7 @@ class AgentClient:
             AgentError: If subprocess fails
         """
         # Calculate prompt size in bytes
-        prompt_bytes = len(prompt.encode('utf-8'))
+        prompt_bytes = len(prompt.encode("utf-8"))
         ARG_MAX_SAFE_LIMIT = 100_000  # 100KB (conservative, allows headroom)
 
         if prompt_bytes >= ARG_MAX_SAFE_LIMIT:
@@ -353,7 +395,13 @@ class AgentClient:
             )
 
             if result.returncode != 0:
-                error_msg = result.stderr if result.stderr else result.stdout if result.stdout else "(no error message)"
+                error_msg = (
+                    result.stderr
+                    if result.stderr
+                    else result.stdout
+                    if result.stdout
+                    else "(no error message)"
+                )
                 raise AgentError(
                     f"Claude CLI error (exit code {result.returncode}): {error_msg[:500]}\n"
                     f"Make sure Claude Code CLI is installed: npm install -g @anthropic-ai/claude-code"
@@ -391,11 +439,7 @@ class AgentClient:
         try:
             # Write full prompt to temp file in scratchpad
             with tempfile.NamedTemporaryFile(
-                mode='w',
-                suffix='.txt',
-                prefix='claude_prompt_',
-                delete=False,
-                encoding='utf-8'
+                mode="w", suffix=".txt", prefix="claude_prompt_", delete=False, encoding="utf-8"
             ) as f:
                 f.write(prompt)
                 temp_file = f.name
@@ -425,7 +469,13 @@ CRITICAL OUTPUT REQUIREMENTS:
             )
 
             if result.returncode != 0:
-                error_msg = result.stderr if result.stderr else result.stdout if result.stdout else "(no error message)"
+                error_msg = (
+                    result.stderr
+                    if result.stderr
+                    else result.stdout
+                    if result.stdout
+                    else "(no error message)"
+                )
                 raise AgentError(
                     f"Claude CLI error (exit code {result.returncode}): {error_msg[:500]}\n"
                     f"Make sure Claude Code CLI is installed: npm install -g @anthropic-ai/claude-code"
@@ -434,7 +484,9 @@ CRITICAL OUTPUT REQUIREMENTS:
             return result.stdout
 
         except subprocess.TimeoutExpired:
-            raise AgentError("Claude CLI call timed out (>300s). Large prompt may exceed time limit.")
+            raise AgentError(
+                "Claude CLI call timed out (>300s). Large prompt may exceed time limit."
+            )
         except Exception as e:
             raise AgentError(f"Claude CLI file-based call failed: {e}")
         finally:
@@ -636,6 +688,7 @@ These examples show how to correctly interpret service state:
             "vulns": "VULN",
             "hardening": "HRD",
             "alerting": "ALR",
+            "waf": "WAF",
         }
         return skill_codes.get(skill_name.lower(), skill_name.upper()[:3])
 
@@ -659,15 +712,17 @@ These examples show how to correctly interpret service state:
 
         # Evidence count
         evidence_count = sum(
-            len(v) if isinstance(v, list) else 1
-            for v in evidence.values()
-            if v is not None
+            len(v) if isinstance(v, list) else 1 for v in evidence.values() if v is not None
         )
 
         # Calculate dynamic findings limits (reduce variance)
-        total_checklist_items = len(checklist.get('items', []))
+        total_checklist_items = len(checklist.get("items", []))
         min_findings = max(8, int(total_checklist_items * 0.6))  # At least 60% of items
         max_findings = int(total_checklist_items * 0.8)  # Max 80% of items
+
+        # WAF can be legitimately N/A if there are no in-scope entry points.
+        if skill_name.lower() == "waf":
+            min_findings = 0
 
         # Generate severity guide from checklist
         severity_guide = self._generate_severity_guide(checklist)
@@ -820,6 +875,8 @@ Missing CloudWatch alarm:
         skill_name: str,
         evidence: Dict[str, Any],
         checklist: Dict[str, Any],
+        *,
+        chunking: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Build analysis prompt using structured XML templates (Shannon pattern).
 
@@ -836,9 +893,19 @@ Missing CloudWatch alarm:
         try:
             # Get skill code and calibration values
             skill_code = self._get_skill_code(skill_name)
-            total_checklist_items = len(checklist.get('items', []))
+            total_checklist_items = len(checklist.get("items", []))
             min_findings = max(8, int(total_checklist_items * 0.6))
             max_findings = int(total_checklist_items * 0.8)
+
+            # WAF can be legitimately N/A if there are no in-scope entry points.
+            if skill_name.lower() == "waf":
+                min_findings = 0
+
+            # Chunking mode: analyze only a subset of evidence.
+            # Never force a minimum findings count per chunk.
+            if chunking and chunking.get("enabled") is True:
+                min_findings = 0
+                max_findings = min(6, max_findings) if max_findings else 6
 
             # Get region metadata
             audit_region = evidence.get("_audit_metadata", {}).get("_region", "unknown")
@@ -847,7 +914,7 @@ Missing CloudWatch alarm:
             # Evidence count
             evidence_count = sum(
                 len(v) if isinstance(v, list) else 1
-                for v in evidence.values()
+                for k, v in evidence.items()
                 if v is not None and not str(k).startswith("_")
             )
 
@@ -855,6 +922,21 @@ Missing CloudWatch alarm:
             severity_guide = self._generate_severity_guide(checklist)
 
             # Context for template substitution
+            chunking_instructions = ""
+            if chunking and chunking.get("enabled") is True:
+                idx = chunking.get("index")
+                total = chunking.get("total")
+                src = chunking.get("source_file")
+                rr = chunking.get("resource_range")
+                chunking_instructions = (
+                    "CHUNKING MODE (IMPORTANT):\n"
+                    f"- You are analyzing ONLY a subset of evidence (chunk {idx}/{total}) from: {src}{(' ' + str(rr)) if rr else ''}.\n"
+                    "- Return ONLY findings directly supported by evidence in THIS chunk.\n"
+                    "- It is VALID to return 0 findings for a chunk. Do NOT try to cover all checklist items in every chunk.\n"
+                    "- Keep output concise; avoid long narratives.\n"
+                    "- Output MUST be strict JSON matching the schema.\n"
+                )
+
             context = {
                 "SKILL_NAME": skill_name,
                 "SKILL_UPPER": skill_name.upper(),
@@ -868,6 +950,8 @@ Missing CloudWatch alarm:
                 "MAX_FINDINGS": max_findings,
                 "EVIDENCE_COUNT": evidence_count,
                 "SEVERITY_GUIDE": severity_guide,
+                "CHUNKING_INSTRUCTIONS": chunking_instructions,
+                "SKILL_ADDENDUM": "",
             }
 
             # Load and render template
@@ -876,8 +960,11 @@ Missing CloudWatch alarm:
 
         except Exception as e:
             import logging
+
             logger = logging.getLogger(__name__)
-            logger.warning(f"Could not load template for {skill_name}: {e}. Falling back to legacy prompt.")
+            logger.warning(
+                f"Could not load template for {skill_name}: {e}. Falling back to legacy prompt."
+            )
             # Fallback to legacy prompt
             return self._build_analysis_prompt(skill_name, evidence, checklist)
 
@@ -893,7 +980,7 @@ Missing CloudWatch alarm:
         Returns:
             Formatted severity guide for prompt
         """
-        items = checklist.get('items', [])
+        items = checklist.get("items", [])
 
         # Group items by severity
         critical_items = []
@@ -902,19 +989,23 @@ Missing CloudWatch alarm:
         low_items = []
 
         for item in items:
-            severity = item.get('severity', 'Medium')
-            item_id = item.get('id', '')
-            title = item.get('title', '')[:50] + '...' if len(item.get('title', '')) > 50 else item.get('title', '')
+            severity = item.get("severity", "Medium")
+            item_id = item.get("id", "")
+            title = (
+                item.get("title", "")[:50] + "..."
+                if len(item.get("title", "")) > 50
+                else item.get("title", "")
+            )
 
             example = f"{item_id}: {title}"
 
-            if severity == 'Critical':
+            if severity == "Critical":
                 critical_items.append(example)
-            elif severity == 'High':
+            elif severity == "High":
                 high_items.append(example)
-            elif severity == 'Medium':
+            elif severity == "Medium":
                 medium_items.append(example)
-            elif severity == 'Low':
+            elif severity == "Low":
                 low_items.append(example)
 
         # Build guide
@@ -988,7 +1079,7 @@ Missing CloudWatch alarm:
                     pass
 
             # Step 4: If still failing, check if text appears truncated
-            if text and text[-1] not in ['}', ']']:
+            if text and text[-1] not in ["}", "]"]:
                 last_chars = text[-200:] if len(text) > 200 else text
                 raise AgentError(
                     f"Response appears truncated (doesn't end with }} or ])\n"
@@ -997,10 +1088,7 @@ Missing CloudWatch alarm:
 
             # Step 5: Give up and report the error
             preview = original_text[:500]
-            raise AgentError(
-                f"Invalid JSON response from API\n"
-                f"Response preview: {preview}"
-            )
+            raise AgentError(f"Invalid JSON response from API\nResponse preview: {preview}")
 
     def _extract_json_from_text(self, text: str) -> Optional[str]:
         """Extract JSON object or array from text containing markdown.
@@ -1015,42 +1103,42 @@ Missing CloudWatch alarm:
             Extracted JSON string, or None if not found
         """
         # Find first { or [
-        start_obj = text.find('{')
-        start_arr = text.find('[')
+        start_obj = text.find("{")
+        start_arr = text.find("[")
 
         # Determine which comes first
         if start_obj == -1 and start_arr == -1:
             return None
 
         start = min(
-            start_obj if start_obj >= 0 else float('inf'),
-            start_arr if start_arr >= 0 else float('inf')
+            start_obj if start_obj >= 0 else float("inf"),
+            start_arr if start_arr >= 0 else float("inf"),
         )
 
-        if start == float('inf'):
+        if start == float("inf"):
             return None
 
         # Extract from start, finding matching closing bracket
-        text = text[int(start):]
+        text = text[int(start) :]
 
         # Count brackets to find the matching closing one
-        if text[0] == '{':
+        if text[0] == "{":
             bracket_count = 0
             for i, char in enumerate(text):
-                if char == '{':
+                if char == "{":
                     bracket_count += 1
-                elif char == '}':
+                elif char == "}":
                     bracket_count -= 1
                     if bracket_count == 0:
-                        return text[:i+1]
-        elif text[0] == '[':
+                        return text[: i + 1]
+        elif text[0] == "[":
             bracket_count = 0
             for i, char in enumerate(text):
-                if char == '[':
+                if char == "[":
                     bracket_count += 1
-                elif char == ']':
+                elif char == "]":
                     bracket_count -= 1
                     if bracket_count == 0:
-                        return text[:i+1]
+                        return text[: i + 1]
 
         return None

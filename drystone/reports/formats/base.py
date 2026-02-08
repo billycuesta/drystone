@@ -4,14 +4,14 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, Any
 
-from drystone.models.config import AuditConfig
+from drystone.models.config import WizardConfig
 from drystone.storage.session import AuditSession
 
 
 class BaseFormatter(ABC):
     """Abstract base class for report formatters."""
 
-    def __init__(self, findings_data: Dict[str, Any], session: AuditSession, config: AuditConfig):
+    def __init__(self, findings_data: Dict[str, Any], session: AuditSession, config: WizardConfig):
         """Initialize formatter.
 
         Args:

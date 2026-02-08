@@ -350,7 +350,8 @@ These correlations represent multi-stage attack scenarios where findings from di
             "EXPOSURE": "🚪",
             "VULNS": "🐛",
             "HARDENING": "🛡️",
-            "ALERTING": "🚨"
+            "ALERTING": "🚨",
+            "SECRETSMANAGER": "🔑"
         }
         return SKILL_EMOJIS.get(skill.upper(), "🔹")
 

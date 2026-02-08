@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+WAF AUDIT TEMPLATE
+Extends base_audit.xml with WAF-specific considerations.
+Focus: WAF coverage, rule effectiveness, logging, and PCI DSS 6.4.2 alignment.
+-->
+<audit_task extends="base_audit.xml">
+  <skill_specific>
+    <skill_name>WAF</skill_name>
+    <skill_code>WAF</skill_code>
+
+    <focus_areas>
+      <area>WAF coverage for internet-facing ALBs and CloudFront</area>
+      <area>Managed rule groups for baseline web threat protection</area>
+      <area>Logging and redaction of sensitive request components</area>
+      <area>Rate-based protections and L7 abuse mitigation</area>
+      <area>Effectiveness signals (Count vs Block/Challenge/Captcha, metrics)</area>
+      <area>Legacy WAF Classic inventory and migration plan</area>
+    </focus_areas>
+
+    <waf_specific_rules>
+      <rule id="waf_1">
+        <title>Coverage is Critical for PCI DSS</title>
+        <description>If there are internet-facing ALBs/CloudFront distributions without WAF, treat as Critical for in-scope public apps.</description>
+        <action>Use alb-waf-associations.json and cloudfront-distributions.json to identify missing associations.</action>
+      </rule>
+      <rule id="waf_2">
+        <title>Logging must be enabled</title>
+        <description>WAFv2 Web ACLs should have logging enabled and configured appropriately.</description>
+        <action>Check wafv2-web-acls.json Logging.enabled and destinations.</action>
+      </rule>
+      <rule id="waf_3">
+        <title>Count-only reduces prevention</title>
+        <description>Count-only mode is acceptable for tuning, but production protection requires enforcement (Block/Challenge/Captcha).</description>
+        <action>Identify key rules where Action/OverrideAction indicates Count-only.</action>
+      </rule>
+      <rule id="waf_4">
+        <title>Managed rules baseline</title>
+        <description>AWS Managed Rules (Common, SQLi, KnownBadInputs, IpReputation) are baseline controls for common web threats.</description>
+        <action>Look for ManagedRuleGroupStatement in rules. Note missing baseline sets.</action>
+      </rule>
+    </waf_specific_rules>
+
+    <applicability_and_gating>
+      <principle>Do NOT treat absence of resources as a failure.</principle>
+      <rule id="gate_0">
+        <title>Evidence quality gates</title>
+        <condition>If waf-collection-status.json indicates any API collection failures for WAFv2, CloudFront, ELBv2, API Gateway, AppSync, or Cognito.</condition>
+        <instruction>Generate ONLY WAF-013 (Low) describing the collection gaps, and do NOT generate coverage/configuration findings that would rely on missing/failed evidence.</instruction>
+      </rule>
+      <rule id="gate_1">
+        <title>ALB coverage only if ALBs exist</title>
+        <condition>If alb-waf-associations.json is an empty array, there are NO internet-facing ALBs detected in-scope.</condition>
+        <instruction>In that case: DO NOT generate WAF-001.</instruction>
+      </rule>
+      <rule id="gate_2">
+        <title>CloudFront coverage only if distributions exist</title>
+        <condition>If cloudfront-distributions.json is an empty array, there are NO CloudFront distributions detected in-scope.</condition>
+        <instruction>In that case: DO NOT generate WAF-002.</instruction>
+      </rule>
+      <rule id="gate_2b">
+        <title>API entrypoints coverage only if APIs exist</title>
+        <condition>If api-entrypoints-waf-associations.json indicates 0 API entrypoints in-scope.</condition>
+        <instruction>In that case: DO NOT generate WAF-014/WAF-015/WAF-016.</instruction>
+      </rule>
+      <rule id="gate_3">
+        <title>Do not generate hypothetical findings</title>
+        <condition>If there are no in-scope protected entry points (no ALBs and no CloudFront), many checklist items become N/A.</condition>
+        <instruction>In that case: it is acceptable to return 0 findings. Do NOT invent "future" findings.</instruction>
+      </rule>
+      <rule id="gate_4">
+        <title>Collection errors are not configuration findings</title>
+        <condition>If evidence contains API errors (e.g., error fields), do NOT claim a security control is missing.</condition>
+        <instruction>Either (a) skip the related checklist item or (b) generate a LOW-severity evidence-quality finding referencing the error exactly.</instruction>
+      </rule>
+    </applicability_and_gating>
+
+    <evidence_focus>
+      <focus item="waf-collection-status.json">
+        <check>Detect and report evidence collection failures (WAF-013 only)</check>
+      </focus>
+      <focus item="alb-waf-associations.json">
+        <check>Internet-facing ALBs with WAFv2WebACL missing or error</check>
+        <check>Regions and applications with inconsistent coverage</check>
+      </focus>
+      <focus item="cloudfront-distributions.json">
+        <check>Distributions with WebACLId empty or null</check>
+      </focus>
+      <focus item="api-entrypoints-waf-associations.json">
+        <check>API Gateway stages without associated WAF Web ACL</check>
+        <check>AppSync APIs without associated WAF Web ACL</check>
+        <check>Cognito User Pools without associated WAF Web ACL</check>
+      </focus>
+      <focus item="wafv2-web-acls.json">
+        <check>Logging.enabled is false</check>
+        <check>VisibilityConfig metrics disabled</check>
+        <check>Rules missing managed rule groups</check>
+        <check>Rules left in Count-only mode</check>
+      </focus>
+      <focus item="wafv2-ip-sets.json">
+        <check>Addresses include 0.0.0.0/0 or ::/0</check>
+      </focus>
+      <focus item="waf-classic.json">
+        <check>Presence of legacy Web ACLs in use</check>
+      </focus>
+    </evidence_focus>
+
+  </skill_specific>
+</audit_task>

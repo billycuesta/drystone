@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Literal, Optional, Tuple
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, ConfigDict
 
 # Example credentials for documentation (NOT REAL)
 # nosec B105 - Example credentials from AWS documentation, not real secrets
@@ -23,11 +23,12 @@ class WizardConfig(BaseModel):
     aws_access_key_id: Optional[str] = Field(default=None, description="AWS Access Key ID")
     aws_secret_access_key: Optional[str] = Field(default=None, description="AWS Secret Access Key")
     aws_session_token: Optional[str] = Field(
-        default=None,
-        description="AWS Session Token for temporary credentials (STS/AssumeRole)"
+        default=None, description="AWS Session Token for temporary credentials (STS/AssumeRole)"
     )
     # OPCIÓN 2: Custom credential file JSON (NEW)
-    aws_credentials_file: Optional[Path] = Field(default=None, description="Path to AWS credentials file")
+    aws_credentials_file: Optional[Path] = Field(
+        default=None, description="Path to AWS credentials file"
+    )
 
     # OPCIÓN 3: AWS profile estándar (NEW, revierte decisión anterior)
     aws_profile: Optional[str] = Field(default=None, description="AWS profile name")
@@ -38,38 +39,35 @@ class WizardConfig(BaseModel):
     # Step 5: Skills to execute
     skills: List[str] = Field(
         default=["iam"],
-        description="Security skills to execute (iam, exposure, network, vulns, alerting, hardening)"
+        description="Security skills to execute (iam, exposure, network, vulns, alerting, hardening, waf)",
     )
 
     # Step 6: Output formats
     output_formats: List[Literal["markdown", "json"]] = Field(
-        default=["markdown"],
-        description="Report output formats"
+        default=["markdown"], description="Report output formats"
     )
 
     # Step 6.5: Report Type
     report_type: Literal["general", "pci-dss"] = Field(
         default="general",
-        description="Report type: general security report or PCI DSS compliance report"
+        description="Report type: general security report or PCI DSS compliance report",
     )
 
     # Step 7: AI Provider for analysis
     ai_provider: Literal["claude-api", "claude-cli"] = Field(
         default="claude-cli",
-        description="AI provider for security analysis (claude-cli or claude-api)"
+        description="AI provider for security analysis (claude-cli or claude-api)",
     )
 
     # Step 8: AI API Key (if needed)
     ai_api_key: Optional[str] = Field(
-        default=None,
-        description="API key for AI provider (if using API-based option)"
+        default=None, description="API key for AI provider (if using API-based option)"
     )
-
 
     # Step 6: Minimum severity to collect and report
     min_severity: Literal["low", "medium", "high", "critical"] = Field(
         default="medium",
-        description="Minimum severity level for collected findings (filters out lower severities at collection time)"
+        description="Minimum severity level for collected findings (filters out lower severities at collection time)",
     )
 
     # Metadata
@@ -78,6 +76,7 @@ class WizardConfig(BaseModel):
 
     class Config:
         """Pydantic config."""
+
         json_schema_extra = {
             "example": {
                 "client_name": "ACME Corp",
@@ -137,7 +136,9 @@ class WizardConfig(BaseModel):
             raise ValueError(f"Credential file contains null: {expanded_path}")
 
         if not isinstance(data, dict):
-            raise ValueError(f"Credential file must contain a JSON object, got {type(data).__name__}: {expanded_path}")
+            raise ValueError(
+                f"Credential file must contain a JSON object, got {type(data).__name__}: {expanded_path}"
+            )
 
         if not data.get("aws_access_key_id"):
             raise ValueError(f"Credential file missing 'aws_access_key_id': {expanded_path}")
@@ -185,7 +186,7 @@ class WizardConfig(BaseModel):
     @validator("skills")
     def validate_skills(cls, v: List[str]) -> List[str]:
         """Validate skill names."""
-        valid_skills = {"iam", "exposure", "network", "vulns", "alerting", "hardening"}
+        valid_skills = {"iam", "exposure", "network", "vulns", "alerting", "hardening", "waf"}
         invalid = set(v) - valid_skills
         if invalid:
             raise ValueError(f"Invalid skills: {invalid}. Valid: {valid_skills}")
@@ -219,7 +220,7 @@ class WizardConfig(BaseModel):
     def dict_for_json(self) -> dict:
         """Convert to JSON-serializable dict, excluding sensitive credentials if not stored directly."""
         # Convert Path objects to strings for JSON serialization
-        data = self.model_dump(mode='json')
+        data = self.model_dump(mode="json")
 
         # If using a file, profile, or env vars for AWS, don't save direct keys
         # BUT keep the file/profile paths for reconfiguration
@@ -242,5 +243,4 @@ class AuditConfig(WizardConfig):
     output_dir: Path = Field(..., description="Audit output directory")
     aws_account_id: str = Field(default="", description="AWS account ID")
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)

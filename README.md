@@ -69,12 +69,14 @@ open audit-logs/*/reports/*.md
 
 ## ✨ Features
 
-### 🎯 6 Modular Skills
+### 🎯 8 Modular Skills
 - **IAM** - Identity & Access Management (users, roles, policies, MFA)
 - **Network** - Network Security (SGs, NACLs, VPC endpoints, Flow Logs)
 - **Exposure** - Public Exposure (S3 public access, RDS, CloudFront)
 - **Vulns** - Vulnerabilities (Inspector v2, patch compliance)
 - **Hardening** - AWS Hardening (Security Hub, Config, CloudTrail)
+- **Secrets Manager** - Secrets Management (rotation, encryption, access control)
+- **WAF** - Web Application Firewall (WAFv2, coverage, logging, rules)
 - **Alerting** - Alert Architecture (CloudTrail → EventBridge → SNS)
 
 ### ⚡ Performance

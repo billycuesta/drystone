@@ -1,0 +1,215 @@
+{
+  "skill": "secretsmanager",
+  "framework": "AWS Security Best Practices + PCI-DSS v4.0",
+  "description": "Comprehensive AWS Secrets Manager security checks for rotation, encryption, and access control",
+  "version": "1.0",
+  "total_checks": 12,
+  "last_updated": "2026-02-08",
+  "items": [
+    {
+      "id": "SM-001",
+      "title": "Secrets must not have public access via wildcard resource policy",
+      "severity": "Critical",
+      "description": "Resource policies with Principal: '*' allow public access to secrets, exposing sensitive data.",
+      "evidence_files": ["secrets.json"],
+      "check_keywords": ["ResourcePolicy", "Principal", "*", "public"],
+      "remediation": "Remove wildcard principals from resource policies. Use specific IAM roles/users: aws secretsmanager put-resource-policy --secret-id <ARN> --resource-policy <policy_json>",
+      "pci_dss": [
+        {
+          "control": "7.2.2",
+          "reason": "This control requires that access to system components is denied by default. A wildcard principal (*) in a secret's resource policy grants broad access, violating the deny-by-default principle."
+        },
+        {
+          "control": "3.5.1",
+          "reason": "This control mandates that cryptographic keys are accessible only to the fewest number of custodians necessary. Public access via wildcard principals exposes encryption keys to unauthorized users."
+        }
+      ]
+    },
+    {
+      "id": "SM-002",
+      "title": "Secrets must have automatic rotation enabled",
+      "severity": "High",
+      "description": "Automatic rotation reduces the window of opportunity if credentials are compromised. Critical for database passwords, API keys.",
+      "evidence_files": ["secrets.json"],
+      "check_keywords": ["RotationEnabled", "false", "rotation"],
+      "remediation": "Enable rotation: aws secretsmanager rotate-secret --secret-id <ARN> --rotation-lambda-arn <lambda_arn> --rotation-rules AutomaticallyAfterDays=30",
+      "pci_dss": [
+        {
+          "control": "8.3.9",
+          "reason": "This control requires passwords/passphrases to be changed at least every 90 days for single-factor authentication. Automatic secret rotation enforces this requirement for programmatic credentials."
+        },
+        {
+          "control": "3.6.1.1",
+          "reason": "This control demands key-management procedures for cryptographic keys. Automatic rotation is a key management best practice to limit exposure windows."
+        }
+      ]
+    },
+    {
+      "id": "SM-003",
+      "title": "Secrets rotation interval should not exceed 90 days",
+      "severity": "High",
+      "description": "Rotation intervals >90 days increase risk of credential compromise. AWS recommends 30-90 day rotation.",
+      "evidence_files": ["secrets.json"],
+      "check_keywords": ["AutomaticallyAfterDays", "90", "interval"],
+      "remediation": "Update rotation rules: aws secretsmanager rotate-secret --secret-id <ARN> --rotation-rules AutomaticallyAfterDays=30",
+      "pci_dss": [
+        {
+          "control": "8.3.9",
+          "reason": "This control mandates password/passphrase changes at least every 90 days. A rotation interval exceeding 90 days fails to comply with this requirement."
+        }
+      ]
+    },
+    {
+      "id": "SM-004",
+      "title": "Secrets should use customer-managed KMS keys for encryption",
+      "severity": "High",
+      "description": "Customer-managed KMS keys provide granular control over encryption, key rotation, and access policies. AWS-managed keys limit audit visibility.",
+      "evidence_files": ["secrets.json"],
+      "check_keywords": ["KmsKeyId", "aws/secretsmanager", "Default"],
+      "remediation": "Create customer-managed KMS key and update secret: aws secretsmanager update-secret --secret-id <ARN> --kms-key-id <customer_key_id>",
+      "pci_dss": [
+        {
+          "control": "3.5.1",
+          "reason": "This control requires cryptographic keys to be secured against disclosure and misuse. Customer-managed KMS keys provide enhanced control over access policies and key rotation."
+        },
+        {
+          "control": "3.6.1.2",
+          "reason": "This control mandates that only the fewest custodians have access to cryptographic keys. Customer-managed keys allow fine-grained IAM policies to restrict custodian access."
+        }
+      ]
+    },
+    {
+      "id": "SM-005",
+      "title": "Secrets should not remain unrotated for more than 365 days",
+      "severity": "Critical",
+      "description": "Secrets not rotated for 365+ days are at high risk of being compromised. Stale credentials should be rotated immediately.",
+      "evidence_files": ["secrets.json"],
+      "check_keywords": ["LastRotatedDate", "365", "never rotated"],
+      "remediation": "Immediately rotate stale secrets: aws secretsmanager rotate-secret --secret-id <ARN>",
+      "pci_dss": [
+        {
+          "control": "8.3.9",
+          "reason": "This control requires password changes at least every 90 days. A secret unrotated for 365+ days severely violates this requirement."
+        },
+        {
+          "control": "8.2.6",
+          "reason": "This control requires removing or disabling inactive accounts within 90 days. Stale secrets (>365 days) represent dormant credentials that should be rotated or removed."
+        }
+      ]
+    },
+    {
+      "id": "SM-006",
+      "title": "Secrets should have descriptive tags for governance and cost tracking",
+      "severity": "Low",
+      "description": "Tags enable governance, cost allocation, and lifecycle management. Recommended tags: Environment, Owner, Purpose, CostCenter.",
+      "evidence_files": ["secrets.json"],
+      "check_keywords": ["Tags", "empty", "no tags"],
+      "remediation": "Add tags: aws secretsmanager tag-resource --secret-id <ARN> --tags Key=Environment,Value=Production Key=Owner,Value=SecurityTeam",
+      "pci_dss": [
+        {
+          "control": "12.3.1",
+          "reason": "This control requires a data retention and disposal policy. Tags enable tracking of secret lifecycle and facilitate automated disposal based on governance policies."
+        }
+      ]
+    },
+    {
+      "id": "SM-007",
+      "title": "Secrets should have clear descriptions documenting their purpose",
+      "severity": "Low",
+      "description": "Descriptions improve secret discoverability and prevent accidental deletion. Include: purpose, owning application, rotation schedule.",
+      "evidence_files": ["secrets.json"],
+      "check_keywords": ["Description", "No description", "empty"],
+      "remediation": "Update description: aws secretsmanager update-secret --secret-id <ARN> --description 'Production DB password for app-backend'",
+      "pci_dss": [
+        {
+          "control": "12.3.1",
+          "reason": "This control requires documented data retention policies. Clear descriptions facilitate identification of secrets subject to retention requirements."
+        }
+      ]
+    },
+    {
+      "id": "SM-008",
+      "title": "Critical secrets should be replicated to multiple regions for disaster recovery",
+      "severity": "Medium",
+      "description": "Replication ensures secret availability during regional outages. Recommended for production database credentials, API keys.",
+      "evidence_files": ["secrets.json"],
+      "check_keywords": ["ReplicationStatus", "empty", "no replication"],
+      "remediation": "Enable replication: aws secretsmanager replicate-secret-to-regions --secret-id <ARN> --add-replica-regions Region=us-west-2",
+      "pci_dss": [
+        {
+          "control": "12.10.1",
+          "reason": "This control requires an incident response plan including business continuity. Secret replication ensures credential availability during regional disasters."
+        }
+      ]
+    },
+    {
+      "id": "SM-009",
+      "title": "Secrets accessed frequently should have rotation interval less than 30 days",
+      "severity": "Medium",
+      "description": "High-access secrets (databases, APIs) should rotate more frequently to reduce compromise window. 30-day rotation recommended.",
+      "evidence_files": ["secrets.json"],
+      "check_keywords": ["AutomaticallyAfterDays", "LastAccessedDate", "30"],
+      "remediation": "For high-traffic secrets, set 30-day rotation: aws secretsmanager rotate-secret --secret-id <ARN> --rotation-rules AutomaticallyAfterDays=30",
+      "pci_dss": [
+        {
+          "control": "8.3.9",
+          "reason": "This control mandates password changes every 90 days. For high-value secrets, a 30-day interval exceeds compliance and enhances security."
+        }
+      ]
+    },
+    {
+      "id": "SM-010",
+      "title": "Secrets should not be accessed from Lambda functions without VPC endpoints",
+      "severity": "Medium",
+      "description": "Lambda functions accessing secrets over public internet expose traffic to interception. Use VPC endpoints for private access.",
+      "evidence_files": ["secrets.json"],
+      "check_keywords": ["OwningService", "lambda", "VPC"],
+      "remediation": "Create VPC endpoint for Secrets Manager in Lambda VPC: aws ec2 create-vpc-endpoint --vpc-id <vpc_id> --service-name com.amazonaws.<region>.secretsmanager",
+      "pci_dss": [
+        {
+          "control": "4.2.1",
+          "reason": "This control requires strong cryptography for authentication credentials sent over open networks. VPC endpoints eliminate exposure to open networks."
+        },
+        {
+          "control": "1.3.1",
+          "reason": "This control mandates restricting inbound and outbound traffic to the CDE. VPC endpoints keep secret traffic within private networks."
+        }
+      ]
+    },
+    {
+      "id": "SM-011",
+      "title": "Resource policies should require MFA for secret access",
+      "severity": "High",
+      "description": "MFA prevents unauthorized access even if IAM credentials are compromised. Critical for secrets containing PII or payment data.",
+      "evidence_files": ["secrets.json"],
+      "check_keywords": ["ResourcePolicy", "Condition", "aws:MultiFactorAuthPresent"],
+      "remediation": "Update resource policy to require MFA: Add Condition: {'Bool': {'aws:MultiFactorAuthPresent': 'true'}}",
+      "pci_dss": [
+        {
+          "control": "8.4.2",
+          "reason": "This control requires MFA for all access into the CDE. Secrets containing CDE data must enforce MFA via resource policies."
+        },
+        {
+          "control": "8.5.1",
+          "reason": "This control specifies MFA using two or more independent factor types. Requiring MFA in resource policies enforces this requirement."
+        }
+      ]
+    },
+    {
+      "id": "SM-012",
+      "title": "Secrets rotation should not fail silently without alerting",
+      "severity": "Medium",
+      "description": "Failed rotation can leave stale credentials in production. Configure CloudWatch alarms for rotation failures.",
+      "evidence_files": ["secrets.json"],
+      "check_keywords": ["RotationEnabled", "LastRotatedDate", "alert"],
+      "remediation": "Create CloudWatch alarm for rotation failures: Monitor RotationSucceeded=0 metric and send SNS notification",
+      "pci_dss": [
+        {
+          "control": "10.7.2",
+          "reason": "This control requires detection and reporting of failures of critical security systems. Rotation failures are critical security events requiring alerting."
+        }
+      ]
+    }
+  ],
+  "notes": "Checklist covers AWS Secrets Manager best practices with comprehensive PCI-DSS v4.0 mapping. Focuses on rotation policies (Req 8.x), encryption (Req 3.x), and access control (Req 7.x). All checks mapped to specific PCI controls with justifications."
+}

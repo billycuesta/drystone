@@ -74,38 +74,72 @@ Focus: AWS Config, Security Hub, compliance standards, security controls.
     </hardening_specific_rules>
 
     <evidence_focus>
-      <focus item="security-hub-standards.json">
-        <check>EnabledStandards includes CIS, PCI DSS, NIST 800-53</check>
-        <check>ComplianceStatus for each control (PASSED, FAILED, NOT_AVAILABLE)</check>
+      <focus item="hardening-collection-status.json">
+        <check>If any component has ok=false, treat posture as UNVERIFIED and report evidence-quality gap</check>
       </focus>
-      <focus item="aws-config-recorder.json">
-        <check>IsRecording == true</check>
-        <check>LastStatusChangeTime is recent (not stopped)</check>
-        <check>RecordedResourceTypes includes essential types</check>
+
+      <focus item="security-hub-status.json">
+        <check>enabled == true</check>
       </focus>
-      <focus item="cloudtrail-trails.json">
-        <check>IsMultiRegionTrail values for audit scope</check>
-        <check>IsLogging == true for all trails</check>
-        <check>IncludeGlobalServiceEvents == true</check>
-        <check>S3BucketName and LogFileValidationEnabled</check>
+      <focus item="security-hub-enabled-standards.json">
+        <check>Enabled standards include CIS / PCI DSS (if applicable)</check>
+        <check>ControlsSummary shows enabled controls (not all disabled)</check>
       </focus>
-      <focus item="s3-logging.json">
-        <check>Source buckets have LoggingEnabled</check>
-        <check>TargetBucket points to dedicated log bucket</check>
-        <check>Log bucket has appropriate retention policy</check>
+      <focus item="security-hub-findings.json">
+        <check>Count of CRITICAL/HIGH/MEDIUM ACTIVE findings</check>
+        <check>Use finding GeneratorId / Resources to keep analysis evidence-based</check>
       </focus>
-      <focus item="vpc-flow-logs.json">
-        <check>VPC Flow Logs FlowLogStatus == ACTIVE</check>
-        <check>Destination is CloudWatch Logs or S3</check>
+      <focus item="security-hub-findings-summary.json">
+        <check>Use precomputed counts when available (severity_counts, compliance_status_counts)</check>
+      </focus>
+
+      <focus item="config-recorders.json">
+        <check>enabled == true and recorders exist</check>
+      </focus>
+      <focus item="config-recorder-status.json">
+        <check>recording == true for configuration recorder(s)</check>
+      </focus>
+      <focus item="config-delivery-channels.json">
+        <check>S3 bucket configured for delivery</check>
+      </focus>
+      <focus item="config-conformance-packs.json">
+        <check>At least one conformance pack present (optional maturity signal)</check>
+      </focus>
+      <focus item="config-conformance-pack-compliance.json">
+        <check>Compliance summary per conformance pack (if present)</check>
+      </focus>
+
+      <focus item="config-compliance-summary.json">
+        <check>Use precomputed Config compliance counts when available</check>
+      </focus>
+
+      <focus item="guardduty-detectors.json">
+        <check>enabled == true and Detector Status == ENABLED</check>
+        <check>FindingsStatistics indicates presence of MEDIUM/HIGH/CRITICAL findings</check>
+      </focus>
+
+      <focus item="macie-session.json">
+        <check>enabled == true (if required for the environment)</check>
+      </focus>
+      <focus item="macie-findings.json">
+        <check>Presence of HIGH findings (if any)</check>
+      </focus>
+
+      <focus item="backup-vaults.json">
+        <check>Backup vaults exist (inventory)</check>
       </focus>
       <focus item="backup-plans.json">
-        <check>BackupPlanCount > 0</check>
-        <check>Plans cover critical resources (RDS, EBS, DynamoDB)</check>
-        <check>RetentionDays is reasonable (minimum 30 days)</check>
+        <check>Backup plan count > 0 (baseline)</check>
       </focus>
-      <focus item="guardduty-status.json">
-        <check>GuardDutyStatus == ENABLED</check>
-        <check>FindingPublishingFrequency configured</check>
+      <focus item="backup-plans-detailed.json">
+        <check>Plans have selections (coverage) not just empty plans</check>
+      </focus>
+
+      <focus item="account-summary.json">
+        <check>Password and MFA signals (AccountMFAEnabled, AccountAccessKeysPresent)</check>
+      </focus>
+      <focus item="password-policy.json">
+        <check>Password policy strength signals (len, reuse, expiry)</check>
       </focus>
     </evidence_focus>
 
