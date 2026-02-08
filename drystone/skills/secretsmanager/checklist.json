@@ -200,9 +200,9 @@
       "title": "Secrets rotation should not fail silently without alerting",
       "severity": "Medium",
       "description": "Failed rotation can leave stale credentials in production. Configure CloudWatch alarms for rotation failures.",
-      "evidence_files": ["secrets.json"],
+      "evidence_files": ["secrets.json", "cloudwatch_alarms.json", "eventbridge_rules.json"],
       "check_keywords": ["RotationEnabled", "LastRotatedDate", "alert"],
-      "remediation": "Create CloudWatch alarm for rotation failures: Monitor RotationSucceeded=0 metric and send SNS notification",
+      "remediation": "Implement rotation failure alerting with at least one of these patterns. (A) EventBridge/CloudTrail: Create an EventBridge rule matching Secrets Manager rotation API events (RotateSecret/CancelRotateSecret) and failures, and send to SNS/Slack. Example event pattern (CloudTrail): {\"source\":[\"aws.secretsmanager\"],\"detail-type\":[\"AWS API Call via CloudTrail\"],\"detail\":{\"eventSource\":[\"secretsmanager.amazonaws.com\"],\"eventName\":[\"RotateSecret\",\"CancelRotateSecret\"]}}. (B) Lambda logs: Create CloudWatch metric filter/alarm on the rotation Lambda log group for error patterns (e.g., 'Rotation failed', 'AccessDenied', non-200). Ensure notifications go to an on-call channel (SNS -> email/ChatOps) and include runbook steps.",
       "pci_dss": [
         {
           "control": "10.7.2",

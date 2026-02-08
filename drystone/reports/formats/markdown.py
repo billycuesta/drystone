@@ -47,7 +47,6 @@ class MarkdownFormatter(BaseFormatter):
             self._header(),
             self._executive_summary(),
             self._architecture_diagram(),
-            self._remediation_timeline(),
             self._correlation_section(),
         ]
 
@@ -55,12 +54,15 @@ class MarkdownFormatter(BaseFormatter):
         if self.config.report_type == "pci-dss":
             parts.append(self._pci_dss_compliance_summary())
 
-        parts.extend([
-            self._findings_by_severity(),
-            self._observations(),
-            self._references(),
-            self._footer(),
-        ])
+        parts.extend(
+            [
+                self._findings_by_severity(),
+                self._observations(),
+                self._remediation_timeline(),
+                self._references(),
+                self._footer(),
+            ]
+        )
 
         # Filter out empty sections
         parts = [p for p in parts if p]
@@ -72,6 +74,7 @@ class MarkdownFormatter(BaseFormatter):
         timestamp = self.findings.get("analyzed_at", datetime.utcnow().isoformat())
         account_id = self.session.account_id
         client_name = self.session.client_name
+        min_sev = getattr(self.config, "min_severity", "low")
 
         banner = """ ██████╗ ██████╗ ██╗   ██╗███████╗████████╗ ██████╗ ███╗   ██╗███████╗
  ██╔══██╗██╔══██╗╚██╗ ██╔╝██╔════╝╚══██╔══╝██╔═══██╗████╗  ██║██╔════╝
@@ -86,11 +89,12 @@ class MarkdownFormatter(BaseFormatter):
 
 **Client:** {client_name}
 **Skill:** {skill.upper()}
-**AWS Account:** {account_id}
-**Generated:** {timestamp}
-**Version:** {self.findings.get('checklist_version', '1.0')}
+ **AWS Account:** {account_id}
+ **Generated:** {timestamp}
+ **Version:** {self.findings.get("checklist_version", "1.0")}
+ **Report Min Severity:** {str(min_sev).upper()}
 
----
+ ---
 
 ## 📋 Quick Summary
 
@@ -110,13 +114,20 @@ This report presents security findings from the {skill.upper()} security assessm
 
         risk_overview = "### Risk Overview\n"
         risk_overview += "┌─────────────────────────────────────────────┐\n"
-        risk_overview += f"│ Overall Risk Score: {risk_score:.1f} / 10.0 ({risk_label.strip()})".ljust(45) + "│\n"
+        risk_overview += (
+            f"│ Overall Risk Score: {risk_score:.1f} / 10.0 ({risk_label.strip()})".ljust(45)
+            + "│\n"
+        )
         risk_overview += f"│ Total Findings: {total}".ljust(45) + "│\n"
-        risk_overview += f"│ Critical: {critical} | High: {high} | Medium: {medium} | Low: {low}".ljust(45) + "│\n"
+        risk_overview += (
+            f"│ Critical: {critical} | High: {high} | Medium: {medium} | Low: {low}".ljust(45)
+            + "│\n"
+        )
         risk_overview += "└─────────────────────────────────────────────┘"
-        
+
         severity_dist = self._severity_distribution_chart()
         top_resources = self._top_affected_resources()
+        findings_summary = self._findings_summary_table()
 
         return f"""## 📊 Executive Summary
 
@@ -125,6 +136,8 @@ This report presents security findings from the {skill.upper()} security assessm
 {severity_dist}
 
 {top_resources}
+
+{findings_summary}
 """
 
     def _severity_distribution_chart(self) -> str:
@@ -212,7 +225,7 @@ This report presents security findings from the {skill.upper()} security assessm
 
         # Load correlation data
         try:
-            with open(corr_file, 'r') as f:
+            with open(corr_file, "r") as f:
                 corr_data = json.load(f)
         except (json.JSONDecodeError, OSError) as e:
             logger.warning(f"Failed to parse correlated.json: {e}")
@@ -228,9 +241,7 @@ This report presents security findings from the {skill.upper()} security assessm
 
         # Sort by compound risk (highest first)
         correlations = sorted(
-            correlations,
-            key=lambda c: c.get("compound_risk_score", 0),
-            reverse=True
+            correlations, key=lambda c: c.get("compound_risk_score", 0), reverse=True
         )
 
         # Limit to top 10
@@ -244,7 +255,7 @@ This report presents security findings from the {skill.upper()} security assessm
 
         section = f"""## 🔗 Cross-Skill Correlations ({total})
 
-**Attack Chains Detected:** {total} compound risks identified across {', '.join(skills).upper()}
+**Attack Chains Detected:** {total} compound risks identified across {", ".join(skills).upper()}
 
 These correlations represent multi-stage attack scenarios where findings from different skills combine to create elevated risk.
 
@@ -257,7 +268,9 @@ These correlations represent multi-stage attack scenarios where findings from di
 
         # Add "more" indicator if truncated
         if hidden_count > 0:
-            section += f"*... and {hidden_count} more correlations (see findings/correlated.json)*\n\n"
+            section += (
+                f"*... and {hidden_count} more correlations (see findings/correlated.json)*\n\n"
+            )
 
         return section
 
@@ -320,7 +333,9 @@ These correlations represent multi-stage attack scenarios where findings from di
                 # Add skill emoji
                 skill_emoji = self._get_skill_emoji(skill)
 
-                output += f"| {skill_emoji} {skill} | {finding_id} | {src_title} | {sev} | {risk:.1f} |\n"
+                output += (
+                    f"| {skill_emoji} {skill} | {finding_id} | {src_title} | {sev} | {risk:.1f} |\n"
+                )
 
             output += "\n"
 
@@ -351,7 +366,7 @@ These correlations represent multi-stage attack scenarios where findings from di
             "VULNS": "🐛",
             "HARDENING": "🛡️",
             "ALERTING": "🚨",
-            "SECRETSMANAGER": "🔑"
+            "SECRETSMANAGER": "🔑",
         }
         return SKILL_EMOJIS.get(skill.upper(), "🔹")
 
@@ -373,6 +388,75 @@ These correlations represent multi-stage attack scenarios where findings from di
             result += f"{i}. {resource} ({count} findings)\n"
 
         return result
+
+    def _get_severity_emoji(self, severity: str) -> str:
+        """Get emoji for severity level."""
+        emoji_map = {
+            "Critical": "🔴",
+            "High": "🟠",
+            "Medium": "🟡",
+            "Low": "🟢"
+        }
+        return emoji_map.get(severity, "⚪")
+
+    def _findings_summary_table(self) -> str:
+        """Generate top 10 findings summary table for executive summary."""
+        findings = self.findings.get("findings", [])
+
+        if not findings:
+            return ""
+
+        # Sort by severity (Critical > High > Medium > Low), then by risk_score desc
+        severity_order = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
+        sorted_findings = sorted(
+            findings,
+            key=lambda f: (
+                severity_order.get(f.get("severity", "Low"), 4),
+                -f.get("risk_score", 0.0)
+            )
+        )
+
+        # Take top 10
+        top_findings = sorted_findings[:10]
+
+        # Build table
+        output = "### 📋 Top 10 Findings Summary\n\n"
+        output += "| ID | Title | Severity | Risk | Resources |\n"
+        output += "|----|-------|----------|------|-----------|\n"
+
+        for finding in top_findings:
+            finding_id = finding.get("id", "N/A")
+            title = finding.get("title", "Unknown")[:50]  # Truncate to 50 chars
+            severity = finding.get("severity", "Unknown")
+            risk_score = finding.get("risk_score", 0.0)
+            affected = finding.get("affected_resources", [])
+
+            # Get severity emoji
+            sev_emoji = self._get_severity_emoji(severity)
+
+            # Format severity column
+            sev_col = f"{sev_emoji} {severity}"
+
+            # Format risk score
+            risk_col = f"{risk_score:.1f}/10"
+
+            # Format resources
+            if len(affected) == 0:
+                resources_col = "-"
+            elif len(affected) == 1:
+                # Single resource - show truncated ARN
+                arn = affected[0]
+                if len(arn) > 40:
+                    resources_col = arn[:20] + "..." + arn[-17:]
+                else:
+                    resources_col = arn
+            else:
+                # Multiple resources - show count
+                resources_col = f"{len(affected)} recursos"
+
+            output += f"| {finding_id} | {title} | {sev_col} | {risk_col} | {resources_col} |\n"
+
+        return output + "\n"
 
     def _findings_by_severity(self) -> str:
         """Generate findings grouped by severity."""
@@ -552,7 +636,7 @@ Generated with [Drystone](https://github.com/billycuesta/drystone)
 
     def _natural_sort_key(self, s: str) -> List:
         """Natural sort key for control IDs (7.2.1 < 8.4.1)."""
-        return [int(part) if part.isdigit() else part for part in re.split(r'(\d+)', s)]
+        return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", s)]
 
     def _get_all_checklist_controls(self) -> List[str]:
         """Extract all unique PCI DSS controls from checklist.json."""
@@ -562,7 +646,9 @@ Generated with [Drystone](https://github.com/billycuesta/drystone)
             if not skill:
                 raise ValueError("Skill name missing in findings")
             # Build path to checklist
-            checklist_path = Path(__file__).parent.parent.parent / "skills" / skill / "checklist.json"
+            checklist_path = (
+                Path(__file__).parent.parent.parent / "skills" / skill / "checklist.json"
+            )
 
             if not checklist_path.exists():
                 return []

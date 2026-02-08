@@ -159,10 +159,106 @@ class FindingsNormalizer:
             finding.severity = severity
             finding.risk_score = risk_score
 
+            # Normalize evidence references into resolvable JSON pointers when possible.
+            # This is especially important for skills where evidence is stored as structured
+            # JSON documents and the model may output shorthand anchors.
+            finding.evidence_refs = self._normalize_evidence_refs(finding.evidence_refs)
+
             logger.debug(f"  ✅ Accepted: {normalized_id} | {severity} | risk={risk_score:.1f}")
             normalized.append(finding)
 
         return normalized
+
+    def _normalize_evidence_refs(self, refs: List[str]) -> List[str]:
+        """Normalize evidence_refs to resolvable JSON pointers.
+
+        Current behavior:
+        - Skill-specific normalization for Secrets Manager.
+        - Leaves references untouched if evidence is not available.
+
+        Supported conversions (Secrets Manager):
+        - secrets.json#<SecretName> -> secrets.json#/secrets/<index>
+        - secrets.json#all_secrets -> secrets.json#/secrets
+        - cloudwatch_alarms.json#<region> -> cloudwatch_alarms.json#/regions/<region>
+        - eventbridge_rules.json#<region> -> eventbridge_rules.json#/regions/<region>
+        """
+        if not refs:
+            return refs
+
+        if not self.evidence:
+            return refs
+
+        if self.skill_name != "SECRETSMANAGER":
+            return refs
+
+        # Build name -> index mapping for secrets.json
+        secrets_doc = self.evidence.get("secrets")
+        name_to_idx: Dict[str, int] = {}
+        if isinstance(secrets_doc, dict):
+            secrets_list = secrets_doc.get("secrets", [])
+            if isinstance(secrets_list, list):
+                for i, s in enumerate(secrets_list):
+                    if isinstance(s, dict) and s.get("Name") and s.get("Error") is None:
+                        n = str(s.get("Name"))
+                        if n not in name_to_idx:
+                            name_to_idx[n] = i
+
+        cw_doc = self.evidence.get("cloudwatch_alarms")
+        cw_regions = cw_doc.get("regions", {}) if isinstance(cw_doc, dict) else {}
+
+        eb_doc = self.evidence.get("eventbridge_rules")
+        eb_regions = eb_doc.get("regions", {}) if isinstance(eb_doc, dict) else {}
+
+        out: List[str] = []
+        for ref in refs:
+            if not isinstance(ref, str) or "#" not in ref:
+                out.append(ref)
+                continue
+
+            file_part, frag = ref.split("#", 1)
+            file_name = file_part.strip()
+            frag = frag.strip()
+
+            # Already a JSON pointer
+            if frag.startswith("/"):
+                out.append(ref)
+                continue
+
+            lowered = file_name.lower()
+
+            if lowered.endswith("secrets.json"):
+                if frag in name_to_idx:
+                    out.append(f"{file_name}#/secrets/{name_to_idx[frag]}")
+                elif frag in {
+                    "all_secrets",
+                    "encryption_key_ids",
+                    "replication_status",
+                    "resource_policies",
+                    "rotation_analysis",
+                    "tags",
+                }:
+                    out.append(f"{file_name}#/secrets")
+                else:
+                    out.append(ref)
+                continue
+
+            if lowered.endswith("cloudwatch_alarms.json"):
+                if isinstance(cw_regions, dict) and frag in cw_regions:
+                    out.append(f"{file_name}#/regions/{frag}")
+                else:
+                    out.append(ref)
+                continue
+
+            if lowered.endswith("eventbridge_rules.json"):
+                if isinstance(eb_regions, dict) and frag in eb_regions:
+                    out.append(f"{file_name}#/regions/{frag}")
+                else:
+                    out.append(ref)
+                continue
+
+            out.append(ref)
+
+        return out
 
     def _normalize_id(self, finding_id: str) -> str:
         """Normalize finding ID to simple format (SKILL-XXX).

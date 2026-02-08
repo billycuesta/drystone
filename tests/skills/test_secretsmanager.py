@@ -43,11 +43,7 @@ class TestSecretsManagerSkill:
 
     def test_rotation_analysis_disabled(self, skill):
         """Test rotation analysis for disabled rotation."""
-        secret_details = {
-            "Name": "test-secret",
-            "RotationEnabled": False,
-            "RotationRules": {}
-        }
+        secret_details = {"Name": "test-secret", "RotationEnabled": False, "RotationRules": {}}
         analysis = skill._analyze_rotation(secret_details)
 
         assert analysis["status"] == "Disabled"
@@ -60,7 +56,7 @@ class TestSecretsManagerSkill:
             "Name": "test-secret",
             "RotationEnabled": True,
             "RotationRules": {"AutomaticallyAfterDays": 30},
-            "LastRotatedDate": datetime.now(timezone.utc)
+            "LastRotatedDate": datetime.now(timezone.utc),
         }
         analysis = skill._analyze_rotation(secret_details)
 
@@ -73,7 +69,7 @@ class TestSecretsManagerSkill:
             "Name": "test-secret",
             "RotationEnabled": True,
             "RotationRules": {"AutomaticallyAfterDays": 120},
-            "LastRotatedDate": datetime.now(timezone.utc)
+            "LastRotatedDate": datetime.now(timezone.utc),
         }
         analysis = skill._analyze_rotation(secret_details)
 
@@ -83,13 +79,14 @@ class TestSecretsManagerSkill:
     def test_rotation_analysis_stale_secret(self, skill):
         """Test rotation analysis for secret not rotated for >365 days."""
         from datetime import timedelta
+
         old_date = datetime.now(timezone.utc) - timedelta(days=400)
 
         secret_details = {
             "Name": "test-secret",
             "RotationEnabled": True,
             "RotationRules": {"AutomaticallyAfterDays": 30},
-            "LastRotatedDate": old_date
+            "LastRotatedDate": old_date,
         }
         analysis = skill._analyze_rotation(secret_details)
 
@@ -102,7 +99,7 @@ class TestSecretsManagerSkill:
             "Name": "test-secret",
             "KmsKeyId": "arn:aws:kms:us-east-1:123456789012:key/aws/secretsmanager",
             "RotationEnabled": True,
-            "Tags": []
+            "Tags": [],
         }
         issues = skill._analyze_security(secret_details, None)
 
@@ -115,15 +112,11 @@ class TestSecretsManagerSkill:
             "Name": "test-secret",
             "KmsKeyId": "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012",
             "RotationEnabled": True,
-            "Tags": [{"Key": "Environment", "Value": "Production"}]
+            "Tags": [{"Key": "Environment", "Value": "Production"}],
         }
         resource_policy = {
             "Statement": [
-                {
-                    "Effect": "Allow",
-                    "Principal": "*",
-                    "Action": "secretsmanager:GetSecretValue"
-                }
+                {"Effect": "Allow", "Principal": "*", "Action": "secretsmanager:GetSecretValue"}
             ]
         }
         issues = skill._analyze_security(secret_details, resource_policy)
@@ -137,7 +130,7 @@ class TestSecretsManagerSkill:
             "Name": "test-secret",
             "KmsKeyId": "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012",
             "RotationEnabled": True,
-            "Tags": []
+            "Tags": [],
         }
         issues = skill._analyze_security(secret_details, None)
 
@@ -151,7 +144,7 @@ class TestSecretsManagerSkill:
             "KmsKeyId": "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012",
             "RotationEnabled": True,
             "Tags": [{"Key": "Environment", "Value": "Production"}],
-            "ReplicationStatus": []
+            "ReplicationStatus": [],
         }
         issues = skill._analyze_security(secret_details, None)
 
@@ -165,7 +158,7 @@ class TestSecretsManagerSkill:
             "KmsKeyId": "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012",
             "RotationEnabled": True,
             "Tags": [{"Key": "Environment", "Value": "Production"}],
-            "ReplicationStatus": [{"Region": "us-west-2", "Status": "SUCCEEDED"}]
+            "ReplicationStatus": [{"Region": "us-west-2", "Status": "SUCCEEDED"}],
         }
         score = skill._calculate_risk_score(secret_details, None, [])
 
@@ -177,11 +170,11 @@ class TestSecretsManagerSkill:
             "Name": "test-secret",
             "KmsKeyId": "arn:aws:kms:us-east-1:123456789012:key/aws/secretsmanager",
             "RotationEnabled": False,
-            "Tags": []
+            "Tags": [],
         }
         issues = [
             {"type": "encryption", "severity": "medium"},
-            {"type": "governance", "severity": "low"}
+            {"type": "governance", "severity": "low"},
         ]
         score = skill._calculate_risk_score(secret_details, None, issues)
 
@@ -193,11 +186,9 @@ class TestSecretsManagerSkill:
             "Name": "test-secret",
             "KmsKeyId": "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012",
             "RotationEnabled": True,
-            "Tags": []
+            "Tags": [],
         }
-        issues = [
-            {"type": "access_control", "severity": "critical"}
-        ]
+        issues = [{"type": "access_control", "severity": "critical"}]
         score = skill._calculate_risk_score(secret_details, None, issues)
 
         assert score > 30  # Critical issue should increase score significantly
@@ -208,13 +199,13 @@ class TestSecretsManagerSkill:
             "Name": "test-secret",
             "KmsKeyId": "arn:aws:kms:us-east-1:123456789012:key/aws/secretsmanager",
             "RotationEnabled": False,
-            "Tags": []
+            "Tags": [],
         }
         # Many critical issues
         issues = [
             {"type": "access_control", "severity": "critical"},
             {"type": "encryption", "severity": "high"},
-            {"type": "governance", "severity": "high"}
+            {"type": "governance", "severity": "high"},
         ]
         score = skill._calculate_risk_score(secret_details, None, issues)
 
@@ -223,23 +214,36 @@ class TestSecretsManagerSkill:
     def test_evidence_file_creation(self, skill, mock_aws_client, mock_session):
         """Test evidence file is created with proper structure."""
         # Mock boto3 session and clients
-        with patch('boto3.Session') as mock_boto_session:
+        with patch("boto3.Session") as mock_boto_session:
             mock_ec2 = MagicMock()
             mock_secrets = MagicMock()
+            mock_cw = MagicMock()
+            mock_events = MagicMock()
 
             # Setup region discovery
-            mock_ec2.describe_regions.return_value = {
-                'Regions': [{'RegionName': 'us-east-1'}]
-            }
+            mock_ec2.describe_regions.return_value = {"Regions": [{"RegionName": "us-east-1"}]}
 
             # Setup secrets listing (empty)
-            mock_secrets.get_paginator.return_value.paginate.return_value = [
-                {'SecretList': []}
-            ]
+            mock_secrets.get_paginator.return_value.paginate.return_value = [{"SecretList": []}]
 
-            mock_boto_session.return_value.client.side_effect = lambda service, **kwargs: (
-                mock_ec2 if service == 'ec2' else mock_secrets
-            )
+            # Setup CloudWatch alarms listing (empty)
+            mock_cw.get_paginator.return_value.paginate.return_value = [{"MetricAlarms": []}]
+
+            # Setup EventBridge rules listing (empty)
+            mock_events.get_paginator.return_value.paginate.return_value = [{"Rules": []}]
+
+            def _client(service, **kwargs):
+                if service == "ec2":
+                    return mock_ec2
+                if service == "secretsmanager":
+                    return mock_secrets
+                if service == "cloudwatch":
+                    return mock_cw
+                if service == "events":
+                    return mock_events
+                raise AssertionError(f"Unexpected boto3 client service: {service}")
+
+            mock_boto_session.return_value.client.side_effect = _client
 
             # Run collect
             skill.collect(mock_aws_client, mock_session)
@@ -249,13 +253,19 @@ class TestSecretsManagerSkill:
             # The file should be created in the mocked path
             assert mock_session.get_evidence_path.called
 
+            # Verify new alerting evidence files are created
+            assert (mock_session.get_evidence_path.return_value / "cloudwatch_alarms.json").exists()
+            assert (mock_session.get_evidence_path.return_value / "eventbridge_rules.json").exists()
+
     def test_get_resource_policy_no_policy(self, skill):
         """Test getting resource policy when none exists."""
         from botocore.exceptions import ClientError
 
         mock_client = MagicMock()
         error_response = {"Error": {"Code": "ResourceNotFoundException", "Message": "No policy"}}
-        mock_client.get_resource_policy.side_effect = ClientError(error_response, "GetResourcePolicy")
+        mock_client.get_resource_policy.side_effect = ClientError(
+            error_response, "GetResourcePolicy"
+        )
 
         policy = skill._get_resource_policy(mock_client, "arn:aws:secretsmanager:...")
         assert policy is None
@@ -268,13 +278,11 @@ class TestSecretsManagerSkill:
                 {
                     "Effect": "Allow",
                     "Principal": {"AWS": "arn:aws:iam::123456789012:role/my-role"},
-                    "Action": "secretsmanager:GetSecretValue"
+                    "Action": "secretsmanager:GetSecretValue",
                 }
             ]
         }
-        mock_client.get_resource_policy.return_value = {
-            "ResourcePolicy": json.dumps(test_policy)
-        }
+        mock_client.get_resource_policy.return_value = {"ResourcePolicy": json.dumps(test_policy)}
 
         policy = skill._get_resource_policy(mock_client, "arn:aws:secretsmanager:...")
         assert policy == test_policy
@@ -295,12 +303,7 @@ class TestSecretsManagerSkill:
         """Test _save_json serializes datetime objects."""
         filepath = tmp_path / "data.json"
         now = datetime.now(timezone.utc)
-        data = {
-            "timestamp": now,
-            "nested": {
-                "date": datetime(2026, 1, 1)
-            }
-        }
+        data = {"timestamp": now, "nested": {"date": datetime(2026, 1, 1)}}
 
         skill._save_json(filepath, data)
 
@@ -332,9 +335,9 @@ class TestSecretsManagerSecurityAnalysis:
             "LastRotatedDate": datetime.now(timezone.utc),
             "Tags": [
                 {"Key": "Environment", "Value": "Production"},
-                {"Key": "Owner", "Value": "DatabaseTeam"}
+                {"Key": "Owner", "Value": "DatabaseTeam"},
             ],
-            "ReplicationStatus": [{"Region": "us-west-2", "Status": "SUCCEEDED"}]
+            "ReplicationStatus": [{"Region": "us-west-2", "Status": "SUCCEEDED"}],
         }
 
         rotation = skill._analyze_rotation(secret_details)
@@ -355,16 +358,12 @@ class TestSecretsManagerSecurityAnalysis:
             "RotationRules": {},
             "LastRotatedDate": datetime(2020, 1, 1, tzinfo=timezone.utc),
             "Tags": [],
-            "ReplicationStatus": []
+            "ReplicationStatus": [],
         }
 
         resource_policy = {
             "Statement": [
-                {
-                    "Effect": "Allow",
-                    "Principal": "*",
-                    "Action": "secretsmanager:GetSecretValue"
-                }
+                {"Effect": "Allow", "Principal": "*", "Action": "secretsmanager:GetSecretValue"}
             ]
         }
 

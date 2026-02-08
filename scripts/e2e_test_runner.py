@@ -43,6 +43,7 @@ SKILLS_ALL: Tuple[str, ...] = (
     "vulns",
     "alerting",
     "hardening",
+    "secretsmanager",
     "waf",
 )
 

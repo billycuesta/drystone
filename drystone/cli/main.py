@@ -4,7 +4,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Literal, cast
 
 import click
 
@@ -40,7 +40,9 @@ def cli() -> None:
 @click.option(
     "--skills",
     multiple=True,
-    type=click.Choice(["iam", "exposure", "network", "vulns", "alerting", "hardening", "secretsmanager", "waf"]),
+    type=click.Choice(
+        ["iam", "exposure", "network", "vulns", "alerting", "hardening", "secretsmanager", "waf"]
+    ),
     help="Skills to execute (can specify multiple times)",
 )
 @click.option(
@@ -57,11 +59,11 @@ def cli() -> None:
 )
 def audit(
     non_interactive: bool,
-    client: str = None,
-    region: str = None,
+    client: Optional[str] = None,
+    region: Optional[str] = None,
     skills: tuple = (),
     formats: tuple = (),
-    min_severity: str = "low",
+    min_severity: Literal["low", "medium", "high", "critical"] = "low",
 ) -> None:
     """Run AWS security audit."""
 
@@ -70,7 +72,7 @@ def audit(
     click.echo()  # Blank line after banner
 
     # Load config
-    config: WizardConfig = None
+    config: Optional[WizardConfig] = None
 
     # Determine if we should use interactive mode
     has_cli_args = bool(client or region or skills or formats or min_severity != "low")
@@ -124,8 +126,8 @@ def audit(
 
     # After config is loaded or created, update min_severity if passed via CLI
     # This ensures CLI flag takes precedence
-    if min_severity and min_severity != "low":
-        config.min_severity = min_severity
+    if min_severity and min_severity != "low" and config is not None:
+        config.min_severity = cast(Literal["low", "medium", "high", "critical"], min_severity)
 
     # Show summary
     try:
@@ -154,6 +156,8 @@ def audit(
         _, _, account_id = validate_aws_credentials(
             aws_access_key_id, aws_secret_access_key, config.aws_region, aws_session_token
         )
+        if not account_id:
+            raise ValueError("Could not determine AWS account ID from credential validation")
     except Exception as e:
         click.echo(f"\n❌ Error validating credentials: {e}")
         import traceback
@@ -306,7 +310,9 @@ def audit(
 
             # Generate reports for each skill
             for skill_name in all_findings.keys():
-                generated_reports = generator.generate_reports(skill_name, config.output_formats)
+                generated_reports = generator.generate_reports(
+                    skill_name, [str(f) for f in config.output_formats]
+                )
 
                 click.echo(f"   {skill_name.capitalize()} Reports:")
                 for format_name, report_path in generated_reports.items():
@@ -343,9 +349,18 @@ def version() -> None:
 
 @cli.command()
 @click.argument("skill_name", required=False)
-def skill(skill_name: str = None) -> None:
+def skill(skill_name: Optional[str] = None) -> None:
     """Manage security skills."""
-    available_skills = ["iam", "exposure", "network", "vulns", "alerting", "hardening", "waf"]
+    available_skills = [
+        "iam",
+        "exposure",
+        "network",
+        "vulns",
+        "alerting",
+        "hardening",
+        "secretsmanager",
+        "waf",
+    ]
 
     if not skill_name:
         click.echo("Available Skills:")

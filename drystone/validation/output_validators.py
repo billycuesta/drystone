@@ -329,6 +329,54 @@ def validate_waf_findings(findings: SkillFindings) -> bool:
         return False
 
 
+def validate_secretsmanager_findings(findings: SkillFindings) -> bool:
+    """Validate Secrets Manager findings and reconcile summary.
+
+    Notes:
+    - Enforces required fields and sane risk_score range.
+    - Reconciles summary counts to the actual findings array.
+    """
+    try:
+        if not findings.summary:
+            logger.error("SecretsManager validation failed: missing summary")
+            return False
+
+        if findings.findings is None:
+            logger.error("SecretsManager validation failed: findings array is missing")
+            return False
+
+        for finding in findings.findings:
+            if (
+                not finding.id
+                or not finding.severity
+                or not finding.title
+                or not finding.description
+                or not finding.remediation
+            ):
+                logger.error("SecretsManager finding missing required fields")
+                return False
+
+            if finding.severity not in ["Critical", "High", "Medium", "Low"]:
+                logger.error(
+                    f"SecretsManager finding {finding.id} invalid severity: {finding.severity}"
+                )
+                return False
+
+            if finding.risk_score is None or not (0.0 <= float(finding.risk_score) <= 10.0):
+                logger.error(
+                    f"SecretsManager finding {finding.id} invalid risk_score: {finding.risk_score}"
+                )
+                return False
+
+        _reconcile_summary(findings, "SecretsManager")
+        logger.info(f"SecretsManager validation passed: {findings.summary.total_findings} findings")
+        return True
+
+    except Exception as e:
+        logger.error(f"SecretsManager validation error: {e}", exc_info=True)
+        return False
+
+
 # Registry of validators by skill
 SKILL_VALIDATORS: dict[str, SkillValidator] = {
     "iam": validate_iam_findings,
@@ -337,6 +385,7 @@ SKILL_VALIDATORS: dict[str, SkillValidator] = {
     "exposure": validate_exposure_findings,
     "network": validate_network_findings,
     "alerting": validate_alerting_findings,
+    "secretsmanager": validate_secretsmanager_findings,
     "waf": validate_waf_findings,
 }
 
