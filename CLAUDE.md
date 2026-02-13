@@ -17,7 +17,7 @@ CLI for AWS security audits. Similar to Shannon but for compliance/security (not
 - **boto3** - AWS SDK for data collection
 - **Pydantic** - Type-safe data models and validation
 - **Anthropic SDK** - Claude API integration
-- **Modular skills:** IAM, Exposure, Network, Vulns
+- **Modular skills:** IAM, Exposure, Network, Vulns, Alerting, Hardening, Secrets Manager, WAF, ECR
 - **YAML workflows:** Define skill execution order and configuration
 - **Claude API:** For evidence analysis and finding generation
 
@@ -60,7 +60,7 @@ drystone/
    - Client name
    - Direct AWS credentials (Access Key ID + Secret Access Key)
    - AWS region
-   - Skills selection (IAM, Exposure, Network, Vulns)
+   - Skills selection (IAM, Exposure, Network, Vulns, Alerting, Hardening, Secrets Manager, WAF, ECR)
    - Output formats (markdown, HTML, JSON)
 3. Phase 1: AWS credential validation (boto3 STS)
 4. Phase 1a: Data collection for each skill
@@ -123,7 +123,12 @@ drystone/
        ]
    }
    ```
-5. Register in workflow YAML
+5. Register the skill in the CLI + wizard:
+   - `drystone/models/config.py` (`WizardConfig.validate_skills`)
+   - `drystone/cli/ui/wizard.py` (skills checkbox list)
+   - `drystone/cli/main.py` (`skills_map` for dynamic imports, and click `--skills` choices)
+   - `scripts/e2e_test_runner.py` (`SKILLS_ALL` matrix)
+   - Optional but recommended: add `drystone/prompts/templates/{skill}_audit.xml` to tighten evidence expectations
 
 ## Development Setup
 
@@ -449,6 +454,13 @@ cat audit-logs/*/findings/new_skill.json | python -m json.tool
 - ✅ Fallback a `evidence_refs` si snippet no disponible
 - ✅ Campo opcional (backward compatible)
 
+### PCI DSS Mapping
+
+- Source of truth: each checklist item can include a `pci_dss` array with `{ control, reason }`.
+- PCI DSS report formatter uses:
+  - `drystone/reports/formats/pci_dss.py` (`_get_all_pci_controls_from_checklists`, `_map_findings_to_controls`)
+- Inventory of all checks with PCI DSS control IDs: `checks_inventory.md`
+
 ### Checklist Format (v2.0 - PCI DSS Mapped)
 
 ```json
@@ -501,7 +513,7 @@ cat audit-logs/*/findings/new_skill.json | python -m json.tool
 | `drystone/cli/main.py` | Click CLI entry point | Phase 0 Complete |
 | `drystone/cloud/orchestrator.py` | Core orchestration logic | Phase 1 TODO |
 | `drystone/skills/base.py` | Base skill class (abstract) | Phase 1 TODO |
-| `drystone/skills/iam/{collector,analyzer}.py` | IAM skill implementation | Phase 1 TODO |
+| `drystone/skills/{skill}/__init__.py` | Skill implementation (collector + helpers) | Active |
 | `drystone/cloud/agent.py` | Claude API integration | Phase 1b TODO |
 | `drystone/cloud/aws/client.py` | AWS credential validation | Phase 1 Complete |
 
@@ -513,6 +525,11 @@ cat audit-logs/*/findings/new_skill.json | python -m json.tool
 | `drystone/skills/exposure/checklist.json` | Public exposure checklist | Phase 2 TODO |
 | `drystone/skills/network/checklist.json` | Network security checklist | Phase 2 TODO |
 | `drystone/skills/vulns/checklist.json` | Vulnerability checklist | Phase 2 TODO |
+| `drystone/skills/alerting/checklist.json` | Alerting & monitoring checklist | Active |
+| `drystone/skills/hardening/checklist.json` | Account hardening checklist | Active |
+| `drystone/skills/secretsmanager/checklist.json` | Secrets Manager checklist | Active |
+| `drystone/skills/waf/checklist.json` | WAF checklist | Active |
+| `drystone/skills/ecr/checklist.json` | ECR checklist | Active |
 
 ## Debugging
 
@@ -570,6 +587,17 @@ ruff check drystone/
 - **Result:** Improved UX with prioritized finding groups, clearer remediation guidance
 - **Files:** drystone/reports/formats/markdown.py (130 lines modified)
 - **Commit:** 6400719 (feat: reorganize general security report structure)
+
+**2026-02-09 (Session 15):** Skills Expansion + Evidence Quality + Inventory
+- ✅ Integrated `secretsmanager` skill end-to-end (wizard/config/cli/e2e matrix)
+- ✅ Added Secrets Manager alerting evidence collection (CloudWatch alarms + EventBridge rules)
+- ✅ Implemented evidence-based rejection for Secrets Manager false positives (SM-001, SM-003)
+- ✅ Implemented ECR skill (single-region) with evidence (`registry.json`, `repositories.json`), checklist, and prompt template
+- ✅ Hardened ECR collection when SDK lacks scanning operation (records `UnsupportedOperationInSDK`)
+- ✅ Implemented ECR evidence-based rejection for false positives (ECR-001, ECR-007, and ECR-004 when evidence is missing)
+- ✅ Generated exhaustive check inventory with PCI DSS mappings: `checks_inventory.md`
+- ✅ Added environment update plan for boto3/botocore: `PLAN_BOTO3_BOTOCORE_UPDATE.md`
+- **Files:** drystone/skills/ecr/__init__.py, drystone/skills/secretsmanager/__init__.py, drystone/validation/findings_normalizer.py, checks_inventory.md, PLAN_BOTO3_BOTOCORE_UPDATE.md
 
 **2026-02-07 (Session 13):** WAF Skill Test Fixes - Field Names & Mocking Strategy
 - ✅ Fixed field name mismatches in post-processor tests (albs_total → alb_internet_facing_total)
@@ -690,6 +718,10 @@ ruff check drystone/
 - Fix duplicate findings (HRD-001 + HRD-006 on same resource)
 - Fix false positives (HRD-002 Security Hub enabled check)
 - Implement 3-layer solution: deduplication + validation + region scope
+
+**🔄 NEW: boto3/botocore upgrade for ECR registry scanning**
+- Plan: `PLAN_BOTO3_BOTOCORE_UPDATE.md`
+- Goal: Ensure `describe_registry_scanning_configuration` is available so ECR registry scanning posture is verifiable.
 
 **🔄 OPTIONAL: Execute Test Audit**
 - Run: `python -m drystone audit --client TestOrg --region us-east-1`

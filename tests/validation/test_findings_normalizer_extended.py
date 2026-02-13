@@ -44,7 +44,7 @@ HARDENING_CHECKLIST = {
             "title": "GuardDuty sin malware findings",
             "severity": "Medium",
         },
-    ]
+    ],
 }
 
 # Sample IAM checklist
@@ -76,7 +76,27 @@ IAM_CHECKLIST = {
             "title": "Access keys viejas (>90 dias)",
             "severity": "Medium",
         },
-    ]
+        {
+            "id": "IAM-006",
+            "title": "Password reuse prevention",
+            "severity": "Medium",
+        },
+        {
+            "id": "IAM-009",
+            "title": "Root access keys",
+            "severity": "Critical",
+        },
+        {
+            "id": "IAM-012",
+            "title": "Inactive users should be removed",
+            "severity": "High",
+        },
+        {
+            "id": "IAM-014",
+            "title": "Multiple access keys",
+            "severity": "High",
+        },
+    ],
 }
 
 # Sample Alerting checklist
@@ -98,7 +118,7 @@ ALERTING_CHECKLIST = {
             "title": "Alarmas sin configurar",
             "severity": "High",
         },
-    ]
+    ],
 }
 
 
@@ -112,6 +132,7 @@ def make_finding(finding_id, severity, risk_score, title, description):
         description=description,
         evidence_refs=["test.json"],
         remediation=f"Fix {finding_id}",
+        cis_reference="N/A",
     )
 
 
@@ -373,6 +394,137 @@ class TestIAMEvidenceValidation:
         is_valid = normalizer._validate_against_evidence("IAM-001", finding)
         assert is_valid is False
 
+    def test_iam_009_rejected_when_root_access_keys_not_present(self):
+        """IAM-009 should be rejected when account summary shows no root access keys."""
+        normalizer = FindingsNormalizer(IAM_CHECKLIST, "iam")
+
+        normalizer.evidence = {
+            "account-summary": {
+                "SummaryMap": {
+                    "AccountAccessKeysPresent": 0,
+                }
+            }
+        }
+
+        finding = make_finding(
+            "IAM-009",
+            "Critical",
+            9.5,
+            "Root keys active",
+            "Root has active access keys",
+        )
+
+        is_valid = normalizer._validate_against_evidence("IAM-009", finding)
+        assert is_valid is False
+
+    def test_no_finding_placeholders_are_filtered(self):
+        """Findings that explicitly state 'no finding/no action needed' should be filtered."""
+        normalizer = FindingsNormalizer(IAM_CHECKLIST, "iam")
+
+        f = make_finding(
+            "IAM-006",
+            "Medium",
+            4.5,
+            "Password policy ok",
+            "The password policy is correctly configured. No finding.",
+        )
+        f.remediation = "No action needed - correctly configured"
+        f.evidence_refs = []
+        f.affected_resources = []
+        f.evidence_snippet = None
+
+        out = normalizer.normalize([f])
+        assert out == []
+
+    def test_iam_012_rejected_when_root_marked_inactive(self):
+        """IAM-012 should not be emitted for root inactivity (expected behavior)."""
+        normalizer = FindingsNormalizer(IAM_CHECKLIST, "iam")
+
+        normalizer.evidence = {
+            "credential-report": {
+                "by_user": {
+                    "<root_account>": {
+                        "user": "<root_account>",
+                        "mfa_active": "true",
+                        "password_last_used": "2023-04-10T06:41:46Z",
+                    }
+                }
+            }
+        }
+
+        f = make_finding(
+            "IAM-012",
+            "High",
+            7.0,
+            "Inactive users should be removed",
+            "Root not used recently",
+        )
+        f.affected_resources = ["arn:aws:iam::111111111111:root"]
+        f.evidence_refs = ["credential-report.json#root_account"]
+        f.evidence_snippet = {
+            "user": "<root_account>",
+            "password_last_used": "2023-04-10T06:41:46Z",
+        }
+
+        out = normalizer.normalize([f])
+        assert out == []
+
+    def test_iam_evidence_refs_normalize_credential_report(self):
+        normalizer = FindingsNormalizer(IAM_CHECKLIST, "iam")
+        normalizer.evidence = {"credential-report": {"rows": []}}
+
+        f = make_finding(
+            "IAM-014",
+            "High",
+            6.5,
+            "Multiple keys",
+            "User has multiple keys",
+        )
+        f.evidence_refs = ["credential-report.json#root_account", "credential_report.json#monolito"]
+        f.affected_resources = ["arn:aws:iam::111111111111:user/monolito"]
+
+        out = normalizer.normalize([f])
+        assert len(out) == 1
+        assert out[0].evidence_refs[0] == "credential-report.csv#<root_account>"
+        assert out[0].evidence_refs[1] == "credential-report.csv#monolito"
+
+
+class TestPCIDSSAlignment:
+    def test_pci_controls_aligned_to_checklist(self):
+        """Normalizer should override model-emitted PCI controls with checklist mapping."""
+        checklist = {
+            "skill": "iam",
+            "items": [
+                {
+                    "id": "IAM-010",
+                    "severity": "Critical",
+                    "pci_dss": [
+                        {"control": "8.4.2", "reason": "CHECKLIST_842"},
+                    ],
+                }
+            ],
+        }
+
+        normalizer = FindingsNormalizer(checklist, "iam")
+        f = make_finding(
+            "IAM-010",
+            "Critical",
+            9.0,
+            "Admin MFA",
+            "...",
+        )
+        # Model emits wrong control
+        f.pci_dss = [
+            {"control": "8.4.1", "reason": "WRONG"},
+            {"control": "8.4.2", "reason": "MODEL_842"},
+        ]
+
+        out = normalizer.normalize([f])
+        assert len(out) == 1
+        assert [c.control for c in out[0].pci_dss] == ["8.4.2"]
+        # Keep model reason when control matches checklist
+        assert out[0].pci_dss[0].reason == "MODEL_842"
+
     def test_iam_003_rejected_when_no_inactive_users(self):
         """Test that IAM-003 is rejected when no inactive users exist."""
         normalizer = FindingsNormalizer(IAM_CHECKLIST, "iam")
@@ -432,11 +584,7 @@ class TestAlertingEvidenceValidation:
         """Test that ALR-001 is rejected when CloudTrail is enabled."""
         normalizer = FindingsNormalizer(ALERTING_CHECKLIST, "alerting")
 
-        evidence = {
-            "cloudtrail-trails": [
-                {"TrailName": "default", "IsMultiRegionTrail": False}
-            ]
-        }
+        evidence = {"cloudtrail-trails": [{"TrailName": "default", "IsMultiRegionTrail": False}]}
         normalizer.evidence = evidence
 
         finding = make_finding("ALR-001", "Critical", 9.5, "CloudTrail disabled", "Not enabled")
@@ -449,9 +597,7 @@ class TestAlertingEvidenceValidation:
         """Test that ALR-003 is rejected when CloudTrail is disabled."""
         normalizer = FindingsNormalizer(ALERTING_CHECKLIST, "alerting")
 
-        evidence = {
-            "cloudtrail-trails": []
-        }
+        evidence = {"cloudtrail-trails": []}
         normalizer.evidence = evidence
 
         finding = make_finding("ALR-003", "Critical", 9.5, "No CloudWatch logs", "Not configured")

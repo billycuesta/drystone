@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<audit_task extends="base_audit.xml">
+  <skill_addendum>
+    <note>
+      ECR is a regional service. Evaluate findings ONLY for the audited region unless evidence explicitly shows otherwise.
+    </note>
+
+    <evidence_expectations>
+      <item>
+        <name>repositories.json</name>
+        <use_for>Repository-level controls: public access, immutability, scan-on-push, encryption, lifecycle policies</use_for>
+      </item>
+      <item>
+        <name>registry.json</name>
+        <use_for>Registry-level controls: scanning configuration, registry policy, replication configuration</use_for>
+      </item>
+    </evidence_expectations>
+
+    <anti_hallucination>
+      <rule>
+        Evidence references MUST be resolvable. Use JSON Pointer fragments (RFC 6901)
+        where possible. Examples: repositories.json#/repositories/0, registry.json#/registry_scanning.
+      </rule>
+      <rule>
+        Do NOT claim a repository is public unless the repository policy explicitly contains a wildcard principal (Principal '*' or AWS '*')
+        in an Allow statement.
+      </rule>
+      <rule>
+        If registry scanning evidence is missing or contains an error (AccessDenied / UnsupportedOperationInSDK / other),
+        do NOT generate ECR-004. Instead, generate ECR-010 (low severity) and clearly state "insufficient evidence".
+      </rule>
+      <rule>
+        For rotation/scanning interval-like findings: only generate them if the evidence includes the required configuration fields.
+      </rule>
+    </anti_hallucination>
+  </skill_addendum>
+</audit_task>

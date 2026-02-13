@@ -2,9 +2,11 @@
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List
+from datetime import datetime, timezone
 
 import boto3
+from botocore.exceptions import ClientError
 
 from drystone.cloud.aws.client import AWSClient
 from drystone.skills.base import BaseSkill
@@ -39,21 +41,50 @@ class ExposureSkill(BaseSkill):
             session: Audit session for evidence storage
         """
         client_kwargs = {
-            'aws_access_key_id': aws_client.access_key_id,
-            'aws_secret_access_key': aws_client.secret_access_key,
-            'region_name': aws_client.region_name,
+            "aws_access_key_id": aws_client.access_key_id,
+            "aws_secret_access_key": aws_client.secret_access_key,
+            "region_name": aws_client.region_name,
         }
         if aws_client.session_token:
-            client_kwargs['aws_session_token'] = aws_client.session_token
+            client_kwargs["aws_session_token"] = aws_client.session_token
 
         evidence_path = session.get_evidence_path(self.name)
+        region = aws_client.region_name
+
+        # === AUDIT METADATA ===
+        audit_metadata: Dict[str, Any] = {
+            "_region": region,
+            "_timestamp": datetime.now(timezone.utc).isoformat(),
+            "_scope": "single-region",
+            "_skill": self.name,
+            "_account_id": session.account_id,
+            "evidence_files": [],
+        }
+
+        def _save(filepath: Path, data: Any) -> None:
+            self._save_json(filepath, data)
+            audit_metadata["evidence_files"].append(filepath.name)
+
+        def _wrap_indexed(items: List[Dict[str, Any]], *, by_key: str) -> Dict[str, Any]:
+            by_id: Dict[str, Any] = {}
+            for it in items:
+                if not isinstance(it, dict):
+                    continue
+                k = it.get(by_key)
+                if isinstance(k, str) and k:
+                    by_id[k] = it
+            return {
+                "_meta": {"_region": region},
+                "items": items,
+                "by_id": by_id,
+            }
 
         # === S3 BUCKETS ===
         print("  Collecting S3 bucket configurations...")
         try:
             s3_client = boto3.client("s3", **client_kwargs)
             buckets_response = s3_client.list_buckets()
-            buckets_list = []
+            buckets_list: List[Dict[str, Any]] = []
 
             for bucket in buckets_response.get("Buckets", []):
                 bucket_name = bucket["Name"]
@@ -70,7 +101,9 @@ class ExposureSkill(BaseSkill):
 
                 try:
                     pab = s3_client.get_public_access_block(Bucket=bucket_name)
-                    bucket_detail["PublicAccessBlock"] = pab.get("PublicAccessBlockConfiguration", {})
+                    bucket_detail["PublicAccessBlock"] = pab.get(
+                        "PublicAccessBlockConfiguration", {}
+                    )
                 except Exception:
                     bucket_detail["PublicAccessBlock"] = None
 
@@ -88,16 +121,26 @@ class ExposureSkill(BaseSkill):
 
                 buckets_list.append(bucket_detail)
 
-            self._save_json(evidence_path / "s3-buckets.json", buckets_list)
+            # Index by bucket name for stable evidence references.
+            s3_doc = {
+                "_meta": {"_region": region},
+                "items": buckets_list,
+                "by_name": {
+                    b.get("Name"): b for b in buckets_list if isinstance(b.get("Name"), str)
+                },
+            }
+            _save(evidence_path / "s3-buckets.json", s3_doc)
         except Exception as e:
             print(f"    Warning: Could not collect S3 data: {e}")
+
+        rds_client = None
 
         # === RDS INSTANCES ===
         print("  Collecting RDS instance configurations...")
         try:
             rds_client = boto3.client("rds", **client_kwargs)
             rds_response = rds_client.describe_db_instances()
-            rds_list = []
+            rds_list: List[Dict[str, Any]] = []
 
             for instance in rds_response.get("DBInstances", []):
                 rds_detail = {
@@ -110,15 +153,20 @@ class ExposureSkill(BaseSkill):
                 }
                 rds_list.append(rds_detail)
 
-            self._save_json(evidence_path / "rds-instances.json", rds_list)
+            _save(
+                evidence_path / "rds-instances.json",
+                _wrap_indexed(rds_list, by_key="DBInstanceIdentifier"),
+            )
         except Exception as e:
             print(f"    Warning: Could not collect RDS data: {e}")
 
         # === RDS SNAPSHOTS ===
         print("  Collecting RDS snapshot sharing...")
         try:
+            if rds_client is None:
+                rds_client = boto3.client("rds", **client_kwargs)
             snapshots = rds_client.describe_db_snapshots()
-            snapshots_list = []
+            snapshots_list: List[Dict[str, Any]] = []
 
             for snapshot in snapshots.get("DBSnapshots", []):
                 snapshot_detail = {
@@ -137,16 +185,21 @@ class ExposureSkill(BaseSkill):
 
                 snapshots_list.append(snapshot_detail)
 
-            self._save_json(evidence_path / "rds-snapshots.json", snapshots_list)
+            _save(
+                evidence_path / "rds-snapshots.json",
+                _wrap_indexed(snapshots_list, by_key="DBSnapshotIdentifier"),
+            )
         except Exception as e:
             print(f"    Warning: Could not collect RDS snapshot data: {e}")
+
+        ec2_client = None
 
         # === AMI IMAGES ===
         print("  Collecting AMI image sharing...")
         try:
             ec2_client = boto3.client("ec2", **client_kwargs)
             images = ec2_client.describe_images(Owners=["self"])
-            images_list = []
+            images_list: List[Dict[str, Any]] = []
 
             for image in images.get("Images", []):
                 image_detail = {
@@ -158,8 +211,7 @@ class ExposureSkill(BaseSkill):
 
                 try:
                     launch_perms = ec2_client.describe_image_attribute(
-                        ImageId=image.get("ImageId"),
-                        Attribute="launchPermission"
+                        ImageId=image.get("ImageId"), Attribute="launchPermission"
                     )
                     image_detail["LaunchPermissions"] = launch_perms.get("LaunchPermissions", [])
                 except Exception:
@@ -167,15 +219,20 @@ class ExposureSkill(BaseSkill):
 
                 images_list.append(image_detail)
 
-            self._save_json(evidence_path / "ami-images.json", images_list)
+            _save(
+                evidence_path / "ami-images.json",
+                _wrap_indexed(images_list, by_key="ImageId"),
+            )
         except Exception as e:
             print(f"    Warning: Could not collect AMI data: {e}")
 
         # === SECURITY GROUPS ===
         print("  Collecting security group rules...")
         try:
+            if ec2_client is None:
+                ec2_client = boto3.client("ec2", **client_kwargs)
             sgs = ec2_client.describe_security_groups()
-            sgs_list = []
+            sgs_list: List[Dict[str, Any]] = []
 
             for sg in sgs.get("SecurityGroups", []):
                 sg_detail = {
@@ -187,7 +244,10 @@ class ExposureSkill(BaseSkill):
                 }
                 sgs_list.append(sg_detail)
 
-            self._save_json(evidence_path / "security-groups.json", sgs_list)
+            _save(
+                evidence_path / "security-groups.json",
+                _wrap_indexed(sgs_list, by_key="GroupId"),
+            )
         except Exception as e:
             print(f"    Warning: Could not collect security group data: {e}")
 
@@ -196,7 +256,7 @@ class ExposureSkill(BaseSkill):
         try:
             cf_client = boto3.client("cloudfront", **client_kwargs)
             distributions = cf_client.list_distributions()
-            dists_list = []
+            dists_list: List[Dict[str, Any]] = []
 
             for dist in distributions.get("DistributionList", {}).get("Items", []):
                 dist_detail = {
@@ -208,9 +268,135 @@ class ExposureSkill(BaseSkill):
                 }
                 dists_list.append(dist_detail)
 
-            self._save_json(evidence_path / "cloudfront-distributions.json", dists_list)
+            _save(
+                evidence_path / "cloudfront-distributions.json",
+                _wrap_indexed(dists_list, by_key="Id"),
+            )
         except Exception as e:
             print(f"    Warning: Could not collect CloudFront data: {e}")
+
+        # === LOAD BALANCERS + LISTENERS (ELBv2) ===
+        print("  Collecting load balancers and listeners...")
+        try:
+            elbv2 = boto3.client("elbv2", **client_kwargs)
+            lbs: List[Dict[str, Any]] = []
+            marker = None
+            while True:
+                kwargs = {"PageSize": 400}
+                if marker:
+                    kwargs["Marker"] = marker
+                resp = elbv2.describe_load_balancers(**kwargs)
+                for lb in resp.get("LoadBalancers", []) or []:
+                    lbs.append(
+                        {
+                            "LoadBalancerArn": lb.get("LoadBalancerArn"),
+                            "LoadBalancerName": lb.get("LoadBalancerName"),
+                            "DNSName": lb.get("DNSName"),
+                            "Scheme": lb.get("Scheme"),
+                            "Type": lb.get("Type"),
+                            "VpcId": lb.get("VpcId"),
+                            "SecurityGroups": lb.get("SecurityGroups", []),
+                            "AvailabilityZones": lb.get("AvailabilityZones", []),
+                        }
+                    )
+                marker = resp.get("NextMarker")
+                if not marker:
+                    break
+
+            _save(
+                evidence_path / "load-balancers.json",
+                _wrap_indexed(lbs, by_key="LoadBalancerArn"),
+            )
+
+            listeners: List[Dict[str, Any]] = []
+            for lb in lbs:
+                lb_arn = lb.get("LoadBalancerArn")
+                if not lb_arn:
+                    continue
+                try:
+                    l_resp = elbv2.describe_listeners(LoadBalancerArn=lb_arn)
+                except ClientError:
+                    continue
+                for li in l_resp.get("Listeners", []) or []:
+                    listeners.append(
+                        {
+                            "LoadBalancerArn": lb_arn,
+                            "ListenerArn": li.get("ListenerArn"),
+                            "Protocol": li.get("Protocol"),
+                            "Port": li.get("Port"),
+                            "SslPolicy": li.get("SslPolicy"),
+                            "Certificates": li.get("Certificates", []),
+                            "DefaultActions": li.get("DefaultActions", []),
+                        }
+                    )
+
+            _save(
+                evidence_path / "load-balancer-listeners.json",
+                {
+                    "_meta": {"_region": region},
+                    "items": listeners,
+                },
+            )
+
+        except Exception as e:
+            print(f"    Warning: Could not collect ELBv2 data: {e}")
+
+        # === WAFv2 (WebACLs + ALB associations) ===
+        print("  Collecting WAFv2 WebACL associations...")
+        try:
+            waf = boto3.client("wafv2", **client_kwargs)
+            web_acls: List[Dict[str, Any]] = []
+            alb_associations: Dict[str, List[str]] = {}
+
+            for scope in ["REGIONAL"]:
+                marker = None
+                while True:
+                    kwargs = {"Scope": scope, "Limit": 100}
+                    if marker:
+                        kwargs["NextMarker"] = marker
+                    resp = waf.list_web_acls(**kwargs)
+                    for wa in resp.get("WebACLs", []) or []:
+                        web_acls.append(
+                            {
+                                "Scope": scope,
+                                "Name": wa.get("Name"),
+                                "Id": wa.get("Id"),
+                                "ARN": wa.get("ARN"),
+                                "Description": wa.get("Description"),
+                            }
+                        )
+                    marker = resp.get("NextMarker")
+                    if not marker:
+                        break
+
+            for wa in web_acls:
+                arn = wa.get("ARN")
+                if not arn:
+                    continue
+                try:
+                    r = waf.list_resources_for_web_acl(
+                        WebACLArn=arn,
+                        ResourceType="APPLICATION_LOAD_BALANCER",
+                    )
+                    resources = r.get("ResourceArns", []) or []
+                    for alb_arn in resources:
+                        alb_associations.setdefault(alb_arn, []).append(arn)
+                except ClientError:
+                    continue
+
+            _save(
+                evidence_path / "wafv2-web-acls.json",
+                {"_meta": {"_region": region}, "items": web_acls},
+            )
+            _save(
+                evidence_path / "wafv2-web-acl-alb-associations.json",
+                {"_meta": {"_region": region}, "by_alb_arn": alb_associations},
+            )
+        except Exception as e:
+            print(f"    Warning: Could not collect WAFv2 data: {e}")
+
+        # Persist audit metadata last so it includes all files.
+        _save(evidence_path / "_audit_metadata.json", audit_metadata)
 
         print(f"\n✅ Exposure collection complete")
 
@@ -220,7 +406,7 @@ class ExposureSkill(BaseSkill):
             json.dump(data, f, indent=2, default=str)
 
     def analyze(self, session: AuditSession, agent_client: "AgentClient") -> Path:
-        """Analyze collected exposure evidence using Gemini API.
+        """Analyze collected exposure evidence using configured AI provider.
 
         1. Read all evidence files
         2. Read security checklist
@@ -266,16 +452,54 @@ class ExposureSkill(BaseSkill):
 
         print(f"    Loaded {len(checklist['items'])} security checks")
 
-        # 3. Call agent for analysis
+        # 3. Call agent for analysis (chunked)
         provider_name = agent_client.get_display_name()
         print(f"  Analyzing with {provider_name}...")
-        findings = agent_client.analyze_evidence(
+        findings = agent_client.analyze_evidence_chunked(
             skill_name=self.name, evidence=evidence, checklist=checklist
         )
 
-        # 3a. Normalize findings (reduce variance between models)
+        # 3a. Deterministic findings from evidence (reduce false negatives)
+        # Some exposure checks are reliably derivable from evidence and should not
+        # depend on model variability.
+        try:
+            deterministic = self._generate_deterministic_findings(evidence, checklist)
+            if deterministic:
+                # Deterministic findings should override model-emitted findings for the same ID.
+                merged = {}
+                for f in findings.findings or []:
+                    fid = getattr(f, "id", None)
+                    if isinstance(fid, str) and fid:
+                        merged[fid] = f
+                for df in deterministic:
+                    merged[df.id] = df
+                findings.findings = list(merged.values())
+        except Exception as e:
+            print(f"    Warning: deterministic exposure checks failed: {e}")
+
+        # 3b. Normalize findings (reduce variance between models)
         print("  Normalizing findings...")
-        findings = self._normalize_findings(findings, checklist)
+        findings = self._normalize_findings(findings, checklist, evidence=evidence)
+
+        # Enforce server-side metadata for report generation and QA consistency.
+        findings.skill = self.name
+        findings.evidence_count = len(evidence)
+        findings.checklist_version = str(checklist.get("version") or "1.0")
+
+        # Override analyzed_at with a reliable server-side timestamp.
+        findings.analyzed_at = datetime.now(timezone.utc)
+
+        # Patch affected_resources that use ':unknown:' region.
+        audit_region = (evidence.get("_audit_metadata") or {}).get("_region")
+        if audit_region:
+            for f in findings.findings:
+                patched = []
+                for r in f.affected_resources or []:
+                    if isinstance(r, str) and ":unknown:" in r:
+                        patched.append(r.replace(":unknown:", f":{audit_region}:"))
+                    else:
+                        patched.append(r)
+                f.affected_resources = patched
 
         # 4. Save findings
         findings_dir = session.get_findings_path()
@@ -295,6 +519,232 @@ class ExposureSkill(BaseSkill):
         print(f"   Overall Risk: {findings.summary.overall_risk_score:.1f}/10")
 
         return findings_path
+
+    def _generate_deterministic_findings(
+        self, evidence: Dict[str, Any], checklist: Dict[str, Any]
+    ) -> List[Any]:
+        """Generate deterministic findings from evidence for high-signal checks."""
+
+        from drystone.models.findings import Finding, PCIDSSControl
+        from drystone.validation.findings_normalizer import FindingsNormalizer
+
+        items = checklist.get("items", []) or []
+        item_by_id = {i.get("id"): i for i in items if isinstance(i, dict) and i.get("id")}
+
+        meta = evidence.get("_audit_metadata") or {}
+        audit_account = meta.get("_account_id") if isinstance(meta, dict) else None
+        if isinstance(audit_account, str):
+            audit_account = audit_account.strip()
+
+        s3_doc = evidence.get("s3-buckets")
+        by_name = {}
+        if isinstance(s3_doc, dict) and isinstance(s3_doc.get("by_name"), dict):
+            by_name = s3_doc.get("by_name") or {}
+
+        def _mid_score(sev: str) -> float:
+            lo, hi = FindingsNormalizer.SEVERITY_RANGES.get(sev, (5.0, 5.0))
+            return round((lo + hi) / 2, 1)
+
+        def _pci(fid: str) -> List[PCIDSSControl]:
+            it = item_by_id.get(fid) or {}
+            out = []
+            for c in it.get("pci_dss") or []:
+                if isinstance(c, dict) and c.get("control"):
+                    out.append(
+                        PCIDSSControl(
+                            control=str(c.get("control")), reason=str(c.get("reason") or "")
+                        )
+                    )
+            return out
+
+        def _has_securetransport_deny(policy: Any) -> bool:
+            if not isinstance(policy, dict):
+                return False
+            for st in policy.get("Statement", []) or []:
+                if not isinstance(st, dict):
+                    continue
+                if st.get("Effect") != "Deny":
+                    continue
+                cond = st.get("Condition")
+                if not isinstance(cond, dict):
+                    continue
+                b = cond.get("Bool")
+                if isinstance(b, dict) and b.get("aws:SecureTransport") == "false":
+                    return True
+            return False
+
+        def _is_audit_log_bucket(name: str, bucket: Dict[str, Any]) -> bool:
+            n = name.lower()
+            if any(k in n for k in ["cloudtrail", "logs", "log", "audit", "backup", "config"]):
+                return True
+            pol = bucket.get("BucketPolicy")
+            if not isinstance(pol, dict):
+                return False
+            for st in pol.get("Statement", []) or []:
+                if not isinstance(st, dict):
+                    continue
+                principal = st.get("Principal")
+                if not isinstance(principal, dict):
+                    continue
+                svc = principal.get("Service")
+                if not isinstance(svc, str):
+                    continue
+                if svc in {
+                    "config.amazonaws.com",
+                    "cloudtrail.amazonaws.com",
+                    "delivery.logs.amazonaws.com",
+                }:
+                    return True
+                if svc.startswith("logs.") and svc.endswith(".amazonaws.com"):
+                    return True
+            return False
+
+        findings = []
+
+        # EXP-013: TLS enforcement missing
+        exp_013 = item_by_id.get("EXP-013")
+        if exp_013 and by_name:
+            buckets = []
+            for bn, b in by_name.items():
+                if not isinstance(bn, str) or not isinstance(b, dict):
+                    continue
+                if not _is_audit_log_bucket(bn, b):
+                    continue
+                pol = b.get("BucketPolicy")
+                if pol is None:
+                    continue
+                if not _has_securetransport_deny(pol):
+                    buckets.append(bn)
+
+            if buckets:
+                findings.append(
+                    Finding(
+                        id="EXP-013",
+                        severity=exp_013.get("severity", "High"),
+                        risk_score=_mid_score(exp_013.get("severity", "High")),
+                        title=str(exp_013.get("title", "S3 TLS enforcement missing")),
+                        description="One or more audit/log S3 buckets are missing an explicit bucket policy Deny for aws:SecureTransport=false, so non-TLS access is not explicitly blocked.",
+                        remediation=str(exp_013.get("remediation", "")),
+                        evidence_refs=[f"s3-buckets.json#by_name.{bn}" for bn in buckets[:5]],
+                        evidence_snippet={"buckets": [{"Name": bn} for bn in buckets[:20]]},
+                        affected_resources=[f"arn:aws:s3:::{bn}" for bn in buckets],
+                        cis_reference=None,
+                        pci_dss=_pci("EXP-013"),
+                    )
+                )
+
+        # EXP-014: Versioning missing
+        exp_014 = item_by_id.get("EXP-014")
+        if exp_014 and by_name:
+            buckets = []
+            for bn, b in by_name.items():
+                if not isinstance(bn, str) or not isinstance(b, dict):
+                    continue
+                if not _is_audit_log_bucket(bn, b):
+                    continue
+                if (b.get("Versioning") or "") != "Enabled":
+                    buckets.append(bn)
+
+            if buckets:
+                findings.append(
+                    Finding(
+                        id="EXP-014",
+                        severity=exp_014.get("severity", "High"),
+                        risk_score=_mid_score(exp_014.get("severity", "High")),
+                        title=str(exp_014.get("title", "S3 versioning missing")),
+                        description="One or more audit/log S3 buckets do not have versioning enabled, reducing protection against overwrites/deletions for audit evidence.",
+                        remediation=str(exp_014.get("remediation", "")),
+                        evidence_refs=[f"s3-buckets.json#by_name.{bn}" for bn in buckets[:5]],
+                        evidence_snippet={
+                            "audit_log_buckets": [
+                                {
+                                    "Name": bn,
+                                    "Versioning": (by_name.get(bn) or {}).get("Versioning"),
+                                }
+                                for bn in buckets[:20]
+                            ]
+                        },
+                        affected_resources=[f"arn:aws:s3:::{bn}" for bn in buckets],
+                        cis_reference=None,
+                        pci_dss=_pci("EXP-014"),
+                    )
+                )
+
+        # EXP-015: Cross-account bucket policy without conditions
+        exp_015 = item_by_id.get("EXP-015")
+        if exp_015 and by_name and isinstance(audit_account, str) and audit_account.isdigit():
+            buckets = []
+            principals: List[str] = []
+
+            def _has_strong_condition(st: Dict[str, Any]) -> bool:
+                cond = st.get("Condition")
+                if not isinstance(cond, dict):
+                    return False
+                for block in ["StringEquals", "ArnEquals", "StringLike", "ArnLike"]:
+                    b = cond.get(block)
+                    if not isinstance(b, dict):
+                        continue
+                    for k in b.keys():
+                        if k in {
+                            "aws:SourceAccount",
+                            "AWS:SourceAccount",
+                            "aws:SourceArn",
+                            "AWS:SourceArn",
+                        }:
+                            return True
+                return False
+
+            for bn, b in by_name.items():
+                if not isinstance(bn, str) or not isinstance(b, dict):
+                    continue
+                pol = b.get("BucketPolicy")
+                if not isinstance(pol, dict):
+                    continue
+                for st in pol.get("Statement", []) or []:
+                    if not isinstance(st, dict):
+                        continue
+                    if st.get("Effect") != "Allow":
+                        continue
+                    principal = st.get("Principal")
+                    if not isinstance(principal, dict):
+                        continue
+                    aws_p = principal.get("AWS")
+                    aws_list = [aws_p] if isinstance(aws_p, str) else (aws_p or [])
+                    for p in aws_list:
+                        if not isinstance(p, str) or not p.startswith("arn:aws:iam::"):
+                            continue
+                        parts = p.split(":")
+                        if len(parts) > 4 and parts[4].isdigit() and parts[4] != audit_account:
+                            if not _has_strong_condition(st):
+                                buckets.append(bn)
+                                principals.append(p)
+
+            if buckets and principals:
+                buckets_u = sorted(set(buckets))
+                principals_u = sorted(set(principals))
+                findings.append(
+                    Finding(
+                        id="EXP-015",
+                        severity=exp_015.get("severity", "High"),
+                        risk_score=_mid_score(exp_015.get("severity", "High")),
+                        title=str(exp_015.get("title", "S3 cross-account bucket policy")),
+                        description=str(exp_015.get("description", "")),
+                        remediation=str(exp_015.get("remediation", "")),
+                        evidence_refs=[f"s3-buckets.json#by_name.{bn}" for bn in buckets_u[:5]],
+                        evidence_snippet={
+                            "buckets": buckets_u[:20],
+                            "cross_account_principals": principals_u[:20],
+                        },
+                        affected_resources=[
+                            *[f"arn:aws:s3:::{bn}" for bn in buckets_u],
+                            *principals_u,
+                        ],
+                        cis_reference=None,
+                        pci_dss=_pci("EXP-015"),
+                    )
+                )
+
+        return findings
 
 
 __all__ = ["ExposureSkill"]

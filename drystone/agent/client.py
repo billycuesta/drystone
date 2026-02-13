@@ -688,6 +688,8 @@ These examples show how to correctly interpret service state:
             "vulns": "VULN",
             "hardening": "HRD",
             "alerting": "ALR",
+            "ecr": "ECR",
+            "secretsmanager": "SM",
             "waf": "WAF",
         }
         return skill_codes.get(skill_name.lower(), skill_name.upper()[:3])
@@ -715,12 +717,15 @@ These examples show how to correctly interpret service state:
             len(v) if isinstance(v, list) else 1 for v in evidence.values() if v is not None
         )
 
-        # Calculate dynamic findings limits (reduce variance)
+        # Calculate dynamic findings limits.
+        # IMPORTANT: Do NOT force a minimum number of findings.
+        # Forcing a minimum incentivizes the model to generate "no finding" placeholders.
         total_checklist_items = len(checklist.get("items", []))
-        min_findings = max(8, int(total_checklist_items * 0.6))  # At least 60% of items
+        min_findings = 0
         max_findings = int(total_checklist_items * 0.8)  # Max 80% of items
 
         # WAF can be legitimately N/A if there are no in-scope entry points.
+        # (min_findings already 0; keep explicit for clarity)
         if skill_name.lower() == "waf":
             min_findings = 0
 
@@ -894,7 +899,10 @@ Missing CloudWatch alarm:
             # Get skill code and calibration values
             skill_code = self._get_skill_code(skill_name)
             total_checklist_items = len(checklist.get("items", []))
-            min_findings = max(8, int(total_checklist_items * 0.6))
+
+            # IMPORTANT: Do NOT force a minimum findings count.
+            # This reduces "no finding" placeholders and improves precision.
+            min_findings = 0
             max_findings = int(total_checklist_items * 0.8)
 
             # WAF can be legitimately N/A if there are no in-scope entry points.

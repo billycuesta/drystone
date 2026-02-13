@@ -2,10 +2,12 @@
   "skill": "network",
   "framework": "AWS VPC Security Best Practices + PCI DSS v4.0 Mapping",
   "description": "Checklist for auditing AWS network policies and connectivity, including Security Groups, NACLs, Route Tables, VPC Peering, Transit Gateway, and Network Firewall, with mappings to relevant PCI DSS controls.",
+  "version": "1.1",
+  "last_updated": "2026-02-10",
   "items": [
     {
       "id": "NET-001",
-      "title": "Security Groups con reglas ANY (0.0.0.0/0) en puertos sensibles (22, 3389, 3306, 5432, 1433, 27017, 6379)",
+      "title": "Security groups with 0.0.0.0/0 access on sensitive ports (22, 3389, 3306, 5432, 1433, 27017, 6379)",
       "severity": "Critical",
       "description": "Security Groups allowing unrestricted inbound access (0.0.0.0/0) to sensitive management ports (SSH, RDP) or database ports expose instances and databases to internet-borne attacks, such as brute-force or exploitation of known vulnerabilities.",
       "remediation": "Restrict inbound rules to specific trusted IP addresses or IP ranges. For management, use a bastion host or AWS Systems Manager Session Manager. For databases, allow access only from application security groups.",
@@ -26,7 +28,7 @@
     },
     {
       "id": "NET-002",
-      "title": "Security Groups con ALL traffic (protocol -1) desde 0.0.0.0/0",
+      "title": "Security groups allowing ALL traffic (protocol -1) from 0.0.0.0/0",
       "severity": "Critical",
       "description": "A Security Group rule allowing ALL traffic (protocol -1) from 0.0.0.0/0 effectively disables the firewall function for any attached resource, exposing all ports and protocols to the entire internet.",
       "remediation": "Remove the 'ALL traffic' rule. Implement specific, least-privilege rules for necessary inbound and outbound traffic, specifying protocols, ports, and source/destination IP ranges.",
@@ -43,7 +45,7 @@
     },
     {
       "id": "NET-003",
-      "title": "NACLs con reglas ALLOW ALL sin restricciones",
+      "title": "NACLs with ALLOW ALL rules (overly permissive)",
       "severity": "Critical",
       "description": "Network Access Control Lists (NACLs) are configured with rules that allow all traffic (e.g., rule 100, ALL protocol, 0.0.0.0/0), rendering them ineffective as a stateless firewall layer.",
       "remediation": "Replace overly permissive NACL rules with specific inbound and outbound rules that only allow necessary traffic based on the subnet's purpose. All other traffic should be implicitly denied by the default rule.",
@@ -60,7 +62,7 @@
     },
     {
       "id": "NET-004",
-      "title": "Route tables con default route (0.0.0.0/0) hacia Internet Gateway en subnets con recursos sensibles (DB, internal apps)",
+      "title": "Default route (0.0.0.0/0) to IGW in subnets hosting sensitive resources (DB/internal apps)",
       "severity": "Critical",
       "description": "A subnet designated for sensitive resources (e.g., databases, internal applications) has a default route (0.0.0.0/0) pointing to an Internet Gateway, effectively making it a public subnet.",
       "remediation": "Remove the route to the Internet Gateway. For private subnets requiring outbound internet access (e.g., for updates), configure the default route to a NAT Gateway or a Network Firewall endpoint.",
@@ -76,8 +78,25 @@
       ]
     },
     {
+      "id": "NET-022",
+      "title": "Public subnets (0.0.0.0/0 to IGW) - verify no sensitive workloads are deployed",
+      "severity": "Medium",
+      "description": "One or more subnets are effectively public due to a default route (0.0.0.0/0) pointing to an Internet Gateway. Public subnets are valid for internet-facing tiers, but you must ensure that sensitive components (databases, internal apps) are not deployed there.",
+      "remediation": "Document subnet tiering (Public/Private) using tags and guardrails. Audit resources deployed in public subnets and migrate any sensitive components to private subnets. Consider SCPs/IaC policies to prevent sensitive workloads from being placed in public subnets.",
+      "pci_dss": [
+        {
+          "control": "1.3.1.b",
+          "reason": "Network security controls must restrict inbound traffic to only what is necessary. Public subnet routing requires explicit design to restrict access and avoid placing sensitive components in untrusted segments."
+        },
+        {
+          "control": "1.4.4.b",
+          "reason": "System components storing cardholder data must not be directly accessible from untrusted networks. Public subnet routing requires validation that sensitive components are not exposed."
+        }
+      ]
+    },
+    {
       "id": "NET-005",
-      "title": "VPC Peering con route tables bidireccionales sin filtrado",
+      "title": "VPC peering with broad bidirectional routing without filtering",
       "severity": "Critical",
       "description": "VPC Peering connections are configured with bidirectional routes covering broad CIDR blocks without specific Security Group filtering, effectively merging the network segments with minimal control and violating segmentation principles.",
       "remediation": "Implement granular Security Group rules to filter traffic between peered VPCs based on least privilege. Consider using Transit Gateway with dedicated route tables and Network Firewall for better segmentation.",
@@ -94,7 +113,7 @@
     },
     {
       "id": "NET-006",
-      "title": "Security Groups que referencian SGs de otras cuentas sin validación",
+      "title": "Security groups referencing cross-account SGs without validation",
       "severity": "Critical",
       "description": "Security Groups are configured to allow traffic from Security Groups in other AWS accounts without proper validation or strict control over the referenced external security groups.",
       "remediation": "Remove cross-account Security Group references where possible. If necessary, ensure strict control and validation mechanisms are in place for the referenced external Security Groups and their associated resources.",
@@ -111,7 +130,7 @@
     },
     {
       "id": "NET-007",
-      "title": "Network Firewall deshabilitado en VPCs críticas con tráfico norte-sur",
+      "title": "Network Firewall not deployed for critical north-south traffic VPCs",
       "severity": "Critical",
       "description": "AWS Network Firewall is not deployed or enabled in critical VPCs that handle significant north-south traffic (internet-facing), leaving inbound/outbound traffic unprotected against advanced threats like intrusion, malware, and data exfiltration.",
       "remediation": "Deploy AWS Network Firewall in critical VPCs. Configure it for both inbound and outbound traffic inspection. Implement stateful rules for intrusion prevention (IDS/IPS), URL filtering, and domain filtering.",
@@ -128,7 +147,7 @@
     },
     {
       "id": "NET-008",
-      "title": "Subnets públicas con recursos críticos (RDS, ElastiCache, internal apps)",
+      "title": "Critical workloads deployed in public subnets (RDS/ElastiCache/internal apps)",
       "severity": "Critical",
       "description": "Critical resources such as databases (RDS), caching services (ElastiCache), or internal application servers are deployed directly into public subnets.",
       "remediation": "Move all critical resources to private subnets. Ensure private subnets do not have direct routes to an Internet Gateway.",
@@ -141,7 +160,7 @@
     },
     {
       "id": "NET-009",
-      "title": "Security Groups con reglas desde rangos amplios (>=/16) para puertos no-web",
+      "title": "Security groups allowing overly broad CIDRs (>=/16) to non-web ports",
       "severity": "High",
       "description": "Security Groups permit access from overly broad IP ranges (e.g., /16 or larger) to non-web ports, increasing the exposure window for resources even if not to the entire internet.",
       "remediation": "Refine Security Group rules to use the narrowest possible IP ranges or specific Security Group IDs as sources, following the principle of least privilege.",
@@ -158,7 +177,7 @@
     },
     {
       "id": "NET-010",
-      "title": "NACLs con reglas permisivas (allow all) como default",
+      "title": "Default NACLs are overly permissive (allow all)",
       "severity": "High",
       "description": "Default NACLs in VPCs are often overly permissive (e.g., allow all inbound/outbound). If custom NACLs are not applied, these permissive defaults will be in effect.",
       "remediation": "Ensure all subnets have custom NACLs applied that implement explicit deny rules for all unnecessary traffic and only permit required traffic.",
@@ -175,7 +194,7 @@
     },
     {
       "id": "NET-011",
-      "title": "Security Groups sin descripción en reglas críticas",
+      "title": "Security group critical rules missing descriptions",
       "severity": "High",
       "description": "Critical Security Group rules lack descriptions, making it difficult for auditors and administrators to understand the purpose or business justification of the rule.",
       "remediation": "Add clear and concise descriptions to all Security Group rules, especially for critical ports or broad access, explaining their purpose and justification.",
@@ -192,7 +211,7 @@
     },
     {
       "id": "NET-012",
-      "title": "Transit Gateway sin Network Firewall en attachments",
+      "title": "Transit Gateway attachments not inspected by Network Firewall",
       "severity": "High",
       "description": "Transit Gateway attachments (especially for VPCs with differing trust levels or internet egress) are not inspected by a Network Firewall, leading to unfiltered traffic between network segments.",
       "remediation": "Integrate AWS Network Firewall with Transit Gateway, routing traffic through inspection VPCs to ensure all inter-VPC traffic is inspected and filtered according to policy.",
@@ -205,7 +224,7 @@
     },
     {
       "id": "NET-013",
-      "title": "VPC endpoints no utilizados (tráfico hacia servicios AWS via internet)",
+      "title": "Over-permissive VPC endpoint policies (wildcard Principal/Action)",
       "severity": "High",
       "description": "Instead of using VPC Endpoints, traffic from private subnets to AWS public services (e.g., S3, DynamoDB) is routed over the internet via NAT Gateways, increasing data transfer costs and potential exposure.",
       "remediation": "Create VPC Gateway Endpoints for S3 and DynamoDB, and VPC Interface Endpoints for other supported AWS services (e.g., EC2, CloudWatch, KMS) to keep traffic within the AWS network.",
@@ -218,7 +237,7 @@
     },
     {
       "id": "NET-014",
-      "title": "Route tables con blackhole routes activos",
+      "title": "Route tables with active blackhole routes",
       "severity": "High",
       "description": "Route tables contain active blackhole routes, which can unintentionally drop traffic, potentially disrupting critical services or creating unexpected network behavior.",
       "remediation": "Investigate the purpose of active blackhole routes. Remove them if unnecessary, or replace with explicit deny rules or more specific routing if intentional for security segmentation.",
@@ -231,7 +250,7 @@
     },
     {
       "id": "NET-015",
-      "title": "Security Groups con reglas duplicadas o redundantes",
+      "title": "Duplicate or redundant security group rules",
       "severity": "High",
       "description": "Security Groups have redundant rules (e.g., identical rules, or a broader rule that encompasses a narrower one), complicating auditing and management.",
       "remediation": "Review and consolidate Security Group rules to eliminate duplicates and redundancies, simplifying the policy and improving clarity.",
@@ -244,7 +263,7 @@
     },
     {
       "id": "NET-016",
-      "title": "Subnets sin NACL custom (usando default NACL)",
+      "title": "Subnets using default NACLs (no custom NACL)",
       "severity": "High",
       "description": "Subnets are using the default NACL, which typically allows all inbound and outbound traffic, providing no additional layer of stateless network filtering.",
       "remediation": "Create and associate custom NACLs to all subnets. Configure custom NACLs with explicit deny rules and only allow necessary traffic for the subnet's function.",
@@ -257,7 +276,7 @@
     },
     {
       "id": "NET-017",
-      "title": "Private subnets con route hacia Internet Gateway",
+      "title": "Private subnets with routes to an Internet Gateway",
       "severity": "High",
       "description": "A subnet intended to be private has a route to an Internet Gateway, compromising its isolation and making it effectively a public subnet if associated resources have public IPs or are assigned a Public IP on launch.",
       "remediation": "Modify the route table associated with the private subnet to remove the route to the Internet Gateway. Ensure outbound internet access is provided via a NAT Gateway or Network Firewall.",
@@ -270,7 +289,7 @@
     },
     {
       "id": "NET-018",
-      "title": "VPC sin Flow Logs habilitados",
+      "title": "VPC Flow Logs not enabled",
       "severity": "High",
       "description": "VPC Flow Logs are not enabled for one or more VPCs, leading to a critical lack of network traffic visibility for monitoring, troubleshooting, and security incident response.",
       "remediation": "Enable VPC Flow Logs for all VPCs. Configure them to capture ALL traffic (accepted and rejected) and deliver to a centralized S3 bucket or CloudWatch Logs Log Group with adequate retention.",
@@ -287,7 +306,7 @@
     },
     {
       "id": "NET-019",
-      "title": "Security Groups con más de 50 reglas (difícil de auditar)",
+      "title": "Security groups with more than 50 rules (hard to audit)",
       "severity": "Medium",
       "description": "Security Groups with a very high number of rules (e.g., over 50) become complex to manage, audit, and understand, increasing the likelihood of misconfigurations or security gaps.",
       "remediation": "Refactor large Security Groups by consolidating rules, leveraging Security Group referencing, or organizing resources into more granular subnets/VPCs with simpler SGs.",
@@ -304,7 +323,7 @@
     },
     {
       "id": "NET-020",
-      "title": "NACLs con números de regla no secuenciales (gaps grandes)",
+      "title": "NACLs with non-sequential rule numbers (large gaps)",
       "severity": "Medium",
       "description": "NACLs with large gaps in rule numbers (e.g., 100, 200, 1000) can indicate poor organization, make future additions harder, and increase the chance of unintended rule interactions.",
       "remediation": "Reorganize NACL rules to have smaller, more sequential gaps between rule numbers. Automate NACL management using IaC to maintain order.",
@@ -317,7 +336,7 @@
     },
     {
       "id": "NET-021",
-      "title": "Security Groups huérfanos (sin recursos attached)",
+      "title": "Orphaned security groups (no attached resources)",
       "severity": "Medium",
       "description": "Security Groups exist in the account but are not associated with any active network interfaces or resources, indicating potential remnants of decommissioned resources or unmanaged configurations.",
       "remediation": "Identify and remove all unattached (orphaned) Security Groups. Before removal, verify that they are not temporarily unattached or used by stopped resources.",
@@ -330,7 +349,7 @@
     },
     {
       "id": "NET-022",
-      "title": "Route tables con múltiples default routes",
+      "title": "Route tables with multiple default routes",
       "severity": "Medium",
       "description": "A route table contains multiple default routes (0.0.0.0/0) pointing to different targets, leading to unpredictable routing behavior and potential security bypasses.",
       "remediation": "Ensure each route table has a single, clearly defined default route. Remove any ambiguous or conflicting default routes.",
@@ -343,7 +362,7 @@
     },
     {
       "id": "NET-023",
-      "title": "VPC Peering sin tags de ownership",
+      "title": "VPC peering without ownership tags",
       "severity": "Medium",
       "description": "VPC Peering connections lack appropriate tags for ownership, purpose, or environment, hindering management, cost allocation, and auditability.",
       "remediation": "Apply consistent tagging to all VPC Peering connections, including 'Owner', 'Purpose', 'Environment', and 'Contact'.",
@@ -356,7 +375,7 @@
     },
     {
       "id": "NET-024",
-      "title": "Naming conventions inconsistentes en recursos de red",
+      "title": "Inconsistent naming conventions for network resources",
       "severity": "Medium",
       "description": "Inconsistent naming conventions for network resources (VPCs, subnets, SGs, NACLs, etc.) make it challenging to identify, manage, and audit components effectively, especially in large environments.",
       "remediation": "Establish and enforce a consistent naming convention across all network resources. Use IaC (Infrastructure as Code) to automate naming and ensure compliance.",
@@ -369,7 +388,7 @@
     },
     {
       "id": "NET-025",
-      "title": "Subnets sin tags de clasificación (public/private/db/app)",
+      "title": "Subnets missing classification tags (public/private/db/app)",
       "severity": "Medium",
       "description": "Subnets lack explicit classification tags (e.g., 'Tier:Public', 'Tier:Private', 'Layer:DB', 'Layer:App'), making it difficult to understand their intended purpose and security posture at a glance.",
       "remediation": "Apply standardized classification tags to all subnets to clearly define their role and trust level within the network architecture.",
@@ -382,7 +401,7 @@
     },
     {
       "id": "NET-026",
-      "title": "Security Groups con reglas de egress restrictivas que bloquean actualizaciones",
+      "title": "Overly restrictive SG egress rules blocking updates",
       "severity": "Medium",
       "description": "Security Group egress rules are overly restrictive, inadvertently blocking necessary outbound traffic for system updates, patching, or access to critical AWS services.",
       "remediation": "Review egress rules for instances needing updates. Allow necessary outbound access for package managers (HTTP/HTTPS to specific endpoints), update servers, and AWS service endpoints (via VPC Endpoints or NAT Gateways).",
@@ -395,7 +414,7 @@
     },
     {
       "id": "NET-027",
-      "title": "Security Groups sin tags",
+      "title": "Security groups missing tags",
       "severity": "Low",
       "description": "Security Groups are missing tags, making them harder to identify, manage, filter, and automate based on ownership, environment, or application.",
       "remediation": "Apply consistent tags (e.g., 'Name', 'Environment', 'Owner', 'Application') to all Security Groups.",
@@ -408,7 +427,7 @@
     },
     {
       "id": "NET-028",
-      "title": "NACLs con reglas comentadas pero no eliminadas",
+      "title": "NACL rules commented but not removed",
       "severity": "Low",
       "description": "NACLs contain rules that appear to be commented out or are inactive but remain configured, creating clutter and potential confusion during audits or troubleshooting.",
       "remediation": "Remove all inactive, commented-out, or unnecessary NACL rules to keep configurations clean and clear. Use IaC for version control instead of commenting within the configuration.",
@@ -421,7 +440,7 @@
     },
     {
       "id": "NET-029",
-      "title": "VPCs con CIDR blocks superpuestos entre regiones",
+      "title": "VPC CIDR blocks overlap across regions",
       "severity": "Low",
       "description": "VPCs in different regions are configured with overlapping CIDR blocks, complicating future multi-region connectivity (e.g., Direct Connect, Transit Gateway) and leading to potential routing issues.",
       "remediation": "Plan for a non-overlapping IP addressing scheme across all VPCs, especially if multi-region connectivity is anticipated. Redesign CIDR blocks for new VPCs.",
@@ -434,7 +453,7 @@
     },
     {
       "id": "NET-030",
-      "title": "Route tables con rutas estáticas en lugar de propagación automática",
+      "title": "Route tables using static routes instead of route propagation",
       "severity": "Low",
       "description": "Route tables for Transit Gateway or Direct Connect rely on static routes instead of route propagation, increasing operational overhead and risk of misconfiguration or stale routes.",
       "remediation": "Configure route propagation for Transit Gateway and Direct Connect to automatically update route tables, reducing manual intervention and configuration errors.",
@@ -447,7 +466,7 @@
     },
     {
       "id": "NET-031",
-      "title": "DNS resolution/hostname deshabilitado en VPCs",
+      "title": "DNS resolution/hostnames disabled in VPCs",
       "severity": "Low",
       "description": "DNS hostnames or DNS resolution are disabled for a VPC, potentially breaking internal name resolution for AWS-provided hostnames and services, impacting operational visibility.",
       "remediation": "Ensure both DNS hostnames and DNS resolution are enabled for all VPCs unless there is a specific, well-justified reason for disabling them.",

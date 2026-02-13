@@ -43,13 +43,13 @@ class IAMSkill(BaseSkill):
         """
         # Create IAM client using credentials
         client_kwargs = {
-            'aws_access_key_id': aws_client.access_key_id,
-            'aws_secret_access_key': aws_client.secret_access_key,
-            'region_name': aws_client.region_name,
+            "aws_access_key_id": aws_client.access_key_id,
+            "aws_secret_access_key": aws_client.secret_access_key,
+            "region_name": aws_client.region_name,
         }
         # Add session token only if provided (for temporary credentials)
         if aws_client.session_token:
-            client_kwargs['aws_session_token'] = aws_client.session_token
+            client_kwargs["aws_session_token"] = aws_client.session_token
 
         iam_client = boto3.client("iam", **client_kwargs)
 
@@ -112,7 +112,9 @@ class IAMSkill(BaseSkill):
                             )
                             key["LastUsed"] = last_used.get("AccessKeyLastUsed", {})
                         except Exception as e:
-                            logger.warning(f"Could not get last used status for access key {key['AccessKeyId']}: {e}")
+                            logger.warning(
+                                f"Could not get last used status for access key {key['AccessKeyId']}: {e}"
+                            )
                             key["LastUsed"] = None
                 except Exception as e:
                     logger.warning(f"Could not list access keys for user {username}: {e}")
@@ -136,12 +138,8 @@ class IAMSkill(BaseSkill):
 
                 # Attached managed policies
                 try:
-                    attached_response = iam_client.list_attached_user_policies(
-                        UserName=username
-                    )
-                    user_detail["AttachedPolicies"] = attached_response.get(
-                        "AttachedPolicies", []
-                    )
+                    attached_response = iam_client.list_attached_user_policies(UserName=username)
+                    user_detail["AttachedPolicies"] = attached_response.get("AttachedPolicies", [])
                 except Exception as e:
                     logger.warning(f"Could not list attached policies for user {username}: {e}")
                     user_detail["AttachedPolicies"] = []
@@ -250,7 +248,6 @@ class IAMSkill(BaseSkill):
         except Exception as e:
             logger.error(f"Could not list IAM roles: {e}")
 
-
         self._save_json(evidence_path / "roles.json", roles_detailed)
 
         # === POLICIES (customer-managed with versions) ===
@@ -281,9 +278,9 @@ class IAMSkill(BaseSkill):
                         version_doc = iam_client.get_policy_version(
                             PolicyArn=policy_arn, VersionId=default_version
                         )
-                        policy_detail["PolicyDocument"] = version_doc.get(
-                            "PolicyVersion", {}
-                        ).get("Document")
+                        policy_detail["PolicyDocument"] = version_doc.get("PolicyVersion", {}).get(
+                            "Document"
+                        )
                 except Exception as e:
                     logger.warning(f"Could not get details for policy {policy_arn}: {e}")
 
@@ -307,12 +304,25 @@ class IAMSkill(BaseSkill):
                 try:
                     report_response = iam_client.get_credential_report()
                     if report_response["Content"]:
-                        # Decode base64 content
-                        import base64
+                        # In boto3, Content is typically raw CSV bytes (not base64).
+                        # Some environments/tools may return a string; handle both.
+                        content = report_response["Content"]
 
-                        report_csv = base64.b64decode(
-                            report_response["Content"]
-                        ).decode("utf-8")
+                        report_csv = ""
+                        if isinstance(content, (bytes, bytearray)):
+                            report_csv = bytes(content).decode("utf-8", errors="replace")
+                        elif isinstance(content, str):
+                            # Best-effort: try base64 decode if it's base64; otherwise treat as raw CSV.
+                            try:
+                                import base64
+
+                                report_csv = base64.b64decode(content).decode(
+                                    "utf-8", errors="replace"
+                                )
+                            except Exception:
+                                report_csv = content
+                        else:
+                            report_csv = str(content)
 
                         # Save as CSV
                         with open(evidence_path / "credential-report.csv", "w") as f:
@@ -320,7 +330,7 @@ class IAMSkill(BaseSkill):
                         print("    Credential report saved")
                         break
                 except Exception as e:
-                    logger.info(f"Credential report not ready yet (attempt {i+1}/5): {e}")
+                    logger.info(f"Credential report not ready yet (attempt {i + 1}/5): {e}")
                     continue
         except Exception as e:
             logger.error(f"Could not generate credential report: {e}")
@@ -377,6 +387,30 @@ class IAMSkill(BaseSkill):
             except Exception as e:
                 logger.warning(f"Could not read evidence file {json_file.name}: {e}")
 
+        # Include credential report (CSV) if collected.
+        # This is a high-signal artifact for root MFA + access key checks.
+        cred_report_path = evidence_path / "credential-report.csv"
+        if cred_report_path.exists():
+            try:
+                import csv
+
+                with open(cred_report_path, "r", encoding="utf-8", errors="replace") as f:
+                    reader = csv.DictReader(f)
+                    rows = [dict(r) for r in reader]
+
+                by_user = {}
+                for r in rows:
+                    u = r.get("user")
+                    if u and u not in by_user:
+                        by_user[u] = r
+
+                evidence["credential-report"] = {
+                    "rows": rows,
+                    "by_user": by_user,
+                }
+            except Exception as e:
+                logger.warning(f"Could not read credential report CSV: {e}")
+
         print(f"    Loaded {len(evidence)} evidence files")
 
         # 2. Read checklist
@@ -398,7 +432,7 @@ class IAMSkill(BaseSkill):
 
         # 3a. Normalize findings (reduce variance between models)
         print("  Normalizing findings...")
-        findings = self._normalize_findings(findings, checklist)
+        findings = self._normalize_findings(findings, checklist, evidence=evidence)
 
         # 4. Save findings
         findings_dir = session.get_findings_path()

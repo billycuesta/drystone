@@ -53,6 +53,14 @@ Focus: Network segmentation, security groups, NACLs, routing, VPC endpoints.
     </network_specific_rules>
 
     <evidence_focus>
+      <note>
+        Output must be written in English.
+
+        Evidence files may be indexed documents (items + by_id). Prefer stable evidence_refs such as:
+        - security-groups.json#by_id.sg-...
+        - vpcs.json#by_id.vpc-...
+        Do NOT assume a control fails just because a file/key is missing; only report based on explicit evidence.
+      </note>
       <focus item="security-groups.json">
         <check>Ingress rules allowing 22, 3389, 80, 443 from 0.0.0.0/0</check>
         <check>Database ports (3306, 5432, 1433) exposed to internet</check>

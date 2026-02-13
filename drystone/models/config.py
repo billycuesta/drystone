@@ -195,6 +195,7 @@ class WizardConfig(BaseModel):
             "vulns",
             "alerting",
             "hardening",
+            "ecr",
             "secretsmanager",
             "waf",
         }

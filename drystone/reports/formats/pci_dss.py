@@ -8,6 +8,7 @@ from typing import Dict, Any, List
 
 from .base import BaseFormatter
 
+
 class PCIDSSFormatter(BaseFormatter):
     """Generate PCI DSS v4.0 compliance report."""
 
@@ -22,7 +23,9 @@ class PCIDSSFormatter(BaseFormatter):
 
         # Include skill name in filename to avoid overwriting when multiple skills
         skill_name = self.findings.get("skill", "audit").lower()
-        report_path = self.reports_path / f"pci-dss-compliance-report-{skill_name}.{self.file_extension}"
+        report_path = (
+            self.reports_path / f"pci-dss-compliance-report-{skill_name}.{self.file_extension}"
+        )
 
         with open(report_path, "w") as f:
             f.write(markdown_content)
@@ -38,7 +41,7 @@ class PCIDSSFormatter(BaseFormatter):
             self._critical_non_compliances(),
             self._compliance_statistics(),
             self._recommendations(),
-            self._footer()
+            self._footer(),
         ]
         return "\n\n".join([p for p in parts if p])
 
@@ -67,16 +70,21 @@ class PCIDSSFormatter(BaseFormatter):
         """Generate the executive summary section."""
         all_controls = self._get_all_pci_controls_from_checklists()
         findings_map = self._map_findings_to_controls()
-        
+
         total_controls = len(all_controls)
         ko_controls = len(findings_map)
         ok_controls = total_controls - ko_controls
         compliance_rate = (ok_controls / total_controls * 100) if total_controls > 0 else 0
         status = "❌ NON-COMPLIANT" if ko_controls > 0 else "✅ COMPLIANT"
 
-        critical_findings = [f for f in self.findings.get("findings", []) if f.get("severity") == "Critical"]
-        
-        skills_evaluated_str = "\n".join([f"- ✅ {s.upper()} ({self._get_checklist_version(s)})" for s in self.config.skills])
+        # Count critical non-compliances by *control*, not by finding.
+        critical_ko_controls = [
+            cid for cid, f in findings_map.items() if (f or {}).get("severity") == "Critical"
+        ]
+
+        skills_evaluated_str = "\n".join(
+            [f"- ✅ {s.upper()} ({self._get_checklist_version(s)})" for s in self.config.skills]
+        )
 
         return f"""## 📊 Executive Summary
 
@@ -86,7 +94,7 @@ class PCIDSSFormatter(BaseFormatter):
 **Skills Evaluated:**
 {skills_evaluated_str}
 
-**Critical Non-Compliances:** {len(critical_findings)} controls
+**Critical Non-Compliances:** {len(critical_ko_controls)} controls
 **Remediation Effort:** High (estimated 30-60 days)
 """
 
@@ -126,11 +134,14 @@ class PCIDSSFormatter(BaseFormatter):
         table += "|------------|--------|--------------------------|\n"
 
         current_requirement = None
-        sorted_controls = sorted(all_controls, key=lambda x: [int(p) if p.isdigit() else p for p in re.split(r'(\d+)', x['control'])])
+        sorted_controls = sorted(
+            all_controls,
+            key=lambda x: [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", x["control"])],
+        )
 
         for control in sorted_controls:
-            control_id = control['control']
-            req_num = control_id.split('.')[0]
+            control_id = control["control"]
+            req_num = control_id.split(".")[0]
             if req_num != current_requirement:
                 current_requirement = req_num
                 req_name = self._get_requirement_name(req_num)
@@ -139,10 +150,45 @@ class PCIDSSFormatter(BaseFormatter):
             if control_id in findings_map:
                 finding = findings_map[control_id]
                 status = "❌ KO"
-                justification = f"**Finding {finding['id']}:** {finding['title']}. {control['reason']}"
+                # Prefer the reason provided by the finding for this specific control.
+                finding_reason = None
+                for pci in finding.get("pci_dss") or []:
+                    if pci.get("control") == control_id:
+                        finding_reason = pci.get("reason")
+                        break
+                reason = finding_reason or control.get(
+                    "reason", "Control not met based on findings."
+                )
+                mapped_checks = control.get("checks") or []
+                check_ids = [
+                    str(c.get("id"))
+                    for c in mapped_checks
+                    if isinstance(c, dict) and isinstance(c.get("id"), str)
+                ]
+                checks_str = ", ".join(check_ids)
+
+                justification = f"**Finding {finding.get('id', 'N/A')}:** {finding.get('title', 'Unknown')}. {reason}"
+                if checks_str:
+                    justification += f" (Mapped checks: {checks_str})"
             else:
                 status = "✅ OK"
-                justification = control.get('ok_justification', f"Control '{control['check_title']}' passed.")
+                mapped_checks = control.get("checks") or []
+                if (
+                    isinstance(mapped_checks, list)
+                    and len(mapped_checks) == 1
+                    and isinstance(mapped_checks[0], dict)
+                ):
+                    check_id = mapped_checks[0].get("id", "N/A")
+                    check_title = mapped_checks[0].get("title", "Unknown check")
+                    justification = f"No mapped findings for {check_id}: {check_title}."
+                else:
+                    check_ids = [
+                        str(c.get("id"))
+                        for c in mapped_checks
+                        if isinstance(c, dict) and isinstance(c.get("id"), str)
+                    ]
+                    checks_str = ", ".join(check_ids) if check_ids else "N/A"
+                    justification = f"No mapped findings for checks: {checks_str}."
 
             table += f"| {control_id} | {status} | {justification} |\n"
         return table
@@ -158,14 +204,23 @@ class PCIDSSFormatter(BaseFormatter):
                 checklist = json.load(f)
             for item in checklist.get("items", []):
                 for pci in item.get("pci_dss", []):
-                    if pci["control"] not in all_controls:
-                         all_controls[pci["control"]] = {
-                            "control": pci["control"],
-                            "reason": pci["reason"],
-                            "check_id": item["id"],
-                            "check_title": item["title"],
-                            "ok_justification": item.get("title", ""),
+                    cid = pci.get("control")
+                    if not cid:
+                        continue
+                    if cid not in all_controls:
+                        all_controls[cid] = {
+                            "control": cid,
+                            # Keep one representative reason from checklist as fallback.
+                            "reason": pci.get("reason", "Control mapping found in checklist."),
+                            # Keep all checks mapping to this control.
+                            "checks": [],
                         }
+
+                    # Append this checklist item as a check mapping.
+                    if isinstance(item, dict) and item.get("id") and item.get("title"):
+                        all_controls[cid]["checks"].append(
+                            {"id": item.get("id"), "title": item.get("title")}
+                        )
         return list(all_controls.values())
 
     def _get_checklist_path(self, skill: str) -> Path:
@@ -195,31 +250,53 @@ class PCIDSSFormatter(BaseFormatter):
     def _get_requirement_name(self, req_num: str) -> str:
         """Get PCI DSS requirement name from its number."""
         requirements = {
-            "1": "Network Security Controls", "2": "Secure Configurations",
-            "3": "Data Protection", "4": "Transmission Security",
-            "5": "Malware Protection", "6": "Secure Development",
-            "7": "Access Control", "8": "Identification & Authentication",
-            "10": "Logging & Monitoring", "12": "Security Policies"
+            "1": "Network Security Controls",
+            "2": "Secure Configurations",
+            "3": "Data Protection",
+            "4": "Transmission Security",
+            "5": "Malware Protection",
+            "6": "Secure Development",
+            "7": "Access Control",
+            "8": "Identification & Authentication",
+            "10": "Logging & Monitoring",
+            "12": "Security Policies",
         }
         return requirements.get(req_num, "Unknown Requirement")
 
     def _critical_non_compliances(self) -> str:
-        """List the top critical non-compliant findings."""
-        critical_findings = [f for f in self.findings.get("findings", []) if f.get("severity") == "Critical"]
-        if not critical_findings:
+        """List critical non-compliances by PCI control."""
+
+        all_controls = {c["control"]: c for c in self._get_all_pci_controls_from_checklists()}
+        findings_map = self._map_findings_to_controls()
+
+        critical_controls = [
+            cid for cid, f in findings_map.items() if (f or {}).get("severity") == "Critical"
+        ]
+        if not critical_controls:
             return ""
 
         lines = ["## 🎯 Critical Non-Compliances (Must Fix)\n"]
-        for i, finding in enumerate(critical_findings[:10], 1):
+        for i, control_id in enumerate(sorted(critical_controls), 1):
+            finding = findings_map[control_id]
             finding_id = finding.get("id", "N/A")
             title = finding.get("title", "Unknown")
-            risk_score = finding.get("risk_score", 0)
+            risk_score = float(finding.get("risk_score", 0) or 0)
             remediation = finding.get("remediation", "")
             evidence_snippet = finding.get("evidence_snippet")
             evidence_refs = finding.get("evidence_refs", [])
-            pci_control = finding.get("pci_dss", [{"control": "N/A"}])[0]["control"]
 
-            lines.append(f"### {i}. **[{pci_control}]** {title} (ID: {finding_id})\n")
+            # Prefer per-control reason from finding; fallback to checklist mapping.
+            reason = None
+            for pci in finding.get("pci_dss") or []:
+                if pci.get("control") == control_id:
+                    reason = pci.get("reason")
+                    break
+            if not reason:
+                reason = (all_controls.get(control_id) or {}).get("reason")
+
+            lines.append(f"### {i}. **[{control_id}]** {title} (ID: {finding_id})\n")
+            if reason:
+                lines.append(f"**Justification:** {reason}\n")
             lines.append(f"**Risk Score:** {risk_score:.1f}/10\n")
 
             # Render evidence snippet if present
@@ -247,7 +324,9 @@ class PCIDSSFormatter(BaseFormatter):
 
     def _footer(self) -> str:
         """Generate the report footer."""
-        versions = "\n".join([f"- {s.upper()}: {self._get_checklist_version(s)}" for s in self.config.skills])
+        versions = "\n".join(
+            [f"- {s.upper()}: {self._get_checklist_version(s)}" for s in self.config.skills]
+        )
         return f"""---
 **Report Generated:** {datetime.utcnow().isoformat()}
 **Checklist Versions:**

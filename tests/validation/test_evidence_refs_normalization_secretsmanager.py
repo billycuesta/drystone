@@ -42,6 +42,7 @@ def test_secretsmanager_evidence_refs_converted_to_json_pointers():
             "secrets.json#/secrets/1",  # already normalized
         ],
         remediation="Fix",
+        cis_reference="N/A",
     )
 
     out = normalizer.normalize([f])

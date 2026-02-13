@@ -91,8 +91,28 @@ class ReportGenerator:
                 # Best-effort only; report generation should not fail due to persistence.
                 pass
 
-        # Filter findings by severity
-        filtered_findings_data = self._filter_findings_by_severity(findings_data)
+        # Post-process network skill to add topology diagram
+        if skill == "network":
+            from drystone.skills.network.post_processor import NetworkPostProcessor
+
+            processor = NetworkPostProcessor(self.session)
+            findings_data = processor.process(findings_data)
+
+            # Persist derived architecture context so reports and findings stay consistent.
+            try:
+                with open(findings_path, "w") as f:
+                    json.dump(findings_data, f, indent=2, default=str)
+            except Exception:
+                pass
+
+        # Filter findings by severity.
+        # IMPORTANT: For PCI DSS reports, do NOT filter by severity.
+        # Compliance should consider all executed controls regardless of severity threshold,
+        # otherwise controls may incorrectly appear OK.
+        if self.config.report_type == "pci-dss":
+            filtered_findings_data = findings_data
+        else:
+            filtered_findings_data = self._filter_findings_by_severity(findings_data)
 
         # Generate reports
         generated_reports = {}
@@ -142,6 +162,19 @@ class ReportGenerator:
         # Create a new data object with filtered findings
         new_data = findings_data.copy()
         new_data["findings"] = filtered_findings
+
+        raw_total = len(original_findings)
+        filtered_total = len(filtered_findings)
+        filtered_out = max(0, raw_total - filtered_total)
+        report_metadata = dict(new_data.get("report_metadata") or {})
+        report_metadata.update(
+            {
+                "min_severity": min_severity,
+                "raw_total_findings": raw_total,
+                "filtered_out_findings": filtered_out,
+            }
+        )
+        new_data["report_metadata"] = report_metadata
 
         # Recalculate the summary
         summary: Dict[str, object] = {

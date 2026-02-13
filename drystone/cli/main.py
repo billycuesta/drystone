@@ -41,7 +41,17 @@ def cli() -> None:
     "--skills",
     multiple=True,
     type=click.Choice(
-        ["iam", "exposure", "network", "vulns", "alerting", "hardening", "secretsmanager", "waf"]
+        [
+            "iam",
+            "exposure",
+            "network",
+            "vulns",
+            "alerting",
+            "hardening",
+            "ecr",
+            "secretsmanager",
+            "waf",
+        ]
     ),
     help="Skills to execute (can specify multiple times)",
 )
@@ -186,6 +196,7 @@ def audit(
         "vulns": ("drystone.skills.vulns", "VulnsSkill"),
         "alerting": ("drystone.skills.alerting", "AlertingSkill"),
         "hardening": ("drystone.skills.hardening", "HardeningSkill"),
+        "ecr": ("drystone.skills.ecr", "ECRSkill"),
         "secretsmanager": ("drystone.skills.secretsmanager", "SecretsManagerSkill"),
         "waf": ("drystone.skills.waf", "WAFSkill"),
     }
@@ -358,6 +369,7 @@ def skill(skill_name: Optional[str] = None) -> None:
         "vulns",
         "alerting",
         "hardening",
+        "ecr",
         "secretsmanager",
         "waf",
     ]

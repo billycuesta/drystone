@@ -42,12 +42,12 @@ class VulnsSkill(BaseSkill):
             session: Audit session for evidence storage
         """
         client_kwargs = {
-            'aws_access_key_id': aws_client.access_key_id,
-            'aws_secret_access_key': aws_client.secret_access_key,
-            'region_name': aws_client.region_name,
+            "aws_access_key_id": aws_client.access_key_id,
+            "aws_secret_access_key": aws_client.secret_access_key,
+            "region_name": aws_client.region_name,
         }
         if aws_client.session_token:
-            client_kwargs['aws_session_token'] = aws_client.session_token
+            client_kwargs["aws_session_token"] = aws_client.session_token
 
         evidence_path = session.get_evidence_path(self.name)
 
@@ -66,15 +66,15 @@ class VulnsSkill(BaseSkill):
             # List findings (filtered by severity: Critical, High, Medium)
             findings_list = []
             try:
-                paginator = inspector_client.get_paginator('list_findings')
+                paginator = inspector_client.get_paginator("list_findings")
 
                 # Filter criteria for Inspector v2 (only Critical, High)
                 # Note: severity parameter uses CRITICAL, HIGH values
                 # MEDIUM excluded to focus on critical/actionable findings
                 filter_criteria = {
-                    'severity': [
-                        {'comparison': 'EQUALS', 'value': 'CRITICAL'},
-                        {'comparison': 'EQUALS', 'value': 'HIGH'},
+                    "severity": [
+                        {"comparison": "EQUALS", "value": "CRITICAL"},
+                        {"comparison": "EQUALS", "value": "HIGH"},
                     ]
                 }
 
@@ -84,21 +84,21 @@ class VulnsSkill(BaseSkill):
                     # Post-process: simplify findings (remove verbose fields)
                     for finding in raw_findings:
                         # Remove verbose nested objects
-                        finding.pop('packageVulnerabilityDetails', None)
-                        finding.pop('networkReachabilityDetails', None)
-                        finding.pop('codeVulnerabilityDetails', None)
-                        finding.pop('inspectorScoreDetails', None)
-                        finding.pop('epss', None)
+                        finding.pop("packageVulnerabilityDetails", None)
+                        finding.pop("networkReachabilityDetails", None)
+                        finding.pop("codeVulnerabilityDetails", None)
+                        finding.pop("inspectorScoreDetails", None)
+                        finding.pop("epss", None)
 
                         # Simplify resources (keep only essential fields)
-                        if 'resources' in finding:
-                            for resource in finding['resources']:
-                                resource.pop('details', None)  # Remove IPs, subnets, AMI IDs
+                        if "resources" in finding:
+                            for resource in finding["resources"]:
+                                resource.pop("details", None)  # Remove IPs, subnets, AMI IDs
 
                         # Remove timestamps (not critical for analysis)
-                        finding.pop('firstObservedAt', None)
-                        finding.pop('lastObservedAt', None)
-                        finding.pop('updatedAt', None)
+                        finding.pop("firstObservedAt", None)
+                        finding.pop("lastObservedAt", None)
+                        finding.pop("updatedAt", None)
 
                     findings_list.extend(raw_findings)
             except Exception as e:
@@ -132,9 +132,7 @@ class VulnsSkill(BaseSkill):
                     # Get compliance status from Systems Manager
                     try:
                         compliance = ssm_client.describe_instance_information(
-                            Filters=[
-                                {"Key": "InstanceIds", "Values": [instance_id]}
-                            ]
+                            Filters=[{"Key": "InstanceIds", "Values": [instance_id]}]
                         )
                         instance_detail["SSMStatus"] = compliance.get("InstanceInformationList", [])
 
@@ -142,11 +140,15 @@ class VulnsSkill(BaseSkill):
                         patch_compliance = ssm_client.get_compliance_details_by_resource(
                             ResourceId=instance_id,
                             ResourceType="ManagedInstance",
-                            ComplianceTypes=["PATCH"]
+                            ComplianceTypes=["PATCH"],
                         )
-                        instance_detail["PatchCompliance"] = patch_compliance.get("ComplianceItems", [])
+                        instance_detail["PatchCompliance"] = patch_compliance.get(
+                            "ComplianceItems", []
+                        )
                     except Exception as e:
-                        logger.warning(f"Could not get patch compliance for instance {instance_id}: {e}")
+                        logger.warning(
+                            f"Could not get patch compliance for instance {instance_id}: {e}"
+                        )
                         instance_detail["SSMStatus"] = []
                         instance_detail["PatchCompliance"] = []
 
@@ -161,7 +163,7 @@ class VulnsSkill(BaseSkill):
         try:
             ssm_client = boto3.client("ssm", **client_kwargs)
             baselines_list = []
-            paginator = ssm_client.get_paginator('describe_patch_baselines')
+            paginator = ssm_client.get_paginator("describe_patch_baselines")
             for page in paginator.paginate():
                 for baseline in page.get("PatchBaselines", []):
                     baseline_detail = {
@@ -183,7 +185,9 @@ class VulnsSkill(BaseSkill):
                             "RejectedPatches": details.get("RejectedPatches", []),
                         }
                     except Exception as e:
-                        logger.warning(f"Could not get details for patch baseline {baseline.get('BaselineId')}: {e}")
+                        logger.warning(
+                            f"Could not get details for patch baseline {baseline.get('BaselineId')}: {e}"
+                        )
                         baseline_detail["Details"] = {}
 
                     baselines_list.append(baseline_detail)
@@ -215,11 +219,13 @@ class VulnsSkill(BaseSkill):
                         Engine=instance.get("Engine"),
                         EngineVersion=instance.get("EngineVersion"),
                     )
-                    rds_detail["ValidUpgradeTarget"] = upgradeable.get("DBEngineVersions", [{}])[0].get(
-                        "ValidUpgradeTarget", []
-                    )
+                    rds_detail["ValidUpgradeTarget"] = upgradeable.get("DBEngineVersions", [{}])[
+                        0
+                    ].get("ValidUpgradeTarget", [])
                 except Exception as e:
-                    logger.warning(f"Could not describe DB engine versions for {instance.get('DBInstanceIdentifier')}: {e}")
+                    logger.warning(
+                        f"Could not describe DB engine versions for {instance.get('DBInstanceIdentifier')}: {e}"
+                    )
                     rds_detail["ValidUpgradeTarget"] = []
 
                 rds_patch_list.append(rds_detail)
@@ -253,12 +259,13 @@ class VulnsSkill(BaseSkill):
                         if image.get("imageScanStatus", {}).get("status") == "COMPLETE":
                             try:
                                 findings = ecr_client.describe_image_scan_findings(
-                                    repositoryName=repo_name,
-                                    imageId=image.get("imageId")
+                                    repositoryName=repo_name, imageId=image.get("imageId")
                                 )
                                 image_detail["ScanFindings"] = findings.get("imageScanFindings", {})
                             except Exception as e:
-                                logger.warning(f"Could not get scan findings for image {image.get('imageId')}: {e}")
+                                logger.warning(
+                                    f"Could not get scan findings for image {image.get('imageId')}: {e}"
+                                )
                                 image_detail["ScanFindings"] = {}
 
                         ecr_images_list.append(image_detail)
@@ -332,7 +339,7 @@ class VulnsSkill(BaseSkill):
 
         # 3a. Normalize findings (reduce variance between models)
         print("  Normalizing findings...")
-        findings = self._normalize_findings(findings, checklist)
+        findings = self._normalize_findings(findings, checklist, evidence=evidence)
 
         # 4. Save findings
         findings_dir = session.get_findings_path()

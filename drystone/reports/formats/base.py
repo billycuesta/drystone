@@ -51,11 +51,12 @@ class BaseFormatter(ABC):
 
     def _format_risk_score(self, score: float) -> str:
         """Format risk score with color indicator."""
-        if score >= 9.0:
+        # Align with FindingsNormalizer.SEVERITY_RANGES.
+        if score >= 8.5:
             return f"🔴 {score:.1f}/10 (Critical)"
-        elif score >= 7.0:
+        elif score >= 6.0:
             return f"🟠 {score:.1f}/10 (High)"
-        elif score >= 4.0:
+        elif score >= 3.0:
             return f"🟡 {score:.1f}/10 (Medium)"
         else:
             return f"🟢 {score:.1f}/10 (Low)"

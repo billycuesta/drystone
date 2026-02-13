@@ -142,11 +142,11 @@ class TestParallelOrchestrator:
 
         # Mock run_skill_audit to return results
         with patch.object(orchestrator, "run_skill_audit") as mock_run:
-            mock_run.side_effect = [
-                create_mock_result("iam", "PASS"),
-                create_mock_result("exposure", "PASS"),
-                create_mock_result("network", "PASS"),
-            ]
+            # Side effects must be order-independent because skills run in parallel.
+            def _side_effect(*, skill_name, **_kwargs):
+                return create_mock_result(skill_name, "PASS")
+
+            mock_run.side_effect = _side_effect
 
             result = orchestrator.run_full_audit(mock_skills)
 
@@ -163,11 +163,13 @@ class TestParallelOrchestrator:
 
         # Mock run_skill_audit: iam fails, others succeed
         with patch.object(orchestrator, "run_skill_audit") as mock_run:
-            mock_run.side_effect = [
-                Exception("IAM connection error"),  # First call fails
-                create_mock_result("exposure", "PASS"),  # Second succeeds
-                create_mock_result("network", "PASS"),  # Third succeeds
-            ]
+
+            def _side_effect(*, skill_name, **_kwargs):
+                if skill_name == "iam":
+                    raise Exception("IAM connection error")
+                return create_mock_result(skill_name, "PASS")
+
+            mock_run.side_effect = _side_effect
 
             result = orchestrator.run_full_audit(mock_skills)
 
@@ -183,11 +185,15 @@ class TestParallelOrchestrator:
         orchestrator = AuditOrchestrator(mock_config)
 
         with patch.object(orchestrator, "run_skill_audit") as mock_run:
-            mock_run.side_effect = [
-                Exception("IAM failed"),
-                Exception("Exposure failed"),
-                create_mock_result("network", "PASS"),
-            ]
+
+            def _side_effect(*, skill_name, **_kwargs):
+                if skill_name == "iam":
+                    raise Exception("IAM failed")
+                if skill_name == "exposure":
+                    raise Exception("Exposure failed")
+                return create_mock_result(skill_name, "PASS")
+
+            mock_run.side_effect = _side_effect
 
             result = orchestrator.run_full_audit(mock_skills)
 
@@ -200,16 +206,14 @@ class TestParallelOrchestrator:
         orchestrator = AuditOrchestrator(mock_config)
 
         with patch.object(orchestrator, "run_skill_audit") as mock_run:
-            mock_run.side_effect = [
-                create_mock_result("iam"),
-                create_mock_result("exposure"),
-                create_mock_result("network"),
-            ]
+
+            def _side_effect(*, skill_name, **_kwargs):
+                return create_mock_result(skill_name)
+
+            mock_run.side_effect = _side_effect
 
             with patch("drystone.cloud.orchestrator.ThreadPoolExecutor") as mock_pool:
-                mock_pool.return_value.__enter__.return_value = ThreadPoolExecutor(
-                    max_workers=2
-                )
+                mock_pool.return_value.__enter__.return_value = ThreadPoolExecutor(max_workers=2)
 
                 # Use max_workers=2 explicitly
                 orchestrator.run_full_audit(mock_skills, max_workers=2)
@@ -232,11 +236,16 @@ class TestParallelOrchestrator:
         orchestrator = AuditOrchestrator(mock_config)
 
         with patch.object(orchestrator, "run_skill_audit") as mock_run:
-            mock_run.side_effect = [
-                create_mock_result("iam", "PASS"),
-                create_mock_result("exposure", "NEEDS_REVIEW"),
-                create_mock_result("network", "FAIL"),
-            ]
+
+            def _side_effect(*, skill_name, **_kwargs):
+                statuses = {
+                    "iam": "PASS",
+                    "exposure": "NEEDS_REVIEW",
+                    "network": "FAIL",
+                }
+                return create_mock_result(skill_name, statuses[skill_name])
+
+            mock_run.side_effect = _side_effect
 
             result = orchestrator.run_full_audit(mock_skills)
 
@@ -250,20 +259,17 @@ class TestParallelOrchestrator:
         orchestrator = AuditOrchestrator(mock_config)
 
         with patch.object(orchestrator, "run_skill_audit") as mock_run:
-            mock_run.side_effect = [
-                create_mock_result("iam"),
-                create_mock_result("exposure"),
-                create_mock_result("network"),
-            ]
+
+            def _side_effect(*, skill_name, **_kwargs):
+                return create_mock_result(skill_name)
+
+            mock_run.side_effect = _side_effect
 
             result = orchestrator.run_full_audit(mock_skills)
 
             # Each thread should have stored its result in self.results
             assert len(orchestrator.results) == 3
-            assert all(
-                skill in orchestrator.results
-                for skill in ["iam", "exposure", "network"]
-            )
+            assert all(skill in orchestrator.results for skill in ["iam", "exposure", "network"])
 
 
 class TestParallelPerformance:
@@ -316,11 +322,11 @@ class TestBackwardCompatibility:
 
         # Old code should still work (without max_workers parameter)
         with patch.object(orchestrator, "run_skill_audit") as mock_run:
-            mock_run.side_effect = [
-                create_mock_result("iam"),
-                create_mock_result("exposure"),
-                create_mock_result("network"),
-            ]
+
+            def _side_effect(*, skill_name, **_kwargs):
+                return create_mock_result(skill_name)
+
+            mock_run.side_effect = _side_effect
 
             # Call without max_workers (old way)
             result = orchestrator.run_full_audit(mock_skills)
@@ -336,11 +342,11 @@ class TestBackwardCompatibility:
         orchestrator = AuditOrchestrator(mock_config)
 
         with patch.object(orchestrator, "run_skill_audit") as mock_run:
-            mock_run.side_effect = [
-                create_mock_result("iam", "PASS"),
-                create_mock_result("exposure", "PASS"),
-                create_mock_result("network", "PASS"),
-            ]
+
+            def _side_effect(*, skill_name, **_kwargs):
+                return create_mock_result(skill_name, "PASS")
+
+            mock_run.side_effect = _side_effect
 
             result = orchestrator.run_full_audit(mock_skills)
 

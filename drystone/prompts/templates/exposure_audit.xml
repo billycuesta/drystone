@@ -11,10 +11,12 @@ Focus: Public resources, unencrypted data, internet-facing services.
 
     <focus_areas>
       <area>S3 bucket public access (ACL, bucket policy, Block Public Access)</area>
+      <area>S3 buckets: TLS enforcement (aws:SecureTransport) and versioning for audit/log buckets</area>
       <area>RDS instance public exposure and encryption</area>
       <area>AMI image sharing and snapshot exposure</area>
       <area>CloudFront distributions and origin exposure</area>
       <area>Load balancer (ALB/NLB) internet exposure</area>
+      <area>Load balancer (ALB) TLS policy and WAF association</area>
       <area>Unencrypted data in transit and at rest</area>
     </focus_areas>
 
@@ -54,13 +56,45 @@ Focus: Public resources, unencrypted data, internet-facing services.
         <description>EBS snapshots shared with all accounts or public are Critical</description>
         <action>Check snapshot CreateVolumePermissions for public access</action>
       </rule>
+      <rule id="exp_8">
+        <title>S3 TLS Enforcement</title>
+        <description>Critical buckets should explicitly deny non-TLS access (aws:SecureTransport=false)</description>
+        <action>Check bucket policies for a Deny with Condition Bool aws:SecureTransport=false</action>
+      </rule>
+      <rule id="exp_9">
+        <title>S3 Versioning (Audit/Logs)</title>
+        <description>Audit/log buckets should have versioning enabled to protect log integrity</description>
+        <action>Check bucket Versioning status; recommend Object Lock for high assurance</action>
+      </rule>
+      <rule id="exp_12">
+        <title>S3 Cross-Account Bucket Policy</title>
+        <description>Bucket policies granting access to principals in other AWS accounts must be justified and constrained</description>
+        <action>Identify bucket policy statements with Principal AWS arn:aws:iam::ACCOUNT:root/role/user from other accounts; require conditions (aws:SourceAccount/aws:SourceArn) where applicable</action>
+      </rule>
+      <rule id="exp_10">
+        <title>ALB TLS Policy</title>
+        <description>Internet-facing ALBs must not allow obsolete TLS 1.0/1.1</description>
+        <action>Check HTTPS listeners and their SslPolicy</action>
+      </rule>
+      <rule id="exp_11">
+        <title>ALB WAF Association</title>
+        <description>Internet-facing ALBs for public apps should have WAF associated</description>
+        <action>Only emit this finding if you see an internet-facing ALB AND evidence shows no WAF association for that ALB</action>
+      </rule>
     </exposure_specific_rules>
 
     <evidence_focus>
+      <note>
+        Evidence files are indexed documents (items + by_id/by_name). Use these indexes
+        for evidence_refs (e.g., security-groups.json#by_id.sg-..., s3-buckets.json#by_name.bucket).
+        Do NOT assume a control fails just because a file is missing; only report based on explicit evidence.
+      </note>
       <focus item="s3-buckets.json">
         <check>Buckets with PublicAccessBlockConfiguration not fully enabled</check>
         <check>Bucket policies allowing s3:GetObject with Principal: "*"</check>
         <check>ACL set to PublicRead or PublicReadWrite</check>
+        <check>Bucket policies missing Deny on aws:SecureTransport=false (TLS enforcement)</check>
+        <check>Audit/log buckets with Versioning not Enabled</check>
       </focus>
       <focus item="rds-instances.json">
         <check>PubliclyAccessible = true combined with internet-routable security group</check>
@@ -77,6 +111,15 @@ Focus: Public resources, unencrypted data, internet-facing services.
       <focus item="cloudfront-distributions.json">
         <check>Origins with OriginProtocolPolicy = http-only (not https-only)</check>
         <check>Viewer protocol policy allowing HTTP (not HTTPS-required)</check>
+      </focus>
+      <focus item="load-balancers.json">
+        <check>Internet-facing ALBs/NLBs (Scheme=internet-facing)</check>
+      </focus>
+      <focus item="load-balancer-listeners.json">
+        <check>HTTPS listeners with obsolete SslPolicy (TLS 1.0/1.1 allowed)</check>
+      </focus>
+      <focus item="wafv2-web-acl-alb-associations.json">
+        <check>Internet-facing ALB without any associated WAFv2 WebACL</check>
       </focus>
     </evidence_focus>
 

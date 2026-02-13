@@ -2,6 +2,9 @@
   "skill": "exposure",
   "framework": "AWS Security Best Practices + PCI DSS v4.0 Mapping",
   "description": "Checklist for identifying and assessing AWS resources exposed to the internet, with mappings to relevant PCI DSS controls.",
+  "version": "1.2",
+  "total_checks": 15,
+  "last_updated": "2026-02-09",
   "items": [
     {
       "id": "EXP-001",
@@ -21,6 +24,19 @@
         {
           "control": "7.2.1",
           "reason": "This control requires access to be based on the principle of least privilege. Making a bucket public is the antithesis of least privilege, granting maximum possible privilege to the entire internet."
+        }
+      ]
+    },
+    {
+      "id": "EXP-015",
+      "title": "S3 bucket policy permite acceso cross-account sin condiciones de seguridad",
+      "severity": "High",
+      "description": "S3 bucket policies that grant access to principals in other AWS accounts without strong conditions (aws:SourceAccount, aws:SourceArn, or principal scoping to roles) increase exposure risk. This is not public access, but it expands the trust boundary and can lead to data/log tampering or misuse.",
+      "remediation": "Review cross-account bucket policy statements. Restrict principals to specific IAM roles (not account root) and add conditions such as aws:SourceAccount and aws:SourceArn (for AWS services), or external ID patterns where applicable. Validate with AWS Policy Simulator.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "Access must be restricted by least privilege. Cross-account access without strong scoping/conditions expands privilege beyond the required boundary."
         }
       ]
     },
@@ -207,6 +223,32 @@
       ]
     },
     {
+      "id": "EXP-013",
+      "title": "S3 bucket policies deben forzar TLS (aws:SecureTransport)",
+      "severity": "High",
+      "description": "S3 bucket policies for critical buckets (logs, backups, audit trails) should explicitly deny requests where aws:SecureTransport is false. Missing TLS enforcement can allow accidental misconfigurations or non-TLS access paths for sensitive data/logs.",
+      "remediation": "Add a Deny statement in the bucket policy for s3:* on both bucket and object ARNs with Condition Bool aws:SecureTransport=false. Validate policy behavior with AWS Policy Simulator.",
+      "pci_dss": [
+        {
+          "control": "4.2.1.b",
+          "reason": "Strong cryptography must be used for transmission of sensitive data. Enforcing aws:SecureTransport helps ensure TLS is used for S3 access."
+        }
+      ]
+    },
+    {
+      "id": "EXP-014",
+      "title": "S3 versioning debe estar habilitado en buckets de auditoria/logs",
+      "severity": "High",
+      "description": "For buckets storing audit trails, configuration history, or log backups (e.g., CloudTrail/Config/log archives), versioning should be enabled to protect against accidental or malicious overwrites and deletions.",
+      "remediation": "Enable S3 versioning on audit/log buckets. Consider S3 Object Lock (WORM) and MFA Delete for high-assurance log integrity.",
+      "pci_dss": [
+        {
+          "control": "10.5.1",
+          "reason": "Audit logs must be protected from unauthorized modification. Versioning helps preserve historical copies and supports integrity controls."
+        }
+      ]
+    },
+    {
       "id": "EXP-012",
       "title": "EC2 sin Instance Metadata Service v2 (IMDSv2)",
       "severity": "Medium",
@@ -224,8 +266,5 @@
       ]
     }
   ],
-  "version": "1.0",
-  "total_checks": 12,
-  "last_updated": "2026-01-23",
   "notes": "Generated based on aws-exposure-checklist.md and mapped against PCI DSS v4.0 controls."
 }

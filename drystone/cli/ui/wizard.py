@@ -342,7 +342,12 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
                 "Account Hardening Audit", "hardening", checked="hardening" in current_skills
             ),
             questionary.Choice(
-                "Secrets Manager Security Audit", "secretsmanager", checked="secretsmanager" in current_skills
+                "ECR Container Registry Audit", "ecr", checked="ecr" in current_skills
+            ),
+            questionary.Choice(
+                "Secrets Manager Security Audit",
+                "secretsmanager",
+                checked="secretsmanager" in current_skills,
             ),
             questionary.Choice("WAF Security Audit", "waf", checked="waf" in current_skills),
         ],

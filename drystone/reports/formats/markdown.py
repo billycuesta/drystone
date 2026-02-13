@@ -75,6 +75,16 @@ class MarkdownFormatter(BaseFormatter):
         account_id = self.session.account_id
         client_name = self.session.client_name
         min_sev = getattr(self.config, "min_severity", "low")
+        report_meta = self.findings.get("report_metadata", {})
+        raw_total = report_meta.get("raw_total_findings")
+        filtered_out = report_meta.get("filtered_out_findings")
+
+        filter_note = ""
+        if isinstance(filtered_out, int) and filtered_out > 0 and isinstance(raw_total, int):
+            filter_note = (
+                f"\n**Raw Findings (pre-filter):** {raw_total}"
+                f"\n**Filtered Out by Min Severity:** {filtered_out}"
+            )
 
         banner = """ ██████╗ ██████╗ ██╗   ██╗███████╗████████╗ ██████╗ ███╗   ██╗███████╗
  ██╔══██╗██╔══██╗╚██╗ ██╔╝██╔════╝╚══██╔══╝██╔═══██╗████╗  ██║██╔════╝
@@ -93,6 +103,7 @@ class MarkdownFormatter(BaseFormatter):
  **Generated:** {timestamp}
  **Version:** {self.findings.get("checklist_version", "1.0")}
  **Report Min Severity:** {str(min_sev).upper()}
+{filter_note}
 
  ---
 
@@ -366,6 +377,7 @@ These correlations represent multi-stage attack scenarios where findings from di
             "VULNS": "🐛",
             "HARDENING": "🛡️",
             "ALERTING": "🚨",
+            "ECR": "📦",
             "SECRETSMANAGER": "🔑",
         }
         return SKILL_EMOJIS.get(skill.upper(), "🔹")
@@ -391,12 +403,7 @@ These correlations represent multi-stage attack scenarios where findings from di
 
     def _get_severity_emoji(self, severity: str) -> str:
         """Get emoji for severity level."""
-        emoji_map = {
-            "Critical": "🔴",
-            "High": "🟠",
-            "Medium": "🟡",
-            "Low": "🟢"
-        }
+        emoji_map = {"Critical": "🔴", "High": "🟠", "Medium": "🟡", "Low": "🟢"}
         return emoji_map.get(severity, "⚪")
 
     def _findings_summary_table(self) -> str:
@@ -412,8 +419,8 @@ These correlations represent multi-stage attack scenarios where findings from di
             findings,
             key=lambda f: (
                 severity_order.get(f.get("severity", "Low"), 4),
-                -f.get("risk_score", 0.0)
-            )
+                -f.get("risk_score", 0.0),
+            ),
         )
 
         # Take top 10
@@ -452,7 +459,7 @@ These correlations represent multi-stage attack scenarios where findings from di
                     resources_col = arn
             else:
                 # Multiple resources - show count
-                resources_col = f"{len(affected)} recursos"
+                resources_col = f"{len(affected)} resources"
 
             output += f"| {finding_id} | {title} | {sev_col} | {risk_col} | {resources_col} |\n"
 
@@ -625,11 +632,13 @@ Generated with [Drystone](https://github.com/billycuesta/drystone)
 
     def _get_risk_level(self, score: float) -> str:
         """Get risk level emoji and label."""
-        if score >= 9.0:
+        # Align with FindingsNormalizer.SEVERITY_RANGES:
+        # Critical: 8.5-10.0, High: 6.0-8.4, Medium: 3.0-5.9, Low: 1.0-2.9
+        if score >= 8.5:
             return "🔴 **CRITICAL**"
-        elif score >= 7.0:
+        elif score >= 6.0:
             return "🟠 **HIGH**"
-        elif score >= 4.0:
+        elif score >= 3.0:
             return "🟡 **MEDIUM**"
         else:
             return "🟢 **LOW**"
