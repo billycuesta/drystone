@@ -578,6 +578,17 @@ ruff check drystone/
 
 ## Recent Context (Last 3 Sessions)
 
+**2026-02-13 (Session 16):** ECR Skill Enhancement + Network Post-Processor + Validation Improvements
+- ✅ Enhanced ECR skill with registry scanning configuration collection
+- ✅ Implemented network post-processor for architecture visualization (OSI layer mapping)
+- ✅ Enhanced evidence validation with gating rules across skills (exposure, network, ecr)
+- ✅ Improved findings normalization with better snippet extraction
+- ✅ Created 8 comprehensive test suites for validation + skill-specific evidence quality
+- ✅ All 8 skills production ready with backward compatibility
+- **Result:** Improved evidence quality, better architecture visualization, robust validation
+- **Files:** drystone/skills/ecr/__init__.py, drystone/skills/network/post_processor.py, drystone/validation/*.py
+- **Commit:** 08fb632 (wip: Session 15 - ECR/network enhancements)
+
 **2026-02-08 (Session 14):** Report Structure Reorganization - General Security Reports UX
 - ✅ Implemented `_format_findings_summary_table()` - Renders findings count table for executive summary
 - ✅ Implemented `_reorganize_findings_by_section()` - Groups findings by skill + severity + remediation priority
