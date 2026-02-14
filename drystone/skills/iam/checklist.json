@@ -697,10 +697,79 @@
           "reason": "This control requires maintaining an inventory of all in-scope system components. While tags are not the inventory itself, they are a critical mechanism for identifying and managing that inventory. For example, a 'pci-scope=true' tag allows for easy identification, automation, and reporting on all components relevant to the CDE."
         }
       ]
+    },
+    {
+      "id": "IAM-029",
+      "cis_id": "N/A",
+      "title": "Detect privilege escalation via AssumeRole chains",
+      "severity": "Critical",
+      "description": "Role trust chains that allow broad or wildcard principals can enable escalation from low-privilege identities to highly privileged roles.",
+      "evidence_files": [
+        "assumeRole-chains.json"
+      ],
+      "check_keywords": [
+        "AssumeRole",
+        "TrustedPrincipals",
+        "sts:AssumeRole",
+        "arn:aws:iam::*:root"
+      ],
+      "remediation": "Restrict trust policies to specific principals, require ExternalId where applicable, and add MFA conditions for privileged role assumption.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "Least-privilege access must be enforced; unrestricted trust chains violate access boundary requirements."
+        }
+      ]
+    },
+    {
+      "id": "IAM-030",
+      "cis_id": "N/A",
+      "title": "Resource-based policies should not allow broad cross-account principals",
+      "severity": "High",
+      "description": "S3/Lambda/SQS/SNS resource policies granting wildcard or broad cross-account principals increase risk of unauthorized access and abuse.",
+      "evidence_files": [
+        "resource-based-policies.json"
+      ],
+      "check_keywords": [
+        "Principal",
+        "*",
+        "cross-account",
+        "Condition"
+      ],
+      "remediation": "Constrain principals to explicit ARNs and add source/account conditions in resource-based policies.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "Access to resources must be restricted to explicitly authorized principals."
+        }
+      ]
+    },
+    {
+      "id": "IAM-031",
+      "cis_id": "N/A",
+      "title": "Instance profiles should avoid over-privileged role permissions",
+      "severity": "High",
+      "description": "Over-privileged roles attached to EC2 instance profiles can be abused via metadata credential theft and lateral movement.",
+      "evidence_files": [
+        "instance-profiles.json"
+      ],
+      "check_keywords": [
+        "InstanceProfile",
+        "AttachedPolicies",
+        "AdministratorAccess",
+        "iam:*"
+      ],
+      "remediation": "Reduce instance-profile role privileges, remove admin-equivalent actions, and isolate high-risk permissions behind scoped roles.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "Compute identities must operate with least privilege to reduce blast radius if compromised."
+        }
+      ]
     }
   ],
-  "version": "2.0",
-  "total_checks": 28,
-  "last_updated": "2026-01-18",
+  "version": "2.1",
+  "total_checks": 31,
+  "last_updated": "2026-02-14",
   "notes": "Expanded checklist covers CIS AWS Foundations v1.5.0 + AWS Security Best Practices. Includes critical, high, medium, and low severity items. Mapped to PCI DSS v4.0 controls."
 }

@@ -2,9 +2,10 @@
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import boto3
+from botocore.exceptions import ClientError
 
 from drystone.cloud.aws.client import AWSClient
 from drystone.skills.base import BaseSkill
@@ -335,12 +336,231 @@ class IAMSkill(BaseSkill):
         except Exception as e:
             logger.error(f"Could not generate credential report: {e}")
 
+        # === ASSUME ROLE CHAINS ===
+        print("  Collecting AssumeRole trust chains...")
+        chains, chains_error = self._collect_assume_role_chains(iam_client)
+        self._save_json(
+            evidence_path / "assumeRole-chains.json",
+            {
+                "chains": chains,
+                "error": chains_error,
+            },
+        )
+
+        # === RESOURCE-BASED POLICIES ===
+        print("  Collecting resource-based policies (S3/Lambda/SQS/SNS)...")
+        resource_policies, policies_error = self._collect_resource_based_policies(client_kwargs)
+        self._save_json(
+            evidence_path / "resource-based-policies.json",
+            {
+                **resource_policies,
+                "error": policies_error,
+            },
+        )
+
+        # === INSTANCE PROFILES ===
+        print("  Collecting instance profiles and attached role permissions...")
+        profiles, profiles_error = self._collect_instance_profiles(iam_client)
+        self._save_json(
+            evidence_path / "instance-profiles.json",
+            {
+                "instance_profiles": profiles,
+                "error": profiles_error,
+            },
+        )
+
         # === SUMMARY ===
-        print(f"\n✅ IAM collection complete:")
+        print("\n✅ IAM collection complete:")
         print(f"   - {len(users_detailed)} users")
         print(f"   - {len(groups_detailed)} groups")
         print(f"   - {len(roles_detailed)} roles")
         print(f"   - {len(policies_detailed)} custom policies")
+
+    def _extract_trust_principals(self, trust_policy: Dict[str, Any]) -> List[str]:
+        """Extract principal values from trust policy document."""
+        out: List[str] = []
+        for st in trust_policy.get("Statement", []) or []:
+            if not isinstance(st, dict):
+                continue
+            principal = st.get("Principal")
+            if principal == "*":
+                out.append("*")
+                continue
+            if not isinstance(principal, dict):
+                continue
+            for key in ("AWS", "Service", "Federated", "CanonicalUser"):
+                val = principal.get(key)
+                if isinstance(val, str):
+                    out.append(val)
+                elif isinstance(val, list):
+                    out.extend([x for x in val if isinstance(x, str)])
+        return sorted(set(out))
+
+    def _collect_assume_role_chains(
+        self, iam_client: Any
+    ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+        """Map AssumeRole trust relationships for privilege-escalation analysis."""
+        chains: List[Dict[str, Any]] = []
+        try:
+            roles = iam_client.list_roles().get("Roles", [])
+            for role in roles:
+                trust_policy = role.get("AssumeRolePolicyDocument") or {}
+                chains.append(
+                    {
+                        "RoleName": role.get("RoleName"),
+                        "Arn": role.get("Arn"),
+                        "TrustedPrincipals": self._extract_trust_principals(trust_policy),
+                        "MaxSessionDuration": role.get("MaxSessionDuration"),
+                        "PermissionsBoundary": role.get("PermissionsBoundary"),
+                    }
+                )
+            return chains, None
+        except ClientError as e:
+            return chains, str(e)
+
+    def _collect_resource_based_policies(
+        self, client_kwargs: Dict[str, Any]
+    ) -> Tuple[Dict[str, List[Dict[str, Any]]], Optional[str]]:
+        """Collect resource policies from S3/Lambda/SQS/SNS."""
+        policies: Dict[str, List[Dict[str, Any]]] = {"s3": [], "lambda": [], "sqs": [], "sns": []}
+        errors: List[str] = []
+
+        # S3
+        try:
+            s3 = boto3.client("s3", **client_kwargs)
+            for bucket in s3.list_buckets().get("Buckets", []) or []:
+                name = bucket.get("Name")
+                if not name:
+                    continue
+                try:
+                    policy = s3.get_bucket_policy(Bucket=name)
+                    policies["s3"].append(
+                        {
+                            "BucketName": name,
+                            "Policy": json.loads(policy.get("Policy", "{}")),
+                        }
+                    )
+                except ClientError:
+                    continue
+        except ClientError as e:
+            errors.append(f"s3: {e}")
+
+        # Lambda
+        try:
+            lam = boto3.client("lambda", **client_kwargs)
+            paginator = lam.get_paginator("list_functions")
+            for page in paginator.paginate():
+                for fn in page.get("Functions", []) or []:
+                    fn_name = fn.get("FunctionName")
+                    if not fn_name:
+                        continue
+                    try:
+                        resp = lam.get_policy(FunctionName=fn_name)
+                        policies["lambda"].append(
+                            {
+                                "FunctionName": fn_name,
+                                "FunctionArn": fn.get("FunctionArn"),
+                                "Policy": json.loads(resp.get("Policy", "{}")),
+                            }
+                        )
+                    except ClientError:
+                        continue
+        except ClientError as e:
+            errors.append(f"lambda: {e}")
+
+        # SQS
+        try:
+            sqs = boto3.client("sqs", **client_kwargs)
+            urls = sqs.list_queues().get("QueueUrls", []) or []
+            for queue_url in urls:
+                try:
+                    attrs = sqs.get_queue_attributes(
+                        QueueUrl=queue_url,
+                        AttributeNames=["QueueArn", "Policy"],
+                    ).get("Attributes", {})
+                    policy_raw = attrs.get("Policy")
+                    if policy_raw:
+                        policies["sqs"].append(
+                            {
+                                "QueueUrl": queue_url,
+                                "QueueArn": attrs.get("QueueArn"),
+                                "Policy": json.loads(policy_raw),
+                            }
+                        )
+                except ClientError:
+                    continue
+        except ClientError as e:
+            errors.append(f"sqs: {e}")
+
+        # SNS
+        try:
+            sns = boto3.client("sns", **client_kwargs)
+            paginator = sns.get_paginator("list_topics")
+            for page in paginator.paginate():
+                for topic in page.get("Topics", []) or []:
+                    arn = topic.get("TopicArn")
+                    if not arn:
+                        continue
+                    try:
+                        attrs = sns.get_topic_attributes(TopicArn=arn).get("Attributes", {})
+                        policy_raw = attrs.get("Policy")
+                        if policy_raw:
+                            policies["sns"].append(
+                                {
+                                    "TopicArn": arn,
+                                    "Policy": json.loads(policy_raw),
+                                }
+                            )
+                    except ClientError:
+                        continue
+        except ClientError as e:
+            errors.append(f"sns: {e}")
+
+        return policies, "; ".join(errors) if errors else None
+
+    def _collect_instance_profiles(
+        self, iam_client: Any
+    ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+        """Collect instance profiles and attached role policy summaries."""
+        out: List[Dict[str, Any]] = []
+        try:
+            paginator = iam_client.get_paginator("list_instance_profiles")
+            for page in paginator.paginate():
+                for prof in page.get("InstanceProfiles", []) or []:
+                    p_name = prof.get("InstanceProfileName")
+                    entry: Dict[str, Any] = {
+                        "InstanceProfileName": p_name,
+                        "Arn": prof.get("Arn"),
+                        "Roles": [],
+                    }
+                    for role in prof.get("Roles", []) or []:
+                        role_name = role.get("RoleName")
+                        role_entry: Dict[str, Any] = {
+                            "RoleName": role_name,
+                            "Arn": role.get("Arn"),
+                            "AttachedPolicies": [],
+                            "InlinePolicies": [],
+                        }
+                        if role_name:
+                            try:
+                                attached = iam_client.list_attached_role_policies(
+                                    RoleName=role_name
+                                ).get("AttachedPolicies", [])
+                                role_entry["AttachedPolicies"] = attached
+                            except ClientError:
+                                pass
+                            try:
+                                inline = iam_client.list_role_policies(RoleName=role_name).get(
+                                    "PolicyNames", []
+                                )
+                                role_entry["InlinePolicies"] = inline
+                            except ClientError:
+                                pass
+                        entry["Roles"].append(role_entry)
+                    out.append(entry)
+            return out, None
+        except ClientError as e:
+            return out, str(e)
 
     def _save_json(self, filepath: Path, data):
         """Save data to JSON file with proper datetime serialization.
@@ -443,7 +663,7 @@ class IAMSkill(BaseSkill):
             json.dump(findings.model_dump(mode="json"), f, indent=2, default=str)
 
         # 5. Print summary
-        print(f"\n✅ Analysis complete:")
+        print("\n✅ Analysis complete:")
         print(f"   Total findings: {findings.summary.total_findings}")
         print(f"   Critical: {findings.summary.critical}")
         print(f"   High: {findings.summary.high}")

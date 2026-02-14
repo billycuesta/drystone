@@ -1,8 +1,10 @@
 """Vulnerability management skill for AWS audit."""
 
+import base64
 import json
+import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import boto3
 
@@ -276,7 +278,240 @@ class VulnsSkill(BaseSkill):
         except Exception as e:
             logger.error(f"Could not collect ECR scan data: {e}")
 
-        print(f"\n✅ Vulnerability collection complete")
+        # === EC2 USER-DATA ===
+        print("  Collecting EC2 user-data scripts...")
+        try:
+            user_data, user_data_error = self._collect_ec2_user_data(client_kwargs)
+            self._save_json(
+                evidence_path / "ec2-user-data.json",
+                {
+                    "items": user_data,
+                    "error": user_data_error,
+                },
+            )
+        except Exception as e:
+            logger.error(f"Could not collect EC2 user-data: {e}")
+
+        # === LAMBDA ENVIRONMENT VARIABLES ===
+        print("  Collecting Lambda environment variables...")
+        try:
+            env_vars, env_error = self._collect_lambda_environment_variables(client_kwargs)
+            self._save_json(
+                evidence_path / "lambda-environment-variables.json",
+                {
+                    "items": env_vars,
+                    "error": env_error,
+                },
+            )
+        except Exception as e:
+            logger.error(f"Could not collect Lambda environment variables: {e}")
+
+        # === IMDS CONFIGURATION ===
+        print("  Collecting IMDS configuration...")
+        try:
+            imds, imds_error = self._collect_imds_configuration(client_kwargs)
+            self._save_json(
+                evidence_path / "imds-configuration.json",
+                {
+                    "items": imds,
+                    "error": imds_error,
+                },
+            )
+        except Exception as e:
+            logger.error(f"Could not collect IMDS configuration: {e}")
+
+        # === INSTANCE PROFILE PERMISSIONS ===
+        print("  Collecting instance profile permissions...")
+        try:
+            profiles, profiles_error = self._collect_instance_profiles_permissions(client_kwargs)
+            self._save_json(
+                evidence_path / "instance-profiles-permissions.json",
+                {
+                    "items": profiles,
+                    "error": profiles_error,
+                },
+            )
+        except Exception as e:
+            logger.error(f"Could not collect instance profile permissions: {e}")
+
+        print("\n✅ Vulnerability collection complete")
+
+    def _scan_for_secrets(self, text: str) -> Dict[str, bool]:
+        """Scan text for common secret patterns."""
+        patterns = {
+            "aws_access_key": r"AKIA[0-9A-Z]{16}",
+            "aws_secret_key": r"(?i)aws(.{0,20})?(secret|access).{0,10}[=:]\s*[A-Za-z0-9/+=]{30,}",
+            "password": r"(?i)password\s*[=:]\s*[^\s\"']+",
+            "api_key": r"(?i)api[_-]?key\s*[=:]\s*[^\s\"']+",
+            "token": r"(?i)(token|secret)\s*[=:]\s*[^\s\"']+",
+        }
+        return {name: bool(re.search(pattern, text)) for name, pattern in patterns.items()}
+
+    def _collect_ec2_user_data(
+        self, client_kwargs: Dict[str, Any]
+    ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+        """Extract user-data from EC2 instances for credential analysis."""
+        ec2 = boto3.client("ec2", **client_kwargs)
+        out: List[Dict[str, Any]] = []
+        try:
+            paginator = ec2.get_paginator("describe_instances")
+            for page in paginator.paginate():
+                for reservation in page.get("Reservations", []):
+                    for instance in reservation.get("Instances", []):
+                        instance_id = instance.get("InstanceId")
+                        if not instance_id:
+                            continue
+                        try:
+                            resp = ec2.describe_instance_attribute(
+                                InstanceId=instance_id,
+                                Attribute="userData",
+                            )
+                        except Exception:
+                            continue
+                        user_data = ((resp or {}).get("UserData") or {}).get("Value")
+                        if not user_data:
+                            continue
+                        decoded = ""
+                        try:
+                            decoded = base64.b64decode(user_data).decode("utf-8", errors="replace")
+                        except Exception:
+                            decoded = str(user_data)
+                        out.append(
+                            {
+                                "InstanceId": instance_id,
+                                "UserData": decoded,
+                                "ContainsSecrets": self._scan_for_secrets(decoded),
+                            }
+                        )
+            return out, None
+        except Exception as e:
+            return out, str(e)
+
+    def _collect_lambda_environment_variables(
+        self, client_kwargs: Dict[str, Any]
+    ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+        """Collect Lambda environment variables for exposed secret analysis."""
+        lam = boto3.client("lambda", **client_kwargs)
+        out: List[Dict[str, Any]] = []
+        try:
+            paginator = lam.get_paginator("list_functions")
+            for page in paginator.paginate():
+                for fn in page.get("Functions", []) or []:
+                    fn_name = fn.get("FunctionName")
+                    if not fn_name:
+                        continue
+                    try:
+                        details = lam.get_function(FunctionName=fn_name)
+                    except Exception:
+                        continue
+                    cfg = (details.get("Configuration") or {}) if isinstance(details, dict) else {}
+                    env = (cfg.get("Environment") or {}).get("Variables") or {}
+                    env_keys = sorted([k for k in env.keys()]) if isinstance(env, dict) else []
+                    secret_flags = {
+                        k: bool(re.search(r"(?i)(password|secret|token|key|credential)", k))
+                        for k in env_keys
+                    }
+                    out.append(
+                        {
+                            "FunctionName": fn_name,
+                            "FunctionArn": cfg.get("FunctionArn"),
+                            "EnvironmentKeys": env_keys,
+                            "PotentialSecretKeys": [k for k, v in secret_flags.items() if v],
+                        }
+                    )
+            return out, None
+        except Exception as e:
+            return out, str(e)
+
+    def _collect_imds_configuration(
+        self, client_kwargs: Dict[str, Any]
+    ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+        """Detect IMDSv1 vs IMDSv2 configuration across EC2 instances."""
+        ec2 = boto3.client("ec2", **client_kwargs)
+        out: List[Dict[str, Any]] = []
+        try:
+            paginator = ec2.get_paginator("describe_instances")
+            for page in paginator.paginate():
+                for reservation in page.get("Reservations", []):
+                    for instance in reservation.get("Instances", []):
+                        md = instance.get("MetadataOptions") or {}
+                        out.append(
+                            {
+                                "InstanceId": instance.get("InstanceId"),
+                                "HttpTokens": md.get("HttpTokens", "optional"),
+                                "HttpPutResponseHopLimit": md.get("HttpPutResponseHopLimit", 1),
+                                "State": (instance.get("State") or {}).get("Name"),
+                                "VulnerableToSSRF": md.get("HttpTokens") != "required",
+                            }
+                        )
+            return out, None
+        except Exception as e:
+            return out, str(e)
+
+    def _collect_instance_profiles_permissions(
+        self, client_kwargs: Dict[str, Any]
+    ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+        """Collect effective permission indicators for EC2 instance profiles."""
+        ec2 = boto3.client("ec2", **client_kwargs)
+        iam = boto3.client("iam", **client_kwargs)
+        out: List[Dict[str, Any]] = []
+        try:
+            paginator = ec2.get_paginator("describe_instances")
+            profile_arns: Dict[str, List[str]] = {}
+            for page in paginator.paginate():
+                for reservation in page.get("Reservations", []):
+                    for instance in reservation.get("Instances", []):
+                        prof = instance.get("IamInstanceProfile") or {}
+                        arn = prof.get("Arn")
+                        iid = instance.get("InstanceId")
+                        if isinstance(arn, str) and arn and isinstance(iid, str):
+                            profile_arns.setdefault(arn, []).append(iid)
+
+            for profile_arn, instance_ids in profile_arns.items():
+                profile_name = profile_arn.split("/")[-1]
+                try:
+                    prof = iam.get_instance_profile(InstanceProfileName=profile_name).get(
+                        "InstanceProfile", {}
+                    )
+                except Exception:
+                    continue
+                roles_out = []
+                for role in prof.get("Roles", []) or []:
+                    role_name = role.get("RoleName")
+                    attached = []
+                    inline = []
+                    if role_name:
+                        try:
+                            attached = iam.list_attached_role_policies(RoleName=role_name).get(
+                                "AttachedPolicies", []
+                            )
+                        except Exception:
+                            pass
+                        try:
+                            inline = iam.list_role_policies(RoleName=role_name).get(
+                                "PolicyNames", []
+                            )
+                        except Exception:
+                            pass
+                    roles_out.append(
+                        {
+                            "RoleName": role_name,
+                            "RoleArn": role.get("Arn"),
+                            "AttachedPolicies": attached,
+                            "InlinePolicies": inline,
+                        }
+                    )
+                out.append(
+                    {
+                        "InstanceProfileArn": profile_arn,
+                        "InstanceProfileName": profile_name,
+                        "AttachedInstanceIds": sorted(instance_ids),
+                        "Roles": roles_out,
+                    }
+                )
+            return out, None
+        except Exception as e:
+            return out, str(e)
 
     def _save_json(self, filepath: Path, data):
         """Save data to JSON file with proper datetime serialization."""
@@ -350,7 +585,7 @@ class VulnsSkill(BaseSkill):
             json.dump(findings.model_dump(mode="json"), f, indent=2, default=str)
 
         # 5. Print summary
-        print(f"\n✅ Analysis complete:")
+        print("\n✅ Analysis complete:")
         print(f"   Total findings: {findings.summary.total_findings}")
         print(f"   Critical: {findings.summary.critical}")
         print(f"   High: {findings.summary.high}")

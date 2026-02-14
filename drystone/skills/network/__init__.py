@@ -1,9 +1,9 @@
 """Network security skill for AWS audit."""
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List
-from datetime import datetime, timezone
 
 import boto3
 from botocore.exceptions import ClientError
@@ -292,8 +292,10 @@ class NetworkSkill(BaseSkill):
                     sg = db.get("DBSubnetGroup")
                     if isinstance(sg, dict):
                         for sn in sg.get("Subnets", []) or []:
-                            if isinstance(sn, dict) and isinstance(sn.get("SubnetIdentifier"), str):
-                                subnet_ids.append(sn.get("SubnetIdentifier"))
+                            if isinstance(sn, dict):
+                                sid = sn.get("SubnetIdentifier")
+                                if isinstance(sid, str):
+                                    subnet_ids.append(sid)
                     rds_list.append(
                         {
                             "DBInstanceIdentifier": db.get("DBInstanceIdentifier"),
@@ -425,10 +427,91 @@ class NetworkSkill(BaseSkill):
         except Exception as e:
             print(f"    Warning: Could not collect IGW data: {e}")
 
+        # === TRANSIT GATEWAY TOPOLOGY ===
+        print("  Collecting Transit Gateway topology...")
+        try:
+            tgw_topology = {"transit_gateways": [], "attachments": [], "route_tables": []}
+            tgws = ec2_client.describe_transit_gateways().get("TransitGateways", [])
+            tgw_topology["transit_gateways"] = tgws
+            attachments = ec2_client.describe_transit_gateway_attachments().get(
+                "TransitGatewayAttachments", []
+            )
+            tgw_topology["attachments"] = attachments
+
+            for tgw in tgws:
+                tgw_id = tgw.get("TransitGatewayId")
+                if not tgw_id:
+                    continue
+                try:
+                    route_tables = ec2_client.describe_transit_gateway_route_tables(
+                        Filters=[{"Name": "transit-gateway-id", "Values": [tgw_id]}]
+                    ).get("TransitGatewayRouteTables", [])
+                    tgw_topology["route_tables"].extend(route_tables)
+                except ClientError:
+                    continue
+
+            _save(evidence_path / "transit-gateway-topology.json", tgw_topology)
+        except Exception as e:
+            print(f"    Warning: Could not collect Transit Gateway topology: {e}")
+
+        # === NAT GATEWAY ROUTING ===
+        print("  Collecting NAT Gateway routes...")
+        try:
+            nat_gateways = ec2_client.describe_nat_gateways().get("NatGateways", [])
+            route_tables = ec2_client.describe_route_tables().get("RouteTables", [])
+            nat_routes: List[Dict[str, Any]] = []
+
+            for nat in nat_gateways:
+                nat_id = nat.get("NatGatewayId")
+                associated_rts: List[str] = []
+                if nat_id:
+                    for rt in route_tables:
+                        routes = rt.get("Routes", []) if isinstance(rt, dict) else []
+                        if any(
+                            isinstance(r, dict) and r.get("NatGatewayId") == nat_id for r in routes
+                        ):
+                            rtid = rt.get("RouteTableId")
+                            if isinstance(rtid, str):
+                                associated_rts.append(str(rtid))
+
+                nat_routes.append(
+                    {
+                        "NatGatewayId": nat_id,
+                        "SubnetId": nat.get("SubnetId"),
+                        "VpcId": nat.get("VpcId"),
+                        "State": nat.get("State"),
+                        "PublicIp": (
+                            (nat.get("NatGatewayAddresses") or [{}])[0].get("PublicIp")
+                            if isinstance(nat.get("NatGatewayAddresses"), list)
+                            else None
+                        ),
+                        "AssociatedRouteTables": sorted(set(associated_rts)),
+                    }
+                )
+
+            _save(evidence_path / "nat-gateway-routes.json", {"items": nat_routes})
+        except Exception as e:
+            print(f"    Warning: Could not collect NAT Gateway routes: {e}")
+
+        # === PRIVATELINK ENDPOINTS ===
+        print("  Collecting PrivateLink endpoints...")
+        try:
+            endpoints = ec2_client.describe_vpc_endpoints().get("VpcEndpoints", [])
+            services = ec2_client.describe_vpc_endpoint_services().get("ServiceDetails", [])
+            _save(
+                evidence_path / "privatelink-endpoints.json",
+                {
+                    "endpoints": endpoints,
+                    "services": services,
+                },
+            )
+        except Exception as e:
+            print(f"    Warning: Could not collect PrivateLink data: {e}")
+
         # Persist audit metadata last so it includes all files.
         _save(evidence_path / "_audit_metadata.json", audit_metadata)
 
-        print(f"\n✅ Network collection complete")
+        print("\n✅ Network collection complete")
 
     def _save_json(self, filepath: Path, data):
         """Save data to JSON file with proper datetime serialization."""
@@ -508,7 +591,7 @@ class NetworkSkill(BaseSkill):
             json.dump(findings.model_dump(mode="json"), f, indent=2, default=str)
 
         # 5. Print summary
-        print(f"\n✅ Analysis complete:")
+        print("\n✅ Analysis complete:")
         print(f"   Total findings: {findings.summary.total_findings}")
         print(f"   Critical: {findings.summary.critical}")
         print(f"   High: {findings.summary.high}")

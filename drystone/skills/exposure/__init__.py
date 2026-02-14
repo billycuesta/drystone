@@ -1,9 +1,9 @@
 """Exposure security skill for AWS audit."""
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List
-from datetime import datetime, timezone
 
 import boto3
 from botocore.exceptions import ClientError
@@ -395,10 +395,219 @@ class ExposureSkill(BaseSkill):
         except Exception as e:
             print(f"    Warning: Could not collect WAFv2 data: {e}")
 
+        # === LAMBDA FUNCTION URLS ===
+        print("  Collecting Lambda function URLs...")
+        try:
+            lam = boto3.client("lambda", **client_kwargs)
+            fn_urls: List[Dict[str, Any]] = []
+            paginator = lam.get_paginator("list_functions")
+            for page in paginator.paginate():
+                for fn in page.get("Functions", []) or []:
+                    fn_name = fn.get("FunctionName")
+                    if not fn_name:
+                        continue
+                    try:
+                        cfg = lam.get_function_url_config(FunctionName=fn_name)
+                    except ClientError:
+                        continue
+                    fn_urls.append(
+                        {
+                            "FunctionName": fn_name,
+                            "FunctionArn": fn.get("FunctionArn"),
+                            "FunctionUrl": cfg.get("FunctionUrl"),
+                            "AuthType": cfg.get("AuthType"),
+                            "CreationTime": cfg.get("CreationTime"),
+                            "IsPublic": cfg.get("AuthType") == "NONE",
+                        }
+                    )
+            _save(evidence_path / "lambda-function-urls.json", {"items": fn_urls})
+        except Exception as e:
+            print(f"    Warning: Could not collect Lambda function URLs: {e}")
+
+        # === API GATEWAY STAGES ===
+        print("  Collecting API Gateway stages...")
+        try:
+            api_stages: List[Dict[str, Any]] = []
+            apigw = boto3.client("apigateway", **client_kwargs)
+            apis = apigw.get_rest_apis().get("items", [])
+            for api in apis or []:
+                api_id = api.get("id")
+                if not api_id:
+                    continue
+                try:
+                    stages = apigw.get_stages(restApiId=api_id).get("item", [])
+                except ClientError:
+                    continue
+                for stage in stages or []:
+                    stage_name = stage.get("stageName")
+                    api_stages.append(
+                        {
+                            "ApiId": api_id,
+                            "ApiName": api.get("name"),
+                            "StageName": stage_name,
+                            "InvokeUrl": f"https://{api_id}.execute-api.{region}.amazonaws.com/{stage_name}",
+                            "DeploymentId": stage.get("deploymentId"),
+                            "HasWAF": "webAclArn" in stage,
+                        }
+                    )
+
+            # HTTP APIs (apigatewayv2)
+            try:
+                apigw2 = boto3.client("apigatewayv2", **client_kwargs)
+                apis2 = apigw2.get_apis().get("Items", [])
+                for api in apis2 or []:
+                    api_id = api.get("ApiId")
+                    if not api_id:
+                        continue
+                    try:
+                        stages2 = apigw2.get_stages(ApiId=api_id).get("Items", [])
+                    except ClientError:
+                        continue
+                    for stage in stages2 or []:
+                        stage_name = stage.get("StageName")
+                        api_stages.append(
+                            {
+                                "ApiId": api_id,
+                                "ApiName": api.get("Name"),
+                                "StageName": stage_name,
+                                "InvokeUrl": api.get("ApiEndpoint"),
+                                "DeploymentId": stage.get("DeploymentId"),
+                                "HasWAF": False,
+                            }
+                        )
+            except Exception:
+                pass
+
+            _save(evidence_path / "api-gateway-stages.json", {"items": api_stages})
+        except Exception as e:
+            print(f"    Warning: Could not collect API Gateway stages: {e}")
+
+        # === ECS/EKS INGRESS ===
+        print("  Collecting ECS/EKS ingress exposure...")
+        try:
+            ingress_items: List[Dict[str, Any]] = []
+            ecs = boto3.client("ecs", **client_kwargs)
+            eks = boto3.client("eks", **client_kwargs)
+
+            # ECS services + load balancer attachments
+            cluster_arns = ecs.list_clusters().get("clusterArns", []) or []
+            for cluster_arn in cluster_arns:
+                service_arns = ecs.list_services(cluster=cluster_arn).get("serviceArns", []) or []
+                if not service_arns:
+                    continue
+                chunks = [service_arns[i : i + 10] for i in range(0, len(service_arns), 10)]
+                for chunk in chunks:
+                    desc = ecs.describe_services(cluster=cluster_arn, services=chunk).get(
+                        "services", []
+                    )
+                    for svc in desc or []:
+                        ingress_items.append(
+                            {
+                                "Type": "ECSService",
+                                "ClusterArn": cluster_arn,
+                                "ServiceArn": svc.get("serviceArn"),
+                                "ServiceName": svc.get("serviceName"),
+                                "LoadBalancers": svc.get("loadBalancers", []),
+                                "NetworkConfiguration": svc.get("networkConfiguration", {}),
+                            }
+                        )
+
+            # EKS public endpoint exposure
+            cluster_names = eks.list_clusters().get("clusters", []) or []
+            for cname in cluster_names:
+                try:
+                    cluster = eks.describe_cluster(name=cname).get("cluster", {})
+                except ClientError:
+                    continue
+                vpc_cfg = cluster.get("resourcesVpcConfig", {}) if isinstance(cluster, dict) else {}
+                ingress_items.append(
+                    {
+                        "Type": "EKSCluster",
+                        "ClusterName": cname,
+                        "Endpoint": cluster.get("endpoint"),
+                        "EndpointPublicAccess": vpc_cfg.get("endpointPublicAccess"),
+                        "PublicAccessCidrs": vpc_cfg.get("publicAccessCidrs", []),
+                    }
+                )
+
+            _save(evidence_path / "ecs-eks-ingress.json", {"items": ingress_items})
+        except Exception as e:
+            print(f"    Warning: Could not collect ECS/EKS ingress: {e}")
+
+        # === ELASTICSEARCH / OPENSEARCH DOMAINS ===
+        print("  Collecting Elasticsearch/OpenSearch domains...")
+        try:
+            domains_out: List[Dict[str, Any]] = []
+
+            # OpenSearch service (current)
+            try:
+                os_client = boto3.client("opensearch", **client_kwargs)
+                names = os_client.list_domain_names().get("DomainNames", []) or []
+                domain_names = [d.get("DomainName") for d in names if isinstance(d, dict)]
+                if domain_names:
+                    details = os_client.describe_domain(DomainName=domain_names[0]).get(
+                        "DomainStatus", {}
+                    )
+                    domains_out.append(
+                        {
+                            "Service": "opensearch",
+                            "DomainName": details.get("DomainName"),
+                            "ARN": details.get("ARN"),
+                            "Endpoint": details.get("Endpoint"),
+                            "Endpoints": details.get("Endpoints", {}),
+                            "AccessPolicies": details.get("AccessPolicies"),
+                            "VPCOptions": details.get("VPCOptions", {}),
+                        }
+                    )
+                    for dn in domain_names[1:]:
+                        try:
+                            d = os_client.describe_domain(DomainName=dn).get("DomainStatus", {})
+                            domains_out.append(
+                                {
+                                    "Service": "opensearch",
+                                    "DomainName": d.get("DomainName"),
+                                    "ARN": d.get("ARN"),
+                                    "Endpoint": d.get("Endpoint"),
+                                    "Endpoints": d.get("Endpoints", {}),
+                                    "AccessPolicies": d.get("AccessPolicies"),
+                                    "VPCOptions": d.get("VPCOptions", {}),
+                                }
+                            )
+                        except Exception:
+                            continue
+            except Exception:
+                pass
+
+            # Legacy Elasticsearch service
+            try:
+                es_client = boto3.client("es", **client_kwargs)
+                names = es_client.list_domain_names().get("DomainNames", []) or []
+                domain_names = [d.get("DomainName") for d in names if isinstance(d, dict)]
+                if domain_names:
+                    resp = es_client.describe_elasticsearch_domains(DomainNames=domain_names)
+                    for d in resp.get("DomainStatusList", []) or []:
+                        domains_out.append(
+                            {
+                                "Service": "elasticsearch",
+                                "DomainName": d.get("DomainName"),
+                                "ARN": d.get("ARN"),
+                                "Endpoint": d.get("Endpoint"),
+                                "Endpoints": d.get("Endpoints", {}),
+                                "AccessPolicies": d.get("AccessPolicies"),
+                                "VPCOptions": d.get("VPCOptions", {}),
+                            }
+                        )
+            except Exception:
+                pass
+
+            _save(evidence_path / "elasticsearch-domains.json", {"items": domains_out})
+        except Exception as e:
+            print(f"    Warning: Could not collect Elasticsearch/OpenSearch domains: {e}")
+
         # Persist audit metadata last so it includes all files.
         _save(evidence_path / "_audit_metadata.json", audit_metadata)
 
-        print(f"\n✅ Exposure collection complete")
+        print("\n✅ Exposure collection complete")
 
     def _save_json(self, filepath: Path, data):
         """Save data to JSON file with proper datetime serialization."""
@@ -510,7 +719,7 @@ class ExposureSkill(BaseSkill):
             json.dump(findings.model_dump(mode="json"), f, indent=2, default=str)
 
         # 5. Print summary
-        print(f"\n✅ Analysis complete:")
+        print("\n✅ Analysis complete:")
         print(f"   Total findings: {findings.summary.total_findings}")
         print(f"   Critical: {findings.summary.critical}")
         print(f"   High: {findings.summary.high}")

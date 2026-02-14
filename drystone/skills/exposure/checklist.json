@@ -2,9 +2,9 @@
   "skill": "exposure",
   "framework": "AWS Security Best Practices + PCI DSS v4.0 Mapping",
   "description": "Checklist for identifying and assessing AWS resources exposed to the internet, with mappings to relevant PCI DSS controls.",
-  "version": "1.2",
-  "total_checks": 15,
-  "last_updated": "2026-02-09",
+  "version": "1.3",
+  "total_checks": 19,
+  "last_updated": "2026-02-14",
   "items": [
     {
       "id": "EXP-001",
@@ -262,6 +262,89 @@
         {
           "control": "6.2.4",
           "reason": "This control requires mitigating common software attacks. While the vulnerability is in the infrastructure, it is often exploited via application-level SSRF flaws. Enforcing IMDSv2 is a defense-in-depth control that mitigates the impact of such application vulnerabilities."
+        }
+      ]
+    },
+    {
+      "id": "EXP-016",
+      "title": "Lambda function URLs sin autenticacion",
+      "severity": "Critical",
+      "description": "Lambda Function URLs with AuthType=NONE expose unauthenticated invocation paths from the public internet.",
+      "remediation": "Set Function URL AuthType to AWS_IAM or move endpoint behind API Gateway with strong authz/authn controls.",
+      "evidence_files": [
+        "lambda-function-urls.json"
+      ],
+      "check_keywords": [
+        "AuthType",
+        "NONE",
+        "IsPublic"
+      ],
+      "pci_dss": [
+        {
+          "control": "6.5.10",
+          "reason": "Unauthenticated function invocation enables access-control bypass paths in public-facing application logic."
+        }
+      ]
+    },
+    {
+      "id": "EXP-017",
+      "title": "API Gateway stages publicos sin proteccion WAF",
+      "severity": "High",
+      "description": "Public API Gateway stages lacking WAF controls increase exposure to common web attacks and abuse.",
+      "remediation": "Associate API frontends with AWS WAF and enable request validation, throttling, and authz where applicable.",
+      "evidence_files": [
+        "api-gateway-stages.json"
+      ],
+      "check_keywords": [
+        "InvokeUrl",
+        "HasWAF"
+      ],
+      "pci_dss": [
+        {
+          "control": "6.4.2",
+          "reason": "Public-facing APIs should have automated controls to detect and prevent web-layer attacks."
+        }
+      ]
+    },
+    {
+      "id": "EXP-018",
+      "title": "ECS/EKS ingress expone servicios criticos a internet",
+      "severity": "High",
+      "description": "Containerized workloads exposed through internet-facing ingress without strict boundary controls increase compromise blast radius.",
+      "remediation": "Restrict ingress paths, enforce private networking where possible, and apply least-privilege security group/network policy controls.",
+      "evidence_files": [
+        "ecs-eks-ingress.json"
+      ],
+      "check_keywords": [
+        "LoadBalancers",
+        "EndpointPublicAccess",
+        "networkConfiguration"
+      ],
+      "pci_dss": [
+        {
+          "control": "1.3.1.b",
+          "reason": "Ingress should be restricted to strictly necessary traffic paths from untrusted networks."
+        }
+      ]
+    },
+    {
+      "id": "EXP-019",
+      "title": "Elasticsearch/OpenSearch con acceso publico o politicas debiles",
+      "severity": "High",
+      "description": "Search domains with public endpoints or permissive access policies may allow unauthorized data access and enumeration.",
+      "remediation": "Use VPC-only domain endpoints, tighten access policies to specific principals, and enable authN/authZ controls.",
+      "evidence_files": [
+        "elasticsearch-domains.json"
+      ],
+      "check_keywords": [
+        "Endpoint",
+        "AccessPolicies",
+        "VPCOptions"
+      ],
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "Data-store access must be constrained to authorized principals under least privilege."
         }
       ]
     }
