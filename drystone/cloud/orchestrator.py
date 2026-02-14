@@ -16,15 +16,16 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+from drystone.logging import MetricsTracker
 from drystone.models.config import WizardConfig
 from drystone.validation import (
-    validate_checklist_coverage,
     FindingsReviewer,
+    QueueValidator,
+    validate_checklist_coverage,
     validate_report_completeness,
 )
-from drystone.logging import MetricsTracker, CrashSafeLogger
 
 logger = logging.getLogger(__name__)
 
@@ -88,8 +89,7 @@ class SkillProgressTracker:
             eta_str = f"{est_remaining:.0f}s" if est_remaining > 0 else "done"
 
             logger.info(
-                f"[{self.completed}/{self.total}] {skill_name:15} ({status:11}) "
-                f"- ETA: {eta_str}"
+                f"[{self.completed}/{self.total}] {skill_name:15} ({status:11}) - ETA: {eta_str}"
             )
 
     def summary(self) -> str:
@@ -97,10 +97,7 @@ class SkillProgressTracker:
         elapsed = (datetime.now() - self.start_time).total_seconds() if self.start_time else 0
         pct = 100 * self.completed / self.total if self.total > 0 else 0
 
-        return (
-            f"Progress: {self.completed}/{self.total} ({pct:.0f}%) "
-            f"- Elapsed: {elapsed:.1f}s"
-        )
+        return f"Progress: {self.completed}/{self.total} ({pct:.0f}%) - Elapsed: {elapsed:.1f}s"
 
 
 class AuditOrchestrator:
@@ -187,7 +184,7 @@ class AuditOrchestrator:
             reviewer = FindingsReviewer(self.config.anthropic_client)
             quality_validation = reviewer.validate(
                 skill=skill_name,
-                evidence=evidence.data if hasattr(evidence, 'data') else evidence,
+                evidence=evidence.data if hasattr(evidence, "data") else evidence,
                 checklist=checklist,
                 findings=findings,
             )
@@ -204,9 +201,8 @@ class AuditOrchestrator:
                         f"missing checks for {skill_name}..."
                     )
                     # Get only unevaluated checks
-                    from drystone.validation.checklist_coverage import (
-                        get_unevaluated_checks
-                    )
+                    from drystone.validation.checklist_coverage import get_unevaluated_checks
+
                     unevaluated = get_unevaluated_checks(checklist, findings)
 
                     # Re-analyze focused on missing checks
@@ -227,8 +223,7 @@ class AuditOrchestrator:
             logger.info(f"Validating report for {skill_name}...")
             report_validation = validate_report_completeness(report, findings)
             logger.info(
-                f"Report validation: "
-                f"{'✅ PASS' if report_validation['report_valid'] else '⚠️ FAIL'}"
+                f"Report validation: {'✅ PASS' if report_validation['report_valid'] else '⚠️ FAIL'}"
             )
 
             # Compile overall validation status
@@ -240,7 +235,7 @@ class AuditOrchestrator:
 
             result = {
                 "skill": skill_name,
-                "evidence": evidence.data if hasattr(evidence, 'data') else evidence,
+                "evidence": evidence.data if hasattr(evidence, "data") else evidence,
                 "findings": findings,
                 "report": report,
                 "validation": {
@@ -292,25 +287,27 @@ class AuditOrchestrator:
             report_lines.append("✅ No findings detected.")
         else:
             for finding in findings:
-                report_lines.extend([
-                    f"\n### {finding.get('id', 'UNKNOWN')}: {finding.get('title', 'Untitled')}",
-                    f"**Severity:** {finding.get('severity', 'Unknown')}",
-                    f"**Risk Score:** {finding.get('risk_score', 'N/A')}",
-                    "",
-                    f"{finding.get('description', '')}",
-                ])
+                report_lines.extend(
+                    [
+                        f"\n### {finding.get('id', 'UNKNOWN')}: {finding.get('title', 'Untitled')}",
+                        f"**Severity:** {finding.get('severity', 'Unknown')}",
+                        f"**Risk Score:** {finding.get('risk_score', 'N/A')}",
+                        "",
+                        f"{finding.get('description', '')}",
+                    ]
+                )
 
-        report_lines.extend([
-            "",
-            "## Remediation",
-            "Recommended remediation steps for each finding:",
-            "",
-        ])
+        report_lines.extend(
+            [
+                "",
+                "## Remediation",
+                "Recommended remediation steps for each finding:",
+                "",
+            ]
+        )
 
         for finding in findings:
-            report_lines.append(
-                f"- **{finding.get('id')}:** {finding.get('remediation', 'N/A')}"
-            )
+            report_lines.append(f"- **{finding.get('id')}:** {finding.get('remediation', 'N/A')}")
 
         return "\n".join(report_lines)
 
@@ -432,9 +429,7 @@ class AuditOrchestrator:
 
         # Determine parallelism (default: all skills in parallel)
         max_workers = max_workers or len(skills)
-        logger.info(
-            f"Starting parallel audit: {len(skills)} skills, {max_workers} workers"
-        )
+        logger.info(f"Starting parallel audit: {len(skills)} skills, {max_workers} workers")
 
         # Initialize metrics tracker (for concurrent execution monitoring)
         metrics_tracker = None
@@ -462,9 +457,7 @@ class AuditOrchestrator:
                 if metrics_tracker:
                     metrics_tracker.record_skill_start(skill_name)
 
-                futures[
-                    executor.submit(self._run_skill_audit_thread_safe, skill)
-                ] = skill_name
+                futures[executor.submit(self._run_skill_audit_thread_safe, skill)] = skill_name
 
             # Collect results as they complete (order independent)
             for future in as_completed(futures):
@@ -480,8 +473,14 @@ class AuditOrchestrator:
                     # Record metrics on completion
                     if metrics_tracker:
                         findings_count = len(result.get("findings", []))
-                        risk_score = result.get("findings", [{}])[0].get("risk_score", 0.0) if result.get("findings") else 0.0
-                        metrics_tracker.record_skill_findings(skill_name, findings_count, risk_score)
+                        risk_score = (
+                            result.get("findings", [{}])[0].get("risk_score", 0.0)
+                            if result.get("findings")
+                            else 0.0
+                        )
+                        metrics_tracker.record_skill_findings(
+                            skill_name, findings_count, risk_score
+                        )
                         metrics_tracker.record_skill_complete(skill_name, status == "PASS")
 
                     # Record in progress tracker
@@ -521,9 +520,7 @@ class AuditOrchestrator:
 
         # Compute summary statistics
         statuses = [r["validation"]["status"] for r in self.results.values()]
-        total_findings = sum(
-            len(r["findings"]) for r in self.results.values()
-        )
+        total_findings = sum(len(r["findings"]) for r in self.results.values())
 
         summary = {
             "total_skills": len(self.results),
@@ -599,6 +596,36 @@ class AuditOrchestrator:
 
         logger.info("Starting cross-skill correlation analysis...")
 
+        # Shannon-style queue validation before correlation.
+        # Correlation only runs over skills with valid, symmetric outputs.
+        skills_requested = [str(s).lower() for s in (self.config.skills or [])]
+        queue_validator = QueueValidator()
+        skills_ready: List[str] = []
+
+        for skill in skills_requested:
+            validation = queue_validator.validate_skill_output(skill, session_dir)
+            if not validation.valid:
+                logger.warning(f"Queue validation failed for {skill}: {validation.error}")
+                continue
+            if validation.should_correlate:
+                skills_ready.append(skill)
+
+        if not skills_ready:
+            logger.warning("No validated skills ready for correlation. Skipping phase.")
+            return {
+                "total_correlations": 0,
+                "correlations": [],
+                "patterns_applied": [],
+                "execution_time_seconds": 0.0,
+                "errors": ["No validated skill outputs available for correlation"],
+            }
+
+        logger.info(
+            "Queue validation complete: %s/%s skills ready for correlation",
+            len(skills_ready),
+            len(skills_requested),
+        )
+
         try:
             engine = CorrelationEngine(session_dir)
             result = engine.run()
@@ -621,7 +648,7 @@ class AuditOrchestrator:
                 "correlations": [],
                 "patterns_applied": [],
                 "execution_time_seconds": 0.0,
-                "errors": [str(e)]
+                "errors": [str(e)],
             }
 
     def save_results(self, output_dir: Path) -> None:

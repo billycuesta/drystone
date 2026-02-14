@@ -6,13 +6,14 @@ Provides three levels of validation:
 3. Report structure and completeness validation (static checks)
 """
 
-from .checklist_coverage import validate_checklist_coverage, get_unevaluated_checks
-from .reviewer import FindingsReviewer
+from .checklist_coverage import get_unevaluated_checks, validate_checklist_coverage
+from .queue_validator import QueueValidator, ValidationResult
 from .report_validator import (
+    suggest_report_fixes,
     validate_report_completeness,
     validate_report_format,
-    suggest_report_fixes,
 )
+from .reviewer import FindingsReviewer
 
 __all__ = [
     "validate_checklist_coverage",
@@ -21,4 +22,6 @@ __all__ = [
     "validate_report_completeness",
     "validate_report_format",
     "suggest_report_fixes",
+    "QueueValidator",
+    "ValidationResult",
 ]
