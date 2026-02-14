@@ -41,6 +41,7 @@ def cli() -> None:
     multiple=True,
     type=click.Choice(
         [
+            "pentest",
             "iam",
             "exposure",
             "network",

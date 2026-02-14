@@ -188,6 +188,13 @@ class WizardConfig(BaseModel):
     @validator("skills")
     def validate_skills(cls, v: List[str]) -> List[str]:
         """Validate skill names."""
+        # Meta-skill: pentest is an execution preset (not a collector/analyzer by itself).
+        # Option 1 UX: selecting pentest excludes other skills and expands to core skills.
+        if "pentest" in v:
+            if len(v) > 1:
+                raise ValueError("'pentest' skill cannot be combined with other skills")
+            return ["iam", "exposure", "network", "vulns"]
+
         valid_skills = {
             "iam",
             "exposure",
@@ -198,6 +205,7 @@ class WizardConfig(BaseModel):
             "ecr",
             "secretsmanager",
             "waf",
+            "pentest",
         }
         invalid = set(v) - valid_skills
         if invalid:

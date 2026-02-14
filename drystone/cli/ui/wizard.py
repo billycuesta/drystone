@@ -326,6 +326,11 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
     skills = questionary.checkbox(
         "Security Skills to Execute:",
         choices=[
+            questionary.Choice(
+                "Pentest Internal (Preset: IAM + Exposure + Network + Vulns)",
+                "pentest",
+                checked="pentest" in current_skills,
+            ),
             questionary.Choice("IAM Security Audit", "iam", checked="iam" in current_skills),
             questionary.Choice(
                 "Internet Exposure Audit", "exposure", checked="exposure" in current_skills
@@ -352,7 +357,11 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
             ),
             questionary.Choice("WAF Security Audit", "waf", checked="waf" in current_skills),
         ],
-        validate=lambda x: len(x) > 0 or "Select at least one skill",
+        validate=lambda x: (
+            (len(x) > 0 or "Select at least one skill")
+            if ("pentest" not in x or len(x) == 1)
+            else "Pentest preset cannot be combined with other skills"
+        ),
     ).ask()
     if skills is None:
         raise KeyboardInterrupt("Wizard cancelled")
@@ -372,42 +381,38 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
 
     # Step 6.5: Report Type
     current_report_type = defaults.get("report_type", "general")
-    report_type = questionary.select(
-        "Report Type:",
-        choices=[
-            questionary.Choice(
-                "📊 General Security Report - Comprehensive findings with remediation guide",
-                "general",
-                checked=current_report_type == "general",
-            ),
-            questionary.Choice(
-                "🔐 PCI DSS Compliance Report - Control-based compliance table",
-                "pci-dss",
-                checked=current_report_type == "pci-dss",
-            ),
-            questionary.Choice(
-                "🔬 Pentest Technical Report - Exploitability, CVSS, ATT&CK",
-                "pentest",
-                checked=current_report_type == "pentest",
-            ),
-        ],
-        instruction="(Select report focus and structure)",
-    ).ask()
-    if report_type is None:
-        raise KeyboardInterrupt("Wizard cancelled")
 
-    # Pentest is a report mode, not a skill. It relies on underlying evidence.
-    # Offer to auto-select the recommended core skills if the user picked pentest.
-    if report_type == "pentest":
-        recommended = ["iam", "exposure", "network", "vulns"]
-        missing = [s for s in recommended if s not in skills]
-        if missing:
-            auto_add = questionary.confirm(
-                "Pentest report works best with IAM + Exposure + Network + Vulns evidence. Add missing skills now?",
-                default=True,
-            ).ask()
-            if auto_add:
-                skills = sorted(set(skills + missing))
+    # If the user selected the pentest preset, enforce core skills + report type.
+    if "pentest" in skills:
+        skills = ["iam", "exposure", "network", "vulns"]
+        report_type = "pentest"
+    else:
+        report_type = None
+
+    if report_type is None:
+        report_type = questionary.select(
+            "Report Type:",
+            choices=[
+                questionary.Choice(
+                    "📊 General Security Report - Comprehensive findings with remediation guide",
+                    "general",
+                    checked=current_report_type == "general",
+                ),
+                questionary.Choice(
+                    "🔐 PCI DSS Compliance Report - Control-based compliance table",
+                    "pci-dss",
+                    checked=current_report_type == "pci-dss",
+                ),
+                questionary.Choice(
+                    "🔬 Pentest Technical Report - Exploitability, CVSS, ATT&CK",
+                    "pentest",
+                    checked=current_report_type == "pentest",
+                ),
+            ],
+            instruction="(Select report focus and structure)",
+        ).ask()
+        if report_type is None:
+            raise KeyboardInterrupt("Wizard cancelled")
 
     # Combine all results
     project_config = {
