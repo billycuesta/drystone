@@ -573,6 +573,246 @@ PATTERN_REGISTRY.register(
 )
 
 
+def _match_ecs_eventbridge_scheduled_tasks(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    compute = evidence_by_skill.get("compute", {}) if isinstance(evidence_by_skill, dict) else {}
+    rules_doc = compute.get("eventbridge-rules") or {}
+    rules = rules_doc.get("rules", []) if isinstance(rules_doc, dict) else []
+    if not isinstance(rules, list):
+        return False
+
+    for r in rules:
+        if not isinstance(r, dict):
+            continue
+        sched = r.get("ScheduleExpression")
+        if not isinstance(sched, str) or not sched:
+            continue
+        targets = r.get("Targets")
+        if not isinstance(targets, list):
+            continue
+        if any(
+            isinstance(t, dict) and str(t.get("Arn", "")).startswith("arn:aws:ecs") for t in targets
+        ):
+            return True
+    return False
+
+
+def _ecs_scheduled_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker gains ability to create/modify EventBridge rules or ECS RunTask",
+        "Adds scheduled rule targeting ECS task execution",
+        "Maintains persistence by periodically re-launching unauthorized tasks",
+        "Uses task role permissions for lateral movement or data access",
+    ]
+
+
+def _ecs_scheduled_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Restrict events:PutRule/events:PutTargets and ecs:RunTask permissions",
+        "Review scheduled rules and targets; remove unauthorized schedules",
+        "Enforce least privilege on task roles and monitor for unexpected task launches",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="compute_ecs_scheduled_task_persistence",
+        name="ECS Scheduled Task Persistence",
+        description="EventBridge schedules that trigger ECS tasks can be abused for persistence.",
+        severity="High",
+        skills_required=["compute"],
+        matcher=_match_ecs_eventbridge_scheduled_tasks,
+        attack_path_generator=_ecs_scheduled_attack_path,
+        remediation_generator=_ecs_scheduled_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0003", "TA0005"],
+            mitre_attack_techniques=["T1053.003", "T1569.002"],
+            observed_in_wild=False,
+            exploit_maturity="Proof-of-Concept",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "aws events list-rules",
+                "aws events list-targets-by-rule --rule <name>",
+                "aws ecs list-task-definitions --sort DESC",
+            ],
+            tools_required=["aws-cli"],
+            exploitation_complexity="Medium",
+            estimated_time_to_compromise="60 minutes",
+        ),
+        amplification_factor=1.3,
+    )
+)
+
+
+def _match_eks_public_endpoint(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    compute = evidence_by_skill.get("compute", {}) if isinstance(evidence_by_skill, dict) else {}
+    eks_doc = compute.get("eks-inventory") or {}
+    clusters = eks_doc.get("clusters", []) if isinstance(eks_doc, dict) else []
+    if not isinstance(clusters, list):
+        return False
+    for c in clusters:
+        if not isinstance(c, dict):
+            continue
+        vpc_cfg = (
+            c.get("resourcesVpcConfig") if isinstance(c.get("resourcesVpcConfig"), dict) else {}
+        )
+        if bool(vpc_cfg.get("endpointPublicAccess")):
+            return True
+    return False
+
+
+def _eks_public_overpriv_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "EKS control plane endpoint is reachable from the internet",
+        "Attacker obtains AWS credentials with EKS administrative access",
+        "Uses kubectl/API access to enumerate workloads and secrets",
+        "Escalates to cluster-wide persistence and lateral movement",
+    ]
+
+
+def _eks_public_overpriv_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Disable public endpoint or restrict publicAccessCidrs",
+        "Enforce least privilege for eks:* and related IAM permissions",
+        "Enable control-plane logs and monitor authentication/audit events",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="compute_eks_public_endpoint_risk",
+        name="EKS Public Endpoint Attack Surface",
+        description="Public EKS endpoints increase attack surface and amplify IAM credential abuse.",
+        severity="High",
+        skills_required=["compute"],
+        matcher=_match_eks_public_endpoint,
+        attack_path_generator=_eks_public_overpriv_attack_path,
+        remediation_generator=_eks_public_overpriv_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0001", "TA0004", "TA0008"],
+            mitre_attack_techniques=["T1190", "T1078.004", "T1613"],
+            observed_in_wild=False,
+            exploit_maturity="Proof-of-Concept",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "aws eks describe-cluster --name <cluster>",
+                "aws eks update-kubeconfig --name <cluster>",
+                "kubectl get pods -A",
+            ],
+            tools_required=["aws-cli", "kubectl"],
+            exploitation_complexity="Medium",
+            estimated_time_to_compromise="90 minutes",
+        ),
+        amplification_factor=1.35,
+    )
+)
+
+
+def _match_exposure_plus_compute_overpriv(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    # Entry points
+    exposure = evidence_by_skill.get("exposure", {}) if isinstance(evidence_by_skill, dict) else {}
+    lambda_urls = exposure.get("lambda-function-urls") or {}
+    api_stages = exposure.get("api-gateway-stages") or {}
+    has_entry = False
+    if isinstance(lambda_urls, dict):
+        urls = lambda_urls.get("function_urls")
+        if isinstance(urls, list) and any(isinstance(u, dict) and u.get("IsPublic") for u in urls):
+            has_entry = True
+    if isinstance(api_stages, dict):
+        stages = api_stages.get("items")
+        if isinstance(stages, list) and any(
+            isinstance(s, dict) and s.get("InvokeUrl") for s in stages
+        ):
+            has_entry = True
+    if not has_entry:
+        return False
+
+    # Overprivileged IAM findings (reuse heuristic)
+    iam_findings = findings_by_skill.get("iam", [])
+    if not any(_is_overprivileged_iam_finding(f) for f in iam_findings):
+        return False
+
+    # Compute presence (ECS tasks or EKS clusters)
+    compute = evidence_by_skill.get("compute", {}) if isinstance(evidence_by_skill, dict) else {}
+    ecs_doc = compute.get("ecs-inventory") or {}
+    eks_doc = compute.get("eks-inventory") or {}
+    has_compute = False
+    if (
+        isinstance(ecs_doc, dict)
+        and isinstance(ecs_doc.get("services"), list)
+        and ecs_doc.get("services")
+    ):
+        has_compute = True
+    if (
+        isinstance(eks_doc, dict)
+        and isinstance(eks_doc.get("clusters"), list)
+        and eks_doc.get("clusters")
+    ):
+        has_compute = True
+    return has_compute
+
+
+def _public_entry_compute_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker targets internet-facing application entrypoint",
+        "Gains foothold and harvests workload credentials/tokens",
+        "Abuses over-privileged IAM permissions to access compute control plane",
+        "Moves laterally across ECS/EKS workloads and AWS resources",
+    ]
+
+
+def _public_entry_compute_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Restrict public entrypoints and enforce WAF + strong auth",
+        "Lock down IAM permissions for workload identities",
+        "Harden ECS/EKS configurations and enable comprehensive logging",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="exposure_iam_compute_entrypoint_chain",
+        name="Public Entrypoint + IAM + Compute Lateral Movement",
+        description="Public entrypoints combined with overprivileged IAM and compute surfaces amplify lateral movement.",
+        severity="Critical",
+        skills_required=["exposure", "iam", "compute"],
+        matcher=_match_exposure_plus_compute_overpriv,
+        attack_path_generator=_public_entry_compute_attack_path,
+        remediation_generator=_public_entry_compute_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0001", "TA0004", "TA0008"],
+            mitre_attack_techniques=["T1190", "T1078.004", "T1021"],
+            observed_in_wild=False,
+            exploit_maturity="Proof-of-Concept",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "Enumerate public endpoints and validate access controls",
+                "Map workload identities and IAM permissions",
+                "Enumerate ECS/EKS resources reachable with obtained credentials",
+            ],
+            tools_required=["aws-cli", "curl"],
+            exploitation_complexity="High",
+            estimated_time_to_compromise="3 hours",
+        ),
+        amplification_factor=1.6,
+    )
+)
+
+
 def _match_lambda_env_secret_leak(
     findings_by_skill: Dict[str, List[Finding]],
     resource_index: Dict[str, List[Finding]],
