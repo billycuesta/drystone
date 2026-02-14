@@ -1,0 +1,101 @@
+{
+  "skill": "compute",
+  "framework": "AWS Security Best Practices + HackTricks Cloud AWS",
+  "description": "Compute posture checks for ECS/EKS attack surface and persistence indicators",
+  "version": "1.0",
+  "total_checks": 6,
+  "last_updated": "2026-02-14",
+  "items": [
+    {
+      "id": "COMP-ECS-001",
+      "title": "EventBridge rules trigger ECS tasks on a schedule (persistence indicator)",
+      "severity": "High",
+      "description": "Scheduled ECS tasks can be used to maintain persistence or execute unauthorized workloads.",
+      "evidence_files": ["eventbridge-rules.json", "ecs-inventory.json"],
+      "check_keywords": ["ScheduleExpression", "ECS", "Targets"],
+      "remediation": "Review EventBridge rules/targets; restrict who can create/update rules and RunTask; monitor for unexpected scheduled executions.",
+      "pci_dss": [
+        {
+          "control": "10.2.1",
+          "reason": "Monitoring scheduled execution changes reduces persistence dwell time."
+        }
+      ]
+    },
+    {
+      "id": "COMP-ECS-002",
+      "title": "ECS task definitions show drift / unexpected containers",
+      "severity": "Medium",
+      "description": "Unexpected containers or task definition changes can indicate backdoored workloads.",
+      "evidence_files": ["ecs-inventory.json"],
+      "check_keywords": ["containerDefinitions", "image"],
+      "remediation": "Enforce IaC and immutable deployments; restrict RegisterTaskDefinition/UpdateService; review diffs and approvals.",
+      "pci_dss": [
+        {
+          "control": "6.3.2",
+          "reason": "Change control helps prevent unauthorized modifications to workloads."
+        }
+      ]
+    },
+    {
+      "id": "COMP-ECS-003",
+      "title": "ECS workloads lack centralized logging",
+      "severity": "Medium",
+      "description": "Missing logs reduce detection and incident response capabilities.",
+      "evidence_files": ["ecs-inventory.json"],
+      "check_keywords": ["logConfiguration", "awslogs"],
+      "remediation": "Enable CloudWatch Logs for ECS tasks/services and enforce logging in task definition baselines.",
+      "pci_dss": [
+        {
+          "control": "10.2.1",
+          "reason": "Logging supports detection of suspicious activity."
+        }
+      ]
+    },
+    {
+      "id": "COMP-ECS-004",
+      "title": "ECS task roles or execution roles appear overly permissive",
+      "severity": "High",
+      "description": "Excessive IAM rights assigned to workloads amplify impact of initial access.",
+      "evidence_files": ["ecs-inventory.json"],
+      "check_keywords": ["taskRoleArn", "executionRoleArn", "*"],
+      "remediation": "Apply least privilege to task roles; use permission boundaries and scope resource ARNs.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "Least privilege reduces blast radius of workload compromise."
+        }
+      ]
+    },
+    {
+      "id": "COMP-EKS-001",
+      "title": "EKS cluster endpoint is public without strong restrictions",
+      "severity": "High",
+      "description": "Public EKS endpoints expand attack surface and increase likelihood of credential brute/abuse paths.",
+      "evidence_files": ["eks-inventory.json"],
+      "check_keywords": ["resourcesVpcConfig", "endpointPublicAccess"],
+      "remediation": "Disable public endpoint access or restrict CIDRs; enforce private endpoint where possible and use strong auth controls.",
+      "pci_dss": [
+        {
+          "control": "1.2.1",
+          "reason": "Limit inbound access to system components to only authorized sources."
+        }
+      ]
+    },
+    {
+      "id": "COMP-EKS-002",
+      "title": "EKS control-plane logging is not fully enabled",
+      "severity": "Medium",
+      "description": "Missing EKS logging reduces detection for authentication and API misuse.",
+      "evidence_files": ["eks-inventory.json"],
+      "check_keywords": ["logging", "enabled"],
+      "remediation": "Enable EKS control plane logs (api, audit, authenticator, controllerManager, scheduler) and ship to centralized SIEM.",
+      "pci_dss": [
+        {
+          "control": "10.2.1",
+          "reason": "Audit logs provide visibility into administrative access and security events."
+        }
+      ]
+    }
+  ],
+  "notes": "Compute skill is scoped to ECS/EKS in the selected region. Evidence must remain passive (no active exploitation)."
+}

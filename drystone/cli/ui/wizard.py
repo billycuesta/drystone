@@ -361,6 +361,9 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
                 "Messaging (SQS/SNS) Audit", "messaging", checked="messaging" in current_skills
             ),
             questionary.Choice("CI/CD (CodeBuild) Audit", "cicd", checked="cicd" in current_skills),
+            questionary.Choice(
+                "Compute (ECS/EKS) Audit", "compute", checked="compute" in current_skills
+            ),
         ],
         validate=lambda x: (
             (len(x) > 0 or "Select at least one skill")

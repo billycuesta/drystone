@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+COMPUTE AUDIT TEMPLATE
+Extends base_audit.xml with ECS/EKS-specific considerations.
+Focus: workload attack surface and persistence indicators.
+-->
+<audit_task extends="base_audit.xml">
+  <skill_specific>
+    <skill_name>COMPUTE</skill_name>
+    <skill_code>COMP</skill_code>
+
+    <focus_areas>
+      <area>ECS inventory (clusters/services/tasks/task definitions)</area>
+      <area>EventBridge scheduled execution of ECS tasks (persistence indicators)</area>
+      <area>EKS endpoint exposure and control-plane logging posture</area>
+      <area>Workload IAM roles and blast radius amplification</area>
+    </focus_areas>
+
+    <compute_specific_rules>
+      <rule id="comp_1">
+        <title>Passive evidence only</title>
+        <description>Do not suggest or require active exploitation. Use static evidence and configuration analysis.</description>
+        <action>Focus on realistic attack paths and least-privilege remediation.</action>
+      </rule>
+      <rule id="comp_2">
+        <title>Evidence references</title>
+        <description>Every finding must reference specific ECS/EKS/EventBridge evidence fields.</description>
+        <action>Include evidence_refs into ecs-inventory.json, eventbridge-rules.json, or eks-inventory.json.</action>
+      </rule>
+    </compute_specific_rules>
+  </skill_specific>
+</audit_task>

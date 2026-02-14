@@ -209,6 +209,7 @@ class WizardConfig(BaseModel):
             "kms",
             "messaging",
             "cicd",
+            "compute",
         }
         invalid = set(v) - valid_skills
         if invalid:
