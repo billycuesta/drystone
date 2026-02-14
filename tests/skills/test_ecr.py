@@ -1,13 +1,13 @@
 """Unit tests for ECR security skill."""
 
 import json
-import pytest
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
+import pytest
 from botocore.exceptions import ClientError
 
-from drystone.skills.ecr import ECRSkill
 from drystone.cloud.aws.client import AWSClient
+from drystone.skills.ecr import ECRSkill
 from drystone.storage.session import AuditSession
 
 

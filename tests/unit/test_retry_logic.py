@@ -1,9 +1,11 @@
 """Unit tests for retry logic and output validation."""
 
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import Mock, patch
-from drystone.agent.retry import is_retryable_error, get_retry_delay, analyze_with_retry
-from drystone.models.findings import SkillFindings, FindingsSummary, Finding
+
+from drystone.agent.retry import get_retry_delay, is_retryable_error
+from drystone.models.findings import Finding, FindingsSummary, SkillFindings
 
 
 class TestErrorClassification:
@@ -109,7 +111,6 @@ class TestOutputValidation:
 
     def test_invalid_findings_missing_summary(self):
         """Findings with missing summary should fail validation."""
-        from drystone.validation.output_validators import validate_iam_findings
 
         # This test needs a valid summary, so we skip testing None case
         # (Pydantic will validate before reaching our validator)

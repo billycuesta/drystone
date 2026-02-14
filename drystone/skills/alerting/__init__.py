@@ -11,7 +11,7 @@ from drystone.skills.base import BaseSkill
 from drystone.storage.session import AuditSession
 
 if TYPE_CHECKING:
-    from drystone.agent.client import AgentClient
+    pass
 
 
 class AlertingSkill(BaseSkill):
@@ -40,12 +40,12 @@ class AlertingSkill(BaseSkill):
             session: Audit session for evidence storage
         """
         client_kwargs = {
-            'aws_access_key_id': aws_client.access_key_id,
-            'aws_secret_access_key': aws_client.secret_access_key,
-            'region_name': aws_client.region_name,
+            "aws_access_key_id": aws_client.access_key_id,
+            "aws_secret_access_key": aws_client.secret_access_key,
+            "region_name": aws_client.region_name,
         }
         if aws_client.session_token:
-            client_kwargs['aws_session_token'] = aws_client.session_token
+            client_kwargs["aws_session_token"] = aws_client.session_token
 
         evidence_path = session.get_evidence_path(self.name)
 
@@ -98,7 +98,7 @@ class AlertingSkill(BaseSkill):
             logs_client = boto3.client("logs", **client_kwargs)
             log_groups_list = []
 
-            paginator = logs_client.get_paginator('describe_log_groups')
+            paginator = logs_client.get_paginator("describe_log_groups")
             for page in paginator.paginate():
                 for log_group in page.get("logGroups", []):
                     lg_detail = {
@@ -128,7 +128,7 @@ class AlertingSkill(BaseSkill):
             cw_client = boto3.client("cloudwatch", **client_kwargs)
             alarms_list = []
 
-            paginator = cw_client.get_paginator('describe_alarms')
+            paginator = cw_client.get_paginator("describe_alarms")
             for page in paginator.paginate():
                 for alarm in page.get("MetricAlarms", []):
                     alarm_detail = {
@@ -157,7 +157,7 @@ class AlertingSkill(BaseSkill):
             rules_list = []
 
             # List all rules
-            paginator = events_client.get_paginator('list_rules')
+            paginator = events_client.get_paginator("list_rules")
             for page in paginator.paginate():
                 for rule in page.get("Rules", []):
                     rule_name = rule.get("Name")
@@ -189,7 +189,7 @@ class AlertingSkill(BaseSkill):
             sns_client = boto3.client("sns", **client_kwargs)
             topics_list = []
 
-            paginator = sns_client.get_paginator('list_topics')
+            paginator = sns_client.get_paginator("list_topics")
             for page in paginator.paginate():
                 for topic in page.get("Topics", []):
                     topic_arn = topic.get("TopicArn")
@@ -263,9 +263,9 @@ class AlertingSkill(BaseSkill):
                     compliance = config_client.describe_compliance_by_config_rule(
                         ConfigRuleNames=[rule.get("ConfigRuleName")]
                     )
-                    rule_detail["Compliance"] = compliance.get("ComplianceByConfigRules", [{}])[0].get(
-                        "Compliance", {}
-                    )
+                    rule_detail["Compliance"] = compliance.get("ComplianceByConfigRules", [{}])[
+                        0
+                    ].get("Compliance", {})
                 except Exception:
                     rule_detail["Compliance"] = {}
 
@@ -275,7 +275,7 @@ class AlertingSkill(BaseSkill):
         except Exception as e:
             print(f"    Warning: Could not collect Config rules: {e}")
 
-        print(f"\n✅ Alerting collection complete")
+        print("\n✅ Alerting collection complete")
 
     def _save_json(self, filepath: Path, data):
         """Save data to JSON file with proper datetime serialization."""

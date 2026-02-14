@@ -5,14 +5,13 @@ from typing import Optional, Tuple
 import boto3
 import botocore.exceptions
 
+from drystone.models import WizardConfig
+
 
 class AWSCredentialError(Exception):
     """Raised when AWS credentials are invalid or insufficient."""
 
     pass
-
-
-from drystone.models import WizardConfig
 
 
 class AWSClient:
@@ -27,7 +26,7 @@ class AWSClient:
         Raises:
             AWSCredentialError: If credentials are invalid
         """
-        
+
         access_key_id, secret_access_key, session_token = config.get_aws_credentials()
 
         self.access_key_id = access_key_id
@@ -52,13 +51,13 @@ class AWSClient:
         try:
             # Create session with provided credentials
             session_kwargs = {
-                'aws_access_key_id': self.access_key_id,
-                'aws_secret_access_key': self.secret_access_key,
-                'region_name': self.region_name,
+                "aws_access_key_id": self.access_key_id,
+                "aws_secret_access_key": self.secret_access_key,
+                "region_name": self.region_name,
             }
             # Add session token only if provided (for temporary credentials)
             if self.session_token:
-                session_kwargs['aws_session_token'] = self.session_token
+                session_kwargs["aws_session_token"] = self.session_token
 
             self.session = boto3.Session(**session_kwargs)
 
@@ -106,7 +105,12 @@ class AWSClient:
         return self._identity
 
 
-def validate_aws_credentials(access_key_id: str, secret_access_key: str, region_name: str = "us-east-1", session_token: Optional[str] = None) -> Tuple[bool, str, Optional[str]]:
+def validate_aws_credentials(
+    access_key_id: str,
+    secret_access_key: str,
+    region_name: str = "us-east-1",
+    session_token: Optional[str] = None,
+) -> Tuple[bool, str, Optional[str]]:
     """Validate AWS credentials.
 
     This is a convenience function that creates a client and validates in one call.
@@ -129,7 +133,7 @@ def validate_aws_credentials(access_key_id: str, secret_access_key: str, region_
         aws_session_token=session_token,
         skills=["iam"],
         output_formats=["markdown"],
-        ai_provider="claude-cli"
+        ai_provider="claude-cli",
     )
     client = AWSClient(config)
     return client.validate_credentials()

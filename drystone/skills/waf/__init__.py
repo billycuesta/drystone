@@ -17,7 +17,6 @@ from drystone.skills.base import BaseSkill
 from drystone.storage.session import AuditSession
 from drystone.utils.logging import get_logger
 
-
 logger = get_logger(__name__)
 
 

@@ -1,14 +1,13 @@
 """Unit tests for WAF security skill."""
 
 import json
-import pytest
-from pathlib import Path
-from unittest.mock import Mock, MagicMock, patch, call
-from datetime import datetime
+from unittest.mock import Mock, patch
 
+import pytest
+
+from drystone.cloud.aws.client import AWSClient
 from drystone.skills.waf import WAFSkill
 from drystone.skills.waf.post_processor import WAFPostProcessor
-from drystone.cloud.aws.client import AWSClient
 from drystone.storage.session import AuditSession
 
 

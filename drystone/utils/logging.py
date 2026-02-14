@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import Optional
+
 
 def get_logger(name: str) -> logging.Logger:
     """Get logger instance for module.

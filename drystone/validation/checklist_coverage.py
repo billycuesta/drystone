@@ -4,7 +4,7 @@ Ensures 100% of checklist items are evaluated, regardless of findings.
 This validation is deterministic, cost-free, and guaranteed to be accurate.
 """
 
-from typing import List, Dict, Any, Set
+from typing import Any, Dict, List, Set
 
 
 def validate_checklist_coverage(

@@ -14,9 +14,10 @@ Philosophy:
 - Our job: make summary match reality, not reject findings
 """
 
-from typing import Protocol
-from drystone.models.findings import SkillFindings
 import logging
+from typing import Protocol
+
+from drystone.models.findings import SkillFindings
 
 logger = logging.getLogger(__name__)
 
@@ -59,12 +60,6 @@ def _reconcile_summary(findings: SkillFindings, skill_name: str) -> None:
     low_count = sum(1 for f in findings.findings if f.severity == "Low")
 
     severity_total = critical_count + high_count + medium_count + low_count
-    estimated_severity_total = (
-        findings.summary.critical
-        + findings.summary.high
-        + findings.summary.medium
-        + findings.summary.low
-    )
 
     if severity_total != actual_count:
         logger.warning(
@@ -144,7 +139,7 @@ def validate_hardening_findings(findings: SkillFindings) -> bool:
         # Validate findings
         for finding in findings.findings:
             if not finding.id or not finding.severity or not finding.title:
-                logger.error(f"Hardening finding missing required fields")
+                logger.error("Hardening finding missing required fields")
                 return False
 
             if finding.severity not in ["Critical", "High", "Medium", "Low"]:
@@ -175,7 +170,7 @@ def validate_vulns_findings(findings: SkillFindings) -> bool:
         # Validate findings
         for finding in findings.findings:
             if not finding.id or not finding.severity:
-                logger.error(f"Vulns finding missing required fields")
+                logger.error("Vulns finding missing required fields")
                 return False
 
             if finding.severity not in ["Critical", "High", "Medium", "Low"]:
@@ -206,7 +201,7 @@ def validate_exposure_findings(findings: SkillFindings) -> bool:
         # Validate findings
         for finding in findings.findings:
             if not finding.id or not finding.severity:
-                logger.error(f"Exposure finding missing required fields")
+                logger.error("Exposure finding missing required fields")
                 return False
 
             if finding.severity not in ["Critical", "High", "Medium", "Low"]:
@@ -237,7 +232,7 @@ def validate_network_findings(findings: SkillFindings) -> bool:
         # Validate findings
         for finding in findings.findings:
             if not finding.id or not finding.severity:
-                logger.error(f"Network finding missing required fields")
+                logger.error("Network finding missing required fields")
                 return False
 
             if finding.severity not in ["Critical", "High", "Medium", "Low"]:
@@ -268,7 +263,7 @@ def validate_alerting_findings(findings: SkillFindings) -> bool:
         # Validate findings
         for finding in findings.findings:
             if not finding.id or not finding.severity:
-                logger.error(f"Alerting finding missing required fields")
+                logger.error("Alerting finding missing required fields")
                 return False
 
             if finding.severity not in ["Critical", "High", "Medium", "Low"]:

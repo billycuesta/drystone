@@ -2,9 +2,9 @@
 
 import json
 import re
-from pathlib import Path
 from datetime import datetime
-from typing import Dict, Any, List
+from pathlib import Path
+from typing import Dict, List
 
 from .base import BaseFormatter
 

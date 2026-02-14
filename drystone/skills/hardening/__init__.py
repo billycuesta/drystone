@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import boto3
-from botocore.exceptions import ClientError
 
 from drystone.cloud.aws.client import AWSClient
 from drystone.skills.base import BaseSkill
@@ -19,7 +18,7 @@ from drystone.storage.session import AuditSession
 from drystone.utils.logging import get_logger
 
 if TYPE_CHECKING:
-    from drystone.agent.client import AgentClient
+    pass
 
 logger = get_logger(__name__)
 
@@ -709,7 +708,7 @@ class HardeningSkill(BaseSkill):
         # === COLLECTION STATUS ===
         self._save_json(evidence_path / "hardening-collection-status.json", collection_status)
 
-        print(f"\n✅ Hardening collection complete")
+        print("\n✅ Hardening collection complete")
 
     def _save_json(self, filepath: Path, data):
         """Save data to JSON file with proper datetime serialization."""

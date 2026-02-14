@@ -1,7 +1,8 @@
 """Data models for AWS evidence collection."""
 
 from datetime import datetime
-from typing import List, Optional, Any
+from typing import List, Optional
+
 from pydantic import BaseModel, Field
 
 

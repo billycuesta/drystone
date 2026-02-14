@@ -1,14 +1,15 @@
 """AWS Secrets Manager security audit skill."""
 
 import json
-import boto3
-from pathlib import Path
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import boto3
 from botocore.exceptions import ClientError
 
-from drystone.skills.base import BaseSkill
 from drystone.cloud.aws.client import AWSClient
+from drystone.skills.base import BaseSkill
 from drystone.storage.session import AuditSession
 
 

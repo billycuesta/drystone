@@ -6,7 +6,6 @@ from typing import Optional
 
 from drystone.models import WizardConfig
 
-
 CONFIG_DIR = Path.home() / ".drystone"
 LAST_RUN_FILE = CONFIG_DIR / "last-run.json"
 

@@ -1,8 +1,7 @@
 """Audit session and evidence storage management."""
 
-from pathlib import Path
 from datetime import datetime
-
+from pathlib import Path
 
 from drystone.utils.logging import setup_file_logging
 

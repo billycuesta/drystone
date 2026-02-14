@@ -1,9 +1,11 @@
 """Branding and UI components for Drystone."""
 
-from rich.console import Console, Group
-from rich.text import Text
-from rich.panel import Panel
 from rich.align import Align
+from rich.console import Console, Group
+from rich.panel import Panel
+from rich.text import Text
+
+from drystone.models.config import WizardConfig
 
 
 def _interpolate_color(position: float, start_rgb: tuple, end_rgb: tuple) -> str:
@@ -28,8 +30,8 @@ def print_banner() -> None:
     console = Console()
 
     # Gradient colors: lilac (purple) → orange
-    start_color = (180, 100, 220)    # Lilac/Purple
-    end_color = (255, 165, 0)        # Orange
+    start_color = (180, 100, 220)  # Lilac/Purple
+    end_color = (255, 165, 0)  # Orange
 
     # Border color (use the midpoint of gradient for consistent look)
     border_color = _interpolate_color(0.5, start_color, end_color)
@@ -62,7 +64,9 @@ def print_banner() -> None:
     content = Group(
         gradient_text,
         "",
-        Align.center(Text("AWS Security Audit powered by BillySlopes with AI", style=f"{border_color} bold")),
+        Align.center(
+            Text("AWS Security Audit powered by BillySlopes with AI", style=f"{border_color} bold")
+        ),
         "",
         Align.center(Text("v1.0.0", style=f"{border_color}")),
         "",
@@ -70,18 +74,13 @@ def print_banner() -> None:
     )
 
     # Create panel with gradient-colored border
-    panel = Panel(
-        content,
-        border_style=border_color,
-        padding=(1, 2),
-        expand=False
-    )
+    panel = Panel(content, border_style=border_color, padding=(1, 2), expand=False)
 
     console.print(Align.center(panel))
     console.print()  # Blank line
 
 
-def print_summary(config: "WizardConfig") -> None:
+def print_summary(config: WizardConfig) -> None:
     """Print configuration summary in a nice format.
 
     Args:
@@ -104,20 +103,20 @@ def print_summary(config: "WizardConfig") -> None:
         # Direct credentials: mask them for display
         masked_access_key = f"{config.aws_access_key_id[:4]}...{config.aws_access_key_id[-4:]}"
         masked_secret = f"{'*' * min(len(config.aws_secret_access_key), 10)}"
-        table.add_row("AWS Credentials", f"[bold dim]Direct (masked)[/bold dim]")
+        table.add_row("AWS Credentials", "[bold dim]Direct (masked)[/bold dim]")
         table.add_row("  Access Key", f"[bold dim]{masked_access_key}[/bold dim]")
         table.add_row("  Secret Key", f"[bold dim]{masked_secret}[/bold dim]")
     elif config.aws_credentials_file:
         # File-based credentials: show path
-        table.add_row("AWS Credentials", f"[bold dim]File[/bold dim]")
+        table.add_row("AWS Credentials", "[bold dim]File[/bold dim]")
         table.add_row("  File Path", f"[bold dim]{config.aws_credentials_file}[/bold dim]")
     elif config.aws_profile:
         # Profile-based credentials: show profile name
-        table.add_row("AWS Credentials", f"[bold dim]Profile[/bold dim]")
+        table.add_row("AWS Credentials", "[bold dim]Profile[/bold dim]")
         table.add_row("  Profile", f"[bold dim]{config.aws_profile}[/bold dim]")
     else:
         # Fallback: environment variables
-        table.add_row("AWS Credentials", f"[bold dim]Environment Variables[/bold dim]")
+        table.add_row("AWS Credentials", "[bold dim]Environment Variables[/bold dim]")
 
     table.add_row("AWS Region", f"[bold]{config.aws_region}[/bold]")
     table.add_row("Skills", f"[bold]{', '.join(config.skills)}[/bold]")

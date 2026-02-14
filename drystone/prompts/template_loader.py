@@ -5,10 +5,10 @@ Loads XML templates and substitutes placeholders with runtime values.
 Templates provide consistent structure for Claude prompts (Shannon pattern).
 """
 
-from pathlib import Path
 import logging
 import re
-from typing import Dict, Any
+from pathlib import Path
+from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 

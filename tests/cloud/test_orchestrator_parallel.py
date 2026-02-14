@@ -4,12 +4,13 @@ Tests the new ThreadPoolExecutor-based parallel skill execution
 to ensure correct behavior, error resilience, and performance.
 """
 
-import pytest
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import Mock, patch
+
+import pytest
 
 from drystone.cloud.orchestrator import AuditOrchestrator, SkillProgressTracker
 from drystone.models.config import WizardConfig
@@ -265,7 +266,7 @@ class TestParallelOrchestrator:
 
             mock_run.side_effect = _side_effect
 
-            result = orchestrator.run_full_audit(mock_skills)
+            orchestrator.run_full_audit(mock_skills)
 
             # Each thread should have stored its result in self.results
             assert len(orchestrator.results) == 3

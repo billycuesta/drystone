@@ -3,9 +3,9 @@
 import json
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Iterator, List, cast
+from typing import Any, Dict, Iterator, cast
 
-from drystone.models.findings import Finding, SkillFindings, FindingsSummary
+from drystone.models.findings import Finding, FindingsSummary, SkillFindings
 
 
 @dataclass

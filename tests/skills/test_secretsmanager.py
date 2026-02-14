@@ -1,13 +1,13 @@
 """Unit tests for SecretsManager skill."""
 
 import json
-import pytest
-from pathlib import Path
 from datetime import datetime, timezone
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
-from drystone.skills.secretsmanager import SecretsManagerSkill
+import pytest
+
 from drystone.cloud.aws.client import AWSClient
+from drystone.skills.secretsmanager import SecretsManagerSkill
 from drystone.storage.session import AuditSession
 
 
@@ -249,7 +249,6 @@ class TestSecretsManagerSkill:
             skill.collect(mock_aws_client, mock_session)
 
             # Verify evidence file was created
-            evidence_file = mock_session.get_evidence_path.return_value / "secrets.json"
             # The file should be created in the mocked path
             assert mock_session.get_evidence_path.called
 

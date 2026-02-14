@@ -1,12 +1,9 @@
 """Tests for thread-safe metrics tracker with atomic updates."""
 
-import json
 import tempfile
 import threading
 import time
 from pathlib import Path
-
-import pytest
 
 from drystone.logging import MetricsTracker
 
@@ -18,7 +15,7 @@ class TestMetricsTracker:
         """Test that tracker creates metrics file on init."""
         with tempfile.TemporaryDirectory() as tmpdir:
             metrics_file = Path(tmpdir) / "metrics.json"
-            tracker = MetricsTracker(metrics_file)
+            MetricsTracker(metrics_file)
 
             assert metrics_file.exists(), "Metrics file should be created"
 
@@ -191,8 +188,7 @@ class TestMetricsTracker:
 
             # Create threads for concurrent updates
             threads = [
-                threading.Thread(target=update_skill, args=(f"skill_{i}",))
-                for i in range(5)
+                threading.Thread(target=update_skill, args=(f"skill_{i}",)) for i in range(5)
             ]
 
             for thread in threads:
@@ -307,7 +303,7 @@ class TestMetricsTracker:
         """Test that tracker creates parent directories if needed."""
         with tempfile.TemporaryDirectory() as tmpdir:
             metrics_file = Path(tmpdir) / "deep" / "nested" / "path" / "metrics.json"
-            tracker = MetricsTracker(metrics_file)
+            MetricsTracker(metrics_file)
 
             assert metrics_file.parent.exists()
             assert metrics_file.exists()

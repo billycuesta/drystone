@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
 
 from drystone.models.config import WizardConfig
 from drystone.storage.session import AuditSession

@@ -4,12 +4,11 @@ Ensures metrics are updated atomically even during concurrent skill execution.
 """
 
 import json
+import logging
 import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
-
-import logging
 
 logger = logging.getLogger(__name__)
 

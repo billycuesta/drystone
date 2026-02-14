@@ -1,8 +1,8 @@
 import json
 from unittest.mock import Mock
 
+from drystone.models.findings import FindingsSummary, SkillFindings
 from drystone.skills.exposure import ExposureSkill
-from drystone.models.findings import SkillFindings, FindingsSummary
 from drystone.storage.session import AuditSession
 
 

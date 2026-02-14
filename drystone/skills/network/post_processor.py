@@ -10,7 +10,7 @@ so both Markdown and PCI DSS formatters can render it.
 """
 
 import json
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from drystone.storage.session import AuditSession
 

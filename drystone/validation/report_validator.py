@@ -5,7 +5,7 @@ findings are properly referenced, and formatting is correct.
 """
 
 import re
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
 
 def validate_report_completeness(

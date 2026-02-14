@@ -10,12 +10,13 @@ Pattern from Shannon:
 Inspiration: src/error-handling.ts (lines 132-198)
 """
 
-import time
 import logging
-from typing import Callable, TypeVar, Optional
+import time
 from functools import wraps
-from drystone.validation.output_validators import validate_findings
+from typing import Callable, Optional, TypeVar
+
 from drystone.models.findings import SkillFindings
+from drystone.validation.output_validators import validate_findings
 
 logger = logging.getLogger(__name__)
 

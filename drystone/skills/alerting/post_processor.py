@@ -1,8 +1,8 @@
 """Post-processor for alerting skill to add architecture diagram."""
 
 import json
-from pathlib import Path
-from typing import Dict, List, Any
+from typing import Any, Dict, List
+
 from drystone.storage.session import AuditSession
 
 

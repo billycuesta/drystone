@@ -5,7 +5,7 @@ Generates an ASCII flow diagram that visualizes what the WAF protects
 """
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from drystone.storage.session import AuditSession
 

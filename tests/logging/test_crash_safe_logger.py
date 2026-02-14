@@ -17,7 +17,7 @@ class TestCrashSafeLogger:
         """Test that logger creates log file on init."""
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = Path(tmpdir) / "audit.jsonl"
-            logger = CrashSafeLogger(log_file, skill_name="test")
+            CrashSafeLogger(log_file, skill_name="test")
 
             assert log_file.exists(), "Log file should be created"
 
@@ -100,8 +100,7 @@ class TestCrashSafeLogger:
             logger = CrashSafeLogger(log_file, skill_name="vulns")
 
             logger.log_validation_error(
-                "Severity breakdown mismatch",
-                {"expected": 18, "actual": 16}
+                "Severity breakdown mismatch", {"expected": 18, "actual": 16}
             )
 
             with open(log_file, "r") as f:
@@ -137,7 +136,7 @@ class TestCrashSafeLogger:
                 item_type="total_findings",
                 old_value=18,
                 new_value=16,
-                reason="Reconciled to match actual findings array"
+                reason="Reconciled to match actual findings array",
             )
 
             with open(log_file, "r") as f:
@@ -250,7 +249,7 @@ class TestCrashSafeLogger:
         """Test that logger creates parent directories if they don't exist."""
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = Path(tmpdir) / "deep" / "nested" / "path" / "audit.jsonl"
-            logger = CrashSafeLogger(log_file, skill_name="test")
+            CrashSafeLogger(log_file, skill_name="test")
 
             assert log_file.parent.exists(), "Parent directories should be created"
             assert log_file.exists(), "Log file should be created"

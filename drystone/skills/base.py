@@ -2,10 +2,10 @@
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Any
+from typing import TYPE_CHECKING, Any, Dict
 
-from drystone.storage.session import AuditSession
 from drystone.cloud.aws.client import AWSClient
+from drystone.storage.session import AuditSession
 
 if TYPE_CHECKING:
     from drystone.agent.client import AgentClient
@@ -73,7 +73,7 @@ class BaseSkill(ABC):
             try:
                 with open(json_file) as f:
                     evidence[json_file.stem] = json.load(f)
-            except Exception as e:
+            except Exception:
                 # This will be logged by the logger we implemented
                 pass
 
@@ -109,7 +109,7 @@ class BaseSkill(ABC):
             json.dump(findings.model_dump(mode="json"), f, indent=2, default=str)
 
         # 5. Print summary
-        print(f"\n✅ Analysis complete:")
+        print("\n✅ Analysis complete:")
         print(f"   Total findings: {findings.summary.total_findings}")
         print(f"   Critical: {findings.summary.critical}")
         print(f"   High: {findings.summary.high}")

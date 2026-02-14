@@ -5,22 +5,20 @@ Supports Claude CLI and Claude API for AWS security analysis.
 
 import json
 import logging
-import os
 import shutil
 import subprocess
 import tempfile
-import warnings
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 import anthropic
 
-from drystone.models.findings import SkillFindings
 from drystone.agent.chunker import EvidenceChunker, FindingsAggregator
-from drystone.validation.output_validators import validate_findings
-from drystone.agent.retry import analyze_with_retry, is_retryable_error
-from drystone.prompts import get_audit_template
+from drystone.agent.retry import analyze_with_retry
 from drystone.logging import CrashSafeLogger
+from drystone.models.findings import SkillFindings
+from drystone.prompts import get_audit_template
+from drystone.validation.output_validators import validate_findings
 
 logger = logging.getLogger(__name__)
 
@@ -296,7 +294,7 @@ class AgentClient:
             return self.analyze_evidence(skill_name, evidence, checklist)
 
         # Large evidence - chunk and aggregate
-        print(f"  📦 Evidence size requires chunking...")
+        print("  📦 Evidence size requires chunking...")
         aggregator = FindingsAggregator()
 
         chunks = list(chunker.chunk_evidence(evidence))
@@ -362,9 +360,9 @@ class AgentClient:
         """
         # Calculate prompt size in bytes
         prompt_bytes = len(prompt.encode("utf-8"))
-        ARG_MAX_SAFE_LIMIT = 100_000  # 100KB (conservative, allows headroom)
+        arg_max_safe_limit = 100_000  # 100KB (conservative, allows headroom)
 
-        if prompt_bytes >= ARG_MAX_SAFE_LIMIT:
+        if prompt_bytes >= arg_max_safe_limit:
             # Large prompt → use temp file strategy
             return self._call_claude_cli_with_file(prompt)
         else:

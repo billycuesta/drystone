@@ -7,7 +7,8 @@ class works across IAM, Exposure, Network, and Vulns skills.
 
 import json
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List
+
 from anthropic import Anthropic
 
 logger = logging.getLogger(__name__)

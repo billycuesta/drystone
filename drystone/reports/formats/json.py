@@ -1,9 +1,9 @@
 """JSON report formatter."""
 
 import json
-from pathlib import Path
 from datetime import datetime
-from typing import Dict, Any
+from pathlib import Path
+from typing import Any, Dict
 
 from drystone.reports.formats.base import BaseFormatter
 
