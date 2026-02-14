@@ -1,15 +1,14 @@
 """Main CLI entry point for Drystone."""
 
 import json
-import os
 import sys
 from pathlib import Path
-from typing import Optional, Literal, cast
+from typing import Literal, Optional, cast
 
 import click
 
 from drystone.cli import __version__
-from drystone.cli.config import load_last_config, save_config, use_last_config
+from drystone.cli.config import load_last_config, save_config
 from drystone.cli.ui import print_banner, run_setup_wizard
 from drystone.cli.ui.branding import print_summary
 from drystone.cloud.aws import validate_aws_credentials
@@ -67,6 +66,11 @@ def cli() -> None:
     default="low",
     help="Minimum severity to report",
 )
+@click.option(
+    "--report-type",
+    type=click.Choice(["general", "pci-dss", "pentest"], case_sensitive=False),
+    help="Report type (general, pci-dss, pentest)",
+)
 def audit(
     non_interactive: bool,
     client: Optional[str] = None,
@@ -74,6 +78,7 @@ def audit(
     skills: tuple = (),
     formats: tuple = (),
     min_severity: Literal["low", "medium", "high", "critical"] = "low",
+    report_type: Optional[Literal["general", "pci-dss", "pentest"]] = None,
 ) -> None:
     """Run AWS security audit."""
 
@@ -85,7 +90,9 @@ def audit(
     config: Optional[WizardConfig] = None
 
     # Determine if we should use interactive mode
-    has_cli_args = bool(client or region or skills or formats or min_severity != "low")
+    has_cli_args = bool(
+        client or region or skills or formats or min_severity != "low" or report_type
+    )
     should_use_interactive = not non_interactive and not has_cli_args
 
     if not config:
@@ -125,6 +132,8 @@ def audit(
                 config.output_formats = list(formats)
             if min_severity:
                 config.min_severity = min_severity
+            if report_type:
+                config.report_type = cast(Literal["general", "pci-dss", "pentest"], report_type)
 
         else:  # non-interactive and no other args
             # No interactive mode and no CLI args - try last config
@@ -138,6 +147,8 @@ def audit(
     # This ensures CLI flag takes precedence
     if min_severity and min_severity != "low" and config is not None:
         config.min_severity = cast(Literal["low", "medium", "high", "critical"], min_severity)
+    if report_type and config is not None:
+        config.report_type = cast(Literal["general", "pci-dss", "pentest"], report_type)
 
     # Show summary
     try:
@@ -177,8 +188,8 @@ def audit(
 
     # === PHASE 2: EVIDENCE COLLECTION ===
     click.echo()
-    from drystone.storage.session import AuditSession
     from drystone.cloud.aws.client import AWSClient
+    from drystone.storage.session import AuditSession
 
     # Create audit session
     click.echo("📁 Creating audit session...")
@@ -335,10 +346,10 @@ def audit(
             # Show how to view reports
             if "markdown" in config.output_formats:
                 reports_path = session.get_findings_path()
-                click.echo(f"\n📝 View reports:")
+                click.echo("\n📝 View reports:")
                 click.echo(f"   ls {reports_path.parent}/")
 
-            click.echo(f"\n✅ Phase 4 Complete (Report Generation)")
+            click.echo("\n✅ Phase 4 Complete (Report Generation)")
 
         except Exception as e:
             click.echo(f"\n⚠️  Report generation failed: {e}")
@@ -347,7 +358,7 @@ def audit(
         click.echo("⚠️  Skipping Phase 4 (no findings to report)")
 
     # Show completion
-    click.echo(f"\n✅ Audit Complete")
+    click.echo("\n✅ Audit Complete")
     click.echo(f"   Audit data: {session.base_path}")
     click.echo()
 

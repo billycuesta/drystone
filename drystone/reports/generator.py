@@ -4,13 +4,14 @@ import json
 from pathlib import Path
 from typing import Dict, List
 
-from drystone.storage.session import AuditSession
-from drystone.reports.formats import (
-    MarkdownFormatter,
-    JSONFormatter,
-    PCIDSSFormatter,
-)
 from drystone.models.config import WizardConfig
+from drystone.reports.formats import (
+    JSONFormatter,
+    MarkdownFormatter,
+    PCIDSSFormatter,
+    PentestFormatter,
+)
+from drystone.storage.session import AuditSession
 
 
 class ReportGenerator:
@@ -120,6 +121,8 @@ class ReportGenerator:
         for format_name in formats:
             if self.config.report_type == "pci-dss" and format_name == "markdown":
                 formatter_class = PCIDSSFormatter
+            elif self.config.report_type == "pentest" and format_name == "markdown":
+                formatter_class = PentestFormatter
             elif format_name in self.FORMATTERS:
                 formatter_class = self.FORMATTERS[format_name]
             else:

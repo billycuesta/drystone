@@ -2,9 +2,9 @@
 
 from datetime import datetime
 from pathlib import Path
-from typing import List, Literal, Optional, Tuple
+from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field, validator, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, validator
 
 # Example credentials for documentation (NOT REAL)
 # nosec B105 - Example credentials from AWS documentation, not real secrets
@@ -50,9 +50,9 @@ class WizardConfig(BaseModel):
     )
 
     # Step 6.5: Report Type
-    report_type: Literal["general", "pci-dss"] = Field(
+    report_type: Literal["general", "pci-dss", "pentest"] = Field(
         default="general",
-        description="Report type: general security report or PCI DSS compliance report",
+        description="Report type: general security report, PCI DSS compliance report, or pentest technical report",
     )
 
     # Step 7: AI Provider for analysis

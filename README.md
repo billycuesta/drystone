@@ -285,6 +285,7 @@ audit-logs/ACME_Corp_2026-02-06_14-30-45/
 └── reports/
     ├── report-general.md        # Technical findings
     ├── report-pci-dss.md        # Compliance mapping
+    ├── pentest-technical-report-iam.md  # Pentest technical output (CVSS + ATT&CK)
     └── report.json              # Machine-readable
 ```
 

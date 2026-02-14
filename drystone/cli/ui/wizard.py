@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 import questionary
 
@@ -130,9 +130,9 @@ def display_config_summary(project_config: dict, ai_config: dict) -> None:
         masked_key = f"{key_id[:4]}...{key_id[-4:]}" if len(key_id) > 8 else "****"
         print(f"   AWS Access Key: {masked_key}")
         if project_config.get("aws_session_token"):
-            print(f"   AWS Session Token: ✅ Configured")
+            print("   AWS Session Token: ✅ Configured")
     else:
-        print(f"   AWS Credentials: Environment Variables")
+        print("   AWS Credentials: Environment Variables")
 
     # Skills
     skills_display = ", ".join(project_config["skills"]) if project_config["skills"] else "None"
@@ -148,6 +148,7 @@ def display_config_summary(project_config: dict, ai_config: dict) -> None:
     report_type_display = {
         "general": "📊 General Security Report",
         "pci-dss": "🔐 PCI DSS Compliance Report",
+        "pentest": "🔬 Pentest Technical Report",
     }
     print(
         f"   Report Type: {report_type_display.get(project_config.get('report_type', 'general'))}"
@@ -158,10 +159,10 @@ def display_config_summary(project_config: dict, ai_config: dict) -> None:
     print(f"   Provider: {ai_config['ai_provider']}")
 
     if ai_config["ai_provider"] == "bedrock":
-        print(f"   Bedrock Region: eu-west-1")
+        print("   Bedrock Region: eu-west-1")
 
         if ai_config.get("bedrock_use_same_credentials"):
-            print(f"   Bedrock Credentials: Same as AWS Audit")
+            print("   Bedrock Credentials: Same as AWS Audit")
         elif ai_config.get("bedrock_credentials_file"):
             print(f"   Bedrock Credentials: File ({ai_config['bedrock_credentials_file']})")
         elif ai_config.get("bedrock_profile"):
@@ -171,9 +172,9 @@ def display_config_summary(project_config: dict, ai_config: dict) -> None:
             masked_bedrock_key = f"{key_id[:4]}...{key_id[-4:]}" if len(key_id) > 8 else "****"
             print(f"   Bedrock Access Key: {masked_bedrock_key}")
             if ai_config.get("bedrock_session_token"):
-                print(f"   Bedrock Session Token: ✅ Configured")
+                print("   Bedrock Session Token: ✅ Configured")
         else:
-            print(f"   Bedrock Credentials: Environment Variables")
+            print("   Bedrock Credentials: Environment Variables")
 
     if ai_config["ai_api_key"]:
         # Mask API key
@@ -383,6 +384,11 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
                 "🔐 PCI DSS Compliance Report - Control-based compliance table",
                 "pci-dss",
                 checked=current_report_type == "pci-dss",
+            ),
+            questionary.Choice(
+                "🔬 Pentest Technical Report - Exploitability, CVSS, ATT&CK",
+                "pentest",
+                checked=current_report_type == "pentest",
             ),
         ],
         instruction="(Select report focus and structure)",
