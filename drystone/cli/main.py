@@ -53,6 +53,7 @@ def cli() -> None:
             "waf",
             "kms",
             "messaging",
+            "cicd",
         ]
     ),
     help="Skills to execute (can specify multiple times)",
@@ -215,6 +216,7 @@ def audit(
         "waf": ("drystone.skills.waf", "WAFSkill"),
         "kms": ("drystone.skills.kms", "KMSSkill"),
         "messaging": ("drystone.skills.messaging", "MessagingSkill"),
+        "cicd": ("drystone.skills.cicd", "CICDSkill"),
     }
 
     skill_instances = {}

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+CICD AUDIT TEMPLATE
+Extends base_audit.xml with CodeBuild-specific considerations.
+Focus: token leakage paths and risky build configurations.
+-->
+<audit_task extends="base_audit.xml">
+  <skill_specific>
+    <skill_name>CICD</skill_name>
+    <skill_code>CICD</skill_code>
+
+    <focus_areas>
+      <area>CodeBuild source credentials inventory</area>
+      <area>insecureSsl and interception-friendly config</area>
+      <area>Privileged builds and environment hardening</area>
+    </focus_areas>
+
+    <cicd_specific_rules>
+      <rule id="cicd_1">
+        <title>Do not leak tokens</title>
+        <description>Never include any credentials, tokens, or secrets in findings or evidence snippets</description>
+        <action>Only reference evidence metadata and configuration flags</action>
+      </rule>
+      <rule id="cicd_2">
+        <title>Evidence-based claims</title>
+        <description>Findings must be tied to explicit fields like insecureSsl, proxy flags, or presence of source credentials</description>
+        <action>Include evidence_refs pointing into codebuild-projects.json or codebuild-source-credentials.json</action>
+      </rule>
+    </cicd_specific_rules>
+  </skill_specific>
+</audit_task>

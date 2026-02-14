@@ -1,0 +1,41 @@
+{
+  "skill": "cicd",
+  "framework": "AWS Security Best Practices + HackTricks Cloud AWS",
+  "description": "CI/CD posture checks for CodeBuild token leakage and interception paths",
+  "version": "1.0",
+  "total_checks": 2,
+  "last_updated": "2026-02-14",
+  "items": [
+    {
+      "id": "CICD-001",
+      "title": "CodeBuild source credentials configured (token leakage blast radius)",
+      "severity": "High",
+      "description": "Configured source credentials can be abused to access external repos or leak OAuth/GitHub tokens under certain conditions.",
+      "evidence_files": ["codebuild-source-credentials.json"],
+      "check_keywords": ["list_source_credentials", "authType", "serverType"],
+      "remediation": "Remove unused source credentials; prefer short-lived connections (CodeConnections) and least privilege; monitor CodeBuild credential usage.",
+      "pci_dss": [
+        {
+          "control": "8.6.1",
+          "reason": "Secrets/credentials must be managed and protected to avoid unauthorized access."
+        }
+      ]
+    },
+    {
+      "id": "CICD-002",
+      "title": "CodeBuild project allows insecure SSL or proxy interception configuration",
+      "severity": "High",
+      "description": "insecureSsl or attacker-controlled proxy settings can enable interception and token leakage.",
+      "evidence_files": ["codebuild-projects.json"],
+      "check_keywords": ["insecureSsl", "http_proxy", "https_proxy"],
+      "remediation": "Disable insecureSsl; restrict who can update CodeBuild project settings; prevent proxy env var injection; enforce egress controls.",
+      "pci_dss": [
+        {
+          "control": "6.4.2",
+          "reason": "Protect public-facing components and CI/CD integrations to prevent compromise."
+        }
+      ]
+    }
+  ],
+  "notes": "Collector intentionally avoids persisting token material; only metadata is stored."
+}

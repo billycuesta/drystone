@@ -208,6 +208,7 @@ class WizardConfig(BaseModel):
             "pentest",
             "kms",
             "messaging",
+            "cicd",
         }
         invalid = set(v) - valid_skills
         if invalid:
