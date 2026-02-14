@@ -228,6 +228,47 @@ The virtual environment (`drystone_env/`) is critical for project functionality 
 - **Logging:** Use Python logging with structured formatters
 - **Credentials:** Never log credentials; always mask in UI
 
+## Planning and Execution
+
+### Creating Implementation Plans
+
+**IMPORTANT:** Whenever you create an implementation plan for Drystone, you MUST:
+
+1. **Create plan in Claude Code plan mode**
+   - Use `/plan` command to enter plan mode
+   - Build incrementally by editing the plan file
+   - Use Phase 1 (Explore) → Phase 2 (Design) → Phase 3 (Review) → Phase 4 (Final Plan) → Phase 5 (ExitPlanMode)
+
+2. **Copy completed plan to project repository**
+   - After ExitPlanMode approval, copy the plan to the project root directory
+   - **Naming convention:** `PLAN_<FEATURE>_<DATE_OR_SCOPE>.md`
+   - **Examples:**
+     - `PLAN_PENTEST_IMPROVEMENTS_HACKTRICKS.md`
+     - `PLAN_SEVERITY_FILTERING.md`
+     - `PLAN_FINDINGS_FIX.md`
+   - **Command:** `cp /Users/gcuesta/.claude/plans/<plan-id>.md /Users/gcuesta/Projects/drystone/PLAN_<NAME>.md`
+
+3. **Plan contents must include**
+   - Context: Why is this plan needed?
+   - Gaps analysis: What are we fixing?
+   - Prioritization: P0, P1, P2, P3 phases
+   - Implementation details: Code, tests, verification
+   - Timeline and effort estimates
+   - Coverage/metrics before and after
+   - Files to be modified (with paths)
+
+4. **Execution handoff**
+   - Plans are stored in project root for other agents to execute
+   - Reference the plan file explicitly when delegating work
+   - Include plan metrics in commit messages
+
+### Why This Matters
+
+- **Traceability:** Plans in project root are part of version control and audit trail
+- **Collaboration:** Other agents can reference completed plans for context
+- **Documentation:** Future sessions can review planning decisions and trade-offs
+- **Continuity:** Plans bridge planning (Claude Code) to execution (implementation agent)
+
 ## Claude API Integration
 
 ```python
