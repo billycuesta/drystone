@@ -573,6 +573,235 @@ PATTERN_REGISTRY.register(
 )
 
 
+def _match_cicd_codebuild_token_leakage(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    cicd = evidence_by_skill.get("cicd", {}) if isinstance(evidence_by_skill, dict) else {}
+
+    creds_doc = cicd.get("codebuild-source-credentials") or {}
+    if not isinstance(creds_doc, dict):
+        creds_doc = {}
+    creds = creds_doc.get("items", [])
+    if isinstance(creds, list) and len(creds) > 0:
+        return True
+
+    proj_doc = cicd.get("codebuild-projects") or {}
+    if not isinstance(proj_doc, dict):
+        proj_doc = {}
+    projects = proj_doc.get("items", [])
+    if not isinstance(projects, list):
+        return False
+
+    for p in projects:
+        if not isinstance(p, dict):
+            continue
+        source = p.get("source") if isinstance(p.get("source"), dict) else {}
+        if not isinstance(source, dict):
+            source = {}
+        if bool(source.get("insecureSsl")):
+            return True
+        env = p.get("environment") if isinstance(p.get("environment"), dict) else {}
+        if not isinstance(env, dict):
+            env = {}
+        evs = env.get("environmentVariables")
+        if not isinstance(evs, list):
+            evs = []
+        if any(isinstance(ev, dict) and ev.get("looks_like_proxy") for ev in evs):
+            return True
+    return False
+
+
+def _cicd_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker gains access to CodeBuild project configuration or build execution",
+        "Harvests source credentials metadata and identifies token-based integrations",
+        "Abuses insecure SSL/proxy paths to intercept repository credentials",
+        "Uses leaked tokens for code access, supply-chain abuse, or lateral movement",
+    ]
+
+
+def _cicd_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Remove unused CodeBuild source credentials; prefer short-lived connections",
+        "Disable insecureSsl and prevent proxy env var injection",
+        "Restrict who can update projects and start builds; monitor for anomalies",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="cicd_codebuild_token_leakage_chain",
+        name="CodeBuild Token Leakage Chain",
+        description="CodeBuild source credentials or interception-friendly settings can enable token leakage and supply-chain compromise.",
+        severity="High",
+        skills_required=["cicd"],
+        matcher=_match_cicd_codebuild_token_leakage,
+        attack_path_generator=_cicd_attack_path,
+        remediation_generator=_cicd_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0006", "TA0004"],
+            mitre_attack_techniques=["T1552.001", "T1195"],
+            observed_in_wild=True,
+            exploit_maturity="Functional",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "aws codebuild list-projects",
+                "aws codebuild batch-get-projects --names <project>",
+                "aws codebuild list-source-credentials",
+            ],
+            tools_required=["aws-cli"],
+            exploitation_complexity="Medium",
+            estimated_time_to_compromise="60 minutes",
+        ),
+        amplification_factor=1.4,
+    )
+)
+
+
+def _match_messaging_dlq_exfil(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    messaging = (
+        evidence_by_skill.get("messaging", {}) if isinstance(evidence_by_skill, dict) else {}
+    )
+    queues_doc = messaging.get("sqs-queues") or {}
+    if not isinstance(queues_doc, dict):
+        return False
+    queues = queues_doc.get("items", [])
+    if not isinstance(queues, list):
+        return False
+
+    for q in queues:
+        if not isinstance(q, dict):
+            continue
+        if q.get("RedrivePolicy") or q.get("RedriveAllowPolicy"):
+            # Redrive present; if policy is permissive, treat as exfil risk.
+            pol = q.get("Policy")
+            if isinstance(pol, dict) and _policy_has_wildcard_principal(pol):
+                return True
+            # Even without wildcard, redrive itself is worth flagging as chain candidate.
+            return True
+    return False
+
+
+def _messaging_dlq_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker obtains SQS administrative capability (SetQueueAttributes/Redrive configuration)",
+        "Modifies DLQ/redrive settings to route messages to attacker-controlled queue",
+        "Moves or re-drives messages to exfiltrate accumulated sensitive payloads",
+    ]
+
+
+def _messaging_dlq_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Restrict SQS administrative actions and queue policy principals",
+        "Review DLQ/redrive configuration and redrive allow policies",
+        "Monitor CloudTrail for SetQueueAttributes and message move operations",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="messaging_sqs_dlq_exfiltration_chain",
+        name="SQS DLQ Exfiltration Chain",
+        description="Redrive/DLQ configuration can be abused to siphon messages for data exfiltration.",
+        severity="High",
+        skills_required=["messaging"],
+        matcher=_match_messaging_dlq_exfil,
+        attack_path_generator=_messaging_dlq_attack_path,
+        remediation_generator=_messaging_dlq_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0010"],
+            mitre_attack_techniques=["T1020"],
+            observed_in_wild=False,
+            exploit_maturity="Proof-of-Concept",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "aws sqs list-queues",
+                "aws sqs get-queue-attributes --attribute-names RedrivePolicy RedriveAllowPolicy Policy",
+            ],
+            tools_required=["aws-cli"],
+            exploitation_complexity="Medium",
+            estimated_time_to_compromise="45 minutes",
+        ),
+        amplification_factor=1.35,
+    )
+)
+
+
+def _match_kms_policy_backdoor(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    kms = evidence_by_skill.get("kms", {}) if isinstance(evidence_by_skill, dict) else {}
+    pol_doc = kms.get("kms-key-policies") or {}
+    items = pol_doc.get("items", []) if isinstance(pol_doc, dict) else []
+    if not isinstance(items, list):
+        return False
+
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        policy = it.get("Policy")
+        if isinstance(policy, dict) and _policy_has_wildcard_principal(policy):
+            return True
+    return False
+
+
+def _kms_backdoor_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker identifies permissive KMS key policy (wildcard/cross-account principals)",
+        "Uses allowed KMS operations to decrypt data keys or protected secrets",
+        "Exfiltrates sensitive data encrypted under the compromised CMK",
+    ]
+
+
+def _kms_backdoor_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Restrict KMS key policies to explicit principals",
+        "Add condition keys (aws:PrincipalArn/aws:SourceAccount) where applicable",
+        "Review and rotate affected secrets/data and monitor KMS usage",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="kms_policy_backdoor_exfil_chain",
+        name="KMS Policy Backdoor Exfiltration Chain",
+        description="Permissive KMS key policies can enable stealthy decrypt/exfil paths.",
+        severity="Critical",
+        skills_required=["kms"],
+        matcher=_match_kms_policy_backdoor,
+        attack_path_generator=_kms_backdoor_attack_path,
+        remediation_generator=_kms_backdoor_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0006", "TA0010"],
+            mitre_attack_techniques=["T1552.001", "T1020"],
+            observed_in_wild=True,
+            exploit_maturity="Functional",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "aws kms list-keys",
+                "aws kms get-key-policy --key-id <key>",
+                "aws kms list-grants --key-id <key>",
+            ],
+            tools_required=["aws-cli"],
+            exploitation_complexity="Low",
+            estimated_time_to_compromise="30 minutes",
+        ),
+        amplification_factor=1.5,
+    )
+)
+
+
 def _match_ecs_eventbridge_scheduled_tasks(
     findings_by_skill: Dict[str, List[Finding]],
     resource_index: Dict[str, List[Finding]],
@@ -655,16 +884,19 @@ def _match_eks_public_endpoint(
 ) -> bool:
     compute = evidence_by_skill.get("compute", {}) if isinstance(evidence_by_skill, dict) else {}
     eks_doc = compute.get("eks-inventory") or {}
-    clusters = eks_doc.get("clusters", []) if isinstance(eks_doc, dict) else []
+    if not isinstance(eks_doc, dict):
+        return False
+    clusters = eks_doc.get("clusters", [])
     if not isinstance(clusters, list):
         return False
     for c in clusters:
         if not isinstance(c, dict):
             continue
-        vpc_cfg = (
-            c.get("resourcesVpcConfig") if isinstance(c.get("resourcesVpcConfig"), dict) else {}
-        )
-        if bool(vpc_cfg.get("endpointPublicAccess")):
+        vpc_cfg = c.get("resourcesVpcConfig")
+        if not isinstance(vpc_cfg, dict):
+            vpc_cfg = {}
+        endpoint_public = vpc_cfg.get("endpointPublicAccess") if isinstance(vpc_cfg, dict) else None
+        if bool(endpoint_public):
             return True
     return False
 

@@ -20,6 +20,9 @@ def test_dynamic_pattern_registered():
     assert "compute_ecs_scheduled_task_persistence" in patterns
     assert "compute_eks_public_endpoint_risk" in patterns
     assert "exposure_iam_compute_entrypoint_chain" in patterns
+    assert "cicd_codebuild_token_leakage_chain" in patterns
+    assert "messaging_sqs_dlq_exfiltration_chain" in patterns
+    assert "kms_policy_backdoor_exfil_chain" in patterns
 
 
 def test_assume_role_pattern_matches_wildcard_trust():
