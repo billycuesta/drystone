@@ -34,6 +34,50 @@ Extends with skill-specific fields.
     </audit_context>
   </context>
 
+  <critical>
+    <title>EVIDENCE-BASED ANALYSIS REQUIREMENTS (MANDATORY)</title>
+    <professional_standard>
+      <rule>Claims require evidence: every finding MUST reference specific evidence artifacts</rule>
+      <rule>No theoretical vulnerabilities: only report proven issues backed by AWS API data</rule>
+      <rule>Evidence snippet required: include 5-20 lines of actual evidence JSON</rule>
+      <rule>Default to skepticism: assume NOT vulnerable until proven by evidence</rule>
+    </professional_standard>
+    <verification_framework>
+      <step>Finding references specific evidence file (users.json, security-groups.json, etc.)</step>
+      <step>Evidence snippet extracted and sanitized when sensitive identifiers are present</step>
+      <step>Severity justified by evidence (Critical only for proven high-impact issues)</step>
+      <step>Remediation must be actionable against the provided evidence structure</step>
+    </verification_framework>
+    <validation_failures_trigger_retry>
+      <failure>Missing evidence_refs</failure>
+      <failure>Invalid JSON structure</failure>
+      <failure>Evidence refs not found in collected evidence</failure>
+      <failure>Critical severity without critical evidence</failure>
+    </validation_failures_trigger_retry>
+  </critical>
+
+  <output_validation>
+    <title>CRITICAL: JSON output will be validated</title>
+    <required_fields>
+      <field>id: string (skill prefix + number, e.g. IAM-001)</field>
+      <field>title: string (concise, less than 80 chars)</field>
+      <field>severity: enum Critical|High|Medium|Low</field>
+      <field>risk_score: float (0.0-10.0)</field>
+      <field>description: string</field>
+      <field>evidence_refs: array of strings (at least one)</field>
+      <field>evidence_snippet: object (5-20 lines from real evidence)</field>
+      <field>affected_resources: array of ARNs/identifiers</field>
+      <field>remediation: actionable string</field>
+    </required_fields>
+    <process>
+      <step>JSON structure validation</step>
+      <step>Evidence reference existence validation</step>
+      <step>Severity justification validation</step>
+      <step>Remediation actionability validation</step>
+    </process>
+    <on_failure>You will be called again with validation errors so you can fix the output.</on_failure>
+  </output_validation>
+
   <evidence>
     <description>AWS {SKILL_NAME} evidence collected from account</description>
     <content>{EVIDENCE_JSON}</content>
