@@ -1,13 +1,14 @@
 """Comprehensive tests for correlation engine."""
+
 import json
-import pytest
 import tempfile
 from pathlib import Path
-from datetime import datetime
+
+import pytest
 
 from drystone.correlation.engine import CorrelationEngine
-from drystone.correlation.models import CorrelatedFinding
 from drystone.models.findings import Finding
+
 from .fixtures import get_all_sample_findings
 
 
@@ -58,7 +59,7 @@ class TestCorrelationEngine:
         result = engine.run()
 
         assert result["total_correlations"] == 0
-        assert result.get("skipped") == True
+        assert result.get("skipped")
         assert "at least 2 skills" in result.get("reason", "")
 
     def test_no_correlation_no_matches(self, temp_session_dir):
@@ -137,7 +138,7 @@ class TestCorrelationEngine:
         result1 = engine.run()
 
         # Run again with same engine instance
-        result2 = engine.run()
+        engine.run()
 
         # Second run should find same correlations (dedup cache maintains state)
         # But in practice, re-running engine should start fresh
@@ -197,16 +198,19 @@ class TestCorrelationEngine:
         # Create many IAM findings to trigger limit
         iam_findings = []
         for i in range(100):
-            iam_findings.append(Finding(
-                id=f"IAM-{i:03d}",
-                severity="High" if i % 2 == 0 else "Medium",
-                risk_score=8.0 if i % 2 == 0 else 5.0,
-                title=f"User {i} lacks MFA",
-                description="No MFA configured.",
-                evidence_snippet={"UserName": f"user{i}", "MFADevices": []},
-                affected_resources=[f"arn:aws:iam::123456789012:user/user{i}"],
-                remediation="Enable MFA"
-            ))
+            iam_findings.append(
+                Finding(
+                    id=f"IAM-{i:03d}",
+                    severity="High" if i % 2 == 0 else "Medium",
+                    risk_score=8.0 if i % 2 == 0 else 5.0,
+                    title=f"User {i} lacks MFA",
+                    description="No MFA configured.",
+                    evidence_snippet={"UserName": f"user{i}", "MFADevices": []},
+                    affected_resources=[f"arn:aws:iam::123456789012:user/user{i}"],
+                    remediation="Enable MFA",
+                    cis_reference="N/A",
+                )
+            )
 
         findings_file = temp_session_dir / "findings" / "iam.json"
         with open(findings_file, "w") as f:
@@ -214,16 +218,21 @@ class TestCorrelationEngine:
 
         # Add network findings for pattern matching
         network_findings = []
-        network_findings.append(Finding(
-            id="NET-001",
-            severity="Critical",
-            risk_score=9.0,
-            title="SSH exposed",
-            description="Port 22 open to 0.0.0.0/0.",
-            evidence_snippet={"IpPermissions": [{"FromPort": 22, "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]},
-            affected_resources=[],
-            remediation="Restrict"
-        ))
+        network_findings.append(
+            Finding(
+                id="NET-001",
+                severity="Critical",
+                risk_score=9.0,
+                title="SSH exposed",
+                description="Port 22 open to 0.0.0.0/0.",
+                evidence_snippet={
+                    "IpPermissions": [{"FromPort": 22, "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]
+                },
+                affected_resources=[],
+                remediation="Restrict",
+                cis_reference="N/A",
+            )
+        )
 
         findings_file = temp_session_dir / "findings" / "network.json"
         with open(findings_file, "w") as f:
@@ -242,7 +251,7 @@ class TestCorrelationEngine:
     def test_correlated_json_saved(self, populated_session):
         """Test correlated.json is saved correctly."""
         engine = CorrelationEngine(populated_session)
-        result = engine.run()
+        engine.run()
 
         correlated_file = populated_session / "findings" / "correlated.json"
         assert correlated_file.exists()
@@ -304,7 +313,8 @@ class TestCorrelationEngine:
             description="No resources affected.",
             evidence_snippet={},
             affected_resources=[],  # No resources
-            remediation="Fix"
+            remediation="Fix",
+            cis_reference="N/A",
         )
 
         findings_file = temp_session_dir / "findings" / "hardening.json"
@@ -358,6 +368,7 @@ class TestCorrelationEngine:
 # ============================================================================
 # Parametrized Tests for Multiple Patterns
 # ============================================================================
+
 
 class TestPatternMatching:
     """Test individual pattern matching."""

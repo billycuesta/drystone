@@ -1,11 +1,11 @@
 """Markdown report formatter."""
 
 import json
-import re
 import logging
-from pathlib import Path
+import re
 from datetime import datetime
-from typing import Dict, Any, List
+from pathlib import Path
+from typing import Any, Dict, List
 
 from drystone.reports.formats.base import BaseFormatter
 
@@ -256,9 +256,9 @@ This report presents security findings from the {skill.upper()} security assessm
         )
 
         # Limit to top 10
-        MAX_DISPLAYED = 10
-        displayed = correlations[:MAX_DISPLAYED]
-        hidden_count = len(correlations) - MAX_DISPLAYED
+        max_displayed = 10
+        displayed = correlations[:max_displayed]
+        hidden_count = len(correlations) - max_displayed
 
         # Build section header
         total = len(correlations)
@@ -370,7 +370,7 @@ These correlations represent multi-stage attack scenarios where findings from di
 
     def _get_skill_emoji(self, skill: str) -> str:
         """Get emoji for skill name."""
-        SKILL_EMOJIS = {
+        skill_emojis = {
             "IAM": "🔐",
             "NETWORK": "🌐",
             "EXPOSURE": "🚪",
@@ -380,7 +380,7 @@ These correlations represent multi-stage attack scenarios where findings from di
             "ECR": "📦",
             "SECRETSMANAGER": "🔑",
         }
-        return SKILL_EMOJIS.get(skill.upper(), "🔹")
+        return skill_emojis.get(skill.upper(), "🔹")
 
     def _top_affected_resources(self) -> str:
         """Show top 5 resources with most findings."""
@@ -538,7 +538,7 @@ These correlations represent multi-stage attack scenarios where findings from di
                     detail += f"- ... and {len(evidence_refs) - 5} more\n"
 
         if affected:
-            detail += f"\n**Affected Resources:**\n"
+            detail += "\n**Affected Resources:**\n"
             for resource in affected[:5]:  # Limit to 5
                 detail += f"- `{resource}`\n"
             if len(affected) > 5:

@@ -1,7 +1,7 @@
 """Sample findings for correlation engine testing."""
+from typing import Dict, List
+
 from drystone.models.findings import Finding
-from typing import List, Dict
-from datetime import datetime
 
 
 def get_iam_no_mfa_findings() -> List[Finding]:

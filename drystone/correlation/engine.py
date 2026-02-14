@@ -12,17 +12,23 @@ GAPS RESOLVED:
 - GAP-P2: Resource index caching
 - GAP-P3: 60s timeout
 """
+
 import json
 import logging
 import time
-from pathlib import Path
-from typing import Dict, List, Optional, Set, Any
-from datetime import datetime
 from collections import defaultdict
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set
 
+from drystone.correlation.models import (
+    CorrelatedFinding,
+    CVSSScore,
+    SourceFindingRef,
+    ThreatContext,
+)
+from drystone.correlation.patterns import PATTERN_METADATA, PATTERN_REGISTRY
 from drystone.models.findings import Finding
-from drystone.correlation.models import CorrelatedFinding, SourceFindingRef
-from drystone.correlation.patterns import PATTERN_METADATA
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +63,7 @@ class CorrelationEngine:
 
         # - GAP-P2: Resource index cache (reused across patterns)
         self._resource_index_cache: Optional[Dict[str, List[Finding]]] = None
+        self.network_graph: Optional[Dict[str, Any]] = None
 
     def run(self) -> Dict[str, Any]:
         """Execute correlation across all skills.
@@ -84,16 +91,23 @@ class CorrelationEngine:
             logger.info("Loading findings from session directory...")
             findings_by_skill = self._load_all_findings()
 
+            # Load evidence payloads for pentest enrichment and dynamic patterns.
+            evidence_by_skill = self._load_all_evidence()
+
             if len(findings_by_skill) < 2:
-                logger.info("Skipping correlation (< 2 skills executed)")
-                return {
-                    "total_correlations": 0,
-                    "correlations": [],
-                    "patterns_applied": [],
-                    "execution_time_seconds": time.time() - start_time,
-                    "skipped": True,
-                    "reason": "Correlation requires at least 2 skills"
-                }
+                dynamic_candidates = PATTERN_REGISTRY.get_patterns_for_skills(
+                    list(findings_by_skill.keys())
+                )
+                if not dynamic_candidates or not evidence_by_skill:
+                    logger.info("Skipping correlation (< 2 skills executed)")
+                    return {
+                        "total_correlations": 0,
+                        "correlations": [],
+                        "patterns_applied": [],
+                        "execution_time_seconds": time.time() - start_time,
+                        "skipped": True,
+                        "reason": "Correlation requires at least 2 skills",
+                    }
 
             total_findings = sum(len(fs) for fs in findings_by_skill.values())
             logger.info(f"Loaded {total_findings} findings from {len(findings_by_skill)} skills")
@@ -104,6 +118,8 @@ class CorrelationEngine:
             all_findings = [f for fs in findings_by_skill.values() for f in fs]
             self._resource_index_cache = self._build_resource_index(all_findings)
             logger.info(f"Indexed {len(self._resource_index_cache)} resources")
+
+            self.network_graph = self.build_network_graph(evidence_by_skill)
 
             # Step 3: Apply patterns
             correlations = []
@@ -117,7 +133,9 @@ class CorrelationEngine:
 
                 # Check timeout
                 if time.time() - start_time > self.MAX_EXECUTION_TIME_SECONDS:
-                    logger.warning(f"Correlation timeout ({self.MAX_EXECUTION_TIME_SECONDS}s), stopping")
+                    logger.warning(
+                        f"Correlation timeout ({self.MAX_EXECUTION_TIME_SECONDS}s), stopping"
+                    )
                     errors.append(f"Timeout after {self.MAX_EXECUTION_TIME_SECONDS}s")
                     break
 
@@ -134,7 +152,9 @@ class CorrelationEngine:
                             f"Pattern {pattern_meta['id']} generated {len(matches)} matches, "
                             f"limiting to {self.MAX_CORRELATIONS_PER_PATTERN} highest-risk"
                         )
-                        matches = self._prioritize_matches(matches, self.MAX_CORRELATIONS_PER_PATTERN)
+                        matches = self._prioritize_matches(
+                            matches, self.MAX_CORRELATIONS_PER_PATTERN
+                        )
 
                     # Generate correlated findings
                     for match_group in matches:
@@ -154,20 +174,60 @@ class CorrelationEngine:
                     logger.error(f"Pattern {pattern_meta['id']} failed: {e}", exc_info=True)
                     errors.append(f"Pattern {pattern_meta['id']}: {str(e)}")
 
+            # Step 3b: Apply dynamic pentest patterns (best-effort)
+            dynamic_patterns = PATTERN_REGISTRY.get_patterns_for_skills(
+                list(findings_by_skill.keys())
+            )
+            for pattern in dynamic_patterns:
+                try:
+                    if not pattern.matcher(
+                        findings_by_skill, self._resource_index_cache, evidence_by_skill
+                    ):
+                        continue
+                    self._corr_counter += 1
+                    session_id = self.session_dir.name
+                    session_prefix = session_id[:8] if len(session_id) >= 8 else "00000000"
+                    corr_id = f"CORR-{session_prefix}-{self._corr_counter:03d}"
+
+                    synthetic = CorrelatedFinding(
+                        id=corr_id,
+                        pattern_id=pattern.id,
+                        severity=pattern.severity,
+                        compound_risk_score=min(10.0, 6.5 * pattern.amplification_factor),
+                        title=pattern.name,
+                        description=pattern.description,
+                        attack_path=pattern.attack_path_generator(evidence_by_skill),
+                        source_finding_ids=[],
+                        source_findings=[],
+                        affected_resources=[],
+                        remediation_priority=self._get_remediation_priority(
+                            min(10.0, 6.5 * pattern.amplification_factor)
+                        ),
+                        remediation_steps=pattern.remediation_generator(evidence_by_skill),
+                        cis_reference=None,
+                        pci_dss=None,
+                    )
+                    correlations.append(synthetic)
+                    patterns_applied.append(pattern.id)
+                except Exception as e:
+                    errors.append(f"Dynamic pattern {pattern.id}: {e}")
+
             # Step 4: Save results
             output = {
                 "metadata": {
                     "generated_at": datetime.now().isoformat(),
                     "skills_analyzed": list(findings_by_skill.keys()),
                     "total_source_findings": total_findings,
-                    "patterns_evaluated": len(self.patterns),
-                    "patterns_matched": len(patterns_applied)
+                    "patterns_evaluated": len(self.patterns) + len(dynamic_patterns),
+                    "patterns_matched": len(patterns_applied),
                 },
-                "correlations": [c.dict() for c in correlations],
+                "correlations": [
+                    self._enrich_correlation_for_pentest(c, evidence_by_skill) for c in correlations
+                ],
                 "total_correlations": len(correlations),
                 "patterns_applied": patterns_applied,
                 "execution_time_seconds": time.time() - start_time,
-                "errors": errors if errors else None
+                "errors": errors if errors else None,
             }
 
             # Save to file
@@ -189,8 +249,196 @@ class CorrelationEngine:
                 "correlations": [],
                 "patterns_applied": [],
                 "execution_time_seconds": time.time() - start_time,
-                "errors": [str(e)]
+                "errors": [str(e)],
             }
+
+    def _load_all_evidence(self) -> Dict[str, Any]:
+        """Load evidence payloads by skill from session directory."""
+        evidence_by_skill: Dict[str, Any] = {}
+        evidence_root = self.session_dir / "evidence"
+        if not evidence_root.exists():
+            return evidence_by_skill
+
+        for skill_dir in evidence_root.iterdir():
+            if not skill_dir.is_dir():
+                continue
+            skill = skill_dir.name
+            skill_evidence: Dict[str, Any] = {}
+            for jf in skill_dir.glob("*.json"):
+                try:
+                    with open(jf) as f:
+                        skill_evidence[jf.stem] = json.load(f)
+                except Exception:
+                    continue
+            evidence_by_skill[skill] = skill_evidence
+        return evidence_by_skill
+
+    def build_network_graph(self, evidence_by_skill: Dict[str, Any]) -> Dict[str, Any]:
+        """Build lightweight network graph used for blast-radius estimation."""
+        graph = {"vpcs": {}, "routes": [], "tgw_connections": []}
+        network_data = (
+            evidence_by_skill.get("network", {}) if isinstance(evidence_by_skill, dict) else {}
+        )
+        vpcs = (
+            ((network_data.get("vpcs") or {}).get("items") or [])
+            if isinstance(network_data.get("vpcs"), dict)
+            else []
+        )
+        route_tables = (
+            ((network_data.get("route-tables") or {}).get("items") or [])
+            if isinstance(network_data.get("route-tables"), dict)
+            else []
+        )
+        tgw_topology = network_data.get("transit-gateway-topology") or {}
+
+        for vpc in vpcs:
+            if not isinstance(vpc, dict):
+                continue
+            vpc_id = vpc.get("VpcId")
+            if isinstance(vpc_id, str):
+                graph["vpcs"][vpc_id] = {
+                    "CidrBlock": vpc.get("CidrBlock"),
+                    "IsDefault": vpc.get("IsDefault"),
+                }
+
+        for rt in route_tables:
+            if not isinstance(rt, dict):
+                continue
+            for route in rt.get("Routes", []) or []:
+                if not isinstance(route, dict):
+                    continue
+                graph["routes"].append(
+                    {
+                        "Destination": route.get("DestinationCidrBlock")
+                        or route.get("DestinationIpv6CidrBlock"),
+                        "Target": route.get("GatewayId")
+                        or route.get("NatGatewayId")
+                        or route.get("TransitGatewayId"),
+                        "VpcId": rt.get("VpcId"),
+                    }
+                )
+
+        if isinstance(tgw_topology, dict):
+            for attachment in tgw_topology.get("attachments", []) or []:
+                if isinstance(attachment, dict):
+                    graph["tgw_connections"].append(
+                        {
+                            "SourceVpc": attachment.get("ResourceId"),
+                            "TransitGatewayId": attachment.get("TransitGatewayId"),
+                            "State": attachment.get("State"),
+                        }
+                    )
+
+        return graph
+
+    def calculate_cvss_score(self, finding: CorrelatedFinding) -> CVSSScore:
+        """Calculate simplified CVSS v3.1 mapping for correlation output."""
+        sev = finding.severity
+        mapping = {
+            "Critical": {
+                "AV": "N",
+                "AC": "L",
+                "PR": "N",
+                "UI": "N",
+                "S": "C",
+                "C": "H",
+                "I": "H",
+                "A": "H",
+            },
+            "High": {
+                "AV": "N",
+                "AC": "L",
+                "PR": "L",
+                "UI": "N",
+                "S": "U",
+                "C": "H",
+                "I": "L",
+                "A": "N",
+            },
+            "Medium": {
+                "AV": "A",
+                "AC": "L",
+                "PR": "L",
+                "UI": "R",
+                "S": "U",
+                "C": "L",
+                "I": "L",
+                "A": "N",
+            },
+            "Low": {
+                "AV": "L",
+                "AC": "H",
+                "PR": "H",
+                "UI": "R",
+                "S": "U",
+                "C": "L",
+                "I": "N",
+                "A": "N",
+            },
+        }
+        m = mapping.get(sev, mapping["Medium"])
+        vector = f"CVSS:3.1/AV:{m['AV']}/AC:{m['AC']}/PR:{m['PR']}/UI:{m['UI']}/S:{m['S']}/C:{m['C']}/I:{m['I']}/A:{m['A']}"
+        return CVSSScore(
+            vector_string=vector,
+            base_score=round(float(finding.compound_risk_score), 1),
+            attack_vector="Network" if m["AV"] == "N" else "Adjacent",
+            attack_complexity="Low" if m["AC"] == "L" else "High",
+            privileges_required="None" if m["PR"] == "N" else "Low",
+            user_interaction="None" if m["UI"] == "N" else "Required",
+            scope="Changed" if m["S"] == "C" else "Unchanged",
+            confidentiality_impact="High" if m["C"] == "H" else "Low",
+            integrity_impact="High" if m["I"] == "H" else "Low",
+            availability_impact="High" if m["A"] == "H" else "Low",
+        )
+
+    def map_to_mitre_attack(self, corr: CorrelatedFinding) -> ThreatContext:
+        """Map correlation patterns to ATT&CK context."""
+        dynamic = PATTERN_REGISTRY.get(corr.pattern_id)
+        if dynamic is not None:
+            return dynamic.threat_context
+
+        mapping = {
+            "iam_network_ssh_compromise": (["TA0001", "TA0004"], ["T1110", "T1078.004"]),
+            "exposure_iam_data_exfiltration": (["TA0010"], ["T1537"]),
+            "vulns_hardening_persistent_cve": (["TA0001", "TA0008"], ["T1190", "T1021"]),
+            "iam_assume_role_privilege_escalation": (["TA0004"], ["T1078.004"]),
+        }
+        tactics, techniques = mapping.get(corr.pattern_id, ([], []))
+        return ThreatContext(
+            mitre_attack_tactics=tactics,
+            mitre_attack_techniques=techniques,
+            observed_in_wild=bool(tactics),
+            exploit_maturity="Functional" if tactics else "Not Defined",
+        )
+
+    def calculate_blast_radius(self, corr: CorrelatedFinding) -> Dict[str, Any]:
+        """Estimate blast radius from affected resources and network graph."""
+        scope = (
+            "Account-wide" if any(":iam::" in r for r in corr.affected_resources) else "VPC-local"
+        )
+        if any(r.startswith("arn:aws:s3:::") for r in corr.affected_resources):
+            scope = "Cross-service"
+        return {
+            "scope": scope,
+            "affected_resource_count": len(corr.affected_resources),
+            "tgw_paths": len((self.network_graph or {}).get("tgw_connections", [])),
+        }
+
+    def _enrich_correlation_for_pentest(
+        self, corr: CorrelatedFinding, evidence_by_skill: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Return correlation dict augmented with pentest context fields."""
+        out = corr.dict()
+        dynamic = PATTERN_REGISTRY.get(corr.pattern_id)
+        out["cvss"] = self.calculate_cvss_score(corr).dict()
+        out["threat_context"] = self.map_to_mitre_attack(corr).dict()
+        if dynamic is not None:
+            out["exploitability"] = dynamic.exploitability.dict()
+        out["technical_impact"] = {
+            "blast_radius": self.calculate_blast_radius(corr),
+            "lateral_movement_paths": corr.attack_path,
+        }
+        return out
 
     def _load_all_findings(self) -> Dict[str, List[Finding]]:
         """Load findings from all {skill}.json files.
@@ -311,10 +559,7 @@ class CorrelationEngine:
         - GAP-T8: Prevent report bloat from too many correlations
         """
         # Calculate cumulative risk for each match
-        matches_with_risk = [
-            (match, sum(f.risk_score for f in match))
-            for match in matches
-        ]
+        matches_with_risk = [(match, sum(f.risk_score for f in match)) for match in matches]
 
         # Sort by risk (highest first)
         matches_with_risk.sort(key=lambda x: x[1], reverse=True)
@@ -323,9 +568,7 @@ class CorrelationEngine:
         return [match for match, _ in matches_with_risk[:limit]]
 
     def _create_correlated_finding(
-        self,
-        pattern_meta: Dict[str, Any],
-        match_group: List[Finding]
+        self, pattern_meta: Dict[str, Any], match_group: List[Finding]
     ) -> Optional[CorrelatedFinding]:
         """Create CorrelatedFinding from pattern match.
 
@@ -356,8 +599,7 @@ class CorrelationEngine:
         # Calculate compound risk
         # GAPS RESOLVED: GAP-T6 (fallback for missing risk_score)
         compound_risk = self._calculate_compound_risk(
-            match_group,
-            pattern_meta["amplification_factor"]
+            match_group, pattern_meta["amplification_factor"]
         )
 
         # Build source finding refs
@@ -366,28 +608,24 @@ class CorrelationEngine:
             # Extract skill name from finding ID (IAM-001 → iam)
             skill = finding.id.split("-")[0].lower()
 
-            source_refs.append(SourceFindingRef(
-                id=finding.id,
-                skill=skill,
-                title=finding.title,
-                severity=finding.severity,
-                risk_score=finding.risk_score,
-                contribution_weight=1.0 / len(match_group)
-            ))
+            source_refs.append(
+                SourceFindingRef(
+                    id=finding.id,
+                    skill=skill,
+                    title=finding.title,
+                    severity=finding.severity,
+                    risk_score=finding.risk_score,
+                    contribution_weight=1.0 / len(match_group),
+                )
+            )
 
         # Collect affected resources
-        affected_resources = list(set(
-            arn
-            for finding in match_group
-            for arn in finding.affected_resources
-        ))
+        affected_resources = list(
+            set(arn for finding in match_group for arn in finding.affected_resources)
+        )
 
         # Merge CIS references (convert to list if present)
-        cis_refs = [
-            finding.cis_reference
-            for finding in match_group
-            if finding.cis_reference
-        ]
+        cis_refs = [finding.cis_reference for finding in match_group if finding.cis_reference]
         if cis_refs:
             cis_refs = list(set(cis_refs))  # Deduplicate
 
@@ -397,7 +635,7 @@ class CorrelationEngine:
             if finding.pci_dss:
                 for control in finding.pci_dss:
                     # Convert to dict if it's a Pydantic model
-                    if hasattr(control, 'dict'):
+                    if hasattr(control, "dict"):
                         pci_dss.append(control.dict())
                     elif isinstance(control, dict):
                         pci_dss.append(control)
@@ -421,13 +659,11 @@ class CorrelationEngine:
             remediation_priority=remediation_priority,
             remediation_steps=pattern_meta["remediation_template"],
             cis_reference=cis_refs if cis_refs else None,
-            pci_dss=pci_dss if pci_dss else None
+            pci_dss=pci_dss if pci_dss else None,
         )
 
     def _calculate_compound_risk(
-        self,
-        source_findings: List[Finding],
-        amplification_factor: float
+        self, source_findings: List[Finding], amplification_factor: float
     ) -> float:
         """Calculate compound risk score.
 
@@ -438,12 +674,7 @@ class CorrelationEngine:
             compound = avg(source_risks) × amplification_factor
             capped at 10.0
         """
-        SEVERITY_FALLBACK = {
-            "Critical": 9.0,
-            "High": 7.0,
-            "Medium": 5.0,
-            "Low": 3.0
-        }
+        severity_fallback = {"Critical": 9.0, "High": 7.0, "Medium": 5.0, "Low": 3.0}
 
         risks = []
         for finding in source_findings:
@@ -452,7 +683,7 @@ class CorrelationEngine:
                 risks.append(finding.risk_score)
             else:
                 # Fallback to severity mapping
-                fallback = SEVERITY_FALLBACK.get(finding.severity, 5.0)
+                fallback = severity_fallback.get(finding.severity, 5.0)
                 risks.append(fallback)
                 logger.warning(
                     f"Finding {finding.id} missing risk_score, using {fallback} "

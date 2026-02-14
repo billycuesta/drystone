@@ -1,10 +1,9 @@
 """Tests for markdown correlation report rendering."""
 
 import json
+from unittest.mock import Mock, patch
+
 import pytest
-from pathlib import Path
-from unittest.mock import Mock, MagicMock, patch
-from datetime import datetime
 
 from drystone.reports.formats.markdown import MarkdownFormatter
 from drystone.storage.session import AuditSession
