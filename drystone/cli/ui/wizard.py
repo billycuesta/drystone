@@ -356,6 +356,7 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
                 checked="secretsmanager" in current_skills,
             ),
             questionary.Choice("WAF Security Audit", "waf", checked="waf" in current_skills),
+            questionary.Choice("KMS Key Management Audit", "kms", checked="kms" in current_skills),
         ],
         validate=lambda x: (
             (len(x) > 0 or "Select at least one skill")

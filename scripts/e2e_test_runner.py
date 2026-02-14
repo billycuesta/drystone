@@ -46,6 +46,7 @@ SKILLS_ALL: Tuple[str, ...] = (
     "ecr",
     "secretsmanager",
     "waf",
+    "kms",
 )
 
 REPORT_TYPES_ALL: Tuple[str, ...] = ("general", "pci-dss")

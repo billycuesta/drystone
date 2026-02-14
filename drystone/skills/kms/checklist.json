@@ -1,0 +1,71 @@
+{
+  "skill": "kms",
+  "framework": "AWS Security Best Practices + HackTricks Cloud AWS",
+  "description": "KMS key policy, grants, and encryption posture checks",
+  "version": "1.0",
+  "total_checks": 4,
+  "last_updated": "2026-02-14",
+  "items": [
+    {
+      "id": "KMS-001",
+      "title": "KMS key policy allows wildcard or broad cross-account principals",
+      "severity": "Critical",
+      "description": "Overly permissive key policies can enable cross-account decrypt/encrypt or management of CMKs.",
+      "evidence_files": ["kms-key-policies.json"],
+      "check_keywords": ["Principal", "*", "root", "kms:*", "kms:Decrypt"],
+      "remediation": "Restrict key policies to explicit principals and add conditions (aws:SourceAccount, aws:PrincipalArn) where applicable.",
+      "pci_dss": [
+        {
+          "control": "3.6.1",
+          "reason": "Cryptographic keys must be protected from unauthorized access and misuse."
+        }
+      ]
+    },
+    {
+      "id": "KMS-002",
+      "title": "Unexpected KMS grants allow decrypt or data key generation",
+      "severity": "High",
+      "description": "KMS grants can provide stealthy access to decrypt or generate data keys without changing key policies.",
+      "evidence_files": ["kms-grants.json"],
+      "check_keywords": ["CreateGrant", "Decrypt", "GenerateDataKey"],
+      "remediation": "Review and revoke unexpected grants; enforce least privilege and monitor CreateGrant/ListGrants usage.",
+      "pci_dss": [
+        {
+          "control": "10.2.1",
+          "reason": "Use audit logs to detect unauthorized changes and access attempts."
+        }
+      ]
+    },
+    {
+      "id": "KMS-003",
+      "title": "Principals can modify KMS key policy or create grants",
+      "severity": "High",
+      "description": "Permissions like kms:PutKeyPolicy or kms:CreateGrant can be abused for persistence or privesc.",
+      "evidence_files": ["kms-key-policies.json"],
+      "check_keywords": ["kms:PutKeyPolicy", "kms:CreateGrant"],
+      "remediation": "Restrict KMS administrative permissions and enforce separation of duties for key administration vs key usage.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "Least privilege principle for access to sensitive systems and cryptographic controls."
+        }
+      ]
+    },
+    {
+      "id": "KMS-004",
+      "title": "Customer-managed KMS keys do not have rotation enabled",
+      "severity": "Medium",
+      "description": "Long-lived keys increase blast radius if compromised and reduce cryptographic hygiene.",
+      "evidence_files": ["kms-keys.json"],
+      "check_keywords": ["KeyRotationEnabled"],
+      "remediation": "Enable automatic key rotation for customer-managed CMKs where supported.",
+      "pci_dss": [
+        {
+          "control": "3.6.4",
+          "reason": "Cryptographic key management processes should include rotation as appropriate."
+        }
+      ]
+    }
+  ],
+  "notes": "KMS is region-scoped. Findings must be backed by policy/grant evidence references."
+}

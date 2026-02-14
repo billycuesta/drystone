@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+KMS AUDIT TEMPLATE
+Extends base_audit.xml with KMS-specific considerations.
+Focus: key policy exposure, grants, and abuse paths.
+-->
+<audit_task extends="base_audit.xml">
+  <skill_specific>
+    <skill_name>KMS</skill_name>
+    <skill_code>KMS</skill_code>
+
+    <focus_areas>
+      <area>Key policy exposure (wildcard principals, cross-account roots)</area>
+      <area>Grant-based access paths (CreateGrant/ListGrants)</area>
+      <area>Key administration vs usage separation</area>
+      <area>Rotation and key hygiene</area>
+    </focus_areas>
+
+    <kms_specific_rules>
+      <rule id="kms_1">
+        <title>Evidence-first for KMS</title>
+        <description>Only flag KMS findings when the policy/grant evidence directly supports it</description>
+        <action>Always include evidence_refs pointing into kms-key-policies.json or kms-grants.json</action>
+      </rule>
+      <rule id="kms_2">
+        <title>Separate admin vs decrypt risks</title>
+        <description>kms:* and kms:PutKeyPolicy are admin paths; kms:Decrypt/GenerateDataKey are data access paths</description>
+        <action>Describe impact accordingly and avoid overclaiming data exposure</action>
+      </rule>
+    </kms_specific_rules>
+  </skill_specific>
+</audit_task>

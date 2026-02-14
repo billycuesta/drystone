@@ -206,6 +206,7 @@ class WizardConfig(BaseModel):
             "secretsmanager",
             "waf",
             "pentest",
+            "kms",
         }
         invalid = set(v) - valid_skills
         if invalid:
