@@ -1,0 +1,71 @@
+{
+  "skill": "messaging",
+  "framework": "AWS Security Best Practices + HackTricks Cloud AWS",
+  "description": "SQS/SNS policies, injection, and exfiltration persistence checks",
+  "version": "1.0",
+  "total_checks": 4,
+  "last_updated": "2026-02-14",
+  "items": [
+    {
+      "id": "MSG-001",
+      "title": "SQS queue policy uses aws:PrincipalOrgID backdoor-style access",
+      "severity": "High",
+      "description": "Org-scoped access via aws:PrincipalOrgID can create hidden broad access paths.",
+      "evidence_files": ["sqs-queues.json"],
+      "check_keywords": ["aws:PrincipalOrgID", "Condition", "Policy"],
+      "remediation": "Review SQS queue policies and restrict principals explicitly; avoid org-wide broad permissions unless required.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "Least privilege for access to sensitive systems and data flows."
+        }
+      ]
+    },
+    {
+      "id": "MSG-002",
+      "title": "SQS redrive configuration could enable DLQ-based exfiltration",
+      "severity": "High",
+      "description": "DLQ/RedrivePolicy and RedriveAllowPolicy can be abused to siphon messages to attacker-controlled queues.",
+      "evidence_files": ["sqs-queues.json"],
+      "check_keywords": ["RedrivePolicy", "RedriveAllowPolicy"],
+      "remediation": "Lock down who can modify queue attributes; review DLQ targets and allow policies; enforce KMS and tight key policies.",
+      "pci_dss": [
+        {
+          "control": "10.2.1",
+          "reason": "Monitoring of changes and access to messaging systems helps detect exfiltration paths."
+        }
+      ]
+    },
+    {
+      "id": "MSG-003",
+      "title": "SNS to SQS injection risk via permissive queue/topic policies",
+      "severity": "Medium",
+      "description": "Permissive SNS/SQS policies can allow untrusted publishers to inject messages into trusted queues.",
+      "evidence_files": ["sns-topics.json", "sqs-queues.json"],
+      "check_keywords": ["sns.amazonaws.com", "SourceArn", "SQS:SendMessage"],
+      "remediation": "Restrict queue policies to specific SNS topic ARNs with aws:SourceArn and aws:SourceAccount conditions.",
+      "pci_dss": [
+        {
+          "control": "6.4.2",
+          "reason": "Protect public-facing components and validate trusted integrations to prevent injection."
+        }
+      ]
+    },
+    {
+      "id": "MSG-004",
+      "title": "Unmonitored message move tasks could enable DLQ data theft",
+      "severity": "Medium",
+      "description": "DLQ message move operations can rapidly exfiltrate accumulated messages if abused.",
+      "evidence_files": ["sqs-queues.json"],
+      "check_keywords": ["StartMessageMoveTask", "DLQ"],
+      "remediation": "Restrict SQS administrative permissions; monitor CloudTrail for message move operations; encrypt DLQs with KMS.",
+      "pci_dss": [
+        {
+          "control": "10.4.1",
+          "reason": "Time-synchronized audit logging and monitoring support detection of abnormal administrative actions."
+        }
+      ]
+    }
+  ],
+  "notes": "Messaging is region-scoped. Findings should include evidence_refs into queue/topic attributes and policies."
+}

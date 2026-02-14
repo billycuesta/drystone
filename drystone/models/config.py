@@ -207,6 +207,7 @@ class WizardConfig(BaseModel):
             "waf",
             "pentest",
             "kms",
+            "messaging",
         }
         invalid = set(v) - valid_skills
         if invalid:

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+MESSAGING AUDIT TEMPLATE
+Extends base_audit.xml with SQS/SNS-specific considerations.
+Focus: resource policies, redrive/DLQ abuse, and injection risks.
+-->
+<audit_task extends="base_audit.xml">
+  <skill_specific>
+    <skill_name>MESSAGING</skill_name>
+    <skill_code>MSG</skill_code>
+
+    <focus_areas>
+      <area>SQS queue policies (Principal wildcards, OrgID conditions)</area>
+      <area>DLQ/Redrive configuration (exfiltration/persistence paths)</area>
+      <area>SNS topic policies and subscriptions (publisher trust)</area>
+      <area>Encryption posture (SSE, KMS implications for data-plane abuse)</area>
+    </focus_areas>
+
+    <messaging_specific_rules>
+      <rule id="msg_1">
+        <title>Policy-based evidence only</title>
+        <description>Only generate findings when queue/topic Policy and attributes support it</description>
+        <action>Always include evidence_refs referencing sqs-queues.json or sns-topics.json</action>
+      </rule>
+      <rule id="msg_2">
+        <title>Avoid overclaiming injection</title>
+        <description>Injection findings require a credible allow path (SourceArn/Principal/Condition)</description>
+        <action>Explain exact statement fields enabling the path</action>
+      </rule>
+    </messaging_specific_rules>
+  </skill_specific>
+</audit_task>
