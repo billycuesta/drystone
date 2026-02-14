@@ -71,8 +71,36 @@ class EvidenceChunker:
         Yields:
             EvidenceChunk instances with subdivided data
         """
+        # If the file is not a simple list, try to chunk a dominant list field
+        # (common for dict-shaped evidence like {"items": [...]} or {"endpoints": [...]}).
         if not isinstance(data, list):
-            # Not a list → cannot chunk, return as-is
+            if isinstance(data, dict):
+                list_key = self._pick_dominant_list_key(data)
+                if list_key:
+                    base = {k: v for k, v in data.items() if k != list_key}
+                    items = data.get(list_key)
+                    if isinstance(items, list):
+                        total_resources = len(items)
+                        total_chunks = (
+                            total_resources + resources_per_chunk - 1
+                        ) // resources_per_chunk
+
+                        for i in range(0, total_resources, resources_per_chunk):
+                            chunk_items = items[i : i + resources_per_chunk]
+                            chunk_id = i // resources_per_chunk + 1
+                            yield EvidenceChunk(
+                                chunk_id=chunk_id,
+                                total_chunks=total_chunks,
+                                evidence={filename: {**base, list_key: chunk_items}},
+                                metadata={
+                                    "source_file": filename,
+                                    "resource_range": f"{i + 1}-{i + len(chunk_items)}/{total_resources}",
+                                    "chunk_size_kb": len(json.dumps(chunk_items)) // 1024,
+                                },
+                            )
+                        return
+
+            # Not chunkable → return as-is
             yield EvidenceChunk(
                 chunk_id=1,
                 total_chunks=1,
@@ -98,6 +126,35 @@ class EvidenceChunker:
                     "chunk_size_kb": len(json.dumps(chunk_data)) // 1024,
                 },
             )
+
+    def _pick_dominant_list_key(self, data: Dict[str, Any]) -> str:
+        """Pick a list-like field to chunk inside dict-shaped evidence.
+
+        Prefer known keys first, otherwise pick the largest list by length.
+        """
+        preferred = [
+            "items",
+            "endpoints",
+            "attachments",
+            "route_tables",
+            "transit_gateways",
+            "services",
+            "interfaces",
+            "instances",
+        ]
+
+        for key in preferred:
+            val = data.get(key)
+            if isinstance(val, list) and len(val) > 0:
+                return key
+
+        best_key = ""
+        best_len = 0
+        for k, v in data.items():
+            if isinstance(v, list) and len(v) > best_len:
+                best_len = len(v)
+                best_key = str(k)
+        return best_key
 
     def _chunk_by_resource(
         self, evidence: Dict[str, Any], resources_per_chunk: int = 50

@@ -898,6 +898,8 @@ Missing CloudWatch alarm:
             skill_code = self._get_skill_code(skill_name)
             total_checklist_items = len(checklist.get("items", []))
 
+            provider_type = self.config.get("type", "claude-cli")
+
             # IMPORTANT: Do NOT force a minimum findings count.
             # This reduces "no finding" placeholders and improves precision.
             min_findings = 0
@@ -943,14 +945,29 @@ Missing CloudWatch alarm:
                     "- Output MUST be strict JSON matching the schema.\n"
                 )
 
+            # JSON rendering: compact for CLI + chunking to avoid prompt limits.
+            chunking_enabled = bool(chunking and chunking.get("enabled") is True)
+            compact_json = provider_type == "claude-cli" or chunking_enabled
+            evidence_json = json.dumps(
+                evidence,
+                indent=None if compact_json else 2,
+                separators=(",", ":") if compact_json else None,
+                default=str,
+            )
+            checklist_json = json.dumps(
+                checklist,
+                indent=None if compact_json else 2,
+                separators=(",", ":") if compact_json else None,
+            )
+
             context = {
                 "SKILL_NAME": skill_name,
                 "SKILL_UPPER": skill_name.upper(),
                 "SKILL_CODE": skill_code,
                 "AUDIT_REGION": audit_region,
                 "AUDIT_SCOPE": audit_scope,
-                "EVIDENCE_JSON": json.dumps(evidence, indent=2, default=str),
-                "CHECKLIST_JSON": json.dumps(checklist, indent=2),
+                "EVIDENCE_JSON": evidence_json,
+                "CHECKLIST_JSON": checklist_json,
                 "TOTAL_CHECKLIST_ITEMS": total_checklist_items,
                 "MIN_FINDINGS": min_findings,
                 "MAX_FINDINGS": max_findings,

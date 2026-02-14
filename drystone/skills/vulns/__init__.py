@@ -139,14 +139,26 @@ class VulnsSkill(BaseSkill):
                         instance_detail["SSMStatus"] = compliance.get("InstanceInformationList", [])
 
                         # Get patch compliance details
-                        patch_compliance = ssm_client.get_compliance_details_by_resource(
-                            ResourceId=instance_id,
-                            ResourceType="ManagedInstance",
-                            ComplianceTypes=["PATCH"],
-                        )
-                        instance_detail["PatchCompliance"] = patch_compliance.get(
-                            "ComplianceItems", []
-                        )
+                        try:
+                            patch_compliance = ssm_client.get_compliance_details_by_resource(
+                                ResourceId=instance_id,
+                                ResourceType="ManagedInstance",
+                                ComplianceTypes=["PATCH"],
+                            )
+                            instance_detail["PatchCompliance"] = patch_compliance.get(
+                                "ComplianceItems", []
+                            )
+                        except AttributeError:
+                            # Older boto3/botocore may not expose this API.
+                            # Fallback to list_compliance_items.
+                            patch_compliance = ssm_client.list_compliance_items(
+                                ResourceIds=[instance_id],
+                                ResourceTypes=["ManagedInstance"],
+                                Filters=[{"Key": "ComplianceType", "Values": ["Patch"]}],
+                            )
+                            instance_detail["PatchCompliance"] = patch_compliance.get(
+                                "ComplianceItems", []
+                            )
                     except Exception as e:
                         logger.warning(
                             f"Could not get patch compliance for instance {instance_id}: {e}"

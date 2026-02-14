@@ -8,7 +8,9 @@ from typing import Tuple
 
 _AWS_ACCESS_KEY_RE = re.compile(r"\bAKIA[0-9A-Z]{16}\b")
 # Very rough heuristic for AWS secret access keys (base64-ish 40 chars).
-_AWS_SECRET_KEY_RE = re.compile(r"\b[0-9A-Za-z/+]{40}\b")
+# AWS secret access keys are 40 chars and commonly include "+", "/", or "=".
+# Avoid false positives on hex-like IDs (e.g., ARNs, digests) by requiring a base64-ish char.
+_AWS_SECRET_KEY_RE = re.compile(r"\b(?=[0-9A-Za-z/+]{40}\b)(?=.*[+/=])[0-9A-Za-z/+]{40}\b")
 
 
 def redact_secrets(text: str) -> Tuple[str, int]:
