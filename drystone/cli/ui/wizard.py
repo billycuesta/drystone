@@ -396,6 +396,19 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
     if report_type is None:
         raise KeyboardInterrupt("Wizard cancelled")
 
+    # Pentest is a report mode, not a skill. It relies on underlying evidence.
+    # Offer to auto-select the recommended core skills if the user picked pentest.
+    if report_type == "pentest":
+        recommended = ["iam", "exposure", "network", "vulns"]
+        missing = [s for s in recommended if s not in skills]
+        if missing:
+            auto_add = questionary.confirm(
+                "Pentest report works best with IAM + Exposure + Network + Vulns evidence. Add missing skills now?",
+                default=True,
+            ).ask()
+            if auto_add:
+                skills = sorted(set(skills + missing))
+
     # Combine all results
     project_config = {
         "client_name": client_name,
