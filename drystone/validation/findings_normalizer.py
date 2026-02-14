@@ -11,10 +11,12 @@ Reduces variance between different AI models by:
 SKILL-AGNOSTIC: Works with any skill (IAM, Exposure, Network, Vulns).
 """
 
-import re
-import logging
 import fnmatch
-from typing import List, Dict, Any, Tuple, Optional, Literal, cast
+import json
+import logging
+import re
+from pathlib import Path
+from typing import Any, Dict, List, Literal, Optional, Tuple, cast
 
 from drystone.models.findings import Finding, FindingsSummary, PCIDSSControl
 
@@ -63,6 +65,10 @@ class FindingsNormalizer:
         # Hardening: Compliance score ranges (overlapping ranges)
         ("HRD-004", "HRD-008"): "keep_higher",  # Compliance: <50% vs 50-70%
         ("HRD-008", "HRD-011"): "keep_higher",  # Compliance: 50-70% vs 70-85%
+        ("HRD-004", "HRD-011"): "keep_higher",  # Compliance: <50% vs 70-85%
+        ("HRD-004", "HRD-015"): "keep_higher",  # Compliance: <50% vs 85-95%
+        ("HRD-008", "HRD-015"): "keep_higher",  # Compliance: 50-70% vs 85-95%
+        ("HRD-011", "HRD-015"): "keep_higher",  # Compliance: 70-85% vs 85-95%
         # IAM: User state
         ("IAM-003", "IAM-004"): "keep_specific",  # Inactive user vs no MFA
         ("IAM-005", "IAM-007"): "keep_specific",  # No rotation vs old keys
@@ -222,6 +228,13 @@ class FindingsNormalizer:
             # JSON documents and the model may output shorthand anchors.
             finding.evidence_refs = self._normalize_evidence_refs(finding.evidence_refs)
 
+            # Verify finding has minimum evidence quality requirements.
+            if self.evidence:
+                verified, reason = self._verify_finding(normalized_id, finding)
+                if not verified:
+                    logger.warning(f"  ❌ Rejected {normalized_id} - unverified: {reason}")
+                    continue
+
             # Align PCI DSS mappings with checklist source of truth.
             # The agent sometimes emits incorrect control IDs for a given finding ID.
             self._align_pci_dss_controls(normalized_id, finding)
@@ -230,6 +243,228 @@ class FindingsNormalizer:
             normalized.append(finding)
 
         return normalized
+
+    def _verify_finding(self, finding_id: str, finding: Finding) -> Tuple[bool, Optional[str]]:
+        """Verify finding is backed by usable evidence.
+
+        This is a generic safety net complementary to skill-specific evidence gates.
+        """
+
+        refs = finding.evidence_refs or []
+
+        # If the model omitted evidence_refs, try to infer stable refs from evidence + affected resources.
+        # This prevents false rejections in high-signal deterministic cases (e.g., SG open to world).
+        if finding.severity == "Critical" and not refs and self.evidence:
+            inferred = self._infer_evidence_refs(finding)
+            if inferred:
+                finding.evidence_refs = inferred
+                refs = inferred
+
+        # Critical findings must be backed by something usable: evidence_refs, evidence_snippet,
+        # or directly discoverable signal in loaded evidence.
+        if finding.severity == "Critical" and not refs:
+            # IAM findings must be traceable to specific evidence locations.
+            # For other skills we allow evidence_snippet/evidence-content-based verification.
+            if self.skill_name in {"IAM"}:
+                return False, "missing evidence_refs for critical finding"
+
+        # Rule 2: references should resolve to known evidence keys/files
+        for ref in refs:
+            if not isinstance(ref, str):
+                continue
+            if not self._resolve_evidence_ref(ref):
+                return False, f"unresolved evidence ref: {ref}"
+
+        # Rule 3: critical findings require stronger evidence signal
+        if (
+            finding.severity == "Critical"
+            and self.skill_name not in {"HARDENING"}
+            and not self._has_critical_evidence(finding)
+        ):
+            return False, "critical severity without critical evidence"
+
+        # Rule 4: if affected resources are provided, at least one should exist in evidence
+        resources = finding.affected_resources or []
+        if (
+            finding.severity == "Critical"
+            and resources
+            and not self._resources_exist_in_evidence(resources)
+        ):
+            return False, "critical finding has affected_resources not found in evidence"
+
+        return True, None
+
+    def _infer_evidence_refs(self, finding: Finding) -> List[str]:
+        """Best-effort evidence_refs inference for common resource types.
+
+        Keep this conservative: only add refs when we can confidently point to evidence.
+        """
+
+        if not isinstance(self.evidence, dict):
+            return []
+
+        evidence = cast(Dict[str, Any], self.evidence)
+
+        resources = [r for r in (finding.affected_resources or []) if isinstance(r, str)]
+        if not resources:
+            return []
+
+        refs: List[str] = []
+
+        def _find_in_items(doc_key: str, match_key: str, match_val: str) -> Optional[int]:
+            doc = evidence.get(doc_key)
+            if not isinstance(doc, dict):
+                return None
+            items = doc.get("items")
+            if not isinstance(items, list):
+                return None
+            for idx, it in enumerate(items):
+                if isinstance(it, dict) and it.get(match_key) == match_val:
+                    return idx
+            return None
+
+        for r in resources:
+            # Security Group ARN
+            if ":security-group/" in r:
+                sg_id = r.split(":security-group/", 1)[1]
+                sg_doc = evidence.get("security-groups")
+                if isinstance(sg_doc, dict):
+                    by_id = sg_doc.get("by_id")
+                    if isinstance(by_id, dict) and sg_id in by_id:
+                        refs.append(f"security-groups.json#by_id.{sg_id}")
+                        continue
+                idx = _find_in_items("security-groups", "GroupId", sg_id)
+                if isinstance(idx, int):
+                    refs.append(f"security-groups.json#/items/{idx}")
+                    continue
+
+            # RDS instance ARN
+            if ":db:" in r and r.startswith("arn:aws:rds:"):
+                db_id = r.split(":db:", 1)[1]
+                idx = _find_in_items("rds-instances", "DBInstanceIdentifier", db_id)
+                if isinstance(idx, int):
+                    refs.append(f"rds-instances.json#/items/{idx}")
+                    continue
+
+            # ELBv2 ARN
+            if r.startswith("arn:aws:elasticloadbalancing:") and ":loadbalancer/" in r:
+                lb_doc = evidence.get("load-balancers")
+                if isinstance(lb_doc, dict):
+                    by_id = lb_doc.get("by_id")
+                    if isinstance(by_id, dict) and r in by_id:
+                        refs.append(f"load-balancers.json#by_id.{r}")
+                        continue
+                idx = _find_in_items("load-balancers", "LoadBalancerArn", r)
+                if isinstance(idx, int):
+                    refs.append(f"load-balancers.json#/items/{idx}")
+
+        # Deduplicate but preserve order
+        out: List[str] = []
+        for ref in refs:
+            if ref not in out:
+                out.append(ref)
+        return out
+
+    def _resolve_evidence_ref(self, ref: str) -> bool:
+        """Check whether evidence reference points to available evidence payload."""
+
+        if not isinstance(self.evidence, dict):
+            return True
+
+        file_ref = ref.split("#", 1)[0].strip()
+        if not file_ref:
+            return False
+
+        filename = Path(file_ref).name
+        stem = Path(filename).stem
+
+        # Fail-open when the referenced evidence file is not present in loaded evidence.
+        # This avoids false rejections for tests/chunks where only partial evidence is loaded.
+        if (
+            filename not in self.evidence
+            and stem not in self.evidence
+            and file_ref not in self.evidence
+        ):
+            return True
+
+        return file_ref in self.evidence or filename in self.evidence or stem in self.evidence
+
+    def _has_critical_evidence(self, finding: Finding) -> bool:
+        """Heuristic critical-evidence check for severity verification."""
+
+        snippet = finding.evidence_snippet or {}
+        text = json.dumps(snippet, default=str).lower()
+
+        # Obvious strong indicators.
+        if "root" in text and ("accesskey" in text or "mfa" in text):
+            return True
+        if "0.0.0.0/0" in text and ("22" in text or "ssh" in text):
+            return True
+        if '"principal"' in text and ('": "*"' in text or '":"*"' in text):
+            return True
+        if "httptokens" in text and "optional" in text:
+            return True
+        if "critical" in text:
+            return True
+
+        # Also accept if referenced evidence files are clearly critical-oriented.
+        refs = " ".join([str(r).lower() for r in (finding.evidence_refs or [])])
+        for token in ("root", "guardduty", "inspector", "public", "exfiltration"):
+            if token in refs:
+                return True
+
+        # Evidence-backed signal without snippet/refs:
+        # - Some validators use minimal findings without evidence_refs but provide evidence payloads.
+        # - Allow these when we can detect strong indicators directly in evidence.
+        if isinstance(self.evidence, dict):
+            evidence_text = json.dumps(self.evidence, default=str).lower()
+            if '"principal"' in evidence_text and '"*"' in evidence_text:
+                return True
+            if "0.0.0.0/0" in evidence_text or "::/0" in evidence_text:
+                return True
+            if "internet-facing" in evidence_text:
+                return True
+            if "publiclyaccessible" in evidence_text and "true" in evidence_text:
+                return True
+            if "ispublic" in evidence_text and "true" in evidence_text:
+                return True
+
+        return False
+
+    def _resources_exist_in_evidence(self, resources: List[str]) -> bool:
+        """Check if at least one affected resource can be found in loaded evidence."""
+
+        if not isinstance(self.evidence, dict) or not resources:
+            return True
+
+        evidence_blob = json.dumps(self.evidence, default=str)
+
+        def _candidates(r: str) -> List[str]:
+            out = [r]
+            if ":security-group/" in r:
+                out.append(r.split(":security-group/", 1)[1])
+            if ":subnet/" in r:
+                out.append(r.split(":subnet/", 1)[1])
+            if ":route-table/" in r:
+                out.append(r.split(":route-table/", 1)[1])
+            if ":vpc/" in r:
+                out.append(r.split(":vpc/", 1)[1])
+            if ":db:" in r:
+                out.append(r.split(":db:", 1)[1])
+            if ":loadbalancer/" in r:
+                out.append(r.split(":loadbalancer/", 1)[1])
+            if "/" in r:
+                out.append(r.rsplit("/", 1)[1])
+            return [x for x in out if isinstance(x, str) and x]
+
+        for resource in resources:
+            if not isinstance(resource, str) or not resource:
+                continue
+            for cand in _candidates(resource):
+                if cand in evidence_blob:
+                    return True
+
+        return False
 
     def _align_pci_dss_controls(self, finding_id: str, finding: Finding) -> None:
         """Ensure finding.pci_dss matches the checklist mapping for this finding ID.
@@ -490,8 +725,38 @@ class FindingsNormalizer:
             return self._normalize_evidence_refs_exposure(refs, evidence)
         if self.skill_name == "NETWORK":
             return self._normalize_evidence_refs_network(refs, evidence)
+        if self.skill_name == "HARDENING":
+            return self._normalize_evidence_refs_hardening(refs)
 
         return refs
+
+    def _normalize_evidence_refs_hardening(self, refs: List[str]) -> List[str]:
+        """Normalize Hardening evidence refs for consistent report traceability."""
+
+        out: List[str] = []
+        for r in refs:
+            if not isinstance(r, str):
+                continue
+
+            rr = r.strip()
+            if rr.startswith("security-hub-findings#"):
+                rr = rr.replace("security-hub-findings#", "security-hub-findings.json#", 1)
+            if rr.startswith("security-hub-findings-summary#"):
+                rr = rr.replace(
+                    "security-hub-findings-summary#",
+                    "security-hub-findings-summary.json#",
+                    1,
+                )
+            if rr.startswith("security-hub-enabled-standards#"):
+                rr = rr.replace(
+                    "security-hub-enabled-standards#",
+                    "security-hub-enabled-standards.json#",
+                    1,
+                )
+
+            out.append(rr)
+
+        return out
 
     def _normalize_evidence_refs_network(
         self, refs: List[str], evidence: Dict[str, Any]
@@ -1104,6 +1369,28 @@ class FindingsNormalizer:
                 )
                 return False  # Can't evaluate if Hub is disabled
 
+        # HRD-003: "0 standards enabled" must be rejected when standards are present.
+        if finding_id == "HRD-003":
+            enabled_standards = self.evidence.get("security-hub-enabled-standards", [])
+            if isinstance(enabled_standards, list):
+                ready_or_enabled = 0
+                for std in enabled_standards:
+                    if not isinstance(std, dict):
+                        continue
+                    status = str(std.get("Status") or "").upper()
+                    controls = std.get("ControlsSummary") or {}
+                    enabled_controls = 0
+                    if isinstance(controls, dict):
+                        enabled_controls = int(controls.get("enabled") or 0)
+                    if status in {"READY", "ENABLED"} or enabled_controls > 0:
+                        ready_or_enabled += 1
+
+                if ready_or_enabled > 0:
+                    logger.warning(
+                        f"Rejected {finding_id} - Security Hub has {ready_or_enabled} enabled/ready standards."
+                    )
+                    return False
+
         # AWS Config false positive detection
         if finding_id == "HRD-001":
             config_recorders = self.evidence.get("config-recorders", {})
@@ -1128,6 +1415,36 @@ class FindingsNormalizer:
                 )
                 return False  # False positive: Config is disabled, not partial
 
+            recorder_status_doc = self.evidence.get("config-recorder-status", {})
+            status_items = (
+                recorder_status_doc.get("ConfigurationRecordersStatus", [])
+                if isinstance(recorder_status_doc, dict)
+                else []
+            )
+            recording_ok = False
+            if isinstance(status_items, list) and status_items:
+                for s in status_items:
+                    if isinstance(s, dict) and s.get("recording") is True:
+                        recording_ok = True
+                        break
+
+            channels_doc = self.evidence.get("config-delivery-channels", {})
+            channels = (
+                channels_doc.get("DeliveryChannels", []) if isinstance(channels_doc, dict) else []
+            )
+            channel_ok = False
+            if isinstance(channels, list) and channels:
+                for c in channels:
+                    if isinstance(c, dict) and c.get("s3BucketName"):
+                        channel_ok = True
+                        break
+
+            if recording_ok and channel_ok:
+                logger.warning(
+                    f"Rejected {finding_id} - Config recorder is recording and delivery channel is configured."
+                )
+                return False
+
         # GuardDuty validation (HRD-009, HRD-014)
         if finding_id in ["HRD-009", "HRD-014"]:
             gd_detectors = self.evidence.get("guardduty-detectors", [])
@@ -1136,6 +1453,88 @@ class FindingsNormalizer:
                 logger.warning(
                     f"Rejected {finding_id} - GuardDuty is NOT enabled. "
                     f"Cannot evaluate GuardDuty-specific findings."
+                )
+                return False
+
+        # Hardening threshold checks must use global Security Hub summary, not chunk-local snippets.
+        if finding_id in {"HRD-005", "HRD-009", "HRD-012", "HRD-016", "HRD-004"}:
+            sev_counts, comp_counts = self._get_hardening_securityhub_counts()
+
+            if finding_id == "HRD-005" and sev_counts.get("CRITICAL", 0) <= 0:
+                logger.warning(
+                    f"Rejected {finding_id} - global CRITICAL count is {sev_counts.get('CRITICAL', 0)}."
+                )
+                return False
+
+            if finding_id == "HRD-009" and sev_counts.get("HIGH", 0) <= 10:
+                logger.warning(
+                    f"Rejected {finding_id} - global HIGH count is {sev_counts.get('HIGH', 0)} (requires >10)."
+                )
+                return False
+
+            if finding_id == "HRD-012" and sev_counts.get("MEDIUM", 0) <= 20:
+                logger.warning(
+                    f"Rejected {finding_id} - global MEDIUM count is {sev_counts.get('MEDIUM', 0)} (requires >20)."
+                )
+                return False
+
+            if finding_id == "HRD-016" and sev_counts.get("LOW", 0) <= 0:
+                logger.warning(
+                    f"Rejected {finding_id} - global LOW count is {sev_counts.get('LOW', 0)} (requires >0)."
+                )
+                return False
+
+            if finding_id == "HRD-004":
+                passed = int(comp_counts.get("PASSED", 0) or 0)
+                failed = int(comp_counts.get("FAILED", 0) or 0)
+                warning = int(comp_counts.get("WARNING", 0) or 0)
+                denom = passed + failed + warning
+                if denom > 0:
+                    compliance_score = (passed / denom) * 100.0
+                    if compliance_score >= 50.0:
+                        logger.warning(
+                            f"Rejected {finding_id} - computed compliance score is {compliance_score:.1f}% (requires <50%)."
+                        )
+                        return False
+
+            if self._hardening_threshold_narrative_contradicts_evidence(
+                finding_id, finding, sev_counts
+            ):
+                logger.warning(
+                    f"Rejected {finding_id} - finding narrative/snippet contradicts threshold criteria."
+                )
+                return False
+
+        if finding_id == "HRD-017":
+            if not self._hardening_has_tagging_evidence(finding):
+                logger.warning(
+                    f"Rejected {finding_id} - no tagging evidence available for account-wide tag consistency assessment."
+                )
+                return False
+
+        if finding_id == "HRD-013":
+            has_outdated = self._hardening_has_outdated_enabled_standards()
+            refs = finding.evidence_refs or []
+            has_standards_ref = any(
+                isinstance(r, str) and "security-hub-enabled-standards" in r for r in refs
+            )
+
+            if not has_outdated:
+                logger.warning(
+                    f"Rejected {finding_id} - no outdated enabled Security Hub standards detected."
+                )
+                return False
+            if not has_standards_ref:
+                logger.warning(
+                    f"Rejected {finding_id} - missing security-hub-enabled-standards evidence refs."
+                )
+                return False
+
+        # Hardening: reject findings that use non-resolvable Security Hub evidence refs.
+        if finding_id.startswith("HRD-"):
+            if not self._hardening_refs_resolve_to_securityhub(finding):
+                logger.warning(
+                    f"Rejected {finding_id} - unresolved security-hub-findings.json evidence refs."
                 )
                 return False
 
@@ -1254,7 +1653,7 @@ class FindingsNormalizer:
 
         # IAM: Old access keys (> 90 days)
         if finding_id == "IAM-007":
-            from datetime import datetime, timedelta
+            from datetime import datetime
 
             users = self.evidence.get("users", [])
             old_keys = []
@@ -2325,6 +2724,212 @@ class FindingsNormalizer:
                 return False
 
         return True  # Finding is valid against evidence
+
+    def _get_hardening_securityhub_counts(self) -> Tuple[Dict[str, int], Dict[str, int]]:
+        """Return global Security Hub severity/compliance counts for hardening validations."""
+
+        sev_counts: Dict[str, int] = {
+            "CRITICAL": 0,
+            "HIGH": 0,
+            "MEDIUM": 0,
+            "LOW": 0,
+            "OTHER": 0,
+        }
+        comp_counts: Dict[str, int] = {
+            "PASSED": 0,
+            "FAILED": 0,
+            "WARNING": 0,
+            "NOT_AVAILABLE": 0,
+            "OTHER": 0,
+        }
+
+        summary = self.evidence.get("security-hub-findings-summary") if self.evidence else None
+        if isinstance(summary, dict):
+            sc = summary.get("severity_counts")
+            if isinstance(sc, dict):
+                for k in sev_counts:
+                    sev_counts[k] = int(sc.get(k, 0) or 0)
+
+            cc = summary.get("compliance_status_counts")
+            if isinstance(cc, dict):
+                for k in comp_counts:
+                    comp_counts[k] = int(cc.get(k, 0) or 0)
+
+        # Fallback: derive from raw findings when summary is unavailable.
+        if sum(sev_counts.values()) == 0:
+            findings = self.evidence.get("security-hub-findings") if self.evidence else None
+            if isinstance(findings, list):
+                for f in findings:
+                    if not isinstance(f, dict):
+                        continue
+
+                    sev = str(((f.get("Severity") or {}).get("Label") or "")).upper()
+                    if sev in sev_counts:
+                        sev_counts[sev] += 1
+                    elif sev:
+                        sev_counts["OTHER"] += 1
+
+                    comp = str(((f.get("Compliance") or {}).get("Status") or "")).upper()
+                    if comp in comp_counts:
+                        comp_counts[comp] += 1
+                    elif comp:
+                        comp_counts["OTHER"] += 1
+
+        return sev_counts, comp_counts
+
+    def _hardening_refs_resolve_to_securityhub(self, finding: Finding) -> bool:
+        """Validate that Security Hub refs point to actually present evidence records."""
+
+        refs = finding.evidence_refs or []
+        sh_refs = [
+            r for r in refs if isinstance(r, str) and r.startswith("security-hub-findings.json#")
+        ]
+        if not sh_refs:
+            return True
+
+        findings = self.evidence.get("security-hub-findings") if self.evidence else None
+        if not isinstance(findings, list) or not findings:
+            # If we can't validate due missing evidence, fail-open.
+            return True
+
+        unresolved: List[str] = []
+        for r in sh_refs:
+            frag = r.split("#", 1)[1].strip() if "#" in r else ""
+            if not frag:
+                continue
+
+            if frag in {"metadata", "ResourceCount"}:
+                unresolved.append(frag)
+                continue
+
+            token = frag
+            if " (" in token and token.endswith("findings)"):
+                token = token.split(" (", 1)[0]
+
+            matched = False
+            for rec in findings:
+                if not isinstance(rec, dict):
+                    continue
+                rec_id = str(rec.get("Id") or "")
+                rec_gen = str(rec.get("GeneratorId") or "")
+                rec_title = str(rec.get("Title") or "")
+
+                if "/finding/" in token:
+                    finding_tail = token.split("/finding/", 1)[1]
+                    if finding_tail and finding_tail in rec_id:
+                        matched = True
+                        break
+                else:
+                    if token and (token in rec_id or token in rec_gen or token in rec_title):
+                        matched = True
+                        break
+
+            if not matched:
+                unresolved.append(frag)
+
+        if unresolved:
+            logger.warning(
+                f"Unresolved Security Hub refs: {unresolved[:3]} (total={len(unresolved)})"
+            )
+            return False
+
+        return True
+
+    def _hardening_threshold_narrative_contradicts_evidence(
+        self, finding_id: str, finding: Finding, sev_counts: Dict[str, int]
+    ) -> bool:
+        """Reject threshold findings when their own narrative contradicts required thresholds."""
+
+        if finding_id not in {"HRD-009", "HRD-012"}:
+            return False
+
+        text = " ".join(
+            [
+                str(finding.title or ""),
+                str(finding.description or ""),
+                json.dumps(finding.evidence_snippet or {}, default=str),
+            ]
+        ).lower()
+
+        if finding_id == "HRD-009":
+            # Explicitly saying <=10 HIGH is contradictory with ">10" rule.
+            if "high_severity_count" in text:
+                m = re.search(r"high_severity_count\D*(\d+)", text)
+                if m and int(m.group(1)) <= 10:
+                    return True
+
+            for m in re.finditer(r"(\d+)\s+high", text):
+                if int(m.group(1)) <= 10:
+                    return True
+
+            if "below the >10 threshold" in text or "below >10 threshold" in text:
+                return True
+
+            # Sanity: global evidence itself must satisfy threshold.
+            return int(sev_counts.get("HIGH", 0)) <= 10
+
+        if finding_id == "HRD-012":
+            if "medium_severity_findings" in text:
+                m = re.search(r"medium_severity_findings\D*(\d+)", text)
+                if m and int(m.group(1)) <= 20:
+                    return True
+
+            for m in re.finditer(r"(\d+)\s+medium", text):
+                if int(m.group(1)) <= 20:
+                    return True
+
+            if "below the >20 threshold" in text or "below >20 threshold" in text:
+                return True
+
+            return int(sev_counts.get("MEDIUM", 0)) <= 20
+
+        return False
+
+    def _hardening_has_tagging_evidence(self, finding: Finding) -> bool:
+        """Return True only when evidence includes real tagging data."""
+
+        refs = [r for r in (finding.evidence_refs or []) if isinstance(r, str)]
+        if refs and all("password-policy.json" in r for r in refs):
+            return False
+
+        if not isinstance(self.evidence, dict):
+            return False
+
+        for key, value in self.evidence.items():
+            key_l = str(key).lower()
+            if "tag" not in key_l:
+                continue
+
+            if isinstance(value, list) and len(value) > 0:
+                return True
+            if isinstance(value, dict):
+                # Conservative: require non-metadata, non-empty payload.
+                payload_keys = [k for k in value.keys() if k != "ResponseMetadata"]
+                if payload_keys:
+                    return True
+
+        return False
+
+    def _hardening_has_outdated_enabled_standards(self) -> bool:
+        """Detect outdated Security Hub standard versions from enabled standards evidence."""
+
+        standards = self.evidence.get("security-hub-enabled-standards") if self.evidence else None
+        if not isinstance(standards, list):
+            return False
+
+        for s in standards:
+            if not isinstance(s, dict):
+                continue
+            arn = str(s.get("StandardsArn") or "")
+            arn_l = arn.lower()
+
+            # Explicit known legacy versions that should be considered outdated.
+            if "pci-dss" in arn_l and "/v/3.2.1" in arn_l:
+                return True
+            if "cis-aws-foundations-benchmark" in arn_l and "/v/1.2.0" in arn_l:
+                return True
+
+        return False
 
     def _validate_vulns_finding(self, finding_id: str, finding: Finding) -> bool:
         """Validate vulns findings against concrete Inspector/RDS evidence.

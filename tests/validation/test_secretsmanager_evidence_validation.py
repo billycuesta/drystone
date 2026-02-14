@@ -3,7 +3,6 @@
 from drystone.models.findings import Finding
 from drystone.validation.findings_normalizer import FindingsNormalizer
 
-
 SECRETSMANAGER_CHECKLIST = {
     "skill": "secretsmanager",
     "items": [

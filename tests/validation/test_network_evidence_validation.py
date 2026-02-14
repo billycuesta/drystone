@@ -5,7 +5,6 @@ from typing import Literal
 from drystone.models.findings import Finding
 from drystone.validation.findings_normalizer import FindingsNormalizer
 
-
 NETWORK_CHECKLIST = {
     "skill": "network",
     "items": [

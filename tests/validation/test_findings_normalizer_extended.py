@@ -1,9 +1,9 @@
 """Extended tests for FindingsNormalizer with evidence validation and mutual exclusions."""
 
 import pytest
+
 from drystone.models.findings import Finding
 from drystone.validation.findings_normalizer import FindingsNormalizer
-
 
 # Sample hardening checklist
 HARDENING_CHECKLIST = {
