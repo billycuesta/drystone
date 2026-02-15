@@ -573,6 +573,189 @@ PATTERN_REGISTRY.register(
 )
 
 
+def _match_cicd_plus_overpriv_iam(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    # CICD token leakage conditions
+    if not _match_cicd_codebuild_token_leakage(
+        findings_by_skill, resource_index, evidence_by_skill
+    ):
+        return False
+
+    iam_findings = findings_by_skill.get("iam", [])
+    return any(_is_overprivileged_iam_finding(f) for f in iam_findings)
+
+
+def _cicd_overpriv_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker compromises CI/CD token or build configuration",
+        "Obtains AWS credentials or pivots to AWS via build role",
+        "Abuses over-privileged IAM permissions for account-wide lateral movement",
+        "Establishes persistence through IAM role trust/policy changes",
+    ]
+
+
+def _cicd_overpriv_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Harden CodeBuild projects (no insecureSsl/proxy injection) and remove unused creds",
+        "Restrict who can start builds and update projects; use approval gates",
+        "Reduce IAM privileges of build roles and apply permission boundaries",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="cicd_iam_token_leakage_privilege_escalation",
+        name="CI/CD Token Leakage + IAM Escalation Chain",
+        description="CI/CD token leakage combined with overprivileged IAM enables rapid account takeover.",
+        severity="Critical",
+        skills_required=["cicd", "iam"],
+        matcher=_match_cicd_plus_overpriv_iam,
+        attack_path_generator=_cicd_overpriv_attack_path,
+        remediation_generator=_cicd_overpriv_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0006", "TA0004", "TA0008"],
+            mitre_attack_techniques=["T1552.001", "T1078.004", "T1098"],
+            observed_in_wild=True,
+            exploit_maturity="Functional",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "aws codebuild list-source-credentials",
+                "Enumerate build roles and permissions",
+                "Validate IAM wildcard actions and sensitive API access",
+            ],
+            tools_required=["aws-cli"],
+            exploitation_complexity="High",
+            estimated_time_to_compromise="2 hours",
+        ),
+        amplification_factor=1.7,
+    )
+)
+
+
+def _match_messaging_plus_iam_admin(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    if not _match_messaging_dlq_exfil(findings_by_skill, resource_index, evidence_by_skill):
+        return False
+
+    iam_findings = findings_by_skill.get("iam", [])
+    # Reuse overpriv heuristic; in practice this catches admin-ish findings.
+    return any(_is_overprivileged_iam_finding(f) for f in iam_findings)
+
+
+def _messaging_iam_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker obtains IAM rights to modify SQS queue attributes/policies",
+        "Reconfigures DLQ/redrive to route messages to attacker-controlled queue",
+        "Moves/re-drives messages to exfiltrate data and conceal theft",
+        "Uses administrative IAM access to expand to other services",
+    ]
+
+
+def _messaging_iam_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Restrict IAM permissions for SQS administrative actions (SetQueueAttributes, AddPermission)",
+        "Harden queue policies and redrive allow policies",
+        "Enable monitoring/alerts on SQS policy/attribute changes",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="messaging_iam_dlq_exfiltration_chain",
+        name="SQS DLQ Exfiltration + IAM Admin Chain",
+        description="SQS redrive configuration plus overprivileged IAM enables stealthy message exfiltration at scale.",
+        severity="Critical",
+        skills_required=["messaging", "iam"],
+        matcher=_match_messaging_plus_iam_admin,
+        attack_path_generator=_messaging_iam_attack_path,
+        remediation_generator=_messaging_iam_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0010", "TA0004"],
+            mitre_attack_techniques=["T1020", "T1078.004"],
+            observed_in_wild=False,
+            exploit_maturity="Proof-of-Concept",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "aws sqs get-queue-attributes --attribute-names Policy RedrivePolicy RedriveAllowPolicy",
+                "aws iam get-role --role-name <role>",
+                "Review CloudTrail for SetQueueAttributes events",
+            ],
+            tools_required=["aws-cli"],
+            exploitation_complexity="High",
+            estimated_time_to_compromise="2 hours",
+        ),
+        amplification_factor=1.6,
+    )
+)
+
+
+def _match_kms_plus_iam_admin(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    if not _match_kms_policy_backdoor(findings_by_skill, resource_index, evidence_by_skill):
+        return False
+    iam_findings = findings_by_skill.get("iam", [])
+    return any(_is_overprivileged_iam_finding(f) for f in iam_findings)
+
+
+def _kms_iam_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker identifies permissive KMS key policies",
+        "Obtains/abuses IAM permissions to enumerate and use CMKs",
+        "Decrypts protected secrets/data keys and exfiltrates sensitive data",
+        "Expands to broader AWS access using recovered secrets",
+    ]
+
+
+def _kms_iam_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Restrict KMS key policies and administrative IAM permissions",
+        "Audit and remove wildcard principals; rotate affected keys/secrets",
+        "Monitor KMS Decrypt/GenerateDataKey usage and alert on anomalies",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="kms_iam_policy_backdoor_escalation_chain",
+        name="KMS Policy Backdoor + IAM Escalation Chain",
+        description="Permissive KMS policies combined with overprivileged IAM enable decrypt-based exfiltration and escalation.",
+        severity="Critical",
+        skills_required=["kms", "iam"],
+        matcher=_match_kms_plus_iam_admin,
+        attack_path_generator=_kms_iam_attack_path,
+        remediation_generator=_kms_iam_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0006", "TA0010", "TA0004"],
+            mitre_attack_techniques=["T1552.001", "T1020", "T1078.004"],
+            observed_in_wild=True,
+            exploit_maturity="Functional",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "aws kms get-key-policy --key-id <key>",
+                "aws iam list-attached-role-policies --role-name <role>",
+                "Search CloudTrail for KMS Decrypt events",
+            ],
+            tools_required=["aws-cli"],
+            exploitation_complexity="High",
+            estimated_time_to_compromise="2 hours",
+        ),
+        amplification_factor=1.7,
+    )
+)
+
+
 def _match_cicd_codebuild_token_leakage(
     findings_by_skill: Dict[str, List[Finding]],
     resource_index: Dict[str, List[Finding]],

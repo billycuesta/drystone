@@ -23,6 +23,9 @@ def test_dynamic_pattern_registered():
     assert "cicd_codebuild_token_leakage_chain" in patterns
     assert "messaging_sqs_dlq_exfiltration_chain" in patterns
     assert "kms_policy_backdoor_exfil_chain" in patterns
+    assert "cicd_iam_token_leakage_privilege_escalation" in patterns
+    assert "messaging_iam_dlq_exfiltration_chain" in patterns
+    assert "kms_iam_policy_backdoor_escalation_chain" in patterns
 
 
 def test_assume_role_pattern_matches_wildcard_trust():
