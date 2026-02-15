@@ -140,6 +140,102 @@ class ReportGenerator:
 
         return generated_reports
 
+    def generate_consolidated_reports(self, formats: List[str]) -> Dict[str, Path]:
+        """Generate a consolidated report across all skills.
+
+        Intended primarily for pentest report_type, where cross-skill attack chains
+        are the main output.
+        """
+
+        findings_data = self._load_and_merge_all_findings()
+
+        # Apply the same severity filtering rules (PCI DSS excluded)
+        if self.config.report_type == "pci-dss":
+            filtered_findings_data = findings_data
+        else:
+            filtered_findings_data = self._filter_findings_by_severity(findings_data)
+
+        generated_reports: Dict[str, Path] = {}
+        for format_name in formats:
+            if self.config.report_type == "pci-dss" and format_name == "markdown":
+                formatter_class = PCIDSSFormatter
+            elif self.config.report_type == "pentest" and format_name == "markdown":
+                formatter_class = PentestFormatter
+            elif format_name in self.FORMATTERS:
+                formatter_class = self.FORMATTERS[format_name]
+            else:
+                raise ValueError(
+                    f"Unknown format: {format_name}\nAvailable: {', '.join(self.FORMATTERS.keys())}"
+                )
+
+            formatter = formatter_class(filtered_findings_data, self.session, self.config)
+            report_path = formatter.generate()
+            generated_reports[format_name] = report_path
+
+        return generated_reports
+
+    def _load_and_merge_all_findings(self) -> Dict:
+        """Merge findings/*.json into a single findings object."""
+
+        findings_dir = self.session.get_findings_path()
+        if not findings_dir.exists():
+            raise FileNotFoundError(f"Findings directory not found: {findings_dir}")
+
+        skill_files = sorted(
+            [p for p in findings_dir.glob("*.json") if p.name != "correlated.json"],
+            key=lambda p: p.name,
+        )
+        if not skill_files:
+            raise FileNotFoundError(
+                f"No findings JSON files found in: {findings_dir} (expected <skill>.json)"
+            )
+
+        merged_findings: List[Dict] = []
+        skills_included: List[str] = []
+
+        for fp in skill_files:
+            try:
+                with open(fp) as f:
+                    data = json.load(f)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Invalid findings JSON: {e}\nFile: {fp}")
+
+            skill_name = str(data.get("skill") or fp.stem)
+            skills_included.append(skill_name)
+            for finding in data.get("findings", []) or []:
+                if isinstance(finding, dict):
+                    # Track skill provenance for consolidated remediation.
+                    finding.setdefault("skill", skill_name)
+                    merged_findings.append(finding)
+
+        summary: Dict[str, object] = {
+            "total_findings": len(merged_findings),
+            "critical": sum(1 for f in merged_findings if f.get("severity") == "Critical"),
+            "high": sum(1 for f in merged_findings if f.get("severity") == "High"),
+            "medium": sum(1 for f in merged_findings if f.get("severity") == "Medium"),
+            "low": sum(1 for f in merged_findings if f.get("severity") == "Low"),
+        }
+
+        weights = {"Critical": 3.0, "High": 2.0, "Medium": 1.0, "Low": 0.5}
+        weighted_sum = 0.0
+        total_weight = 0.0
+        for f in merged_findings:
+            sev = f.get("severity")
+            rs = f.get("risk_score")
+            if sev in weights and rs is not None:
+                weighted_sum += float(rs) * weights[sev]
+                total_weight += weights[sev]
+        summary["overall_risk_score"] = (
+            round(weighted_sum / total_weight, 1) if total_weight else 0.0
+        )
+
+        return {
+            "skill": "aggregated",
+            "skills_included": sorted(set(skills_included)),
+            "summary": summary,
+            "findings": merged_findings,
+        }
+
     def _filter_findings_by_severity(self, findings_data: Dict) -> Dict:
         """Filter findings based on the min_severity setting and recalculate summary."""
         min_severity = self.config.min_severity

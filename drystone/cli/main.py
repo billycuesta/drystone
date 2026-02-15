@@ -339,18 +339,30 @@ def audit(
 
             generator = ReportGenerator(session, config)
 
-            # Generate reports for each skill
-            for skill_name in all_findings.keys():
-                generated_reports = generator.generate_reports(
-                    skill_name, [str(f) for f in config.output_formats]
+            # Pentest reports are most useful as a consolidated output.
+            if config.report_type == "pentest":
+                generated_reports = generator.generate_consolidated_reports(
+                    [str(f) for f in config.output_formats]
                 )
-
-                click.echo(f"   {skill_name.capitalize()} Reports:")
+                click.echo("   Consolidated Reports:")
                 for format_name, report_path in generated_reports.items():
                     size_kb = report_path.stat().st_size / 1024
                     click.echo(
                         f"      ✅ {format_name.upper():8} {report_path.name:30} ({size_kb:.1f} KB)"
                     )
+            else:
+                # Generate reports for each skill
+                for skill_name in all_findings.keys():
+                    generated_reports = generator.generate_reports(
+                        skill_name, [str(f) for f in config.output_formats]
+                    )
+
+                    click.echo(f"   {skill_name.capitalize()} Reports:")
+                    for format_name, report_path in generated_reports.items():
+                        size_kb = report_path.stat().st_size / 1024
+                        click.echo(
+                            f"      ✅ {format_name.upper():8} {report_path.name:30} ({size_kb:.1f} KB)"
+                        )
 
             # Show how to view reports
             if "markdown" in config.output_formats:
