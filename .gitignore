@@ -43,6 +43,7 @@ SECURITY_AUDIT_REPORT.md
 .pytest_cache/
 .coverage
 htmlcov/
+test-results/
 
 # Output
 audit-logs/
