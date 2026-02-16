@@ -18,7 +18,7 @@ def validate_checklist_coverage(
 
     Args:
         checklist: Checklist dict with 'items' list containing 'id' fields
-        findings: List of findings dicts, each with 'checklist_ref' field
+        findings: List of findings dicts, each with 'id' field matching checklist item IDs
 
     Returns:
         dict: {
@@ -45,7 +45,7 @@ def validate_checklist_coverage(
         ...     ]
         ... }
         >>> findings = [
-        ...     {"id": "f1", "checklist_ref": "IAM-001", "title": "..."}
+        ...     {"id": "IAM-001", "title": "Root account without MFA"}
         ... ]
         >>> result = validate_checklist_coverage(checklist, findings)
         >>> result["coverage_percentage"]
@@ -65,10 +65,11 @@ def validate_checklist_coverage(
     finding_mapping: Dict[str, str] = {}
 
     for finding in findings:
-        checklist_ref = finding.get("checklist_ref")
-        if checklist_ref and checklist_ref in checklist_items:
-            evaluated_checks.add(checklist_ref)
-            finding_mapping[checklist_ref] = finding.get("id", "unknown")
+        # Findings use their "id" field (e.g. IAM-001) which matches checklist item IDs directly.
+        finding_id = finding.get("id", "")
+        if finding_id in checklist_items:
+            evaluated_checks.add(finding_id)
+            finding_mapping[finding_id] = finding_id
 
     # Calculate coverage
     num_evaluated = len(evaluated_checks)

@@ -70,7 +70,7 @@ def print_banner() -> None:
         "",
         Align.center(Text("v1.0.0", style=f"{border_color}")),
         "",
-        Align.center(Text("🔒 Automated AWS Security Assessment 🔒", style=f"{border_color} bold")),
+        Align.center(Text("🐡 Automated AWS Security Assessment 🐡", style=f"{border_color} bold")),
     )
 
     # Create panel with gradient-colored border

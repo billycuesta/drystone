@@ -117,18 +117,16 @@ class MetricsTracker:
             if skill_name not in metrics.get("skills", {}):
                 metrics["skills"][skill_name] = {}
 
-            metrics["skills"][skill_name].update({
-                "findings": findings_count,
-                "risk_score": risk_score,
-            })
+            metrics["skills"][skill_name].update(
+                {
+                    "findings": findings_count,
+                    "risk_score": risk_score,
+                }
+            )
 
             # Update totals
-            total_findings = sum(
-                s.get("findings", 0) for s in metrics.get("skills", {}).values()
-            )
-            total_risk = sum(
-                s.get("risk_score", 0.0) for s in metrics.get("skills", {}).values()
-            )
+            total_findings = sum(s.get("findings", 0) for s in metrics.get("skills", {}).values())
+            total_risk = sum(s.get("risk_score", 0.0) for s in metrics.get("skills", {}).values())
 
             metrics["total_findings"] = total_findings
             metrics["total_risk_score"] = total_risk
@@ -148,11 +146,13 @@ class MetricsTracker:
             if skill_name not in metrics.get("skills", {}):
                 metrics["skills"][skill_name] = {}
 
-            metrics["skills"][skill_name].update({
-                "end_time": datetime.utcnow().isoformat(),
-                "status": "complete" if validation_passed else "failed",
-                "validation_passed": validation_passed,
-            })
+            metrics["skills"][skill_name].update(
+                {
+                    "end_time": datetime.utcnow().isoformat(),
+                    "status": "complete" if validation_passed else "failed",
+                    "validation_passed": validation_passed,
+                }
+            )
 
             if not validation_passed:
                 metrics["validation_failures"] = metrics.get("validation_failures", 0) + 1
@@ -176,11 +176,13 @@ class MetricsTracker:
             if "retries" not in metrics["skills"][skill_name]:
                 metrics["skills"][skill_name]["retries"] = []
 
-            metrics["skills"][skill_name]["retries"].append({
-                "attempt": attempt_number,
-                "reason": reason,
-                "timestamp": datetime.utcnow().isoformat(),
-            })
+            metrics["skills"][skill_name]["retries"].append(
+                {
+                    "attempt": attempt_number,
+                    "reason": reason,
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
+            )
 
             metrics["retry_attempts"] = metrics.get("retry_attempts", 0) + 1
 
@@ -218,8 +220,7 @@ class MetricsTracker:
             metrics = self._read_metrics()
 
             completed = sum(
-                1 for s in metrics.get("skills", {}).values()
-                if s.get("status") == "complete"
+                1 for s in metrics.get("skills", {}).values() if s.get("status") == "complete"
             )
             total_skills = len(metrics.get("skills", {}))
 
@@ -242,7 +243,10 @@ class MetricsTracker:
             Formatted elapsed time string or None
         """
         try:
-            start = datetime.fromisoformat(metrics.get("start_time"))
+            start_raw = metrics.get("start_time")
+            if not isinstance(start_raw, str) or not start_raw:
+                return None
+            start = datetime.fromisoformat(start_raw)
             elapsed = datetime.utcnow() - start
             minutes = int(elapsed.total_seconds() / 60)
             seconds = int(elapsed.total_seconds() % 60)

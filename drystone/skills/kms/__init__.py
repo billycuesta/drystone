@@ -92,7 +92,24 @@ class KMSSkill(BaseSkill):
                         continue
                     try:
                         desc = kms.describe_key(KeyId=key_id).get("KeyMetadata", {})
-                        keys.append({"KeyId": key_id, "KeyArn": k.get("KeyArn"), "Metadata": desc})
+                        rotation_enabled = None
+                        try:
+                            rotation_enabled = kms.get_key_rotation_status(KeyId=key_id).get(
+                                "KeyRotationEnabled"
+                            )
+                        except ClientError as e:
+                            # Not all keys support rotation; keep as metadata.
+                            code_rot = e.response.get("Error", {}).get("Code", "Unknown")
+                            errors[f"get_key_rotation_status:{key_id}"] = code_rot
+
+                        keys.append(
+                            {
+                                "KeyId": key_id,
+                                "KeyArn": k.get("KeyArn"),
+                                "Metadata": desc,
+                                "KeyRotationEnabled": rotation_enabled,
+                            }
+                        )
                     except ClientError as e:
                         code = e.response.get("Error", {}).get("Code", "Unknown")
                         errors[f"describe_key:{key_id}"] = code
@@ -101,6 +118,7 @@ class KMSSkill(BaseSkill):
                                 "KeyId": key_id,
                                 "KeyArn": k.get("KeyArn"),
                                 "Metadata": {"error": code},
+                                "KeyRotationEnabled": None,
                             }
                         )
         except ClientError as e:

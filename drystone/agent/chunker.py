@@ -21,6 +21,13 @@ class EvidenceChunk:
 class EvidenceChunker:
     """Chunks large evidence datasets for incremental Claude analysis."""
 
+    # Evidence keys that are metadata/non-security and should be skipped during chunking.
+    # These files don't contain security-relevant data and confuse the AI when sent standalone.
+    METADATA_KEYS = frozenset({
+        "account-aliases",
+        "_audit_metadata",
+    })
+
     def __init__(
         self,
         max_tokens_per_chunk: int = 40000,  # Conservative for 200K context
@@ -35,10 +42,18 @@ class EvidenceChunker:
         return estimated_tokens > self.max_tokens
 
     def chunk_evidence(self, evidence: Dict[str, Any]) -> Iterator[EvidenceChunk]:
-        """Split evidence into manageable chunks."""
+        """Split evidence into manageable chunks.
+
+        Skips metadata keys (account-aliases, _audit_metadata) that contain
+        no security-relevant data and would confuse the AI when analyzed standalone.
+        """
 
         if self.strategy == "by_file":
             for filename, data in evidence.items():
+                # Skip metadata files that aren't security-relevant
+                if filename in self.METADATA_KEYS or str(filename).startswith("_"):
+                    continue
+
                 file_tokens = self._estimate_tokens({filename: data})
 
                 if file_tokens > self.max_tokens:

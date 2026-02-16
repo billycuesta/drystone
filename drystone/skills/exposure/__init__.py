@@ -661,7 +661,7 @@ class ExposureSkill(BaseSkill):
 
         print(f"    Loaded {len(checklist['items'])} security checks")
 
-        # 3. Call agent for analysis (chunked)
+        # 3. Call agent for analysis (chunked for large evidence)
         provider_name = agent_client.get_display_name()
         print(f"  Analyzing with {provider_name}...")
         findings = agent_client.analyze_evidence_chunked(

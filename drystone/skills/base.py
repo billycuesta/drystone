@@ -12,6 +12,16 @@ if TYPE_CHECKING:
     from drystone.models.findings import SkillFindings
 
 
+def _severity_to_risk(severity: str) -> float:
+    """Map severity to a representative risk score."""
+    return {
+        "Critical": 9.0,
+        "High": 7.0,
+        "Medium": 4.5,
+        "Low": 2.0,
+    }.get(severity, 5.0)
+
+
 class BaseSkill(ABC):
     """Abstract base class for Drystone security skills.
 
@@ -51,14 +61,17 @@ class BaseSkill(ABC):
     def analyze(self, session: AuditSession, agent_client: "AgentClient") -> Path:
         """Analyze collected evidence using AI agent with chunking support.
 
-        1. Read all evidence files
-        2. Read security checklist
-        3. Call agent_client.analyze_evidence_chunked() for analysis
-        4. Save findings to findings/{skill_name}.json
-        5. Return path to saved findings file
+        3-tier validation architecture:
+        1. Read all evidence files + checklist
+        2. Tier 1: Run deterministic pre-checks (binary PASS/FAIL/SKIP)
+        3. Tier 2: Call AI agent (with pre-computed facts injected)
+        4. Tier 3: Reconcile AI findings against pre-checks
+        5. Normalize remaining findings (existing normalizer)
+        6. Save findings + print summary
         """
         import json
         from pathlib import Path
+        from typing import List, Set
 
         print("  Reading evidence files...")
 
@@ -74,7 +87,6 @@ class BaseSkill(ABC):
                 with open(json_file) as f:
                     evidence[json_file.stem] = json.load(f)
             except Exception:
-                # This will be logged by the logger we implemented
                 pass
 
         print(f"    Loaded {len(evidence)} evidence files")
@@ -89,18 +101,70 @@ class BaseSkill(ABC):
 
         print(f"    Loaded {len(checklist['items'])} security checks")
 
-        # 3. Call agent for chunked analysis
+        # 2b. Tier 1: Run deterministic pre-checks
+        from drystone.validation.pre_checks import run_pre_checks
+
+        pre_check_results = run_pre_checks(self.name, evidence, checklist)
+        pass_ids = {r.check_id for r in pre_check_results if r.status == "PASS"}
+        fail_ids = {r.check_id for r in pre_check_results if r.status == "FAIL"}
+        skip_ids = {r.check_id for r in pre_check_results if r.status == "SKIP"}
+        total_items = len(checklist.get("items", []))
+        pending = total_items - len(pass_ids) - len(fail_ids) - len(skip_ids)
+        print(
+            f"  🔍 Pre-checks: {len(pass_ids)} PASS, {len(fail_ids)} FAIL, "
+            f"{len(skip_ids)} SKIP, {pending} pending AI"
+        )
+
+        # 3. Tier 2: Call AI agent (with pre-computed facts injected)
         provider_name = agent_client.get_display_name()
         print(f"  Analyzing with {provider_name}...")
         findings = agent_client.analyze_evidence_chunked(
-            skill_name=self.name, evidence=evidence, checklist=checklist
+            skill_name=self.name,
+            evidence=evidence,
+            checklist=checklist,
+            pre_checks=pre_check_results,
         )
 
-        # 3a. Normalize findings (reduce variance between models)
-        print("  Normalizing findings...")
-        findings = self._normalize_findings(findings, checklist, evidence=evidence)
+        # 4. Tier 3: Reconcile AI findings against pre-checks
+        if pre_check_results:
+            findings = self._reconcile_with_pre_checks(findings, pre_check_results, checklist)
 
-        # 4. Save findings
+        # 5. Normalize findings (reduce variance; skip pre-checked IDs)
+        print("  Normalizing findings...")
+        pre_checked_ids = pass_ids | fail_ids
+        findings = self._normalize_findings(
+            findings, checklist, evidence=evidence, pre_checked_ids=pre_checked_ids
+        )
+
+        # 5b. Check checklist coverage (log missing criticals)
+        try:
+            from drystone.validation.checklist_coverage import validate_checklist_coverage
+
+            coverage = validate_checklist_coverage(
+                checklist,
+                [f.model_dump(mode="json") for f in findings.findings],
+            )
+            if not coverage["coverage_valid"]:
+                missing_criticals = [
+                    d for d in coverage["details"]
+                    if not d["evaluated"] and d["check_severity"] == "Critical"
+                ]
+                if missing_criticals:
+                    import logging
+
+                    _logger = logging.getLogger(__name__)
+                    for m in missing_criticals:
+                        _logger.warning(
+                            f"Missing Critical check: {m['check_id']} - {m['check_title']}"
+                        )
+            print(
+                f"  📋 Checklist coverage: {coverage['coverage_percentage']:.0f}% "
+                f"({coverage['evaluated_checks']}/{coverage['total_checks']})"
+            )
+        except Exception:
+            pass  # Coverage check is best-effort
+
+        # 6. Save findings
         findings_dir = session.get_findings_path()
         findings_dir.mkdir(parents=True, exist_ok=True)
         findings_path = findings_dir / f"{self.name}.json"
@@ -108,7 +172,7 @@ class BaseSkill(ABC):
         with open(findings_path, "w") as f:
             json.dump(findings.model_dump(mode="json"), f, indent=2, default=str)
 
-        # 5. Print summary
+        # 7. Print summary
         print("\n✅ Analysis complete:")
         print(f"   Total findings: {findings.summary.total_findings}")
         print(f"   Critical: {findings.summary.critical}")
@@ -119,11 +183,66 @@ class BaseSkill(ABC):
 
         return findings_path
 
+    def _reconcile_with_pre_checks(
+        self,
+        findings: "SkillFindings",
+        pre_checks: list,
+        checklist: Dict[str, Any],
+    ) -> "SkillFindings":
+        """Reconcile AI findings against pre-computed verdicts (Tier 3).
+
+        Rules:
+        1. REJECT findings that contradict a PASS pre-check
+        2. INJECT findings for FAIL pre-checks that AI missed
+        """
+        import logging
+
+        from drystone.models.findings import Finding
+
+        _logger = logging.getLogger(__name__)
+        pass_ids = {r.check_id for r in pre_checks if r.status == "PASS"}
+        fail_results = {r.check_id: r for r in pre_checks if r.status == "FAIL"}
+
+        # Rule 1: Reject findings contradicting PASS
+        before = len(findings.findings)
+        findings.findings = [f for f in findings.findings if f.id not in pass_ids]
+        rejected = before - len(findings.findings)
+        if rejected:
+            _logger.info(f"Pre-check reconciliation: rejected {rejected} findings contradicting PASS")
+
+        # Rule 2: Inject findings for missed FAILs
+        existing_ids = {f.id for f in findings.findings}
+        checklist_map = {item["id"]: item for item in checklist.get("items", []) if "id" in item}
+
+        injected = 0
+        for check_id, result in fail_results.items():
+            if check_id not in existing_ids:
+                item = checklist_map.get(check_id)
+                if item:
+                    finding = Finding(
+                        id=check_id,
+                        severity=item.get("severity", "Medium"),
+                        risk_score=_severity_to_risk(item.get("severity", "Medium")),
+                        title=item.get("title", check_id),
+                        description=f"Pre-check determined: {result.evidence_summary}",
+                        remediation=item.get("remediation", "See checklist for remediation steps."),
+                        affected_resources=result.affected_resources,
+                        evidence_refs=[],
+                    )
+                    findings.findings.append(finding)
+                    injected += 1
+
+        if injected:
+            _logger.info(f"Pre-check reconciliation: injected {injected} findings for missed FAILs")
+
+        return findings
+
     def _normalize_findings(
         self,
         findings: "SkillFindings",
         checklist: Dict[str, Any],
-        evidence: Dict[str, Any] = None
+        evidence: Any = None,
+        pre_checked_ids: Any = None,
     ) -> "SkillFindings":
         """Normalize findings to reduce variance between AI models.
 
@@ -131,7 +250,7 @@ class BaseSkill(ABC):
         Reduces variance by:
         1. Normalizing IDs (remove sub-IDs like IAM-008-001 → IAM-008)
         2. Filtering false positives (DISREGARD markers, invalid IDs)
-        3. Validating against evidence (detect contradictions)
+        3. Validating against evidence (detect contradictions) — skipped for pre-checked IDs
         4. Resolving mutually exclusive findings (anti-duplicates)
         5. Calibrating severities against checklist constraints
         6. Recalculating summary statistics
@@ -140,14 +259,11 @@ class BaseSkill(ABC):
             findings: Raw findings from AI model
             checklist: Security checklist for this skill
             evidence: AWS evidence data for validation (optional)
+            pre_checked_ids: Set of check IDs already resolved by Tier 1 pre-checks.
+                           Evidence validation is skipped for these IDs.
 
         Returns:
             SkillFindings with normalized findings and updated summary
-
-        Example:
-            >>> findings = agent_client.analyze_evidence(...)
-            >>> findings = self._normalize_findings(findings, checklist, evidence)
-            >>> # Now findings.findings has normalized IDs, severities, risk scores, no false positives
         """
         from drystone.validation.findings_normalizer import FindingsNormalizer
 
@@ -157,6 +273,10 @@ class BaseSkill(ABC):
         # Optionally pass evidence for validation
         if evidence:
             normalizer.evidence = evidence
+
+        # Pass pre-checked IDs to skip redundant evidence validation
+        if pre_checked_ids:
+            normalizer._pre_checked_ids = pre_checked_ids
 
         # Normalize findings
         findings.findings = normalizer.normalize(findings.findings)

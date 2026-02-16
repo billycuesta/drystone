@@ -15,6 +15,7 @@ import fnmatch
 import json
 import logging
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple, cast
 
@@ -97,6 +98,7 @@ class FindingsNormalizer:
         self.checklist = checklist
         self.skill_name = skill_name.upper()  # IAM, EXPOSURE, NETWORK, VULNS
         self.evidence: Optional[Dict[str, Any]] = None  # Optional evidence for validation
+        self._pre_checked_ids: set = set()  # IDs already resolved by Tier 1 pre-checks
 
         # Build mapping: {ID → checklist item}
         # Example: {"IAM-001": {...}, "IAM-007": {...}, ...}
@@ -401,6 +403,9 @@ class FindingsNormalizer:
         if "0.0.0.0/0" in text and ("22" in text or "ssh" in text):
             return True
         if '"principal"' in text and ('": "*"' in text or '":"*"' in text):
+            return True
+        # Wildcard action/resource in policy is also strong signal (IAM policy admin).
+        if '"action"' in text and '"*"' in text:
             return True
         if "httptokens" in text and "optional" in text:
             return True
@@ -1218,20 +1223,23 @@ class FindingsNormalizer:
         Checks if finding contradicts explicit evidence about service state.
         Returns False (reject) if evidence clearly shows finding is incorrect.
 
+        For finding IDs that were already resolved by Tier 1 pre-checks
+        (stored in self._pre_checked_ids), validation is skipped because
+        reconciliation was already handled by _reconcile_with_pre_checks().
+
         Args:
             finding_id: Normalized finding ID (e.g., "HRD-002")
             finding: Finding object to validate
 
         Returns:
             True if finding is valid, False if contradicts evidence (should be filtered)
-
-        Examples:
-            - HRD-002 "Security Hub disabled" is FALSE if HubArn exists in evidence → return False
-            - HRD-001 "Config disabled" is FALSE if ConfigurationRecorders > 0 → return False
-            - HRD-003 "No standards enabled" is FALSE if Security Hub not enabled → return False
         """
         if not self.evidence:
             return True  # No evidence to validate against
+
+        # Skip validation for IDs already resolved by Tier 1 pre-checks
+        if finding_id in self._pre_checked_ids:
+            return True
 
         # Vulns: strict evidence reconciliation to avoid contradictory findings.
         if self.skill_name == "VULNS":
@@ -1653,8 +1661,6 @@ class FindingsNormalizer:
 
         # IAM: Old access keys (> 90 days)
         if finding_id == "IAM-007":
-            from datetime import datetime
-
             users = self.evidence.get("users", [])
             old_keys = []
             for user in users:
@@ -2721,6 +2727,843 @@ class FindingsNormalizer:
                     return False
             # If missing entirely, also reject (insufficient evidence)
             else:
+                return False
+
+        # KMS: Key policy wildcard/broad principals (KMS-001)
+        # Reject when we cannot find any Allow statement with a wildcard principal.
+        if finding_id == "KMS-001":
+            pol_doc = self.evidence.get("kms-key-policies")
+            items = None
+            if isinstance(pol_doc, dict):
+                items = pol_doc.get("items")
+
+            if not isinstance(items, list) or not items:
+                logger.warning(
+                    f"Rejected {finding_id} - missing/empty kms-key-policies evidence items."
+                )
+                return False
+
+            def _principal_has_wildcard(p: Any) -> bool:
+                if p == "*":
+                    return True
+                if isinstance(p, str):
+                    return p.strip() == "*"
+                if isinstance(p, list):
+                    return any(_principal_has_wildcard(x) for x in p)
+                if isinstance(p, dict):
+                    # Typical shapes: {"AWS": "*"} or {"AWS": ["arn:...", "*"]}
+                    for v in p.values():
+                        if _principal_has_wildcard(v):
+                            return True
+                return False
+
+            has_wildcard = False
+            for rec in items:
+                if not isinstance(rec, dict):
+                    continue
+                policy = rec.get("Policy")
+                if not isinstance(policy, dict):
+                    # Unparseable policy (raw string) can't be validated; keep scanning.
+                    continue
+                stmts = policy.get("Statement")
+                stmt_list: List[Any]
+                if isinstance(stmts, list):
+                    stmt_list = stmts
+                elif isinstance(stmts, dict):
+                    stmt_list = [stmts]
+                else:
+                    stmt_list = []
+
+                for st in stmt_list:
+                    if not isinstance(st, dict):
+                        continue
+                    if str(st.get("Effect") or "").upper() != "ALLOW":
+                        continue
+                    if _principal_has_wildcard(st.get("Principal")):
+                        has_wildcard = True
+                        break
+                if has_wildcard:
+                    break
+
+            if not has_wildcard:
+                logger.warning(
+                    f"Rejected {finding_id} - no wildcard/broad principals found in kms-key-policies."
+                )
+                return False
+
+        # KMS: Grants allow decrypt or data key generation (KMS-002)
+        # Reject when we cannot find any grant with Decrypt/GenerateDataKey operations.
+        if finding_id == "KMS-002":
+            grants_doc = self.evidence.get("kms-grants")
+            items = None
+            if isinstance(grants_doc, dict):
+                items = grants_doc.get("items")
+
+            if not isinstance(items, list) or not items:
+                logger.warning(f"Rejected {finding_id} - missing/empty kms-grants evidence items.")
+                return False
+
+            has_sensitive_grant = False
+            for g in items:
+                if not isinstance(g, dict):
+                    continue
+                ops = g.get("Operations")
+                if not isinstance(ops, list):
+                    continue
+                ops_norm = {str(o) for o in ops if o is not None}
+                if "Decrypt" in ops_norm or any(o.startswith("GenerateDataKey") for o in ops_norm):
+                    has_sensitive_grant = True
+                    break
+
+            if not has_sensitive_grant:
+                logger.warning(
+                    f"Rejected {finding_id} - no grants with Decrypt/GenerateDataKey operations found in kms-grants."
+                )
+                return False
+
+        # KMS: Policy allows administrative modification or grant creation (KMS-003)
+        # Accept only when key policy explicitly allows kms:PutKeyPolicy/kms:CreateGrant/kms:*.
+        if finding_id == "KMS-003":
+            pol_doc = self.evidence.get("kms-key-policies")
+            items = pol_doc.get("items") if isinstance(pol_doc, dict) else None
+            if not isinstance(items, list) or not items:
+                logger.warning(
+                    f"Rejected {finding_id} - missing/empty kms-key-policies evidence items."
+                )
+                return False
+
+            def _actions(st: Dict[str, Any]) -> List[str]:
+                a = st.get("Action")
+                if isinstance(a, str):
+                    return [a]
+                if isinstance(a, list):
+                    return [str(x) for x in a if x is not None]
+                return []
+
+            has_admin = False
+            for rec in items:
+                if not isinstance(rec, dict):
+                    continue
+                policy = rec.get("Policy")
+                if not isinstance(policy, dict):
+                    continue
+                stmts = policy.get("Statement")
+                stmt_list: List[Any]
+                if isinstance(stmts, list):
+                    stmt_list = stmts
+                elif isinstance(stmts, dict):
+                    stmt_list = [stmts]
+                else:
+                    stmt_list = []
+
+                for st in stmt_list:
+                    if not isinstance(st, dict):
+                        continue
+                    if str(st.get("Effect") or "").upper() != "ALLOW":
+                        continue
+                    for act in _actions(st):
+                        act_l = str(act).lower()
+                        if act_l in {"kms:putkeypolicy", "kms:creategrant", "kms:*"}:
+                            has_admin = True
+                            break
+                    if has_admin:
+                        break
+                if has_admin:
+                    break
+
+            if not has_admin:
+                logger.warning(
+                    f"Rejected {finding_id} - no kms:PutKeyPolicy/kms:CreateGrant permissions found in key policies."
+                )
+                return False
+
+        # KMS: Rotation disabled for customer-managed keys (KMS-004)
+        if finding_id == "KMS-004":
+            keys_doc = self.evidence.get("kms-keys")
+            items = keys_doc.get("items") if isinstance(keys_doc, dict) else None
+            if not isinstance(items, list) or not items:
+                logger.warning(f"Rejected {finding_id} - missing/empty kms-keys evidence items.")
+                return False
+
+            has_rotation_disabled = False
+            for k in items:
+                if not isinstance(k, dict):
+                    continue
+                meta = k.get("Metadata")
+                if isinstance(meta, dict):
+                    if str(meta.get("KeyManager") or "").upper() not in {"CUSTOMER"}:
+                        continue
+                # Collector stores KeyRotationEnabled at top-level when available.
+                rot = k.get("KeyRotationEnabled")
+                if rot is False or rot in {"false", "False", 0, "0"}:
+                    has_rotation_disabled = True
+                    break
+
+            if not has_rotation_disabled:
+                logger.warning(
+                    f"Rejected {finding_id} - no customer-managed keys with KeyRotationEnabled=false found in evidence."
+                )
+                return False
+
+        # Messaging: DLQ/Redrive config presence (MSG-002)
+        # Reject when no queues have RedrivePolicy/RedriveAllowPolicy configured.
+        if finding_id == "MSG-002":
+            q_doc = self.evidence.get("sqs-queues")
+            items = None
+            if isinstance(q_doc, dict):
+                items = q_doc.get("items")
+
+            if not isinstance(items, list) or not items:
+                logger.warning(f"Rejected {finding_id} - missing/empty sqs-queues evidence items.")
+                return False
+
+            has_redrive = False
+            for q in items:
+                if not isinstance(q, dict):
+                    continue
+                if q.get("RedrivePolicy") or q.get("RedriveAllowPolicy"):
+                    has_redrive = True
+                    break
+
+            if not has_redrive:
+                logger.warning(
+                    f"Rejected {finding_id} - no redrive configuration present in sqs-queues evidence."
+                )
+                return False
+
+        # Messaging: OrgID condition present in SQS queue policy (MSG-001)
+        if finding_id == "MSG-001":
+            q_doc = self.evidence.get("sqs-queues")
+            items = q_doc.get("items") if isinstance(q_doc, dict) else None
+            if not isinstance(items, list) or not items:
+                logger.warning(f"Rejected {finding_id} - missing/empty sqs-queues evidence items.")
+                return False
+
+            has_orgid = False
+            for q in items:
+                if not isinstance(q, dict):
+                    continue
+                pol = q.get("Policy")
+                if not isinstance(pol, dict):
+                    continue
+                stmts = pol.get("Statement")
+                stmt_list: List[Any]
+                if isinstance(stmts, list):
+                    stmt_list = stmts
+                elif isinstance(stmts, dict):
+                    stmt_list = [stmts]
+                else:
+                    stmt_list = []
+                for st in stmt_list:
+                    if not isinstance(st, dict):
+                        continue
+                    cond = st.get("Condition")
+                    if not isinstance(cond, dict):
+                        continue
+                    cond_text = json.dumps(cond, default=str)
+                    if "aws:PrincipalOrgID" in cond_text or "aws:PrincipalOrgId" in cond_text:
+                        has_orgid = True
+                        break
+                if has_orgid:
+                    break
+
+            if not has_orgid:
+                logger.warning(
+                    f"Rejected {finding_id} - no aws:PrincipalOrgID condition found in SQS queue policies."
+                )
+                return False
+
+        # Messaging: SNS->SQS injection condition missing (MSG-003)
+        # Accept only when a queue policy allows SendMessage from SNS without SourceArn/SourceAccount.
+        if finding_id == "MSG-003":
+            q_doc = self.evidence.get("sqs-queues")
+            items = q_doc.get("items") if isinstance(q_doc, dict) else None
+            if not isinstance(items, list) or not items:
+                logger.warning(f"Rejected {finding_id} - missing/empty sqs-queues evidence items.")
+                return False
+
+            def _action_includes_send(action: Any) -> bool:
+                if isinstance(action, str):
+                    return action.lower() in {"sqs:sendmessage", "sqs:*", "*"}
+                if isinstance(action, list):
+                    return any(_action_includes_send(a) for a in action)
+                return False
+
+            def _principal_is_sns(principal: Any) -> bool:
+                if isinstance(principal, dict):
+                    svc = principal.get("Service")
+                    if isinstance(svc, str) and svc.lower() == "sns.amazonaws.com":
+                        return True
+                    if isinstance(svc, list) and any(
+                        isinstance(x, str) and x.lower() == "sns.amazonaws.com" for x in svc
+                    ):
+                        return True
+                return False
+
+            has_injection = False
+            for q in items:
+                if not isinstance(q, dict):
+                    continue
+                pol = q.get("Policy")
+                if not isinstance(pol, dict):
+                    continue
+                stmts = pol.get("Statement")
+                stmt_list: List[Any]
+                if isinstance(stmts, list):
+                    stmt_list = stmts
+                elif isinstance(stmts, dict):
+                    stmt_list = [stmts]
+                else:
+                    stmt_list = []
+
+                for st in stmt_list:
+                    if not isinstance(st, dict):
+                        continue
+                    if str(st.get("Effect") or "").upper() != "ALLOW":
+                        continue
+                    if not _action_includes_send(st.get("Action")):
+                        continue
+                    if not _principal_is_sns(st.get("Principal")):
+                        continue
+                    cond = st.get("Condition")
+                    cond_text = json.dumps(cond, default=str) if isinstance(cond, dict) else ""
+                    if "aws:SourceArn" not in cond_text and "aws:SourceAccount" not in cond_text:
+                        has_injection = True
+                        break
+                if has_injection:
+                    break
+
+            if not has_injection:
+                logger.warning(
+                    f"Rejected {finding_id} - no SNS->SQS SendMessage allow without SourceArn/SourceAccount found in evidence."
+                )
+                return False
+
+        # Messaging: Message move task risk only applies when DLQs exist (MSG-004)
+        if finding_id == "MSG-004":
+            q_doc = self.evidence.get("sqs-queues")
+            items = q_doc.get("items") if isinstance(q_doc, dict) else None
+            if not isinstance(items, list) or not items:
+                logger.warning(f"Rejected {finding_id} - missing/empty sqs-queues evidence items.")
+                return False
+
+            has_dlq = False
+            for q in items:
+                if isinstance(q, dict) and q.get("RedrivePolicy"):
+                    has_dlq = True
+                    break
+
+            if not has_dlq:
+                logger.warning(
+                    f"Rejected {finding_id} - no DLQ/RedrivePolicy configured; message move tasks are not applicable."
+                )
+                return False
+
+        # CICD: Source credentials exist (CICD-001)
+        if finding_id == "CICD-001":
+            sc_doc = self.evidence.get("codebuild-source-credentials")
+            items = None
+            if isinstance(sc_doc, dict):
+                items = sc_doc.get("items")
+
+            if not isinstance(items, list) or len(items) == 0:
+                logger.warning(
+                    f"Rejected {finding_id} - no CodeBuild source credentials present in evidence."
+                )
+                return False
+
+        # CICD: Insecure SSL or proxy-style config exists (CICD-002)
+        if finding_id == "CICD-002":
+            proj_doc = self.evidence.get("codebuild-projects")
+            items = None
+            if isinstance(proj_doc, dict):
+                items = proj_doc.get("items")
+
+            if not isinstance(items, list) or not items:
+                logger.warning(
+                    f"Rejected {finding_id} - missing/empty codebuild-projects evidence items."
+                )
+                return False
+
+            has_risk = False
+            for p in items:
+                if not isinstance(p, dict):
+                    continue
+                source_raw = p.get("source")
+                source: Dict[str, Any] = source_raw if isinstance(source_raw, dict) else {}
+                if source.get("insecureSsl") is True:
+                    has_risk = True
+                    break
+
+                env_raw = p.get("environment")
+                env: Dict[str, Any] = env_raw if isinstance(env_raw, dict) else {}
+                evs = env.get("environmentVariables")
+                if isinstance(evs, list):
+                    for ev in evs:
+                        if isinstance(ev, dict) and ev.get("looks_like_proxy") is True:
+                            has_risk = True
+                            break
+                if has_risk:
+                    break
+
+            if not has_risk:
+                logger.warning(
+                    f"Rejected {finding_id} - no insecureSsl/proxy indicators found in codebuild-projects evidence."
+                )
+                return False
+
+        # Compute: EKS public endpoint exists (COMP-EKS-001)
+        if finding_id == "COMP-EKS-001":
+            eks_doc = self.evidence.get("eks-inventory")
+            clusters = None
+            if isinstance(eks_doc, dict):
+                clusters = eks_doc.get("clusters")
+
+            if not isinstance(clusters, list) or not clusters:
+                logger.warning(
+                    f"Rejected {finding_id} - missing/empty eks-inventory clusters evidence."
+                )
+                return False
+
+            has_public = False
+            for c in clusters:
+                if not isinstance(c, dict):
+                    continue
+                vpc_cfg = c.get("resourcesVpcConfig")
+                if isinstance(vpc_cfg, dict) and vpc_cfg.get("endpointPublicAccess") is True:
+                    has_public = True
+                    break
+
+            if not has_public:
+                logger.warning(
+                    f"Rejected {finding_id} - no clusters with endpointPublicAccess=true found in eks-inventory."
+                )
+                return False
+
+        # Compute: EKS control plane logging not fully enabled (COMP-EKS-002)
+        if finding_id == "COMP-EKS-002":
+            eks_doc = self.evidence.get("eks-inventory")
+            clusters = eks_doc.get("clusters") if isinstance(eks_doc, dict) else None
+            if not isinstance(clusters, list) or not clusters:
+                logger.warning(
+                    f"Rejected {finding_id} - missing/empty eks-inventory clusters evidence."
+                )
+                return False
+
+            required = {"api", "audit", "authenticator", "controllerManager", "scheduler"}
+            has_gap = False
+            for c in clusters:
+                if not isinstance(c, dict):
+                    continue
+                logging_cfg = c.get("logging")
+                if not isinstance(logging_cfg, dict):
+                    has_gap = True
+                    break
+                cl = logging_cfg.get("clusterLogging")
+                if not isinstance(cl, list):
+                    has_gap = True
+                    break
+                enabled_types = set()
+                for entry in cl:
+                    if not isinstance(entry, dict):
+                        continue
+                    if entry.get("enabled") is not True:
+                        continue
+                    types = entry.get("types")
+                    if isinstance(types, list):
+                        for t in types:
+                            if isinstance(t, str):
+                                enabled_types.add(t)
+
+                if not required.issubset(enabled_types):
+                    has_gap = True
+                    break
+
+            if not has_gap:
+                logger.warning(
+                    f"Rejected {finding_id} - all required EKS control plane log types are enabled per eks-inventory."
+                )
+                return False
+
+        # Compute: Scheduled EventBridge rules target ECS RunTask (COMP-ECS-001)
+        if finding_id == "COMP-ECS-001":
+            ev_doc = self.evidence.get("eventbridge-rules")
+            rules = None
+            if isinstance(ev_doc, dict):
+                rules = ev_doc.get("rules")
+
+            if not isinstance(rules, list) or not rules:
+                logger.warning(f"Rejected {finding_id} - missing/empty eventbridge-rules evidence.")
+                return False
+
+            has_scheduled_ecs = False
+            for r in rules:
+                if not isinstance(r, dict):
+                    continue
+                if not r.get("ScheduleExpression"):
+                    continue
+                targets = r.get("Targets")
+                if not isinstance(targets, list) or not targets:
+                    continue
+                for t in targets:
+                    if not isinstance(t, dict):
+                        continue
+                    if t.get("EcsParameters"):
+                        has_scheduled_ecs = True
+                        break
+                    arn = str(t.get("Arn") or "")
+                    if ":ecs:" in arn:
+                        has_scheduled_ecs = True
+                        break
+                if has_scheduled_ecs:
+                    break
+
+            if not has_scheduled_ecs:
+                logger.warning(
+                    f"Rejected {finding_id} - no scheduled EventBridge rule with ECS targets found in eventbridge-rules."
+                )
+                return False
+
+        # Compute: ECS task definitions drift/unexpected containers (COMP-ECS-002)
+        # Accept only when evidence shows suspicious image pinning patterns.
+        if finding_id == "COMP-ECS-002":
+            ecs_doc = self.evidence.get("ecs-inventory")
+            tdefs = ecs_doc.get("task_definitions") if isinstance(ecs_doc, dict) else None
+            if not isinstance(tdefs, list) or not tdefs:
+                logger.warning(
+                    f"Rejected {finding_id} - missing/empty ecs-inventory task_definitions evidence."
+                )
+                return False
+
+            def _image_suspicious(img: str) -> bool:
+                img_l = img.lower()
+                if "@sha256:" in img_l:
+                    return False
+                if img_l.endswith(":latest") or ":latest" in img_l:
+                    return True
+                for reg in ("docker.io/", "ghcr.io/", "quay.io/"):
+                    if reg in img_l:
+                        return True
+                return False
+
+            has_suspicious = False
+            for td in tdefs:
+                if not isinstance(td, dict):
+                    continue
+                cds = td.get("containerDefinitions")
+                if not isinstance(cds, list):
+                    continue
+                for cd in cds:
+                    if not isinstance(cd, dict):
+                        continue
+                    img = cd.get("image")
+                    if isinstance(img, str) and _image_suspicious(img):
+                        has_suspicious = True
+                        break
+                if has_suspicious:
+                    break
+
+            if not has_suspicious:
+                logger.warning(
+                    f"Rejected {finding_id} - no suspicious container image patterns found in task definitions."
+                )
+                return False
+
+        # Compute: ECS workloads lack centralized logging (COMP-ECS-003)
+        if finding_id == "COMP-ECS-003":
+            ecs_doc = self.evidence.get("ecs-inventory")
+            tdefs = ecs_doc.get("task_definitions") if isinstance(ecs_doc, dict) else None
+            if not isinstance(tdefs, list) or not tdefs:
+                logger.warning(
+                    f"Rejected {finding_id} - missing/empty ecs-inventory task_definitions evidence."
+                )
+                return False
+
+            has_logging_gap = False
+            for td in tdefs:
+                if not isinstance(td, dict):
+                    continue
+                cds = td.get("containerDefinitions")
+                if not isinstance(cds, list):
+                    continue
+                for cd in cds:
+                    if not isinstance(cd, dict):
+                        continue
+                    log_cfg = cd.get("logConfiguration")
+                    if not isinstance(log_cfg, dict):
+                        has_logging_gap = True
+                        break
+                    if str(log_cfg.get("logDriver") or "").lower() != "awslogs":
+                        has_logging_gap = True
+                        break
+                if has_logging_gap:
+                    break
+
+            if not has_logging_gap:
+                logger.warning(
+                    f"Rejected {finding_id} - all containers appear to have awslogs configuration."
+                )
+                return False
+
+        # Compute: ECS task roles overly permissive (COMP-ECS-004)
+        # We cannot determine role policy scope from this skill; require explicit wildcard evidence_snippet.
+        if finding_id == "COMP-ECS-004":
+            snippet_text = json.dumps(finding.evidence_snippet or {}, default=str).lower()
+            if '"action"' in snippet_text and ('"*"' in snippet_text or "iam:*" in snippet_text):
+                return True
+            logger.warning(
+                f"Rejected {finding_id} - insufficient evidence of overly permissive IAM actions for ECS roles."
+            )
+            return False
+
+        # ------------------------------
+        # IAM evidence-based validations
+        # ------------------------------
+
+        # IAM: No policy should have full administrative permissions (*:*) (IAM-008)
+        # Accept only when at least one policy statement contains wildcard Action ('*' or 'iam:*')
+        # AND is not strictly resource-scoped.
+        if finding_id == "IAM-008":
+            pols = self.evidence.get("policies")
+            if not isinstance(pols, list) or not pols:
+                logger.warning(f"Rejected {finding_id} - missing/empty policies evidence.")
+                return False
+
+            def _iam_actions(action: Any) -> List[str]:
+                if isinstance(action, str):
+                    return [action]
+                if isinstance(action, list):
+                    return [str(a) for a in action if a is not None]
+                return []
+
+            def _iam_resources(res: Any) -> List[str]:
+                if isinstance(res, str):
+                    return [res]
+                if isinstance(res, list):
+                    return [str(r) for r in res if r is not None]
+                return []
+
+            has_admin = False
+            for p in pols:
+                if not isinstance(p, dict):
+                    continue
+                doc = p.get("PolicyDocument")
+                if not isinstance(doc, dict):
+                    continue
+                stmts = doc.get("Statement")
+                stmt_list: List[Any]
+                if isinstance(stmts, list):
+                    stmt_list = stmts
+                elif isinstance(stmts, dict):
+                    stmt_list = [stmts]
+                else:
+                    stmt_list = []
+
+                for st in stmt_list:
+                    if not isinstance(st, dict):
+                        continue
+                    if str(st.get("Effect") or "").upper() != "ALLOW":
+                        continue
+                    acts = [a.lower() for a in _iam_actions(st.get("Action"))]
+                    if "*" not in acts and "iam:*" not in acts:
+                        continue
+
+                    # If action is wildcard, resource scoping matters. '*' resource is high risk.
+                    res_list = _iam_resources(st.get("Resource"))
+                    if not res_list:
+                        # Missing resource is effectively broad.
+                        has_admin = True
+                        break
+                    if any(r == "*" for r in res_list):
+                        has_admin = True
+                        break
+
+                if has_admin:
+                    break
+
+            if not has_admin:
+                logger.warning(
+                    f"Rejected {finding_id} - no Allow statements with wildcard Action+Resource found in policies evidence."
+                )
+                return False
+
+        # IAM: Role trust policies should not allow public access (*) (IAM-011)
+        # Accept only when at least one trust policy contains wildcard principal.
+        if finding_id == "IAM-011":
+            roles = self.evidence.get("roles")
+            if not isinstance(roles, list) or not roles:
+                logger.warning(f"Rejected {finding_id} - missing/empty roles evidence.")
+                return False
+
+            def _principal_is_wildcard(principal: Any) -> bool:
+                if principal == "*":
+                    return True
+                if isinstance(principal, dict):
+                    aws = principal.get("AWS")
+                    if aws == "*":
+                        return True
+                    if isinstance(aws, list) and any(x == "*" for x in aws):
+                        return True
+                return False
+
+            has_public_trust = False
+            for r in roles:
+                if not isinstance(r, dict):
+                    continue
+                trust = r.get("AssumeRolePolicyDocument")
+                if not isinstance(trust, dict):
+                    continue
+                stmts = trust.get("Statement")
+                stmt_list: List[Any]
+                if isinstance(stmts, list):
+                    stmt_list = stmts
+                elif isinstance(stmts, dict):
+                    stmt_list = [stmts]
+                else:
+                    stmt_list = []
+                for st in stmt_list:
+                    if not isinstance(st, dict):
+                        continue
+                    if str(st.get("Effect") or "").upper() != "ALLOW":
+                        continue
+                    if _principal_is_wildcard(st.get("Principal")):
+                        has_public_trust = True
+                        break
+                if has_public_trust:
+                    break
+
+            if not has_public_trust:
+                logger.warning(
+                    f"Rejected {finding_id} - no wildcard Principal '*' found in role trust policies."
+                )
+                return False
+
+        # IAM: Access keys should be rotated every 90 days (IAM-004)
+        # Accept only when at least one ACTIVE access key is older than 90 days.
+        if finding_id == "IAM-004":
+            users = self.evidence.get("users")
+            if not isinstance(users, list) or not users:
+                logger.warning(f"Rejected {finding_id} - missing/empty users evidence.")
+                return False
+
+            now = datetime.now(timezone.utc)
+            has_old_active = False
+            for u in users:
+                if not isinstance(u, dict):
+                    continue
+                for k in u.get("AccessKeys", []) or []:
+                    if not isinstance(k, dict):
+                        continue
+                    if str(k.get("Status") or "").lower() != "active":
+                        continue
+                    cd = k.get("CreateDate")
+                    if not isinstance(cd, str) or not cd:
+                        continue
+                    try:
+                        created = datetime.fromisoformat(cd.replace("Z", "+00:00"))
+                        if created.tzinfo is None:
+                            created = created.replace(tzinfo=timezone.utc)
+                    except Exception:
+                        continue
+                    age_days = (now - created).days
+                    if age_days > 90:
+                        has_old_active = True
+                        break
+                if has_old_active:
+                    break
+
+            if not has_old_active:
+                logger.warning(
+                    f"Rejected {finding_id} - no active access keys older than 90 days found in users evidence."
+                )
+                return False
+
+        # IAM: Users should not have multiple active access keys (IAM-014)
+        # Accept only when at least one user has >=2 ACTIVE keys.
+        if finding_id == "IAM-014":
+            users = self.evidence.get("users")
+            if not isinstance(users, list) or not users:
+                # Fallback to credential report when users.json is not available.
+                cred = self.evidence.get("credential-report")
+                by_user = cred.get("by_user") if isinstance(cred, dict) else None
+                if not isinstance(by_user, dict) or not by_user:
+                    # Fail-open: when only partial evidence is loaded (unit tests/chunks),
+                    # we cannot safely validate multi-key state.
+                    logger.warning(
+                        f"Accepted {finding_id} - users evidence missing and credential-report by_user unavailable (fail-open)."
+                    )
+                    return True
+
+                def _is_true(v: Any) -> bool:
+                    if isinstance(v, bool):
+                        return v
+                    if isinstance(v, str):
+                        return v.strip().lower() in {"true", "yes", "1"}
+                    if isinstance(v, int):
+                        return v == 1
+                    return False
+
+                has_multi_active = False
+                for _, row in by_user.items():
+                    if not isinstance(row, dict):
+                        continue
+                    if _is_true(row.get("access_key_1_active")) and _is_true(
+                        row.get("access_key_2_active")
+                    ):
+                        has_multi_active = True
+                        break
+
+                if not has_multi_active:
+                    logger.warning(
+                        f"Rejected {finding_id} - credential report shows no users with two active keys."
+                    )
+                    return False
+
+                return True
+
+            has_multi_active = False
+            for u in users:
+                if not isinstance(u, dict):
+                    continue
+                keys = u.get("AccessKeys")
+                if not isinstance(keys, list):
+                    continue
+                active = [
+                    k
+                    for k in keys
+                    if isinstance(k, dict) and str(k.get("Status") or "").lower() == "active"
+                ]
+                if len(active) >= 2:
+                    has_multi_active = True
+                    break
+
+            if not has_multi_active:
+                logger.warning(
+                    f"Rejected {finding_id} - no users with >=2 active access keys found in users evidence."
+                )
+                return False
+
+        # IAM: Users should not exist without group assignment (IAM-020)
+        # Accept only when at least one user has Groups empty.
+        if finding_id == "IAM-020":
+            users = self.evidence.get("users")
+            if not isinstance(users, list) or not users:
+                logger.warning(f"Rejected {finding_id} - missing/empty users evidence.")
+                return False
+
+            has_user_without_group = False
+            for u in users:
+                if not isinstance(u, dict):
+                    continue
+                groups = u.get("Groups")
+                if isinstance(groups, list) and len(groups) == 0:
+                    has_user_without_group = True
+                    break
+
+            if not has_user_without_group:
+                logger.warning(
+                    f"Rejected {finding_id} - no users with empty Groups[] found in users evidence."
+                )
                 return False
 
         return True  # Finding is valid against evidence

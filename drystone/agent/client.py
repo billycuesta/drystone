@@ -73,6 +73,7 @@ class AgentClient:
         self.client = None
         self.use_cli = False
         self.crash_safe_logger = crash_safe_logger
+        self.metrics_tracker: Any = None
 
         # Validate provider type
         valid_types = {"claude-api", "claude-cli"}
@@ -160,6 +161,7 @@ class AgentClient:
         checklist: Dict[str, Any],
         *,
         chunking: Optional[Dict[str, Any]] = None,
+        pre_checks: Optional[list] = None,
     ) -> SkillFindings:
         """Analyze AWS evidence against security checklist.
 
@@ -198,6 +200,7 @@ class AgentClient:
                 evidence,
                 checklist,
                 chunking=chunking,
+                pre_checks=pre_checks,
             )
         except Exception as e:
             # Fallback to legacy prompt if templates fail
@@ -262,7 +265,8 @@ class AgentClient:
         skill_name: str,
         evidence: Dict[str, Any],
         checklist: Dict[str, Any],
-        chunker: EvidenceChunker = None,
+        chunker: Optional[EvidenceChunker] = None,
+        pre_checks: Optional[list] = None,
     ) -> "SkillFindings":
         """Analyze evidence with automatic chunking for large datasets.
 
@@ -291,7 +295,9 @@ class AgentClient:
         # Check if chunking is needed
         if not chunker.should_chunk(evidence):
             # Small evidence - use existing flow
-            return self.analyze_evidence(skill_name, evidence, checklist)
+            return self.analyze_evidence(
+                skill_name, evidence, checklist, pre_checks=pre_checks
+            )
 
         # Large evidence - chunk and aggregate
         print("  📦 Evidence size requires chunking...")
@@ -300,6 +306,7 @@ class AgentClient:
         chunks = list(chunker.chunk_evidence(evidence))
         print(f"  📦 Processing {len(chunks)} chunks...")
 
+        failed_chunks = 0
         for i, chunk in enumerate(chunks):
             source_file = chunk.metadata.get("source_file", "unknown")
             extra = ""
@@ -320,16 +327,30 @@ class AgentClient:
                         "source_file": source_file,
                         "resource_range": chunk.metadata.get("resource_range"),
                     },
+                    pre_checks=pre_checks,  # Inject pre-computed facts in every chunk
                 )
 
-            chunk_findings = analyze_with_retry(
-                _analyze_chunk,
-                skill_name,
-                max_retries=3,
-            )
+            try:
+                chunk_findings = analyze_with_retry(
+                    _analyze_chunk,
+                    skill_name,
+                    max_retries=3,
+                )
 
-            # Aggregate findings
-            aggregator.add_findings(chunk_findings)
+                # Aggregate findings
+                aggregator.add_findings(chunk_findings)
+            except (AgentError, Exception) as e:
+                # Gracefully skip chunks that fail (e.g., metadata files that
+                # produce invalid responses). Log and continue.
+                failed_chunks += 1
+                logger.warning(
+                    f"Chunk {i + 1}/{len(chunks)} ({source_file}) failed: {e}"
+                )
+                print(f"     ⚠️  Chunk {source_file} skipped (parse error)")
+                continue
+
+        if failed_chunks:
+            print(f"  ⚠️  {failed_chunks}/{len(chunks)} chunks failed (skipped)")
 
         # Return aggregated result
         final_findings = aggregator.aggregate()
@@ -508,6 +529,8 @@ CRITICAL OUTPUT REQUIREMENTS:
             AgentError: If API call fails
         """
         try:
+            if self.client is None:
+                raise AgentError("Claude API client is not initialized")
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=self.max_tokens,
@@ -880,6 +903,7 @@ Missing CloudWatch alarm:
         checklist: Dict[str, Any],
         *,
         chunking: Optional[Dict[str, Any]] = None,
+        pre_checks: Optional[list] = None,
     ) -> str:
         """Build analysis prompt using structured XML templates (Shannon pattern).
 
@@ -976,6 +1000,12 @@ Missing CloudWatch alarm:
                 "CHUNKING_INSTRUCTIONS": chunking_instructions,
                 "SKILL_ADDENDUM": "",
             }
+
+            # Inject pre-computed facts from deterministic pre-checks
+            if pre_checks:
+                from drystone.validation.pre_checks import format_pre_checks_for_prompt
+
+                context["SKILL_ADDENDUM"] = format_pre_checks_for_prompt(pre_checks, checklist)
 
             # Load and render template
             template = get_audit_template(skill_name, context)

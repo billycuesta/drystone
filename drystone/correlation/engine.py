@@ -212,6 +212,9 @@ class CorrelationEngine:
                 except Exception as e:
                     errors.append(f"Dynamic pattern {pattern.id}: {e}")
 
+            # Step 3c: Validate correlations (deterministic coherence checks)
+            correlations = self._validate_correlations(correlations, findings_by_skill)
+
             # Step 4: Save results
             output = {
                 "metadata": {
@@ -439,6 +442,66 @@ class CorrelationEngine:
             "lateral_movement_paths": corr.attack_path,
         }
         return out
+
+    def _validate_correlations(
+        self,
+        correlations: List[CorrelatedFinding],
+        findings_by_skill: Dict[str, List[Finding]],
+    ) -> List[CorrelatedFinding]:
+        """Validate correlation coherence (deterministic).
+
+        Rules:
+        1. All source finding IDs must exist in actual findings
+        2. At least 2 source findings required for a valid correlation
+        3. Remove duplicates by pattern_id + source_finding_ids
+
+        Args:
+            correlations: List of correlated findings to validate
+            findings_by_skill: Original findings by skill
+
+        Returns:
+            Filtered list of valid correlations
+        """
+        # Build set of all finding IDs
+        all_finding_ids: Set[str] = set()
+        for findings in findings_by_skill.values():
+            for f in findings:
+                all_finding_ids.add(f.id)
+
+        valid = []
+        seen_keys: Set[str] = set()
+
+        for corr in correlations:
+            # Rule 1: All source findings must exist
+            source_ids = corr.source_finding_ids or []
+            if source_ids and not all(sid in all_finding_ids for sid in source_ids):
+                logger.debug(
+                    f"Dropping correlation {corr.id}: missing source findings"
+                )
+                continue
+
+            # Rule 2: At least 2 source findings (skip for dynamic patterns with empty sources)
+            if source_ids and len(source_ids) < 2:
+                logger.debug(
+                    f"Dropping correlation {corr.id}: fewer than 2 source findings"
+                )
+                continue
+
+            # Rule 3: Dedup by pattern + sources
+            dedup_key = f"{corr.pattern_id}|{'|'.join(sorted(source_ids))}"
+            if dedup_key in seen_keys:
+                continue
+            seen_keys.add(dedup_key)
+
+            valid.append(corr)
+
+        if len(valid) < len(correlations):
+            logger.info(
+                f"Correlation validation: {len(correlations)} → {len(valid)} "
+                f"({len(correlations) - len(valid)} dropped)"
+            )
+
+        return valid
 
     def _load_all_findings(self) -> Dict[str, List[Finding]]:
         """Load findings from all {skill}.json files.

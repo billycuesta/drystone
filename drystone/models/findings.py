@@ -10,9 +10,7 @@ class PCIDSSControl(BaseModel):
     """PCI DSS control mapping for a finding."""
 
     control: str = Field(..., description="PCI DSS control ID (e.g., '8.4.1')")
-    reason: str = Field(
-        ..., description="Why this finding relates to this control"
-    )
+    reason: str = Field(..., description="Why this finding relates to this control")
 
 
 class Finding(BaseModel):
@@ -22,9 +20,7 @@ class Finding(BaseModel):
     severity: Literal["Critical", "High", "Medium", "Low"] = Field(
         ..., description="Finding severity level"
     )
-    risk_score: float = Field(
-        ..., ge=0.0, le=10.0, description="Risk score 0.0-10.0"
-    )
+    risk_score: float = Field(..., ge=0.0, le=10.0, description="Risk score 0.0-10.0")
     title: str = Field(..., description="Brief finding title")
     description: str = Field(..., description="Detailed description of the finding")
     evidence_refs: List[str] = Field(
@@ -42,9 +38,7 @@ class Finding(BaseModel):
     affected_resources: List[str] = Field(
         default_factory=list, description="ARNs or identifiers of affected resources"
     )
-    remediation: str = Field(
-        ..., description="Specific remediation steps or recommendations"
-    )
+    remediation: str = Field(..., description="Specific remediation steps or recommendations")
     cis_reference: Optional[str] = Field(
         None, description="CIS AWS Foundations reference (e.g., '1.5')"
     )
@@ -67,12 +61,7 @@ class Finding(BaseModel):
                 "evidence_snippet": {
                     "User": "root",
                     "MFADevices": [],
-                    "AccessKeys": [
-                        {
-                            "AccessKeyId": "AKIA...",
-                            "Status": "Active"
-                        }
-                    ]
+                    "AccessKeys": [{"AccessKeyId": "AKIA...", "Status": "Active"}],
                 },
                 "affected_resources": ["arn:aws:iam::123456789012:root"],
                 "remediation": "Enable MFA on root account...",
@@ -118,17 +107,11 @@ class SkillFindings(BaseModel):
     """Complete findings from skill analysis."""
 
     skill: str = Field(..., description="Skill name (e.g., 'iam')")
-    findings: List[Finding] = Field(
-        default_factory=list, description="List of security findings"
-    )
+    findings: List[Finding] = Field(default_factory=list, description="List of security findings")
     summary: FindingsSummary = Field(..., description="Summary statistics")
-    analyzed_at: datetime = Field(
-        default_factory=datetime.utcnow, description="Analysis timestamp"
-    )
+    analyzed_at: datetime = Field(default_factory=datetime.utcnow, description="Analysis timestamp")
     evidence_count: int = Field(..., ge=0, description="Number of evidence files analyzed")
-    checklist_version: str = Field(
-        default="1.0", description="Version of security checklist used"
-    )
+    checklist_version: str = Field(default="1.0", description="Version of security checklist used")
 
     class Config:
         """Pydantic config."""

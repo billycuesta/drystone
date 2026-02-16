@@ -218,6 +218,24 @@ class WizardConfig(BaseModel):
             raise ValueError("At least one skill must be selected")
         return v
 
+    @validator("report_type")
+    def validate_report_type(cls, v: str, values: dict) -> str:
+        """Disallow pentest report unless pentest preset used.
+
+        In the wizard, selecting the pentest preset expands skills to core skills and
+        forces report_type='pentest'. This validator prevents manual combinations like
+        report_type='pentest' with arbitrary skill sets.
+        """
+
+        if v == "pentest":
+            skills = values.get("skills") or []
+            # After validation, preset expands to core skills.
+            if skills != ["iam", "exposure", "network", "vulns"]:
+                raise ValueError(
+                    "report_type='pentest' is only supported with the pentest preset (IAM+Exposure+Network+Vulns)"
+                )
+        return v
+
     @validator("output_formats")
     def validate_formats(cls, v: List[str]) -> List[str]:
         """Validate output formats."""

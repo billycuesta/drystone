@@ -326,11 +326,6 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
     skills = questionary.checkbox(
         "Security Skills to Execute:",
         choices=[
-            questionary.Choice(
-                "Pentest Internal (Preset: IAM + Exposure + Network + Vulns)",
-                "pentest",
-                checked="pentest" in current_skills,
-            ),
             questionary.Choice("IAM Security Audit", "iam", checked="iam" in current_skills),
             questionary.Choice(
                 "Internet Exposure Audit", "exposure", checked="exposure" in current_skills
@@ -363,6 +358,13 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
             questionary.Choice("CI/CD (CodeBuild) Audit", "cicd", checked="cicd" in current_skills),
             questionary.Choice(
                 "Compute (ECS/EKS) Audit", "compute", checked="compute" in current_skills
+            ),
+            # Subtle separator: pentest preset is intentionally isolated (complex mode).
+            questionary.Separator("────────────"),
+            questionary.Choice(
+                "Internal Pentest",
+                "pentest",
+                checked="pentest" in current_skills,
             ),
         ],
         validate=lambda x: (
@@ -410,11 +412,6 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
                     "🔐 PCI DSS Compliance Report - Control-based compliance table",
                     "pci-dss",
                     checked=current_report_type == "pci-dss",
-                ),
-                questionary.Choice(
-                    "🔬 Pentest Technical Report - Exploitability, CVSS, ATT&CK",
-                    "pentest",
-                    checked=current_report_type == "pentest",
                 ),
             ],
             instruction="(Select report focus and structure)",

@@ -201,6 +201,12 @@ def audit(
     session = AuditSession(config.client_name, account_id)
     click.echo(f"   Session: {session.base_path}\n")
 
+    # Metrics tracker (per-session)
+    from drystone.logging import MetricsTracker
+
+    metrics_file = session.base_path / "metrics.json"
+    metrics_tracker = MetricsTracker(metrics_file)
+
     # Create AWS client for all skills
     aws_client = AWSClient(config)
 
@@ -263,30 +269,13 @@ def audit(
     # Create provider configuration once
     aws_access_key_id, aws_secret_access_key, aws_session_token = config.get_aws_credentials()
 
-    # Only load Bedrock credentials if using Bedrock provider
-    bedrock_access_key_id = None
-    bedrock_secret_access_key = None
-    bedrock_session_token = None
-
-    if config.ai_provider == "bedrock":
-        bedrock_access_key_id, bedrock_secret_access_key, bedrock_session_token = (
-            config.get_bedrock_credentials()
-        )
-
     provider_config = {
         "type": config.ai_provider,
         "api_key": config.ai_api_key,
-        # Audit credentials (for evidence collection context)
-        "aws_access_key_id": aws_access_key_id,
-        "aws_secret_access_key": aws_secret_access_key,
-        "aws_session_token": aws_session_token,
-        # Bedrock credentials (only if using Bedrock provider)
-        "bedrock_access_key_id": bedrock_access_key_id,
-        "bedrock_secret_access_key": bedrock_secret_access_key,
-        "bedrock_session_token": bedrock_session_token,
     }
 
     agent = AgentClient(provider_config=provider_config)
+    agent.metrics_tracker = metrics_tracker
 
     # Analyze skills in PARALLEL using ThreadPoolExecutor
     # This dramatically speeds up multi-skill audits (4-5x faster)
