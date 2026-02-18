@@ -1,4 +1,13 @@
-# Drystone 🐡
+# Drystone
+
+```text
+ ██████╗ ██████╗ ██╗   ██╗███████╗████████╗ ██████╗ ███╗   ██╗███████╗
+ ██╔══██╗██╔══██╗╚██╗ ██╔╝██╔════╝╚══██╔══╝██╔═══██╗████╗  ██║██╔════╝
+ ██║  ██║██████╔╝ ╚████╔╝ ███████╗   ██║   ██║   ██║██╔██╗ ██║█████╗
+ ██║  ██║██╔══██╗  ╚██╔╝  ╚════██║   ██║   ██║   ██║██║╚██╗██║██╔══╝
+ ██████╔╝██║  ██║   ██║   ███████║   ██║   ╚██████╔╝██║ ╚████║███████╗
+ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝   ╚═╝    ╚═════╝ ╚═╝  ╚═══╝╚══════╝
+```
 
 **AWS Security Audit CLI powered by Claude**
 
@@ -8,18 +17,18 @@ Auditorías de seguridad automatizadas en AWS con análisis inteligente usando C
 
 ## 📊 Status: Production Ready ✅
 
-**Phase 1e Complete** - Evidence Quality Improvements + Validation Framework Matured
+**Current architecture:** 3-tier validation, cross-skill correlation, pentest-mode methodology, and unified PDF reporting.
 
 | Métrica | Logro | Status |
 |---------|-------|--------|
 | **Speedup** | 4.8x (24s → 5s) | ✅ |
 | **Evidence Reduction** | 70% (5-10MB → 600KB-1.5MB) | ✅ |
-| **Skills Implemented** | 8/8 (IAM, Network, Exposure, Vulns, Hardening, Secrets, WAF, ECR, Alerting) | ✅ |
+| **Skills Implemented** | 13 (IAM, Exposure, Network, Vulns, Alerting, Hardening, Secrets, WAF, ECR, KMS, Messaging, CICD, Compute) | ✅ |
 | **Test Coverage** | 100+ tests passing (validation + skills) | ✅ |
 | **Error Resilience** | +90% (retry + validation) | ✅ |
 | **Validation Framework** | Multi-skill gating rules + snippet extraction | ✅ |
 | **Report Structure** | Findings summary + architecture visualization | ✅ |
-| **Last Updated** | 2026-02-13 | ✅ |
+| **Last Updated** | 2026-02-18 | ✅ |
 
 ---
 
@@ -72,7 +81,7 @@ open audit-logs/*/reports/*.md
 
 ## ✨ Features
 
-### 🎯 8 Modular Skills
+### 🎯 13 Modular Skills
 - **IAM** - Identity & Access Management (users, roles, policies, MFA)
 - **Network** - Network Security (SGs, NACLs, VPC endpoints, Flow Logs)
 - **Exposure** - Public Exposure (S3 public access, RDS, CloudFront)
@@ -81,6 +90,10 @@ open audit-logs/*/reports/*.md
 - **Secrets Manager** - Secrets Management (rotation, encryption, access control)
 - **WAF** - Web Application Firewall (WAFv2, coverage, logging, rules)
 - **Alerting** - Alert Architecture (CloudTrail → EventBridge → SNS)
+- **KMS** - Key management hardening and policy controls
+- **Messaging** - SQS/SNS policy and encryption posture
+- **CICD** - CodeBuild security controls and secrets exposure
+- **Compute** - ECS/EKS/EC2 workload hardening posture
 
 ### ⚡ Performance
 - **4.8x speedup** - Parallel skill execution (ThreadPoolExecutor)
@@ -96,8 +109,10 @@ open audit-logs/*/reports/*.md
 ### 📋 Reports
 - **Markdown** - Technical findings (searchable, readable)
 - **JSON** - Machine-readable format (automation-friendly)
+- **PDF** - Styled report (dark theme, scope, findings cards, evidence)
 - **PCI DSS** - Compliance mapping (all controls covered)
 - **General Security** - Executive summary with metrics
+- **Pentest Technical** - Attack chains, exploitation narrative, methodology
 
 ### 🔐 Security
 - Credentials never logged or displayed
@@ -171,32 +186,64 @@ drystone/
 
 ## 🏗️ Architecture
 
-**Core Pattern:** App orchestrates, Agent analyzes
+**Core Pattern:** App orchestrates, Agent analyzes.
 
-```
-User runs audit
-       ↓
-App: Read configuration
-       ↓
-App: Validate AWS credentials
-       ↓
-App: Collect evidence (parallel, 6 skills)
-       ├─ Skill 1: AWS API calls → JSON
-       ├─ Skill 2: AWS API calls → JSON
-       └─ Skill 3: AWS API calls → JSON
-       ↓
-Agent: Analyze evidence + checklist → Claude API
-       ├─ Finding 1 (CRITICAL)
-       ├─ Finding 2 (HIGH)
-       └─ Finding 3 (MEDIUM)
-       ↓
-App: Validate findings (4-layer)
-       ↓
-App: Deduplicate findings
-       ↓
-App: Generate reports (Markdown/JSON/PCI DSS)
-       ↓
-Results saved to audit-logs/
+The source-of-truth architecture diagram is maintained in:
+- `drystone-specs/drystone-architecture.md`
+
+Snapshot:
+
+```text
+┌─────────────────────────────────────────────────────────────────────┐
+│                        ENTRY POINT                                  │
+│  python -m drystone audit                                           │
+│  __main__.py → cli/main.py → audit()                               │
+└──────────────────────────┬──────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  PHASE 0: WIZARD                          cli/ui/wizard.py         │
+│  - Client, credentials, region, skills, formats (md/json/pdf)      │
+│  - Report type (general/pci-dss/pentest)                           │
+└──────────────────────────┬──────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  PHASE 1: AWS VALIDATION               cloud/aws/client.py         │
+│  STS GetCallerIdentity -> account_id + session                     │
+└──────────────────────────┬──────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  PHASE 1a: EVIDENCE COLLECTION (parallel skills)                    │
+│  skills/{skill}/__init__.py -> evidence/{skill}/*.json            │
+└──────────────────────────┬──────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  PHASE 1b: 3-TIER ANALYSIS                                          │
+│  Tier1 pre-checks -> Tier2 AI -> Tier3 reconcile/normalize          │
+│  Output: findings/{skill}.json (+validation_commands)               │
+└──────────────────────────┬──────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  PHASE 2: CORRELATION (attack chains)                               │
+│  correlation/engine.py + patterns.py -> findings/correlated.json    │
+└──────────────────────────┬──────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  PHASE 3: REPORT GENERATION                                          │
+│  Markdown / JSON / PDF / PCI DSS / Pentest + Pentest PDF            │
+│  + pentest exploitation enricher + methodology section               │
+└──────────────────────────┬──────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  PHASE 4: SESSION & METRICS                                           │
+│  audit-logs/{client}_{timestamp}/ (evidence, findings, reports)     │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
