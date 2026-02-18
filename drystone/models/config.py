@@ -45,7 +45,7 @@ class WizardConfig(BaseModel):
     )
 
     # Step 6: Output formats
-    output_formats: List[Literal["markdown", "json"]] = Field(
+    output_formats: List[Literal["markdown", "json", "pdf"]] = Field(
         default=["markdown"], description="Report output formats"
     )
 
@@ -239,7 +239,7 @@ class WizardConfig(BaseModel):
     @validator("output_formats")
     def validate_formats(cls, v: List[str]) -> List[str]:
         """Validate output formats."""
-        valid_formats = {"markdown", "json"}
+        valid_formats = {"markdown", "json", "pdf"}
         invalid = set(v) - valid_formats
         if invalid:
             raise ValueError(f"Invalid formats: {invalid}. Valid: {valid_formats}")

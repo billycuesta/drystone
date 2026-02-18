@@ -16,7 +16,7 @@
 │  ├─ AWS credentials (4 methods)     └─ API key (if API)             │
 │  ├─ Region                                                          │
 │  ├─ Skills (13 disponibles)                                         │
-│  ├─ Output formats (md/json)                                        │
+│  ├─ Output formats (md/json/pdf)                                    │
 │  └─ Report type (general/pci-dss/pentest)                           │
 │                                                                     │
 │  Output: WizardConfig (Pydantic) → ~/.drystone/config.json          │
@@ -111,6 +111,7 @@
 │  └─────────────────────────────────────────────────┘    │            │
 │                                                         │            │
 │  Output: SkillFindings → findings/{skill}.json          │            │
+│  (+ validation_commands derived from evidence refs)      │            │
 └──────────────────────────┬──────────────────────────────────────────┘
                            │
                            ▼
@@ -143,8 +144,39 @@
 │  │  ASCII      │ │  table    │ │  chains │ │  readable)  │          │
 │  │  charts     │ │  ✅/❌/⚠️) │ │  paths) │ │             │          │
 │  └─────────────┘ └───────────┘ └─────────┘ └─────────────┘          │
+│  ┌───────────────────────────────────────────────────────────────┐    │
+│  │  PDF (WeasyPrint)                                             │    │
+│  │  reports/formats/pdf.py + reports/templates/pdf_report.xml    │    │
+│  │  Visual report with styled header + scope + findings cards    │    │
+│  └───────────────────────────────────────────────────────────────┘    │
+│  ┌───────────────────────────────────────────────────────────────┐    │
+│  │  Pentest PDF (attack chains)                                  │    │
+│  │  reports/formats/pentest_pdf.py                               │    │
+│  │  Reuses shared PDF template (pdf_report.xml) for visual parity│    │
+│  └───────────────────────────────────────────────────────────────┘    │
+│  ┌───────────────────────────────────────────────────────────────┐    │
+│  │  Validation commands for reproducibility                      │    │
+│  │  reports/validation_commands.py                               │    │
+│  │  AWS CLI commands mapped from evidence_refs per skill         │    │
+│  └───────────────────────────────────────────────────────────────┘    │
+│  ┌───────────────────────────────────────────────────────────────┐    │
+│  │  Finding exploitation narrative                               │    │
+│  │  PDF section: "Exploitation (Theoretical)" per finding       │    │
+│  │  Derived from finding fields + command fallbacks              │    │
+│  └───────────────────────────────────────────────────────────────┘    │
+│  ┌───────────────────────────────────────────────────────────────┐    │
+│  │  Pentest Methodology section                                 │    │
+│  │  reports/formats/pentest.py                                  │    │
+│  │  PTES-adapted phases (+ PDF Methodology block for pentest)    │    │
+│  └───────────────────────────────────────────────────────────────┘    │
+│  ┌───────────────────────────────────────────────────────────────┐    │
+│  │  Pentest exploitation enricher                                │    │
+│  │  pentest/exploitation_enricher.py                             │    │
+│  │  Adds exploitation_description + exploitation_commands         │    │
+│  │  from evidence context (report_type=pentest only)             │    │
+│  └───────────────────────────────────────────────────────────────┘    │
 │                                                                     │
-│  Output: reports/{skill}_report.{md|json}                           │
+│  Output: reports/*.{md|json|pdf}                                     │
 └──────────────────────────┬──────────────────────────────────────────┘
                            │
                            ▼
@@ -155,7 +187,7 @@
 │  audit-logs/{client}_{timestamp}/                                   │
 │  ├── evidence/{skill}/*.json      ← Raw AWS data                   │
 │  ├── findings/{skill}.json        ← Normalized findings            │
-│  ├── reports/*_report.md          ← Generated reports              │
+│  ├── reports/*.md|*.json|*.pdf    ← Generated reports              │
 │  ├── metrics.json                 ← Timing, counts, risk scores    │
 │  └── audit.log                    ← Structured log                  │
 └─────────────────────────────────────────────────────────────────────┘
@@ -266,6 +298,17 @@ App (Python)                    Agent (Claude)
 4. **Checklists** - Determinan qué busca el agente (y qué pre-checks existen)
 5. **Correlation patterns** - Attack chains cross-skill
 
+## Pentest methodology diagram
+
+- Detailed pentest-mode workflow and methodology mapping:
+  - `drystone-specs/drystone-pentest-methodology.md`
+
+## Regla de mantenimiento documental
+
+- Cuando se haga un cambio relevante en arquitectura/reporting/flujo:
+  - actualizar `opencode.md` para mantener contexto operativo vigente.
+  - actualizar `drystone-specs/drystone-architecture.md` cuando el cambio impacte arquitectura o flujo.
+
 ## Key files
 
 | File | Role |
@@ -276,3 +319,195 @@ App (Python)                    Agent (Claude)
 | `validation/findings_normalizer.py` | Tier 3: Skips pre-checked IDs, handles complex checks |
 | `validation/checklist_coverage.py` | Coverage gap detection |
 | `validation/queue_validator.py` | Pre-correlation gate |
+
+## Modulo CLI y Wizard (`drystone/cli/main.py`, `drystone/cli/ui/wizard.py`)
+
+```
+Objetivo:
+- Ser la puerta de entrada de toda auditoria (`python -m drystone audit`).
+- Recoger configuracion del usuario (cliente, credenciales, region, skills, formatos, tipo de reporte, proveedor AI).
+
+Como funciona:
+- `main.py` define comandos/opciones de Click y decide si usar wizard interactivo o argumentos directos.
+- `wizard.py` guía al usuario por menus (scope AWS + configuracion AI) y retorna un `WizardConfig`.
+- El resultado se valida con Pydantic y se usa para iniciar la sesion de auditoria.
+
+Valor en el flujo:
+- Estandariza la entrada y evita ejecuciones inconsistentes por parametros incompletos.
+```
+
+## Modulo Configuracion (`drystone/models/config.py`)
+
+```
+Objetivo:
+- Definir un contrato fuerte de configuracion (tipos, defaults, validaciones).
+
+Como funciona:
+- `WizardConfig` centraliza campos clave: credenciales, skills, formatos, report_type, AI provider.
+- Validadores aplican reglas de negocio (skills permitidos, coherencia report_type, API key requerida segun proveedor, etc.).
+
+Valor en el flujo:
+- Convierte entrada del usuario en un objeto confiable para todas las fases posteriores.
+```
+
+## Modulo Sesion y Persistencia (`drystone/storage/session.py`)
+
+```
+Objetivo:
+- Crear y estructurar el workspace de una auditoria para trazabilidad completa.
+
+Como funciona:
+- Genera `audit-logs/{client}_{timestamp}/`.
+- Expone rutas utilitarias para `evidence/`, `findings/`, `reports/`.
+- Inicializa logging de archivo por sesion.
+
+Valor en el flujo:
+- Garantiza que cada ejecucion tenga artefactos aislados, auditables y reproducibles.
+```
+
+## Modulo Validacion AWS (`drystone/cloud/aws/client.py`)
+
+```
+Objetivo:
+- Verificar temprano que las credenciales AWS son validas y obtener contexto de cuenta.
+
+Como funciona:
+- Ejecuta `STS GetCallerIdentity` con boto3.
+- Devuelve `account_id` y contexto base para la auditoria.
+
+Valor en el flujo:
+- Evita correr coleccion y analisis con credenciales invalidas o cuenta inesperada.
+```
+
+## Modulo Skills de recoleccion (`drystone/skills/*/__init__.py`)
+
+```
+Objetivo:
+- Obtener evidencia cruda de cada dominio de seguridad (IAM, Exposure, Network, Vulns, etc.).
+
+Como funciona:
+- Cada skill implementa `collect()` con llamadas boto3 al servicio correspondiente.
+- Guarda evidencia en JSON (y artefactos especiales cuando aplica, p.ej. CSV de IAM).
+- La ejecucion es paralela entre skills para reducir tiempo total.
+
+Valor en el flujo:
+- Separa claramente “recoleccion factual” de “interpretacion AI”.
+```
+
+## Modulo Pre-checks deterministas (Tier 1) (`drystone/validation/pre_checks.py`)
+
+```
+Objetivo:
+- Resolver por codigo las comprobaciones binarias obvias y reproducibles.
+
+Como funciona:
+- Evalua evidencia+checklist y produce PASS/FAIL/SKIP por check.
+- Devuelve hechos precomputados que luego se inyectan al prompt AI.
+
+Valor en el flujo:
+- Reduce falsos positivos y variabilidad en checks donde no hace falta inferencia LLM.
+```
+
+## Modulo Cliente AI y chunking (Tier 2 base) (`drystone/agent/client.py`, `drystone/agent/chunker.py`)
+
+```
+Objetivo:
+- Ejecutar analisis AI de forma robusta sobre evidencia grande.
+
+Como funciona:
+- Construye prompt estructurado (plantilla + checklist + evidencia + pre_facts).
+- Usa chunking para dividir evidencia extensa.
+- Soporta Claude CLI/API con reintentos y manejo de errores.
+
+Valor en el flujo:
+- Permite escalar analisis sin romper por limite de contexto.
+```
+
+## Modulo Validacion de salida AI (`drystone/validation/output_validators.py`, `drystone/validation/reviewer.py`)
+
+```
+Objetivo:
+- Asegurar que la salida del agente tenga estructura, consistencia y calidad minima antes de normalizar/reportar.
+
+Como funciona:
+- `output_validators.py` valida y corrige incoherencias estructurales (conteos, severidades, campos requeridos).
+- `reviewer.py` aplica reglas de revision sobre findings para detectar gaps de calidad y priorizacion.
+- Si hay inconsistencias no criticas, intenta reconciliarlas sin romper el flujo.
+
+Valor en el flujo:
+- Reduce drift en outputs AI y evita que errores de formato/consistencia lleguen al reporte final.
+```
+
+## Modulo Reconciliacion y Normalizacion (Tier 3) (`drystone/skills/base.py`, `drystone/validation/findings_normalizer.py`)
+
+```
+Objetivo:
+- Convertir salida AI en findings consistentes, verificables y alineados al checklist.
+
+Como funciona:
+- Reconciliacion con pre-checks:
+  - Rechaza findings que contradicen PASS.
+  - Inyecta findings faltantes cuando hay FAIL no reportado.
+- Normalizador:
+  - Dedup, calibracion de severidad/risk score, validacion contra evidencia, reglas anti-falsos positivos.
+
+Valor en el flujo:
+- Capa final de control de calidad antes de reportar/correlacionar.
+```
+
+## Modulo Cobertura y Gate de cola (`drystone/validation/checklist_coverage.py`, `drystone/validation/queue_validator.py`)
+
+```
+Objetivo:
+- Asegurar que no se pierdan checks importantes y que la salida minima sea estructuralmente valida.
+
+Como funciona:
+- `checklist_coverage` detecta huecos de cobertura (checks criticos no reflejados).
+- `queue_validator` actua como compuerta antes de correlacion para detectar estados rotos.
+
+Valor en el flujo:
+- Previene que fases aguas abajo trabajen con findings incompletos o inconsistentes.
+```
+
+## Modulo Correlacion (Phase 2) (`drystone/correlation/engine.py`, `patterns.py`)
+
+```
+Objetivo:
+- Unir findings de distintos skills para detectar cadenas de ataque y riesgo compuesto.
+
+Como funciona:
+- Indexa recursos, aplica patrones de correlacion y limita volumen/tiempo.
+- Produce correlaciones con contexto de explotabilidad, impacto y relaciones entre hallazgos.
+
+Valor en el flujo:
+- Pasa de “lista de problemas aislados” a “escenarios de riesgo reales”.
+```
+
+## Modulo Reportes (Phase 3) (`drystone/reports/generator.py`, `drystone/reports/formats/*`)
+
+```
+Objetivo:
+- Convertir findings/correlaciones en salidas consumibles por equipos tecnicos y compliance.
+
+Como funciona:
+- `generator.py` orquesta formateadores y post-procesadores.
+- Formatos: General Markdown, PCI DSS, Pentest y JSON.
+- En modo pentest puede consolidar salida para vista de engagement completo.
+
+Valor en el flujo:
+- Entrega final accionable con trazabilidad a evidencia.
+```
+
+## Modulo Metricas y observabilidad (`drystone/logging/metrics_tracker.py`, `audit.log`)
+
+```
+Objetivo:
+- Medir rendimiento/calidad y facilitar debugging operativo.
+
+Como funciona:
+- Registra tiempos, contadores y metrica operativa por sesion/skill.
+- Mantiene logs por sesion para reconstruir el flujo de ejecucion.
+
+Valor en el flujo:
+- Base para QA iterativo, tuning de prompts/rules y mejora continua.
+```

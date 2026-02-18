@@ -383,6 +383,7 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
         choices=[
             questionary.Choice("Markdown", "markdown", checked="markdown" in current_formats),
             questionary.Choice("JSON", "json", checked="json" in current_formats),
+            questionary.Choice("PDF", "pdf", checked="pdf" in current_formats),
         ],
         validate=lambda x: len(x) > 0 or "Select at least one format",
     ).ask()

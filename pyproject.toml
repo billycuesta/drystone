@@ -32,6 +32,10 @@ dev = [
     "mypy>=1.7.0",
 ]
 
+pdf = [
+    "weasyprint>=62.0",
+]
+
 
 llm = [
     "anthropic>=0.7.0",
@@ -46,7 +50,7 @@ drystone = "drystone.cli.main:cli"
 packages = ["drystone"]
 
 [tool.setuptools.package-data]
-drystone = ["py.typed"]
+drystone = ["py.typed", "reports/templates/*.xml"]
 
 [tool.black]
 line-length = 100

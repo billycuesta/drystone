@@ -62,7 +62,7 @@ def cli() -> None:
 @click.option(
     "--formats",
     multiple=True,
-    type=click.Choice(["markdown", "json"]),
+    type=click.Choice(["markdown", "json", "pdf"]),
     help="Output formats (can specify multiple times)",
 )
 @click.option(

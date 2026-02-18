@@ -1,0 +1,400 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<reportTemplate>
+  <html><![CDATA[
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Drystone - AWS Security Findings Report</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 8mm 0 12mm 0;
+      background: #003746;
+      @bottom-left {
+        content: "Drystone Security Report";
+        font-family: 'Segoe UI', sans-serif;
+        font-size: 8px;
+        color: #cbd5e1;
+        margin-left: 15mm;
+      }
+      @bottom-right {
+        content: "Confidential Information";
+        font-family: 'Segoe UI', sans-serif;
+        font-size: 8px;
+        color: #cbd5e1;
+        margin-right: 15mm;
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      background: #003746;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      line-height: 1.45;
+      margin: 0;
+      padding: 7mm 15mm 8mm 15mm;
+      background-color: #003746;
+      color: #f8fafc;
+      font-size: 11px;
+    }
+
+    .ascii-header {
+      margin: 0 0 18px 0;
+      padding: 14px 18px;
+      background: transparent;
+      border: 2px solid #f08a74;
+      border-radius: 7px;
+      text-align: center;
+    }
+
+    .drystone-logo {
+      margin: 0;
+      padding: 0;
+      border: none;
+      background: transparent;
+      box-shadow: none;
+      font-family: 'Courier New', monospace;
+      font-size: 9px;
+      line-height: 1.1;
+      white-space: pre;
+      display: inline-block;
+      text-align: left;
+    }
+
+    .drystone-logo-line {
+      white-space: pre;
+    }
+
+    .header-tagline,
+    .header-version,
+    .header-motto,
+    .header-analysis-title {
+      margin: 0;
+      color: #f08a74;
+      text-align: center;
+      font-family: 'Courier New', monospace;
+      letter-spacing: 0.2px;
+    }
+
+    .header-tagline {
+      margin-top: 16px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .header-version {
+      margin-top: 4px;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .header-motto {
+      margin-top: 10px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .header-analysis-title {
+      margin: 34px 0 18px 0;
+      color: #f8fafc;
+      font-size: 19px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      text-align: center;
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+    }
+
+    .company-name {
+      font-size: 24px;
+      font-weight: 700;
+      margin: 10px 0 6px 0;
+      letter-spacing: 1px;
+    }
+
+    .subtitle { font-size: 14px; margin: 0; }
+
+    h2 {
+      color: #f8fafc;
+      font-size: 1.45em;
+      margin: 24px 0 14px 0;
+      font-weight: 700;
+      border-bottom: 2px solid #f08a74;
+      padding-bottom: 7px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      page-break-after: avoid;
+    }
+
+    h3 {
+      color: #f8fafc;
+      font-size: 1.1em;
+      margin: 16px 0 10px 0;
+    }
+
+    .card {
+      background: #0b4150;
+      border: 1px solid #1f5968;
+      border-radius: 10px;
+      padding: 14px;
+      margin: 12px 0;
+      page-break-inside: avoid;
+    }
+
+    .scope-definition {
+      background: #0b4150;
+      border: 1px solid #1f5968;
+      border-radius: 12px;
+      padding: 12px;
+      margin: 10px 0 14px 0;
+      page-break-inside: avoid;
+    }
+
+    .scope-row {
+      display: flex;
+      gap: 10px;
+      align-items: baseline;
+      padding: 7px 2px;
+      border-bottom: 1px dashed #2f6b79;
+    }
+
+    .scope-row:last-child {
+      border-bottom: none;
+    }
+
+    .scope-label {
+      display: inline-block;
+      color: #93c5d4;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      font-size: 9px;
+      min-width: 140px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .scope-value {
+      display: inline-block;
+      color: #f8fafc;
+      font-size: 11px;
+      font-weight: 600;
+      word-break: break-word;
+    }
+
+    .findings-summary-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      margin: 14px 0;
+      background: #0b4150;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid #1f5968;
+      font-size: 10px;
+    }
+
+    .findings-summary-table th {
+      background: linear-gradient(135deg, #6d28d9 0%, #f59e0b 100%);
+      color: #fff;
+      padding: 11px 8px;
+      text-align: left;
+      font-weight: 700;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+
+    .findings-summary-table td {
+      padding: 10px 8px;
+      border-bottom: 1px solid #1f5968;
+      vertical-align: top;
+      background: #0b4150;
+      color: #f8fafc;
+    }
+
+    .findings-summary-table th:nth-child(1),
+    .findings-summary-table th:nth-child(3),
+    .findings-summary-table th:nth-child(4),
+    .findings-summary-table th:nth-child(5),
+    .findings-summary-table td:nth-child(1),
+    .findings-summary-table td:nth-child(3),
+    .findings-summary-table td:nth-child(4),
+    .findings-summary-table td:nth-child(5) {
+      text-align: center;
+    }
+
+    .severity-critical { color: #fca5a5; font-weight: 700; }
+    .severity-high { color: #fdba74; font-weight: 700; }
+    .severity-medium { color: #fcd34d; font-weight: 700; }
+    .severity-low { color: #93c5fd; font-weight: 700; }
+
+    .individual-finding {
+      background: #0b4150;
+      margin: 12px 0;
+      border-radius: 10px;
+      border: 1px solid #1f5968;
+      padding: 14px;
+      page-break-inside: auto;
+      page-break-after: always;
+    }
+
+    .individual-finding:last-of-type {
+      page-break-after: auto;
+    }
+
+    .individual-finding h3 {
+      margin-top: 0;
+      border-bottom: 2px solid #f08a74;
+      padding-bottom: 5px;
+    }
+
+    .finding-description {
+      background: #0a3c49;
+      padding: 12px;
+      border-radius: 8px;
+      border-left: 4px solid #7c3aed;
+      page-break-inside: avoid;
+    }
+
+    .finding-resources {
+      background: #0a3c49;
+      border: 1px solid #1f5968;
+      border-radius: 8px;
+      padding: 10px;
+      margin-top: 10px;
+      page-break-inside: avoid;
+    }
+
+    .finding-resources.finding-evidence {
+      page-break-inside: auto;
+    }
+
+    .finding-remediation {
+      background: #0f473c;
+      border-left: 4px solid #16a34a;
+      border-radius: 8px;
+      padding: 10px;
+      margin-top: 10px;
+      page-break-inside: avoid;
+    }
+
+    .finding-exploitation {
+      background: #4a3414;
+      border-left: 4px solid #f59e0b;
+      border-radius: 8px;
+      padding: 10px;
+      margin-top: 10px;
+      page-break-inside: avoid;
+    }
+
+    .resource-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    .resource-list li {
+      background: #0d4a59;
+      border-left: 3px solid #7c3aed;
+      border-radius: 5px;
+      padding: 6px 8px;
+      margin-bottom: 5px;
+      font-size: 9px;
+      font-family: 'Courier New', monospace;
+      word-break: break-all;
+      color: #e2e8f0;
+    }
+
+    .bar {
+      width: 100%;
+      height: 10px;
+      background: #1f5968;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .bar-fill { display: block; height: 100%; }
+    .bar-fill.severity-critical { background: #dc2626; }
+    .bar-fill.severity-high { background: #f97316; }
+    .bar-fill.severity-medium { background: #f59e0b; }
+    .bar-fill.severity-low { background: #3b82f6; }
+
+    .code-block {
+      background: #0f172a;
+      color: #f8fafc;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 9px;
+      line-height: 1.3;
+      white-space: pre-wrap;
+      page-break-inside: auto;
+    }
+
+    .page-break { page-break-before: always; }
+
+  </style>
+</head>
+<body>
+  <div class="ascii-header">
+    <div class="drystone-logo">{{DRYSTONE_BANNER_HTML}}</div>
+    <p class="header-tagline">AWS Security Audit powered by AI</p>
+    <p class="header-motto">🐡 Automated AWS Security Assessment 🐡</p>
+    <p class="header-version">v1.0.0</p>
+  </div>
+
+  <p class="header-analysis-title">{{ANALYSIS_TITLE}}</p>
+
+  <h2>Scope Definition</h2>
+  <div class="scope-definition">
+    {{SCOPE_DEFINITION}}
+  </div>
+
+  {{METHODOLOGY_SECTION}}
+
+  <h2>Executive Summary</h2>
+  <div class="card">
+    <h3>Severity Distribution</h3>
+    <table class="findings-summary-table">
+      <thead><tr><th>Severity</th><th>Distribution</th><th>Count</th></tr></thead>
+      <tbody>{{SEVERITY_CHART}}</tbody>
+    </table>
+    <h3>Top 5 Affected Resources</h3>
+    <ul>{{TOP_RESOURCES}}</ul>
+    <h3>Findings Summary</h3>
+    <table class="findings-summary-table">
+      <thead>
+        <tr><th>ID</th><th>Title</th><th>Severity</th><th>Risk</th><th>Resources</th></tr>
+      </thead>
+      <tbody>{{TOP_FINDINGS_ROWS}}</tbody>
+    </table>
+  </div>
+
+  <div class="page-break"></div>
+
+  {{ARCHITECTURE_SECTION}}
+  {{CORRELATION_SECTION}}
+
+  <div class="page-break"></div>
+  {{FINDINGS_BY_SEVERITY}}
+
+  <h2>Observations</h2>
+  <div class="card">{{OBSERVATIONS}}</div>
+
+  <h2>Remediation Timeline (Recommended)</h2>
+  <div class="card">{{REMEDIATION_TIMELINE}}</div>
+
+  <h2>References</h2>
+  <div class="card"><ul>{{REFERENCES}}</ul></div>
+
+  <h2>Notes</h2>
+  <div class="card">{{FOOTER_NOTES}}</div>
+</body>
+</html>
+]]></html>
+</reportTemplate>

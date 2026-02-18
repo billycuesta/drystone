@@ -146,7 +146,8 @@ class BaseSkill(ABC):
             )
             if not coverage["coverage_valid"]:
                 missing_criticals = [
-                    d for d in coverage["details"]
+                    d
+                    for d in coverage["details"]
                     if not d["evaluated"] and d["check_severity"] == "Critical"
                 ]
                 if missing_criticals:
@@ -169,8 +170,11 @@ class BaseSkill(ABC):
         findings_dir.mkdir(parents=True, exist_ok=True)
         findings_path = findings_dir / f"{self.name}.json"
 
+        findings_payload = findings.model_dump(mode="json")
+        findings_payload = self._inject_validation_commands(findings_payload, session)
+
         with open(findings_path, "w") as f:
-            json.dump(findings.model_dump(mode="json"), f, indent=2, default=str)
+            json.dump(findings_payload, f, indent=2, default=str)
 
         # 7. Print summary
         print("\n✅ Analysis complete:")
@@ -182,6 +186,55 @@ class BaseSkill(ABC):
         print(f"   Overall Risk: {findings.summary.overall_risk_score:.1f}/10")
 
         return findings_path
+
+    def _inject_validation_commands(
+        self, payload: Dict[str, Any], session: AuditSession
+    ) -> Dict[str, Any]:
+        """Attach reproducible AWS CLI validation commands to findings.
+
+        This augments findings at persistence time so all report formatters can render
+        the same command set without format-specific inference.
+        """
+        from drystone.reports.validation_commands import suggest_aws_cli_commands
+
+        region = self._infer_region_from_evidence(session)
+        account_id = getattr(session, "account_id", "") or "<account-id>"
+
+        for finding in payload.get("findings", []):
+            existing = finding.get("validation_commands")
+            if isinstance(existing, list) and any(str(c).strip() for c in existing):
+                continue
+
+            refs = finding.get("evidence_refs", [])
+            if not isinstance(refs, list):
+                refs = []
+
+            commands = suggest_aws_cli_commands(
+                skill=self.name,
+                evidence_refs=[str(ref) for ref in refs],
+                region=region,
+                account_id=str(account_id),
+            )
+            if commands:
+                finding["validation_commands"] = commands
+
+        return payload
+
+    def _infer_region_from_evidence(self, session: AuditSession) -> str:
+        evidence_path = session.get_evidence_path(self.name)
+        metadata_path = evidence_path / "_audit_metadata.json"
+        if metadata_path.exists():
+            try:
+                import json
+
+                with open(metadata_path) as f:
+                    meta = json.load(f)
+                region = str(meta.get("_region", "")).strip()
+                if region:
+                    return region
+            except Exception:
+                pass
+        return "us-east-1"
 
     def _reconcile_with_pre_checks(
         self,
@@ -208,7 +261,9 @@ class BaseSkill(ABC):
         findings.findings = [f for f in findings.findings if f.id not in pass_ids]
         rejected = before - len(findings.findings)
         if rejected:
-            _logger.info(f"Pre-check reconciliation: rejected {rejected} findings contradicting PASS")
+            _logger.info(
+                f"Pre-check reconciliation: rejected {rejected} findings contradicting PASS"
+            )
 
         # Rule 2: Inject findings for missed FAILs
         existing_ids = {f.id for f in findings.findings}
@@ -228,6 +283,7 @@ class BaseSkill(ABC):
                         remediation=item.get("remediation", "See checklist for remediation steps."),
                         affected_resources=result.affected_resources,
                         evidence_refs=[],
+                        cis_reference=item.get("cis_reference") or item.get("cis_id"),
                     )
                     findings.findings.append(finding)
                     injected += 1

@@ -9,8 +9,11 @@ from drystone.reports.formats import (
     JSONFormatter,
     MarkdownFormatter,
     PCIDSSFormatter,
+    PDFFormatter,
     PentestFormatter,
+    PentestPDFFormatter,
 )
+from drystone.pentest.exploitation_enricher import PentestExploitationEnricher
 from drystone.storage.session import AuditSession
 
 
@@ -21,6 +24,7 @@ class ReportGenerator:
     FORMATTERS = {
         "markdown": MarkdownFormatter,
         "json": JSONFormatter,
+        "pdf": PDFFormatter,
     }
 
     def __init__(self, session: AuditSession, config: WizardConfig):
@@ -118,11 +122,26 @@ class ReportGenerator:
         # Generate reports
         generated_reports = {}
 
+        # Inject report context (without mutating original source semantics)
+        report_context = dict(filtered_findings_data)
+        if self.config.report_type == "pentest":
+            enricher = PentestExploitationEnricher(
+                session_base_path=self.session.base_path,
+                region=str(getattr(self.config, "aws_region", "us-east-1")),
+                account_id=str(getattr(self.session, "account_id", "<account-id>")),
+            )
+            report_context = enricher.enrich(report_context)
+        report_metadata = dict(report_context.get("report_metadata") or {})
+        report_metadata["report_skill"] = skill
+        report_context["report_metadata"] = report_metadata
+
         for format_name in formats:
             if self.config.report_type == "pci-dss" and format_name == "markdown":
                 formatter_class = PCIDSSFormatter
             elif self.config.report_type == "pentest" and format_name == "markdown":
                 formatter_class = PentestFormatter
+            elif self.config.report_type == "pentest" and format_name == "pdf":
+                formatter_class = PentestPDFFormatter
             elif format_name in self.FORMATTERS:
                 formatter_class = self.FORMATTERS[format_name]
             else:
@@ -132,7 +151,7 @@ class ReportGenerator:
 
             try:
                 # Pass config to the formatter
-                formatter = formatter_class(filtered_findings_data, self.session, self.config)
+                formatter = formatter_class(report_context, self.session, self.config)
                 report_path = formatter.generate()
                 generated_reports[format_name] = report_path
             except Exception as e:
@@ -156,11 +175,24 @@ class ReportGenerator:
             filtered_findings_data = self._filter_findings_by_severity(findings_data)
 
         generated_reports: Dict[str, Path] = {}
+        report_context = dict(filtered_findings_data)
+        if self.config.report_type == "pentest":
+            enricher = PentestExploitationEnricher(
+                session_base_path=self.session.base_path,
+                region=str(getattr(self.config, "aws_region", "us-east-1")),
+                account_id=str(getattr(self.session, "account_id", "<account-id>")),
+            )
+            report_context = enricher.enrich(report_context)
+        report_metadata = dict(report_context.get("report_metadata") or {})
+        report_metadata["report_skill"] = "aggregated"
+        report_context["report_metadata"] = report_metadata
         for format_name in formats:
             if self.config.report_type == "pci-dss" and format_name == "markdown":
                 formatter_class = PCIDSSFormatter
             elif self.config.report_type == "pentest" and format_name == "markdown":
                 formatter_class = PentestFormatter
+            elif self.config.report_type == "pentest" and format_name == "pdf":
+                formatter_class = PentestPDFFormatter
             elif format_name in self.FORMATTERS:
                 formatter_class = self.FORMATTERS[format_name]
             else:
@@ -168,7 +200,7 @@ class ReportGenerator:
                     f"Unknown format: {format_name}\nAvailable: {', '.join(self.FORMATTERS.keys())}"
                 )
 
-            formatter = formatter_class(filtered_findings_data, self.session, self.config)
+            formatter = formatter_class(report_context, self.session, self.config)
             report_path = formatter.generate()
             generated_reports[format_name] = report_path
 
