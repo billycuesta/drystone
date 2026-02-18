@@ -60,6 +60,9 @@ security-scan-*.json
 # Local development
 .claude.json
 .drystone/
+CLAUDE.md
+claude.md
+opencode.md
 
 # Virtual Environments (additional patterns)
 venv_*/
