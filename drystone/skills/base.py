@@ -105,7 +105,9 @@ class BaseSkill(ABC):
         from drystone.analysis.distiller import distill_evidence
         from drystone.analysis.router import route_checklist_for_llm
         from drystone.agent.budget import get_budget_policy
+        from drystone.models.findings import FindingsSummary, SkillFindings
         from drystone.validation.pre_checks import run_pre_checks
+        from drystone.validation.confidence import compute_skill_confidence
 
         pre_check_results = run_pre_checks(self.name, evidence, checklist)
         pass_ids = {r.check_id for r in pre_check_results if r.status == "PASS"}
@@ -149,15 +151,52 @@ class BaseSkill(ABC):
             except Exception:
                 pass
 
+        confidence = compute_skill_confidence(
+            total_checks=route_stats["total_checks"],
+            deterministic_checks=route_stats["deterministic_resolved"],
+            llm_checks=route_stats["llm_checks"],
+            partial_run=False,
+        )
+        llm_skipped = route_stats["llm_checks"] == 0
+        if llm_skipped:
+            print("  ⚡ LLM skipped: all checks resolved deterministically")
+
+        if getattr(agent_client, "metrics_tracker", None):
+            try:
+                agent_client.metrics_tracker.record_skill_quality(
+                    self.name,
+                    confidence_score=float(confidence["score"]),
+                    confidence_level=str(confidence["level"]),
+                    llm_skipped=llm_skipped,
+                )
+            except Exception:
+                pass
+
         # 3. Tier 2: Call AI agent (with pre-computed facts injected)
         provider_name = agent_client.get_display_name()
         print(f"  Analyzing with {provider_name}...")
-        findings = agent_client.analyze_evidence_chunked(
-            skill_name=self.name,
-            evidence=distilled_evidence,
-            checklist=routed_checklist,
-            pre_checks=pre_check_results,
-        )
+        if llm_skipped:
+            findings = SkillFindings(
+                skill=self.name,
+                findings=[],
+                summary=FindingsSummary(
+                    total_findings=0,
+                    critical=0,
+                    high=0,
+                    medium=0,
+                    low=0,
+                    overall_risk_score=0.0,
+                ),
+                evidence_count=len(evidence),
+                checklist_version=str(checklist.get("version", "1.0")),
+            )
+        else:
+            findings = agent_client.analyze_evidence_chunked(
+                skill_name=self.name,
+                evidence=distilled_evidence,
+                checklist=routed_checklist,
+                pre_checks=pre_check_results,
+            )
 
         # 4. Tier 3: Reconcile AI findings against pre-checks
         if pre_check_results:
@@ -207,6 +246,14 @@ class BaseSkill(ABC):
         findings_path = findings_dir / f"{self.name}.json"
 
         findings_payload = findings.model_dump(mode="json")
+        findings_payload["analysis_metadata"] = {
+            "confidence_score": float(confidence["score"]),
+            "confidence_level": str(confidence["level"]),
+            "llm_skipped": llm_skipped,
+            "llm_checks": route_stats["llm_checks"],
+            "deterministic_checks": route_stats["deterministic_resolved"],
+            "total_checks": route_stats["total_checks"],
+        }
         findings_payload = self._inject_validation_commands(findings_payload, session)
 
         with open(findings_path, "w") as f:

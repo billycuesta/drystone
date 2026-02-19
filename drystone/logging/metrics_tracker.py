@@ -102,6 +102,29 @@ class MetricsTracker:
 
             self._write_metrics(metrics)
 
+    def record_skill_quality(
+        self,
+        skill_name: str,
+        confidence_score: float,
+        confidence_level: str,
+        llm_skipped: bool,
+    ) -> None:
+        """Record quality/confidence metrics for a skill."""
+        with self.lock:
+            metrics = self._read_metrics()
+
+            if skill_name not in metrics.get("skills", {}):
+                metrics["skills"][skill_name] = {}
+
+            metrics["skills"][skill_name].update(
+                {
+                    "confidence_score": float(confidence_score),
+                    "confidence_level": str(confidence_level),
+                    "llm_skipped": bool(llm_skipped),
+                }
+            )
+            self._write_metrics(metrics)
+
     def record_llm_budget(
         self,
         skill_name: str,

@@ -290,6 +290,19 @@ Check IAM-005 (Password policy complexity):
 
 This makes cache invalidation automatic when evidence, checklist version, model, or deterministic facts change.
 
+## P2 Token Reduction Modules (2026-02)
+
+| Module | Path | Goal |
+|--------|------|------|
+| Confidence Scoring | `drystone/validation/confidence.py` | Quantify analysis confidence from deterministic vs LLM coverage |
+| LLM Skip Gate | `drystone/skills/base.py` | Skip LLM call entirely when router leaves 0 pending checks |
+| Report Confidence | `drystone/reports/formats/pentest.py` | Surface confidence score/level in executive summary |
+
+### P2 Guardrail
+
+- If `llm_checks == 0`, Drystone creates a zero-LLM intermediate result and relies on Tier-3 reconciliation to inject deterministic FAIL findings.
+- This eliminates unnecessary token usage while preserving deterministic findings quality.
+
 ## Skills disponibles (13)
 
 | Skill | AWS Services | Checks | Pre-checks |
