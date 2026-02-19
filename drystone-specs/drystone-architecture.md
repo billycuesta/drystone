@@ -303,6 +303,21 @@ This makes cache invalidation automatic when evidence, checklist version, model,
 - If `llm_checks == 0`, Drystone creates a zero-LLM intermediate result and relies on Tier-3 reconciliation to inject deterministic FAIL findings.
 - This eliminates unnecessary token usage while preserving deterministic findings quality.
 
+## P3 Adaptive Optimization (2026-02)
+
+| Module | Path | Goal |
+|--------|------|------|
+| Budget Optimizer | `drystone/agent/optimizer.py` | Learn from `metrics.json` and tune future budgets |
+| Budget Overrides | `~/.drystone/budget-overrides.json` | Persist per `provider:skill` adaptive chunk/distill caps |
+| Override Loader | `drystone/agent/budget.py` | Apply adaptive overrides at runtime |
+
+### P3 Feedback Loop
+
+1. Audit finishes and writes `metrics.json`
+2. `optimize_budgets_from_metrics(...)` updates overrides based on failures/quota signals
+3. Next run loads overrides automatically in `get_budget_policy(...)`
+4. Provider/skill budgets converge to lower-token stable values over time
+
 ## Skills disponibles (13)
 
 | Skill | AWS Services | Checks | Pre-checks |

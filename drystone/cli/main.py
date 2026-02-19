@@ -296,6 +296,7 @@ def audit(
         # Submit all skills to executor
         for skill_name, skill in skill_instances.items():
             metrics_tracker.record_skill_start(skill_name)
+            metrics_tracker.record_skill_provider(skill_name, config.ai_provider)
             future = executor.submit(
                 lambda sn=skill_name, sk=skill: (sn, sk.analyze(session, agent))
             )
@@ -393,6 +394,16 @@ def audit(
         click.echo("⚠️  Skipping Phase 4 (no findings to report)")
 
     # Show completion
+    try:
+        from drystone.agent.optimizer import optimize_budgets_from_metrics
+
+        opt = optimize_budgets_from_metrics(metrics_file)
+        updated = int(opt.get("updated", 0))
+        if updated > 0:
+            click.echo(f"   ⚙️  P3 optimizer updated {updated} budget override(s)")
+    except Exception:
+        pass
+
     click.echo("\n✅ Audit Complete")
     click.echo(f"   Audit data: {session.base_path}")
     click.echo()

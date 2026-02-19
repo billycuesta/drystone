@@ -1,6 +1,8 @@
 """Prompt/chunk budget policies for cost-safe analysis."""
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass
@@ -8,6 +10,17 @@ class BudgetPolicy:
     max_tokens_per_chunk: int
     max_chunks: int
     distill_max_list_items: int
+
+
+def _load_overrides() -> dict:
+    path = Path.home() / ".drystone" / "budget-overrides.json"
+    if not path.exists():
+        return {}
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        return {}
 
 
 def get_budget_policy(provider_type: str, skill_name: str) -> BudgetPolicy:
@@ -29,4 +42,16 @@ def get_budget_policy(provider_type: str, skill_name: str) -> BudgetPolicy:
         base.max_chunks = min(base.max_chunks, 10)
     if s in {"vulns"}:
         base.max_chunks = min(base.max_chunks + 1, 12)
+
+    overrides = _load_overrides().get("skills", {})
+    key = f"{p}:{s}"
+    custom = overrides.get(key)
+    if isinstance(custom, dict):
+        base.max_tokens_per_chunk = int(
+            custom.get("max_tokens_per_chunk", base.max_tokens_per_chunk)
+        )
+        base.max_chunks = int(custom.get("max_chunks", base.max_chunks))
+        base.distill_max_list_items = int(
+            custom.get("distill_max_list_items", base.distill_max_list_items)
+        )
     return base

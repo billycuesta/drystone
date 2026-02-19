@@ -102,6 +102,15 @@ class MetricsTracker:
 
             self._write_metrics(metrics)
 
+    def record_skill_provider(self, skill_name: str, provider: str) -> None:
+        """Record provider used by skill analysis."""
+        with self.lock:
+            metrics = self._read_metrics()
+            if skill_name not in metrics.get("skills", {}):
+                metrics["skills"][skill_name] = {}
+            metrics["skills"][skill_name]["provider"] = provider
+            self._write_metrics(metrics)
+
     def record_skill_quality(
         self,
         skill_name: str,
