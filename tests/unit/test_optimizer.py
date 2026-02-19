@@ -15,7 +15,7 @@ def test_optimizer_creates_overrides_for_failed_skill(tmp_path: Path, monkeypatc
             {
                 "skills": {
                     "iam": {
-                        "provider": "openai-api",
+                        "provider": "claude-api",
                         "status": "failed",
                         "retries": [{"reason": "provider quota/rate limit"}],
                     }
@@ -30,4 +30,4 @@ def test_optimizer_creates_overrides_for_failed_skill(tmp_path: Path, monkeypatc
     overrides = home / ".drystone" / "budget-overrides.json"
     assert overrides.exists()
     data = json.loads(overrides.read_text())
-    assert "openai-api:iam" in data["skills"]
+    assert "claude-api:iam" in data["skills"]

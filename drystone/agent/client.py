@@ -1,11 +1,7 @@
-"""AI agent client for security analysis via LLM providers.
-
-Supports Claude CLI, Claude API, and OpenAI API for AWS security analysis.
-"""
+"""AI agent client for security analysis via Claude providers."""
 
 import json
 import logging
-import os
 import shutil
 import subprocess
 import tempfile
@@ -13,11 +9,6 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import anthropic
-
-try:
-    from openai import OpenAI
-except Exception:  # pragma: no cover - optional dependency
-    OpenAI = None
 
 from drystone.agent.chunker import EvidenceChunker, FindingsAggregator
 from drystone.agent.budget import get_budget_policy
@@ -43,7 +34,7 @@ class AgentClient:
     Analyzes collected evidence against security checklists
     and generates findings with recommendations.
 
-    Supports Claude CLI, Claude API (Anthropic), and OpenAI API.
+    Supports Claude CLI and Claude API (Anthropic).
 
     Example:
         >>> agent = AgentClient(api_key="sk-ant-...")
@@ -66,7 +57,7 @@ class AgentClient:
         Args:
             provider_config: Configuration dictionary with:
                 {
-                    'type': 'claude-api' | 'claude-cli' | 'openai-api',
+                    'type': 'claude-api' | 'claude-cli',
                     'api_key': provider API key (required for API providers)
                 }
             crash_safe_logger: Optional crash-safe logger for audit events
@@ -85,17 +76,14 @@ class AgentClient:
         self.findings_cache = FindingsCache()
 
         # Validate provider type
-        valid_types = {"claude-api", "claude-cli", "openai-api"}
+        valid_types = {"claude-api", "claude-cli"}
         if self.provider_type not in valid_types:
             raise AgentError(
                 f"Provider type '{self.provider_type}' not supported. Valid: {valid_types}"
             )
 
         # Configure Claude (CLI or API)
-        if self.provider_type.startswith("claude"):
-            self._setup_claude()
-        elif self.provider_type == "openai-api":
-            self._setup_openai()
+        self._setup_claude()
 
     def _setup_claude(self) -> None:
         """Setup Claude provider (API or CLI)."""
@@ -105,6 +93,7 @@ class AgentClient:
             # Get absolute path to CLI executable for security
             self.claude_cli_path = self._get_claude_cli_path()
             self.use_cli = True
+            self.model = str(self.provider_config.get("model", "haiku"))
 
         elif self.provider_type == "claude-api":
             # Use API
@@ -118,50 +107,6 @@ class AgentClient:
                 self.temperature = 0.0
             except Exception as e:
                 raise AgentError(f"Failed to initialize Anthropic client: {e}")
-
-    def _setup_openai(self) -> None:
-        """Setup OpenAI API provider."""
-        self.provider_name = "openai"
-
-        if not self.api_key:
-            raise AgentError("OpenAI API key required for 'openai-api' provider")
-        if OpenAI is None:
-            raise AgentError("OpenAI SDK not installed. Install with: pip install 'drystone[llm]'")
-
-        try:
-            self.client = OpenAI(api_key=self.api_key)
-            self.model = self._resolve_openai_model()
-            self.max_tokens = 16000
-            self.temperature = 0.0
-        except Exception as e:
-            raise AgentError(f"Failed to initialize OpenAI client: {e}")
-
-    def _resolve_openai_model(self) -> str:
-        """Resolve OpenAI model with access-aware fallback."""
-        preferred = (
-            self.provider_config.get("model") or os.environ.get("OPENAI_MODEL") or "gpt-5.3-codex"
-        )
-        candidates = [preferred, "gpt-5", "gpt-5-mini", "gpt-4.1"]
-
-        try:
-            if self.client is None:
-                return preferred
-            models = self.client.models.list()
-            available = {getattr(m, "id", "") for m in getattr(models, "data", [])}
-            for model in candidates:
-                if model in available:
-                    if model != preferred:
-                        logger.warning(
-                            "OpenAI model '%s' unavailable; falling back to '%s'",
-                            preferred,
-                            model,
-                        )
-                    return model
-        except Exception:
-            # If model listing fails, keep preferred and let first call return explicit error.
-            pass
-
-        return preferred
 
     def _sanitize_api_key(self, api_key: Optional[str]) -> Optional[str]:
         """Normalize API keys to avoid common copy/paste mistakes."""
@@ -213,11 +158,8 @@ class AgentClient:
                 return "Claude API"
 
         elif self.provider_type == "claude-cli":
-            return "Claude CLI"
-
-        elif self.provider_type == "openai-api":
-            model = getattr(self, "model", "openai")
-            return f"OpenAI API ({model})"
+            model = getattr(self, "model", "haiku")
+            return f"Claude CLI ({str(model).capitalize()})"
 
         else:
             return "AI Provider"  # Fallback
@@ -279,8 +221,6 @@ class AgentClient:
         full_prompt = f"{system_prompt}\n\n{user_prompt}"
         if self.use_cli:
             response_text = self._call_claude_cli(full_prompt)
-        elif self.provider_type == "openai-api":
-            response_text = self._call_openai_api(full_prompt)
         else:
             response_text = self._call_claude_api(full_prompt)
 
@@ -549,7 +489,7 @@ class AgentClient:
         """
         try:
             result = subprocess.run(
-                [self.claude_cli_path, "-p", prompt],  # Using absolute path
+                [self.claude_cli_path, "--model", self.model, "-p", prompt],
                 input="",  # Empty stdin
                 capture_output=True,
                 text=True,
@@ -623,7 +563,7 @@ CRITICAL OUTPUT REQUIREMENTS:
 
             # Call Claude CLI with combined prompt
             result = subprocess.run(
-                [self.claude_cli_path, "-p", meta_prompt],
+                [self.claude_cli_path, "--model", self.model, "-p", meta_prompt],
                 input="",
                 capture_output=True,
                 text=True,
@@ -686,42 +626,6 @@ CRITICAL OUTPUT REQUIREMENTS:
             raise AgentError(f"API call failed: {e}")
         except (IndexError, AttributeError) as e:
             raise AgentError(f"Invalid API response format: {e}")
-
-    def _call_openai_api(self, prompt: str) -> str:
-        """Call OpenAI via Responses API."""
-        try:
-            if self.client is None:
-                raise AgentError("OpenAI API client is not initialized")
-
-            response = self.client.responses.create(
-                model=self.model,
-                input=prompt,
-                max_output_tokens=self.max_tokens,
-            )
-
-            text = getattr(response, "output_text", "")
-            if isinstance(text, str) and text.strip():
-                return text
-
-            return str(response)
-
-        except Exception as e:
-            msg = str(e)
-            lower = msg.lower()
-            if "invalid_api_key" in lower or "incorrect api key" in lower:
-                raise AgentError("OpenAI API call failed: invalid API key")
-            if (
-                "exceeded your current quota" in lower
-                or "quota exceeded" in lower
-                or "error code: 429" in lower
-                or "rate limit" in lower
-            ):
-                raise AgentError("OpenAI API call failed: provider quota/rate limit")
-            if "model_not_found" in lower or "does not exist or you do not have access" in lower:
-                raise AgentError(
-                    f"OpenAI API call failed: model '{self.model}' not available for this account"
-                )
-            raise AgentError(f"OpenAI API call failed: {e}")
 
     def _get_system_prompt(self) -> str:
         """Get system prompt for AI agent - SKILL-AGNOSTIC version.

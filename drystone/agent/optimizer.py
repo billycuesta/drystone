@@ -47,9 +47,9 @@ def optimize_budgets_from_metrics(metrics_file: Path) -> Dict[str, Any]:
         current = entries.get(
             key,
             {
-                "max_tokens_per_chunk": 22000 if provider == "openai-api" else 14000,
-                "max_chunks": 10 if provider == "openai-api" else 8,
-                "distill_max_list_items": 25 if provider == "openai-api" else 20,
+                "max_tokens_per_chunk": 30000 if provider == "claude-api" else 14000,
+                "max_chunks": 12 if provider == "claude-api" else 8,
+                "distill_max_list_items": 30 if provider == "claude-api" else 20,
             },
         )
 

@@ -272,6 +272,7 @@ def audit(
     provider_config = {
         "type": config.ai_provider,
         "api_key": config.ai_api_key,
+        "model": config.claude_cli_model,
     }
 
     agent = AgentClient(provider_config=provider_config)

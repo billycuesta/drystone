@@ -56,9 +56,14 @@ class WizardConfig(BaseModel):
     )
 
     # Step 7: AI Provider for analysis
-    ai_provider: Literal["claude-api", "claude-cli", "openai-api"] = Field(
+    ai_provider: Literal["claude-api", "claude-cli"] = Field(
         default="claude-cli",
-        description="AI provider for security analysis (claude-cli, claude-api, or openai-api)",
+        description="AI provider for security analysis (claude-cli or claude-api)",
+    )
+
+    claude_cli_model: Literal["haiku", "sonnet", "opus"] = Field(
+        default="haiku",
+        description="Model alias for claude-cli provider",
     )
 
     # Step 8: AI API Key (if needed)
@@ -95,6 +100,7 @@ class WizardConfig(BaseModel):
                 "skills": ["iam", "exposure"],
                 "output_formats": ["markdown", "json"],
                 "ai_provider": "claude-cli",
+                "claude_cli_model": "haiku",
                 "ai_api_key": None,
                 "created_at": "2026-01-17T10:30:00",
                 "non_interactive": False,
@@ -265,7 +271,7 @@ class WizardConfig(BaseModel):
         ai_provider = values.get("ai_provider")
 
         # If using API-based provider, key must be provided
-        if ai_provider in ["claude-api", "openai-api"]:
+        if ai_provider in ["claude-api"]:
             if not v or not v.strip():
                 raise ValueError(f"API key required for {ai_provider}")
 

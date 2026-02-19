@@ -33,6 +33,6 @@ def test_distiller_truncates_long_lists():
 
 def test_budget_policy_by_provider():
     claude_cli = get_budget_policy("claude-cli", "iam")
-    openai = get_budget_policy("openai-api", "iam")
-    assert claude_cli.max_tokens_per_chunk < openai.max_tokens_per_chunk
-    assert claude_cli.max_chunks <= openai.max_chunks
+    claude_api = get_budget_policy("claude-api", "iam")
+    assert claude_cli.max_tokens_per_chunk < claude_api.max_tokens_per_chunk
+    assert claude_cli.max_chunks <= claude_api.max_chunks

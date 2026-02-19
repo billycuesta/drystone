@@ -33,8 +33,6 @@ def get_budget_policy(provider_type: str, skill_name: str) -> BudgetPolicy:
 
     if p == "claude-cli":
         base = BudgetPolicy(max_tokens_per_chunk=14000, max_chunks=8, distill_max_list_items=20)
-    elif p == "openai-api":
-        base = BudgetPolicy(max_tokens_per_chunk=22000, max_chunks=10, distill_max_list_items=25)
     else:
         base = BudgetPolicy(max_tokens_per_chunk=30000, max_chunks=12, distill_max_list_items=30)
 

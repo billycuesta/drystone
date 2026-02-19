@@ -15,6 +15,7 @@ def _sample_findings() -> SkillFindings:
                 title="Root without MFA",
                 description="desc",
                 remediation="remediate",
+                cis_reference="1.5",
             )
         ],
         summary=FindingsSummary(total_findings=1, critical=1, high=0, medium=0, low=0),
@@ -26,8 +27,8 @@ def test_cache_roundtrip(tmp_path: Path):
     cache = FindingsCache(cache_dir=tmp_path)
     key = cache.build_key(
         skill_name="iam",
-        provider_type="openai-api",
-        model="gpt-5",
+        provider_type="claude-api",
+        model="claude-opus-4-5-20251101",
         evidence={"users": [{"UserName": "root"}]},
         checklist={"version": "2.0", "items": [{"id": "IAM-001"}]},
         pre_checks=[],
@@ -45,16 +46,16 @@ def test_cache_key_changes_when_evidence_changes(tmp_path: Path):
     cache = FindingsCache(cache_dir=tmp_path)
     key_a = cache.build_key(
         skill_name="iam",
-        provider_type="openai-api",
-        model="gpt-5",
+        provider_type="claude-api",
+        model="claude-opus-4-5-20251101",
         evidence={"users": [{"UserName": "a"}]},
         checklist={"version": "2.0", "items": [{"id": "IAM-001"}]},
         pre_checks=[],
     )
     key_b = cache.build_key(
         skill_name="iam",
-        provider_type="openai-api",
-        model="gpt-5",
+        provider_type="claude-api",
+        model="claude-opus-4-5-20251101",
         evidence={"users": [{"UserName": "b"}]},
         checklist={"version": "2.0", "items": [{"id": "IAM-001"}]},
         pre_checks=[],

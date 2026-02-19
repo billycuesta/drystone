@@ -130,15 +130,6 @@ def validate_ai_provider_credentials(ai_provider: str, ai_api_key: Optional[str]
             print("✅ Claude API key validated")
             return True
 
-        if provider == "openai-api":
-            from openai import OpenAI
-
-            client = OpenAI(api_key=key)
-            # Lightweight auth check (no generation)
-            client.models.list()
-            print("✅ OpenAI API key validated")
-            return True
-
         print(f"❌ Unsupported AI provider for validation: {ai_provider}")
         return False
 
@@ -210,6 +201,8 @@ def display_config_summary(project_config: dict, ai_config: dict) -> None:
     # Menu B: AI Configuration
     print("\n🤖 AI Configuration:")
     print(f"   Provider: {ai_config['ai_provider']}")
+    if ai_config.get("ai_provider") == "claude-cli":
+        print(f"   Claude CLI Model: {ai_config.get('claude_cli_model', 'haiku')}")
 
     if ai_config["ai_provider"] == "bedrock":
         print("   Bedrock Region: eu-west-1")
@@ -515,11 +508,6 @@ def run_ai_menu(current_config: Optional[dict] = None) -> dict:
             questionary.Choice(
                 "Claude API Key", "claude-api", checked=(current_provider == "claude-api")
             ),
-            questionary.Choice(
-                "OpenAI API (GPT-5.3 Codex)",
-                "openai-api",
-                checked=(current_provider == "openai-api"),
-            ),
         ],
     ).ask()
 
@@ -530,14 +518,26 @@ def run_ai_menu(current_config: Optional[dict] = None) -> dict:
     result = {
         "ai_provider": ai_provider,
         "ai_api_key": None,
+        "claude_cli_model": defaults.get("claude_cli_model", "haiku"),
     }
 
-    if ai_provider in {"claude-api", "openai-api"}:
-        key_prompt = (
-            "Enter your Claude API key:"
-            if ai_provider == "claude-api"
-            else "Enter your OpenAI API key:"
-        )
+    if ai_provider == "claude-cli":
+        current_model = defaults.get("claude_cli_model", "haiku")
+        selected_model = questionary.select(
+            "Claude CLI model:",
+            choices=[
+                questionary.Choice("Haiku (Default)", "haiku", checked=current_model == "haiku"),
+                questionary.Choice("Sonnet", "sonnet", checked=current_model == "sonnet"),
+                questionary.Choice("Opus", "opus", checked=current_model == "opus"),
+            ],
+            default=current_model,
+        ).ask()
+        if selected_model is None:
+            raise KeyboardInterrupt("Wizard cancelled")
+        result["claude_cli_model"] = selected_model
+
+    if ai_provider in {"claude-api"}:
+        key_prompt = "Enter your Claude API key:"
 
         while True:
             result["ai_api_key"] = questionary.password(
@@ -565,6 +565,7 @@ def get_default_ai_config() -> dict:
     return {
         "ai_provider": "claude-cli",
         "ai_api_key": None,
+        "claude_cli_model": "haiku",
     }
 
 
