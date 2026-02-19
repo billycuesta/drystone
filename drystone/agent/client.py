@@ -21,6 +21,7 @@ except Exception:  # pragma: no cover - optional dependency
 
 from drystone.agent.chunker import EvidenceChunker, FindingsAggregator
 from drystone.agent.budget import get_budget_policy
+from drystone.agent.cache import FindingsCache
 from drystone.agent.retry import analyze_with_retry
 from drystone.logging import CrashSafeLogger
 from drystone.models.findings import SkillFindings
@@ -81,6 +82,7 @@ class AgentClient:
         self.use_cli = False
         self.crash_safe_logger = crash_safe_logger
         self.metrics_tracker: Any = None
+        self.findings_cache = FindingsCache()
 
         # Validate provider type
         valid_types = {"claude-api", "claude-cli", "openai-api"}
@@ -361,13 +363,34 @@ class AgentClient:
         """
         # Auto-create chunker if not provided
         budget = get_budget_policy(self.config.get("type", "claude-cli"), skill_name)
+
+        cache_key = self.findings_cache.build_key(
+            skill_name=skill_name,
+            provider_type=self.provider_type,
+            model=getattr(self, "model", "claude-cli"),
+            evidence=evidence,
+            checklist=checklist,
+            pre_checks=pre_checks,
+        )
+        cached = self.findings_cache.get(cache_key)
+        if cached is not None:
+            print("  🧠 Cache hit: reusing previous LLM analysis")
+            if self.metrics_tracker:
+                try:
+                    self.metrics_tracker.record_retry_attempt(skill_name, 0, "cache_hit")
+                except Exception:
+                    pass
+            return cached
+
         if chunker is None:
             chunker = EvidenceChunker(max_tokens_per_chunk=budget.max_tokens_per_chunk)
 
         # Check if chunking is needed
         if not chunker.should_chunk(evidence):
             # Small evidence - use existing flow
-            return self.analyze_evidence(skill_name, evidence, checklist, pre_checks=pre_checks)
+            findings = self.analyze_evidence(skill_name, evidence, checklist, pre_checks=pre_checks)
+            self.findings_cache.set(cache_key, findings)
+            return findings
 
         # Large evidence - chunk and aggregate
         print("  📦 Evidence size requires chunking...")
@@ -475,6 +498,8 @@ class AgentClient:
         print(
             f"  ✅ Aggregated {final_findings.summary.total_findings} findings from {len(chunks)} chunks"
         )
+
+        self.findings_cache.set(cache_key, final_findings)
 
         return final_findings
 

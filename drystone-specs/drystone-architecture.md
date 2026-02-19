@@ -273,6 +273,23 @@ Check IAM-005 (Password policy complexity):
 4. Analyze with chunk caps (`max_chunks`) to avoid token/cost spikes
 5. Reconcile + normalize as usual (quality guardrail unchanged)
 
+## P1 Token Reduction Modules (2026-02)
+
+| Module | Path | Goal |
+|--------|------|------|
+| Findings Cache | `drystone/agent/cache.py` | Reuse prior LLM results using stable fingerprints |
+| Cache Integration | `drystone/agent/client.py` | Check cache before LLM call; persist results after analysis |
+
+### P1 Cache Key Inputs
+
+- `skill_name`
+- `provider_type` + `model`
+- `checklist` payload + `checklist.version`
+- `evidence` payload (post-routing/distillation view)
+- deterministic `pre_checks` facts (`check_id`, `status`, summary)
+
+This makes cache invalidation automatic when evidence, checklist version, model, or deterministic facts change.
+
 ## Skills disponibles (13)
 
 | Skill | AWS Services | Checks | Pre-checks |
