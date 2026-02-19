@@ -428,6 +428,7 @@ class ExposureSkill(BaseSkill):
         print("  Collecting API Gateway stages...")
         try:
             api_stages: List[Dict[str, Any]] = []
+            api_routes: List[Dict[str, Any]] = []
             apigw = boto3.client("apigateway", **client_kwargs)
             apis = apigw.get_rest_apis().get("items", [])
             for api in apis or []:
@@ -450,6 +451,38 @@ class ExposureSkill(BaseSkill):
                             "HasWAF": "webAclArn" in stage,
                         }
                     )
+
+                # REST API routes/method auth posture
+                try:
+                    resources = apigw.get_resources(restApiId=api_id).get("items", [])
+                except ClientError:
+                    resources = []
+                for res in resources or []:
+                    if not isinstance(res, dict):
+                        continue
+                    methods = res.get("resourceMethods")
+                    if not isinstance(methods, dict):
+                        continue
+                    for http_method in methods.keys():
+                        try:
+                            m = apigw.get_method(
+                                restApiId=api_id,
+                                resourceId=res.get("id"),
+                                httpMethod=http_method,
+                            )
+                        except ClientError:
+                            continue
+                        api_routes.append(
+                            {
+                                "ApiType": "REST",
+                                "ApiId": api_id,
+                                "ApiName": api.get("name"),
+                                "Path": res.get("path"),
+                                "Method": http_method,
+                                "AuthorizationType": m.get("authorizationType"),
+                                "ApiKeyRequired": bool(m.get("apiKeyRequired")),
+                            }
+                        )
 
             # HTTP APIs (apigatewayv2)
             try:
@@ -475,10 +508,35 @@ class ExposureSkill(BaseSkill):
                                 "HasWAF": False,
                             }
                         )
+
+                    # HTTP API routes/method auth posture
+                    try:
+                        routes = apigw2.get_routes(ApiId=api_id).get("Items", [])
+                    except ClientError:
+                        routes = []
+                    for r in routes or []:
+                        if not isinstance(r, dict):
+                            continue
+                        route_key = str(r.get("RouteKey") or "")
+                        method = route_key.split(" ")[0] if " " in route_key else route_key
+                        path = route_key.split(" ", 1)[1] if " " in route_key else ""
+                        api_routes.append(
+                            {
+                                "ApiType": "HTTP",
+                                "ApiId": api_id,
+                                "ApiName": api.get("Name"),
+                                "Path": path,
+                                "Method": method,
+                                "AuthorizationType": r.get("AuthorizationType"),
+                                "AuthorizerId": r.get("AuthorizerId"),
+                                "ApiKeyRequired": False,
+                            }
+                        )
             except Exception:
                 pass
 
             _save(evidence_path / "api-gateway-stages.json", {"items": api_stages})
+            _save(evidence_path / "api-gateway-routes.json", {"items": api_routes})
         except Exception as e:
             print(f"    Warning: Could not collect API Gateway stages: {e}")
 

@@ -1,10 +1,10 @@
 {
   "skill": "compute",
   "framework": "AWS Security Best Practices + HackTricks Cloud AWS",
-  "description": "Compute posture checks for ECS/EKS attack surface and persistence indicators",
-  "version": "1.0",
-  "total_checks": 6,
-  "last_updated": "2026-02-14",
+  "description": "Compute posture checks for ECS/EKS/EC2/Lambda attack surface, persistence, and credential abuse indicators",
+  "version": "1.1",
+  "total_checks": 10,
+  "last_updated": "2026-02-19",
   "items": [
     {
       "id": "COMP-ECS-001",
@@ -93,6 +93,66 @@
         {
           "control": "10.2.1",
           "reason": "Audit logs provide visibility into administrative access and security events."
+        }
+      ]
+    },
+    {
+      "id": "COMP-EC2-001",
+      "title": "EC2 instances with IMDSv1 and instance profile attached",
+      "severity": "High",
+      "description": "Instances allowing IMDSv1 while exposing IAM role credentials via instance profiles increase SSRF-to-credential-theft risk.",
+      "evidence_files": ["ec2-inventory.json"],
+      "check_keywords": ["MetadataOptions", "HttpTokens", "IamInstanceProfile"],
+      "remediation": "Require IMDSv2 (HttpTokens=require), review SSRF exposure paths, and minimize privileges in instance profile roles.",
+      "pci_dss": [
+        {
+          "control": "2.2.1",
+          "reason": "Hardening compute metadata access reduces known abuse vectors for credential theft."
+        }
+      ]
+    },
+    {
+      "id": "COMP-EC2-002",
+      "title": "EC2 user-data contains credential or remote bootstrap risk patterns",
+      "severity": "High",
+      "description": "User-data scripts containing secrets or uncontrolled remote script execution increase post-exploitation persistence and lateral movement risk.",
+      "evidence_files": ["ec2-inventory.json"],
+      "check_keywords": ["UserData", "ContainsSecrets", "curl", "wget"],
+      "remediation": "Remove embedded secrets, avoid unpinned remote script execution, and move bootstrap secrets to managed secret services.",
+      "pci_dss": [
+        {
+          "control": "6.2.3",
+          "reason": "Secure deployment and configuration practices must prevent credential leakage in bootstrap artifacts."
+        }
+      ]
+    },
+    {
+      "id": "COMP-LMB-001",
+      "title": "Lambda function URLs exposed without authentication",
+      "severity": "Critical",
+      "description": "Lambda Function URLs with AuthType=NONE create unauthenticated invocation paths from internet.",
+      "evidence_files": ["lambda-inventory.json"],
+      "check_keywords": ["FunctionUrl", "AuthType", "NONE"],
+      "remediation": "Set Function URL AuthType to AWS_IAM or place function behind API Gateway with robust authN/authZ controls.",
+      "pci_dss": [
+        {
+          "control": "8.1.1",
+          "reason": "Access to system components must require unique identity and authentication."
+        }
+      ]
+    },
+    {
+      "id": "COMP-LMB-002",
+      "title": "Lambda execution roles appear over-privileged",
+      "severity": "High",
+      "description": "Broad permissions in Lambda execution roles amplify impact of code compromise and enable lateral movement.",
+      "evidence_files": ["lambda-inventory.json"],
+      "check_keywords": ["Role", "AttachedPolicies", "AdministratorAccess", "*"],
+      "remediation": "Apply least privilege to Lambda execution roles and restrict wildcard/resource-agnostic permissions.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "Execution identities must be constrained to business-required privileges only."
         }
       ]
     }

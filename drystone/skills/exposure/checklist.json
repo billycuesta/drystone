@@ -2,9 +2,9 @@
   "skill": "exposure",
   "framework": "AWS Security Best Practices + PCI DSS v4.0 Mapping",
   "description": "Checklist for identifying and assessing AWS resources exposed to the internet, with mappings to relevant PCI DSS controls.",
-  "version": "1.3",
-  "total_checks": 19,
-  "last_updated": "2026-02-14",
+  "version": "1.5",
+  "total_checks": 22,
+  "last_updated": "2026-02-19",
   "items": [
     {
       "id": "EXP-001",
@@ -345,6 +345,83 @@
         {
           "control": "7.2.1",
           "reason": "Data-store access must be constrained to authorized principals under least privilege."
+        }
+      ]
+    },
+    {
+      "id": "EXP-020",
+      "title": "CloudFront con origen S3 sin control de acceso de origen fuerte",
+      "severity": "High",
+      "description": "CloudFront distributions using S3 origins without clear origin access restriction (OAI/OAC) can expose direct-bucket access and increase unauthenticated enumeration paths.",
+      "remediation": "Enforce private S3 origins behind CloudFront using Origin Access Control (recommended) or Origin Access Identity, and block direct public S3 access.",
+      "evidence_files": [
+        "cloudfront-distributions.json",
+        "s3-buckets.json"
+      ],
+      "check_keywords": [
+        "S3OriginConfig",
+        "OriginAccessIdentity",
+        "cloudfront",
+        "s3"
+      ],
+      "pci_dss": [
+        {
+          "control": "1.3.1.b",
+          "reason": "Publicly reachable object-store paths should be minimized and restricted to necessary edge delivery controls."
+        },
+        {
+          "control": "7.2.1",
+          "reason": "Origin access should be restricted to explicit service principals and least-privilege paths."
+        }
+      ]
+    },
+    {
+      "id": "EXP-021",
+      "title": "API Gateway expone metodos de mutacion sin autenticacion fuerte",
+      "severity": "Critical",
+      "description": "Public API routes supporting POST/PUT/PATCH/DELETE without strong authorization increase risk of unauthenticated business-logic abuse and direct data manipulation.",
+      "evidence_files": [
+        "api-gateway-routes.json"
+      ],
+      "check_keywords": [
+        "AuthorizationType",
+        "NONE",
+        "POST",
+        "PUT",
+        "DELETE",
+        "PATCH"
+      ],
+      "remediation": "Require IAM/Cognito/JWT/Lambda authorizers for mutating routes, enforce explicit deny-by-default policies, and validate access control tests for every stage.",
+      "pci_dss": [
+        {
+          "control": "8.1.1",
+          "reason": "Mutating operations must require authenticated and uniquely attributable identities."
+        },
+        {
+          "control": "6.2.4",
+          "reason": "Unauthenticated mutation paths are a common API security weakness enabling abuse and unauthorized actions."
+        }
+      ]
+    },
+    {
+      "id": "EXP-022",
+      "title": "API Gateway con rutas catch-all (ANY/proxy) sin auth",
+      "severity": "High",
+      "description": "Wildcard API routes such as ANY /{proxy+} without authorization broaden attack surface and can bypass intended route-level restrictions.",
+      "evidence_files": [
+        "api-gateway-routes.json"
+      ],
+      "check_keywords": [
+        "ANY",
+        "{proxy+}",
+        "AuthorizationType",
+        "NONE"
+      ],
+      "remediation": "Avoid unauthenticated wildcard routes, scope explicit methods/paths, and require strong authorizers for generic proxy handlers.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "Broad wildcard routing without authentication violates least privilege and increases unauthorized-access paths."
         }
       ]
     }

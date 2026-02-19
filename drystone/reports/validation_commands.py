@@ -10,6 +10,7 @@ def suggest_aws_cli_commands(
     evidence_refs: List[str],
     region: str = "us-east-1",
     account_id: str = "<account-id>",
+    finding_id: str = "",
 ) -> List[str]:
     """Suggest AWS CLI commands from evidence references.
 
@@ -83,6 +84,11 @@ def suggest_aws_cli_commands(
             "keys.json": f"aws kms list-keys --region {region}",
             "aliases.json": f"aws kms list-aliases --region {region}",
             "key-policies.json": f"aws kms list-keys --region {region}",
+            "kms-keys.json": f"aws kms list-keys --region {region}",
+            "kms-key-policies.json": f"aws kms get-key-policy --key-id <key-id> --policy-name default --region {region}",
+            "kms-grants.json": f"aws kms list-grants --key-id <key-id> --region {region}",
+            "kms-aliases.json": f"aws kms list-aliases --region {region}",
+            "kms-custom-key-stores.json": f"aws kms describe-custom-key-stores --region {region}",
         },
         "messaging": {
             "sqs-queues.json": f"aws sqs list-queues --region {region}",
@@ -129,6 +135,59 @@ def suggest_aws_cli_commands(
             return f"aws sns get-topic-attributes --topic-arn arn:aws:sns:{region}:{account_id}:OpsGenie"
         return ""
 
+    # Smart per-finding commands for Secrets Manager checks.
+    def _secretsmanager_specific(fid: str) -> List[str]:
+        fid = fid.strip().upper()
+        if not fid:
+            return []
+
+        if fid == "SM-001":
+            return [
+                f"aws secretsmanager list-secrets --region {region}",
+                f"aws secretsmanager get-resource-policy --secret-id <secret-id-or-arn> --region {region}",
+            ]
+        if fid == "SM-002":
+            return [
+                f"aws secretsmanager list-secrets --region {region}",
+                f"aws secretsmanager describe-secret --secret-id <secret-id-or-arn> --region {region}",
+            ]
+        if fid == "SM-003":
+            return [
+                f"aws secretsmanager describe-secret --secret-id <secret-id-or-arn> --region {region}",
+                f"aws secretsmanager list-secret-version-ids --secret-id <secret-id-or-arn> --region {region}",
+            ]
+        if fid == "SM-004":
+            return [
+                f"aws secretsmanager describe-secret --secret-id <secret-id-or-arn> --region {region}",
+                f"aws kms describe-key --key-id <kms-key-id-or-arn> --region {region}",
+            ]
+        if fid == "SM-012":
+            return [
+                f"aws cloudwatch describe-alarms --region {region}",
+                f"aws events list-rules --region {region}",
+                f"aws events list-targets-by-rule --rule <rule-name> --region {region}",
+            ]
+        if fid == "SM-013":
+            return [
+                f"aws secretsmanager get-resource-policy --secret-id <secret-id-or-arn> --region {region}",
+            ]
+        if fid == "SM-014":
+            return [
+                f"aws secretsmanager describe-secret --secret-id <secret-id-or-arn> --region {region}",
+            ]
+        if fid == "SM-015":
+            return [
+                f"aws secretsmanager describe-secret --secret-id <secret-id-or-arn> --region {region}",
+                f"aws kms describe-key --key-id <kms-key-id-or-arn> --region {region}",
+            ]
+        if fid == "SM-017":
+            return [
+                f"aws secretsmanager describe-secret --secret-id <secret-id-or-arn> --region {region}",
+                f"aws secretsmanager get-resource-policy --secret-id <secret-id-or-arn> --region {region}",
+            ]
+
+        return []
+
     generic = {
         "ec2-instances.json": f"aws ec2 describe-instances --region {region}",
         "rds-instances.json": f"aws rds describe-db-instances --region {region}",
@@ -144,6 +203,12 @@ def suggest_aws_cli_commands(
     commands: List[str] = []
     seen = set()
     smap = skill_file_maps.get(skill, {})
+
+    if skill == "secretsmanager":
+        for cmd in _secretsmanager_specific(finding_id):
+            if cmd not in seen:
+                commands.append(cmd)
+                seen.add(cmd)
 
     for ref in evidence_refs:
         ref_s = str(ref)

@@ -217,8 +217,20 @@ class AgentClient:
         # 3. Parse JSON response
         try:
             findings_data = self._parse_json_response(response_text)
-        except AgentError:
-            raise
+        except AgentError as first_error:
+            # Claude CLI can occasionally return explanatory prose instead of strict JSON.
+            # Attempt one lightweight repair pass that reformats the raw response into
+            # the required JSON schema.
+            try:
+                repaired = self._repair_response_to_json(response_text)
+                findings_data = self._parse_json_response(repaired)
+                logger.warning(
+                    "Recovered non-JSON model output via repair pass for %s: %s",
+                    skill_name,
+                    first_error,
+                )
+            except AgentError:
+                raise
 
         # 4. Validate with Pydantic
         try:
@@ -295,9 +307,7 @@ class AgentClient:
         # Check if chunking is needed
         if not chunker.should_chunk(evidence):
             # Small evidence - use existing flow
-            return self.analyze_evidence(
-                skill_name, evidence, checklist, pre_checks=pre_checks
-            )
+            return self.analyze_evidence(skill_name, evidence, checklist, pre_checks=pre_checks)
 
         # Large evidence - chunk and aggregate
         print("  📦 Evidence size requires chunking...")
@@ -307,6 +317,7 @@ class AgentClient:
         print(f"  📦 Processing {len(chunks)} chunks...")
 
         failed_chunks = 0
+        aborted_due_to_quota = False
         for i, chunk in enumerate(chunks):
             source_file = chunk.metadata.get("source_file", "unknown")
             extra = ""
@@ -343,14 +354,24 @@ class AgentClient:
                 # Gracefully skip chunks that fail (e.g., metadata files that
                 # produce invalid responses). Log and continue.
                 failed_chunks += 1
-                logger.warning(
-                    f"Chunk {i + 1}/{len(chunks)} ({source_file}) failed: {e}"
-                )
-                print(f"     ⚠️  Chunk {source_file} skipped (parse error)")
+                err_text = str(e)
+                logger.warning(f"Chunk {i + 1}/{len(chunks)} ({source_file}) failed: {err_text}")
+
+                lower_err = err_text.lower()
+                if "out of extra usage" in lower_err or "rate limit" in lower_err:
+                    print(f"     ⚠️  Chunk {source_file} skipped (provider quota/rate limit)")
+                    print("  ⚠️  Stopping remaining chunks due to provider quota/rate limit")
+                    aborted_due_to_quota = True
+                    break
+
+                short_reason = err_text.splitlines()[0][:140] if err_text else "unknown error"
+                print(f"     ⚠️  Chunk {source_file} skipped ({short_reason})")
                 continue
 
         if failed_chunks:
             print(f"  ⚠️  {failed_chunks}/{len(chunks)} chunks failed (skipped)")
+        if aborted_due_to_quota:
+            print("  ⚠️  Results may be partial due to provider quota/rate limit")
 
         # Return aggregated result
         final_findings = aggregator.aggregate()
@@ -1142,6 +1163,58 @@ Missing CloudWatch alarm:
             # Step 5: Give up and report the error
             preview = original_text[:500]
             raise AgentError(f"Invalid JSON response from API\nResponse preview: {preview}")
+
+    def _repair_response_to_json(self, raw_response: str) -> str:
+        """Ask the model to convert raw output into strict JSON only.
+
+        This is a best-effort recovery path when the first response does not
+        follow the required schema/output format.
+        """
+        repair_prompt = f"""Convert the following text into STRICT JSON only.
+
+Required output schema:
+{{
+  "skill": "<skill_name>",
+  "findings": [
+    {{
+      "id": "SKILL-001",
+      "severity": "Critical|High|Medium|Low",
+      "risk_score": 0.0,
+      "title": "...",
+      "description": "...",
+      "evidence_refs": ["..."],
+      "evidence_snippet": {{}},
+      "affected_resources": ["..."],
+      "remediation": "...",
+      "cis_reference": null,
+      "pci_dss": []
+    }}
+  ],
+  "summary": {{
+    "total_findings": 0,
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 0,
+    "overall_risk_score": 0.0
+  }},
+  "analyzed_at": "2026-01-01T00:00:00Z",
+  "evidence_count": 0,
+  "checklist_version": "1.0"
+}}
+
+Rules:
+- Return ONLY valid JSON (no markdown, no explanations)
+- Ensure all brackets/braces are closed
+- If information is missing, use safe defaults consistent with schema
+
+RAW RESPONSE:
+{raw_response}
+"""
+
+        if self.use_cli:
+            return self._call_claude_cli(repair_prompt)
+        return self._call_claude_api(repair_prompt)
 
     def _extract_json_from_text(self, text: str) -> Optional[str]:
         """Extract JSON object or array from text containing markdown.

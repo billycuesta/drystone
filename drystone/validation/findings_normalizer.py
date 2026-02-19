@@ -27,6 +27,45 @@ logger = logging.getLogger(__name__)
 Severity = Literal["Critical", "High", "Medium", "Low"]
 
 
+def _kms_grant_is_sensitive(grant: Dict[str, Any]) -> bool:
+    ops = grant.get("Operations")
+    if not isinstance(ops, list):
+        return False
+    ops_norm = {str(o) for o in ops if o is not None}
+    return "Decrypt" in ops_norm or any(o.startswith("GenerateDataKey") for o in ops_norm)
+
+
+def _kms_grant_has_context_constraints(grant: Dict[str, Any]) -> bool:
+    cons = grant.get("Constraints")
+    if not isinstance(cons, dict):
+        return False
+    return bool(cons.get("EncryptionContextEquals") or cons.get("EncryptionContextSubset"))
+
+
+def _kms_grant_is_service_managed(grant: Dict[str, Any]) -> bool:
+    grantee = str(grant.get("GranteePrincipal") or "")
+    issuing = str(grant.get("IssuingAccount") or "")
+    if grantee.endswith(".amazonaws.com"):
+        return True
+    if ":assumed-role/" in grantee and "arn:aws:sts::" in grantee:
+        return True
+    if issuing.endswith(".amazonaws.com"):
+        return True
+    return False
+
+
+def _principal_has_wildcard(principal: Any) -> bool:
+    if principal == "*":
+        return True
+    if isinstance(principal, dict):
+        aws_p = principal.get("AWS")
+        if aws_p == "*":
+            return True
+        if isinstance(aws_p, list) and any(p == "*" for p in aws_p):
+            return True
+    return False
+
+
 class FindingsNormalizer:
     """Normalizes findings from different AI models to ensure consistency.
 
@@ -76,6 +115,8 @@ class FindingsNormalizer:
         ("IAM-008", "IAM-009"): "keep_specific",  # Weak policy vs no policy
         # IAM: Root account
         ("IAM-001", "IAM-002"): "keep_higher",  # No MFA vs partial MFA
+        # KMS: grant broadness vs persistence-specific finding
+        ("KMS-002", "KMS-007"): "keep_specific",
         # Alerting: CloudTrail state
         ("ALR-001", "ALR-003"): "keep_specific",  # Disabled vs no logs
         ("ALR-003", "ALR-005"): "keep_specific",  # No logs vs no alarms
@@ -169,6 +210,10 @@ class FindingsNormalizer:
             # 5. Calibrate severity
             severity, risk_score = self._calibrate_severity(
                 normalized_id, finding.severity, finding.risk_score
+            )
+
+            severity, risk_score = self._apply_contextual_severity_adjustments(
+                normalized_id, finding, severity, risk_score
             )
 
             # Update finding in-place
@@ -295,6 +340,105 @@ class FindingsNormalizer:
             return False, "critical finding has affected_resources not found in evidence"
 
         return True, None
+
+    def _apply_contextual_severity_adjustments(
+        self,
+        finding_id: str,
+        finding: Finding,
+        severity: Severity,
+        risk_score: float,
+    ) -> Tuple[Severity, float]:
+        """Apply evidence-based severity adjustments for nuanced scenarios."""
+        if finding_id == "KMS-001" and self._kms_001_is_managed_default_pattern(finding):
+            # Keep signal but avoid over-severity for common AWS-managed policy defaults.
+            return "High", 7.2
+
+        return severity, risk_score
+
+    def _kms_001_is_managed_default_pattern(self, finding: Finding) -> bool:
+        if not self.evidence:
+            return False
+
+        refs = finding.evidence_refs or []
+        if not refs:
+            return False
+
+        ev = cast(Dict[str, Any], self.evidence)
+        keys_doc = ev.get("kms-keys")
+        key_items = keys_doc.get("items") if isinstance(keys_doc, dict) else []
+        keyman_by_id: Dict[str, str] = {}
+        if isinstance(key_items, list):
+            for it in key_items:
+                if not isinstance(it, dict):
+                    continue
+                kid = str(it.get("KeyId") or "")
+                meta = it.get("Metadata") if isinstance(it.get("Metadata"), dict) else {}
+                km = str(meta.get("KeyManager") or "")
+                if kid:
+                    keyman_by_id[kid] = km
+
+        pol_doc = ev.get("kms-key-policies")
+        pol_items = pol_doc.get("items") if isinstance(pol_doc, dict) else []
+        idx_to_policy: Dict[int, Dict[str, Any]] = {}
+        if isinstance(pol_items, list):
+            for i, it in enumerate(pol_items):
+                if isinstance(it, dict):
+                    idx_to_policy[i] = it
+
+        seen_any = False
+        for ref in refs:
+            if not isinstance(ref, str) or not ref.startswith("kms-key-policies.json#items."):
+                continue
+            try:
+                idx = int(ref.split("#items.", 1)[1])
+            except Exception:
+                continue
+            rec = idx_to_policy.get(idx)
+            if not isinstance(rec, dict):
+                continue
+            seen_any = True
+            key_id = str(rec.get("KeyId") or "")
+            if keyman_by_id.get(key_id, "").upper() != "AWS":
+                return False
+
+            policy = rec.get("Policy")
+            if not isinstance(policy, dict):
+                return False
+            stmts = policy.get("Statement")
+            stmt_list = (
+                stmts if isinstance(stmts, list) else [stmts] if isinstance(stmts, dict) else []
+            )
+
+            wildcard_stmt_ok = False
+            for st in stmt_list:
+                if not isinstance(st, dict):
+                    continue
+                if str(st.get("Effect") or "").upper() != "ALLOW":
+                    continue
+                if not _principal_has_wildcard(st.get("Principal")):
+                    continue
+                cond = st.get("Condition") if isinstance(st.get("Condition"), dict) else {}
+                if not isinstance(cond, dict):
+                    continue
+                s_eq = (
+                    cond.get("StringEquals") if isinstance(cond.get("StringEquals"), dict) else {}
+                )
+                s_like = cond.get("StringLike") if isinstance(cond.get("StringLike"), dict) else {}
+                has_caller = isinstance(s_eq, dict) and bool(s_eq.get("kms:CallerAccount"))
+                via = None
+                if isinstance(s_eq, dict):
+                    via = s_eq.get("kms:ViaService")
+                if via is None and isinstance(s_like, dict):
+                    via = s_like.get("kms:ViaService")
+                has_via = bool(via)
+                if has_caller and has_via:
+                    wildcard_stmt_ok = True
+                    break
+
+            if not wildcard_stmt_ok:
+                return False
+
+        return seen_any
 
     def _infer_evidence_refs(self, finding: Finding) -> List[str]:
         """Best-effort evidence_refs inference for common resource types.
@@ -732,6 +876,8 @@ class FindingsNormalizer:
             return self._normalize_evidence_refs_network(refs, evidence)
         if self.skill_name == "HARDENING":
             return self._normalize_evidence_refs_hardening(refs)
+        if self.skill_name == "KMS":
+            return self._normalize_evidence_refs_kms(refs, evidence)
 
         return refs
 
@@ -758,6 +904,68 @@ class FindingsNormalizer:
                     "security-hub-enabled-standards.json#",
                     1,
                 )
+
+            out.append(rr)
+
+        return out
+
+    def _normalize_evidence_refs_kms(self, refs: List[str], evidence: Dict[str, Any]) -> List[str]:
+        """Normalize KMS refs like #<keyid>/#KeyId=<id>/#<grantid> to items.<idx>."""
+        out: List[str] = []
+
+        pol_doc = evidence.get("kms-key-policies")
+        pol_items = pol_doc.get("items") if isinstance(pol_doc, dict) else []
+        keyid_to_idx: Dict[str, int] = {}
+        if isinstance(pol_items, list):
+            for i, it in enumerate(pol_items):
+                if isinstance(it, dict):
+                    kid = str(it.get("KeyId") or "").strip()
+                    if kid:
+                        keyid_to_idx[kid] = i
+
+        grants_doc = evidence.get("kms-grants")
+        grant_items = grants_doc.get("items") if isinstance(grants_doc, dict) else []
+        grantid_to_idx: Dict[str, int] = {}
+        if isinstance(grant_items, list):
+            for i, it in enumerate(grant_items):
+                if isinstance(it, dict):
+                    gid = str(it.get("GrantId") or "").strip()
+                    if gid:
+                        grantid_to_idx[gid] = i
+
+        for r in refs:
+            if not isinstance(r, str):
+                continue
+            rr = r.strip()
+
+            if rr.startswith("kms-key-policies.json#"):
+                anchor = rr.split("#", 1)[1]
+                if anchor.startswith("items."):
+                    out.append(rr)
+                    continue
+
+                key_id = anchor
+                if anchor.startswith("KeyId="):
+                    key_id = anchor.split("=", 1)[1]
+
+                idx = keyid_to_idx.get(key_id)
+                if idx is not None:
+                    out.append(f"kms-key-policies.json#items.{idx}")
+                else:
+                    out.append(rr)
+                continue
+
+            if rr.startswith("kms-grants.json#"):
+                anchor = rr.split("#", 1)[1]
+                if anchor.startswith("items."):
+                    out.append(rr)
+                    continue
+                idx = grantid_to_idx.get(anchor)
+                if idx is not None:
+                    out.append(f"kms-grants.json#items.{idx}")
+                else:
+                    out.append(rr)
+                continue
 
             out.append(rr)
 
@@ -2807,13 +3015,15 @@ class FindingsNormalizer:
             for g in items:
                 if not isinstance(g, dict):
                     continue
-                ops = g.get("Operations")
-                if not isinstance(ops, list):
+                if not _kms_grant_is_sensitive(g):
                     continue
-                ops_norm = {str(o) for o in ops if o is not None}
-                if "Decrypt" in ops_norm or any(o.startswith("GenerateDataKey") for o in ops_norm):
-                    has_sensitive_grant = True
-                    break
+
+                # Ignore expected service-managed grants with context constraints.
+                if _kms_grant_is_service_managed(g) and _kms_grant_has_context_constraints(g):
+                    continue
+
+                has_sensitive_grant = True
+                break
 
             if not has_sensitive_grant:
                 logger.warning(
@@ -2902,6 +3112,174 @@ class FindingsNormalizer:
             if not has_rotation_disabled:
                 logger.warning(
                     f"Rejected {finding_id} - no customer-managed keys with KeyRotationEnabled=false found in evidence."
+                )
+                return False
+
+        # KMS: Policies allow destructive key availability actions (KMS-005)
+        if finding_id == "KMS-005":
+            pol_doc = self.evidence.get("kms-key-policies")
+            items = pol_doc.get("items") if isinstance(pol_doc, dict) else None
+            if not isinstance(items, list) or not items:
+                logger.warning(
+                    f"Rejected {finding_id} - missing/empty kms-key-policies evidence items."
+                )
+                return False
+
+            destructive = {
+                "kms:disablekey",
+                "kms:schedulekeydeletion",
+                "kms:deleteimportedkeymaterial",
+                "kms:deletealias",
+                "kms:updatealias",
+                "kms:*",
+            }
+
+            has_destructive = False
+            for rec in items:
+                if not isinstance(rec, dict):
+                    continue
+                policy = rec.get("Policy")
+                if not isinstance(policy, dict):
+                    continue
+                stmts = policy.get("Statement")
+                stmt_list: List[Any]
+                if isinstance(stmts, list):
+                    stmt_list = stmts
+                elif isinstance(stmts, dict):
+                    stmt_list = [stmts]
+                else:
+                    stmt_list = []
+
+                for st in stmt_list:
+                    if not isinstance(st, dict):
+                        continue
+                    if str(st.get("Effect") or "").upper() != "ALLOW":
+                        continue
+                    a = st.get("Action")
+                    acts: List[str]
+                    if isinstance(a, str):
+                        acts = [a]
+                    elif isinstance(a, list):
+                        acts = [str(x) for x in a if x is not None]
+                    else:
+                        acts = []
+                    if any(str(act).lower() in destructive for act in acts):
+                        has_destructive = True
+                        break
+                if has_destructive:
+                    break
+
+            if not has_destructive:
+                logger.warning(
+                    f"Rejected {finding_id} - no destructive KMS actions found in key policies."
+                )
+                return False
+
+        # KMS: Imported key material deletion risk (KMS-006)
+        if finding_id == "KMS-006":
+            keys_doc = self.evidence.get("kms-keys")
+            key_items = keys_doc.get("items") if isinstance(keys_doc, dict) else None
+            pol_doc = self.evidence.get("kms-key-policies")
+            pol_items = pol_doc.get("items") if isinstance(pol_doc, dict) else None
+            if not isinstance(key_items, list) or not key_items:
+                logger.warning(f"Rejected {finding_id} - missing/empty kms-keys evidence items.")
+                return False
+            if not isinstance(pol_items, list) or not pol_items:
+                logger.warning(
+                    f"Rejected {finding_id} - missing/empty kms-key-policies evidence items."
+                )
+                return False
+
+            external_ids = set()
+            for k in key_items:
+                if not isinstance(k, dict):
+                    continue
+                meta = k.get("Metadata") if isinstance(k.get("Metadata"), dict) else {}
+                if str(meta.get("Origin") or "").upper() == "EXTERNAL":
+                    key_id = str(meta.get("KeyId") or k.get("KeyId") or "")
+                    if key_id:
+                        external_ids.add(key_id)
+
+            if not external_ids:
+                logger.warning(f"Rejected {finding_id} - no EXTERNAL origin keys found.")
+                return False
+
+            has_risk = False
+            for rec in pol_items:
+                if not isinstance(rec, dict):
+                    continue
+                key_id = str(rec.get("KeyId") or "")
+                if key_id not in external_ids:
+                    continue
+                policy = rec.get("Policy")
+                if not isinstance(policy, dict):
+                    continue
+                stmts = policy.get("Statement")
+                stmt_list: List[Any]
+                if isinstance(stmts, list):
+                    stmt_list = stmts
+                elif isinstance(stmts, dict):
+                    stmt_list = [stmts]
+                else:
+                    stmt_list = []
+                for st in stmt_list:
+                    if not isinstance(st, dict):
+                        continue
+                    if str(st.get("Effect") or "").upper() != "ALLOW":
+                        continue
+                    a = st.get("Action")
+                    acts: List[str]
+                    if isinstance(a, str):
+                        acts = [a]
+                    elif isinstance(a, list):
+                        acts = [str(x) for x in a if x is not None]
+                    else:
+                        acts = []
+                    if any(
+                        str(act).lower() in {"kms:deleteimportedkeymaterial", "kms:*"}
+                        for act in acts
+                    ):
+                        has_risk = True
+                        break
+                if has_risk:
+                    break
+
+            if not has_risk:
+                logger.warning(
+                    f"Rejected {finding_id} - no DeleteImportedKeyMaterial permission found for EXTERNAL keys."
+                )
+                return False
+
+        # KMS: grant persistence via CreateGrant delegation (KMS-007)
+        if finding_id == "KMS-007":
+            grants_doc = self.evidence.get("kms-grants")
+            items = grants_doc.get("items") if isinstance(grants_doc, dict) else None
+            if not isinstance(items, list) or not items:
+                logger.warning(f"Rejected {finding_id} - missing/empty kms-grants evidence items.")
+                return False
+
+            has_unconstrained_create_grant = False
+            for g in items:
+                if not isinstance(g, dict):
+                    continue
+                ops = g.get("Operations")
+                if not isinstance(ops, list):
+                    continue
+                ops_norm = {str(o) for o in ops if o is not None}
+                if "CreateGrant" not in ops_norm:
+                    continue
+                cons = g.get("Constraints")
+                has_ctx = isinstance(cons, dict) and bool(
+                    cons.get("EncryptionContextEquals") or cons.get("EncryptionContextSubset")
+                )
+                if has_ctx:
+                    continue
+                has_unconstrained_create_grant = True
+                break
+
+            if not has_unconstrained_create_grant:
+                logger.warning(
+                    f"Rejected {finding_id} - no unconstrained CreateGrant delegation found in grants evidence."
                 )
                 return False
 

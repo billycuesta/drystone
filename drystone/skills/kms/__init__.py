@@ -68,7 +68,21 @@ class KMSSkill(BaseSkill):
             {"items": grants, "errors": grant_errors},
         )
 
-        ok = not (key_errors or policy_errors or grant_errors)
+        aliases, alias_errors = self._collect_aliases(kms)
+        self._save_json(
+            evidence_path / "kms-aliases.json",
+            {"items": aliases, "errors": alias_errors},
+        )
+
+        custom_stores, custom_store_errors = self._collect_custom_key_stores(kms)
+        self._save_json(
+            evidence_path / "kms-custom-key-stores.json",
+            {"items": custom_stores, "errors": custom_store_errors},
+        )
+
+        ok = not (
+            key_errors or policy_errors or grant_errors or alias_errors or custom_store_errors
+        )
         logger.info(
             "KMS collection complete",
             extra={
@@ -76,6 +90,8 @@ class KMSSkill(BaseSkill):
                 "keys": len(keys),
                 "policies": len(policies),
                 "grants": len(grants),
+                "aliases": len(aliases),
+                "custom_key_stores": len(custom_stores),
                 "ok": ok,
             },
         )
@@ -198,3 +214,33 @@ class KMSSkill(BaseSkill):
         filepath.parent.mkdir(parents=True, exist_ok=True)
         with open(filepath, "w") as f:
             json.dump(data, f, indent=2, default=str)
+
+    def _collect_aliases(self, kms) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
+        items: List[Dict[str, Any]] = []
+        errors: Dict[str, str] = {}
+        try:
+            paginator = kms.get_paginator("list_aliases")
+            for page in paginator.paginate():
+                for a in page.get("Aliases", []) or []:
+                    items.append(a)
+        except ClientError as e:
+            errors["list_aliases"] = e.response.get("Error", {}).get("Code", "Unknown")
+        except Exception as e:
+            errors["list_aliases"] = str(e)
+        return items, errors
+
+    def _collect_custom_key_stores(self, kms) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
+        items: List[Dict[str, Any]] = []
+        errors: Dict[str, str] = {}
+        try:
+            paginator = kms.get_paginator("describe_custom_key_stores")
+            for page in paginator.paginate():
+                for cks in page.get("CustomKeyStores", []) or []:
+                    items.append(cks)
+        except ClientError as e:
+            errors["describe_custom_key_stores"] = e.response.get("Error", {}).get(
+                "Code", "Unknown"
+            )
+        except Exception as e:
+            errors["describe_custom_key_stores"] = str(e)
+        return items, errors

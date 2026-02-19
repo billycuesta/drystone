@@ -315,10 +315,95 @@
           "reason": "Even if a direct patch isn't immediately deployable, the requirement for addressing vulnerabilities means a plan must be in place, or compensating controls justified, for such scenarios."
         }
       ]
+    },
+    {
+      "id": "VULN-022",
+      "title": "Instancias con IMDSv1 habilitado (riesgo SSRF -> robo de credenciales)",
+      "severity": "High",
+      "description": "EC2 instances that do not require IMDSv2 (HttpTokens != required) are exposed to metadata credential theft in SSRF scenarios.",
+      "remediation": "Enforce IMDSv2 on all EC2 instances by setting HttpTokens=require and review workloads for metadata access compatibility.",
+      "pci_dss": [
+        {
+          "control": "6.2.4",
+          "reason": "Known attack techniques such as SSRF credential theft should be prevented through secure configuration hardening."
+        },
+        {
+          "control": "7.2.1",
+          "reason": "Compromised metadata credentials can bypass least-privilege boundaries and expose broader access paths."
+        }
+      ]
+    },
+    {
+      "id": "VULN-023",
+      "title": "EC2 user-data contiene secretos o credenciales potenciales",
+      "severity": "High",
+      "description": "User-data scripts include patterns consistent with credentials (keys, tokens, passwords), creating immediate post-compromise exposure.",
+      "remediation": "Remove secrets from user-data, rotate exposed credentials, and move secret retrieval to managed services such as Secrets Manager or Parameter Store.",
+      "pci_dss": [
+        {
+          "control": "3.3.1",
+          "reason": "Sensitive authentication data and credentials must not be exposed in insecure storage locations."
+        },
+        {
+          "control": "8.2.1",
+          "reason": "Credential management requires controlled issuance and storage, not plaintext bootstrap scripts."
+        }
+      ]
+    },
+    {
+      "id": "VULN-024",
+      "title": "Variables de entorno Lambda con claves sensibles",
+      "severity": "High",
+      "description": "Lambda environment variables contain keys likely representing secrets, increasing impact of function compromise or log leakage.",
+      "remediation": "Move sensitive values to Secrets Manager/SSM Parameter Store, enable KMS protections, and minimize plaintext secret exposure in runtime configuration.",
+      "pci_dss": [
+        {
+          "control": "3.3.1",
+          "reason": "Sensitive data should be protected and stored using approved secure secret-management mechanisms."
+        },
+        {
+          "control": "6.2.3.a",
+          "reason": "Secure coding and deployment practices must avoid embedding secrets in application configuration."
+        }
+      ]
+    },
+    {
+      "id": "VULN-025",
+      "title": "Instance profiles con permisos excesivos (admin/wildcard)",
+      "severity": "Critical",
+      "description": "EC2 instance profiles include attached policies indicating over-privileged permissions, amplifying impact of workload compromise and lateral movement.",
+      "remediation": "Reduce role permissions to least privilege, remove administrator-equivalent policies from compute roles, and isolate sensitive actions behind scoped roles.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "Compute identities must operate with least privilege to limit blast radius upon compromise."
+        },
+        {
+          "control": "7.2.2",
+          "reason": "Privileges assigned to system accounts must align with explicit job-function requirements."
+        }
+      ]
+    },
+    {
+      "id": "VULN-028",
+      "title": "Snapshots EBS compartidos públicamente",
+      "severity": "Critical",
+      "description": "EBS snapshots shared with all accounts (public restore permissions) can expose disk contents, credentials, and sensitive data.",
+      "remediation": "Revoke public snapshot sharing, restrict createVolumePermission to specific accounts, and continuously audit snapshot ACLs.",
+      "pci_dss": [
+        {
+          "control": "3.3.1",
+          "reason": "Stored sensitive data must be protected from unauthorized disclosure through backup artifacts."
+        },
+        {
+          "control": "7.2.1",
+          "reason": "Snapshot restoration rights must be limited to authorized identities only."
+        }
+      ]
     }
   ],
-  "version": "1.0",
-  "total_checks": 21,
-  "last_updated": "2026-01-23",
+  "version": "1.3",
+  "total_checks": 26,
+  "last_updated": "2026-02-18",
   "notes": "Generated based on aws-vuln-skill.md and mapped against PCI DSS v4.0 controls."
 }

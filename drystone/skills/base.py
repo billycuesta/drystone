@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from drystone.cloud.aws.client import AWSClient
 from drystone.storage.session import AuditSession
@@ -127,7 +127,9 @@ class BaseSkill(ABC):
 
         # 4. Tier 3: Reconcile AI findings against pre-checks
         if pre_check_results:
-            findings = self._reconcile_with_pre_checks(findings, pre_check_results, checklist)
+            findings = self._reconcile_with_pre_checks(
+                findings, pre_check_results, checklist, evidence=evidence
+            )
 
         # 5. Normalize findings (reduce variance; skip pre-checked IDs)
         print("  Normalizing findings...")
@@ -214,6 +216,7 @@ class BaseSkill(ABC):
                 evidence_refs=[str(ref) for ref in refs],
                 region=region,
                 account_id=str(account_id),
+                finding_id=str(finding.get("id", "")),
             )
             if commands:
                 finding["validation_commands"] = commands
@@ -241,6 +244,7 @@ class BaseSkill(ABC):
         findings: "SkillFindings",
         pre_checks: list,
         checklist: Dict[str, Any],
+        evidence: Optional[Dict[str, Any]] = None,
     ) -> "SkillFindings":
         """Reconcile AI findings against pre-computed verdicts (Tier 3).
 
@@ -274,6 +278,11 @@ class BaseSkill(ABC):
             if check_id not in existing_ids:
                 item = checklist_map.get(check_id)
                 if item:
+                    evidence_refs, evidence_snippet = self._build_precheck_traceability(
+                        check_id=check_id,
+                        result=result,
+                        evidence=evidence or {},
+                    )
                     finding = Finding(
                         id=check_id,
                         severity=item.get("severity", "Medium"),
@@ -282,7 +291,8 @@ class BaseSkill(ABC):
                         description=f"Pre-check determined: {result.evidence_summary}",
                         remediation=item.get("remediation", "See checklist for remediation steps."),
                         affected_resources=result.affected_resources,
-                        evidence_refs=[],
+                        evidence_refs=evidence_refs,
+                        evidence_snippet=evidence_snippet,
                         cis_reference=item.get("cis_reference") or item.get("cis_id"),
                     )
                     findings.findings.append(finding)
@@ -292,6 +302,74 @@ class BaseSkill(ABC):
             _logger.info(f"Pre-check reconciliation: injected {injected} findings for missed FAILs")
 
         return findings
+
+    def _build_precheck_traceability(
+        self,
+        check_id: str,
+        result: Any,
+        evidence: Dict[str, Any],
+    ) -> tuple[List[str], Optional[Dict[str, Any]]]:
+        """Attach best-effort refs/snippet for injected pre-check findings."""
+        if check_id not in {"KMS-002", "KMS-007"}:
+            return [], None
+
+        grants_doc = evidence.get("kms-grants")
+        items = grants_doc.get("items") if isinstance(grants_doc, dict) else None
+        if not isinstance(items, list):
+            return [], None
+
+        def _is_sensitive(grant: Dict[str, Any]) -> bool:
+            ops = grant.get("Operations")
+            if not isinstance(ops, list):
+                return False
+            ops_norm = {str(o) for o in ops if o is not None}
+            return "Decrypt" in ops_norm or any(o.startswith("GenerateDataKey") for o in ops_norm)
+
+        def _is_expected(grant: Dict[str, Any]) -> bool:
+            cons = grant.get("Constraints")
+            if not isinstance(cons, dict):
+                return False
+            has_ctx = bool(
+                cons.get("EncryptionContextEquals") or cons.get("EncryptionContextSubset")
+            )
+            grantee = str(grant.get("GranteePrincipal") or "")
+            issuing = str(grant.get("IssuingAccount") or "")
+            serviceish = (
+                grantee.endswith(".amazonaws.com")
+                or (":assumed-role/" in grantee and "arn:aws:sts::" in grantee)
+                or issuing.endswith(".amazonaws.com")
+            )
+            return has_ctx and serviceish
+
+        for idx, grant in enumerate(items):
+            if not isinstance(grant, dict):
+                continue
+            if check_id == "KMS-002":
+                if not _is_sensitive(grant):
+                    continue
+                if _is_expected(grant):
+                    continue
+            elif check_id == "KMS-007":
+                ops = grant.get("Operations")
+                if not isinstance(ops, list):
+                    continue
+                if "CreateGrant" not in {str(o) for o in ops if o is not None}:
+                    continue
+                if _is_expected(grant):
+                    continue
+
+            ref = f"kms-grants.json#items.{idx}"
+            snippet = {
+                "GrantId": grant.get("GrantId"),
+                "KeyId": grant.get("KeyId"),
+                "GranteePrincipal": grant.get("GranteePrincipal"),
+                "Operations": grant.get("Operations"),
+                "Constraints": grant.get("Constraints"),
+            }
+            return [ref], snippet
+
+        # fallback to pre-check summary only
+        return [], {"evidence_summary": getattr(result, "evidence_summary", "pre-check fail")}
 
     def _normalize_findings(
         self,

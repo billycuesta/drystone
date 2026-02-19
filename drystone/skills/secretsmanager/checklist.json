@@ -2,9 +2,9 @@
   "skill": "secretsmanager",
   "framework": "AWS Security Best Practices + PCI-DSS v4.0",
   "description": "Comprehensive AWS Secrets Manager security checks for rotation, encryption, and access control",
-  "version": "1.0",
-  "total_checks": 12,
-  "last_updated": "2026-02-08",
+  "version": "1.1",
+  "total_checks": 17,
+  "last_updated": "2026-02-18",
   "items": [
     {
       "id": "SM-001",
@@ -207,6 +207,81 @@
         {
           "control": "10.7.2",
           "reason": "This control requires detection and reporting of failures of critical security systems. Rotation failures are critical security events requiring alerting."
+        }
+      ]
+    },
+    {
+      "id": "SM-013",
+      "title": "Secrets resource policy allows external account access",
+      "severity": "Critical",
+      "description": "Cross-account principals in secret resource policies can expose secret values outside trusted AWS accounts when combined with KMS decrypt path.",
+      "evidence_files": ["secrets.json"],
+      "check_keywords": ["ResourcePolicy", "Principal", "arn:aws:iam::", "cross-account"],
+      "remediation": "Restrict resource policies to approved principals/accounts only and require explicit conditions (SourceAccount/SourceArn where applicable).",
+      "pci_dss": [
+        {
+          "control": "7.2.2",
+          "reason": "Access to secrets must be denied by default except for explicitly authorized entities."
+        }
+      ]
+    },
+    {
+      "id": "SM-014",
+      "title": "Secret rotation Lambda configuration can be hijacked",
+      "severity": "High",
+      "description": "Secrets with rotation enabled but missing strict Lambda ownership controls can be abused via RotateSecret to exfiltrate values through attacker-controlled functions.",
+      "evidence_files": ["secrets.json"],
+      "check_keywords": ["RotationEnabled", "RotationLambdaARN", "RotateSecret"],
+      "remediation": "Enforce approved rotation Lambda allowlist, least-privilege Lambda execution roles, and alerts for RotateSecret/UpdateSecret configuration changes.",
+      "pci_dss": [
+        {
+          "control": "10.2.1",
+          "reason": "Security-relevant changes to secret rotation configuration must be monitored and controlled."
+        }
+      ]
+    },
+    {
+      "id": "SM-015",
+      "title": "Secrets can be re-encrypted with untrusted KMS keys",
+      "severity": "High",
+      "description": "Ability to update secret KMS key to an attacker-controlled CMK can lock out legitimate access or create covert exfiltration path for future versions.",
+      "evidence_files": ["secrets.json"],
+      "check_keywords": ["UpdateSecret", "KmsKeyId", "cross-account KMS"],
+      "remediation": "Allow only approved CMKs for secret encryption and detect/deny unauthorized KmsKeyId changes.",
+      "pci_dss": [
+        {
+          "control": "3.6.1",
+          "reason": "Key management operations must prevent unauthorized cryptographic key substitution."
+        }
+      ]
+    },
+    {
+      "id": "SM-016",
+      "title": "Secret version stage manipulation risk (AWSCURRENT hijack)",
+      "severity": "High",
+      "description": "Stage manipulation can flip AWSCURRENT to attacker-controlled values and poison dependent workloads while preserving stealth.",
+      "evidence_files": ["secrets.json"],
+      "check_keywords": ["UpdateSecretVersionStage", "AWSCURRENT", "VersionStages"],
+      "remediation": "Restrict UpdateSecretVersionStage and monitor stage transitions, especially AWSCURRENT reassignments.",
+      "pci_dss": [
+        {
+          "control": "10.2.1",
+          "reason": "Changes affecting authentication secrets must be logged and detected as high-risk events."
+        }
+      ]
+    },
+    {
+      "id": "SM-017",
+      "title": "Cross-region replica promotion can create stealth backdoor",
+      "severity": "High",
+      "description": "Replication and promotion workflows can be abused to create standalone replica secrets in less-monitored regions with permissive policies.",
+      "evidence_files": ["secrets.json"],
+      "check_keywords": ["ReplicationStatus", "PrimaryRegion", "StopReplicationToReplica", "PutResourcePolicy"],
+      "remediation": "Restrict replication/promotion permissions and enforce region allowlist + policy guardrails for replica secrets.",
+      "pci_dss": [
+        {
+          "control": "12.10.1",
+          "reason": "Incident response and continuity controls require detection of unauthorized replication/backdoor paths."
         }
       ]
     }

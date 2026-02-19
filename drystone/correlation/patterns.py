@@ -573,6 +573,462 @@ PATTERN_REGISTRY.register(
 )
 
 
+def _match_iam_oidc_broad_trust_chain(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    iam_findings = findings_by_skill.get("iam", [])
+    ids = {f.id for f in iam_findings}
+    return bool({"IAM-032", "IAM-034"}.intersection(ids))
+
+
+def _iam_oidc_broad_trust_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker identifies role trust to token.actions.githubusercontent.com with broad or weak conditions",
+        "Mints/abuses external CI OIDC token that satisfies permissive trust",
+        "Assumes AWS role via AssumeRoleWithWebIdentity and pivots with temporary credentials",
+    ]
+
+
+def _iam_oidc_broad_trust_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Constrain OIDC trust with exact sub + aud conditions and avoid broad wildcards",
+        "Restrict SAML/OIDC provider mutation actions to break-glass identities",
+        "Continuously monitor AssumeRoleWithWebIdentity and IdP update events",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="iam_oidc_ci_cd_webidentity_takeover_chain",
+        name="OIDC CI/CD WebIdentity Takeover Chain",
+        description="Broad OIDC trust or IdP mutation permissions can enable external workflow credential takeover.",
+        severity="Critical",
+        skills_required=["iam"],
+        matcher=_match_iam_oidc_broad_trust_chain,
+        attack_path_generator=_iam_oidc_broad_trust_attack_path,
+        remediation_generator=_iam_oidc_broad_trust_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0001", "TA0004", "TA0003"],
+            mitre_attack_techniques=["T1190", "T1078.004", "T1550.001"],
+            observed_in_wild=True,
+            exploit_maturity="Functional",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "aws iam get-role --role-name <role>",
+                "aws sts assume-role-with-web-identity --role-arn <role-arn> --role-session-name ci-pivot --web-identity-token <token>",
+                "aws sts get-caller-identity",
+            ],
+            tools_required=["aws-cli"],
+            exploitation_complexity="Medium",
+            estimated_time_to_compromise="45 minutes",
+        ),
+        amplification_factor=1.7,
+    )
+)
+
+
+def _match_iam_policy_version_backdoor_chain(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    iam_findings = findings_by_skill.get("iam", [])
+    ids = {f.id for f in iam_findings}
+    if "IAM-035" not in ids:
+        return False
+    return any(_is_overprivileged_iam_finding(f) or f.id == "IAM-008" for f in iam_findings)
+
+
+def _iam_policy_version_backdoor_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker identifies identity with CreatePolicyVersion/SetDefaultPolicyVersion permissions",
+        "Creates malicious policy version and sets it as default to grant elevated access",
+        "Uses temporary elevated privileges while hiding persistence in policy version history",
+    ]
+
+
+def _iam_policy_version_backdoor_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Remove policy-version mutation rights from non-security-admin identities",
+        "Alert on CreatePolicyVersion and SetDefaultPolicyVersion CloudTrail events",
+        "Require change approval and periodic review of all policy versions",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="iam_policy_version_backdoor_persistence_chain",
+        name="Policy Version Backdoor Persistence Chain",
+        description="Policy-version mutation permissions can enable covert privilege escalation and persistence.",
+        severity="Critical",
+        skills_required=["iam"],
+        matcher=_match_iam_policy_version_backdoor_chain,
+        attack_path_generator=_iam_policy_version_backdoor_attack_path,
+        remediation_generator=_iam_policy_version_backdoor_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0003", "TA0004", "TA0005"],
+            mitre_attack_techniques=["T1098", "T1078.004", "T1548"],
+            observed_in_wild=True,
+            exploit_maturity="Functional",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "aws iam list-policy-versions --policy-arn <policy-arn>",
+                "aws iam create-policy-version --policy-arn <policy-arn> --policy-document file:///tmp/admin.json --set-as-default",
+                "aws sts get-caller-identity",
+            ],
+            tools_required=["aws-cli"],
+            exploitation_complexity="Low",
+            estimated_time_to_compromise="20 minutes",
+        ),
+        amplification_factor=1.8,
+    )
+)
+
+
+def _match_iam_mfa_hijack_chain(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    iam_findings = findings_by_skill.get("iam", [])
+    ids = {f.id for f in iam_findings}
+    return "IAM-037" in ids
+
+
+def _iam_mfa_hijack_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker identifies principal with MFA lifecycle permissions",
+        "Registers/deactivates MFA device for target identity to force lockout or hijack",
+        "Maintains access or disrupts incident response through authentication control abuse",
+    ]
+
+
+def _iam_mfa_hijack_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Restrict EnableMFADevice/CreateVirtualMFADevice/DeactivateMFADevice actions",
+        "Alert on MFA device lifecycle events in CloudTrail",
+        "Use break-glass workflows with approvals for MFA administrative operations",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="iam_mfa_device_hijack_persistence_chain",
+        name="MFA Device Hijack Persistence Chain",
+        description="Broad MFA lifecycle permissions can enable account lockout and persistence abuse.",
+        severity="High",
+        skills_required=["iam"],
+        matcher=_match_iam_mfa_hijack_chain,
+        attack_path_generator=_iam_mfa_hijack_attack_path,
+        remediation_generator=_iam_mfa_hijack_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0003", "TA0005"],
+            mitre_attack_techniques=["T1098", "T1556"],
+            observed_in_wild=False,
+            exploit_maturity="Proof-of-Concept",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "aws iam create-virtual-mfa-device --virtual-mfa-device-name <name>",
+                "aws iam enable-mfa-device --user-name <target> --serial-number <serial> --authentication-code1 <code1> --authentication-code2 <code2>",
+            ],
+            tools_required=["aws-cli"],
+            exploitation_complexity="Medium",
+            estimated_time_to_compromise="30 minutes",
+        ),
+        amplification_factor=1.45,
+    )
+)
+
+
+def _match_iam_authorization_wipeout_chain(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    iam_findings = findings_by_skill.get("iam", [])
+    ids = {f.id for f in iam_findings}
+    return "IAM-038" in ids or "IAM-039" in ids
+
+
+def _iam_authorization_wipeout_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker uses broad IAM delete/detach permissions",
+        "Removes policies, policy versions, or role/user attachments",
+        "Causes authorization disruption, denial-of-service, and anti-forensic impact",
+    ]
+
+
+def _iam_authorization_wipeout_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Eliminate iam:Delete* and broad detach/delete permissions from non-emergency roles",
+        "Require approvals for destructive IAM authorization changes",
+        "Create detections for delete/detach bursts and unusual IAM mutation patterns",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="iam_authorization_wipeout_dos_chain",
+        name="Authorization Wipeout DoS Chain",
+        description="Destructive IAM permissions can remove identities and controls, causing broad access outages.",
+        severity="Critical",
+        skills_required=["iam"],
+        matcher=_match_iam_authorization_wipeout_chain,
+        attack_path_generator=_iam_authorization_wipeout_attack_path,
+        remediation_generator=_iam_authorization_wipeout_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0040", "TA0005"],
+            mitre_attack_techniques=["T1485", "T1562"],
+            observed_in_wild=False,
+            exploit_maturity="Functional",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "aws iam delete-policy-version --policy-arn <arn> --version-id <id>",
+                "aws iam detach-role-policy --role-name <role> --policy-arn <arn>",
+            ],
+            tools_required=["aws-cli"],
+            exploitation_complexity="Low",
+            estimated_time_to_compromise="15 minutes",
+        ),
+        amplification_factor=1.9,
+    )
+)
+
+
+def _match_sm_rotation_hijack_chain(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    sm_findings = findings_by_skill.get("secretsmanager", [])
+    ids = {f.id for f in sm_findings}
+    return bool({"SM-014", "SM-016"}.intersection(ids))
+
+
+def _sm_rotation_hijack_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker identifies secret with rotation enabled and mutable rotation configuration",
+        "Rebinds rotation workflow to attacker-controlled Lambda or abuses stage manipulation",
+        "Exfiltrates current/pending secret values during rotation lifecycle",
+        "Maintains persistence through scheduled future rotations",
+    ]
+
+
+def _sm_rotation_hijack_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Restrict RotateSecret/UpdateSecretVersionStage to dedicated change-control roles",
+        "Enforce allowlist for rotation Lambda ARNs and monitor config drifts",
+        "Alert on AWSCURRENT stage moves and unexpected rotation lambda changes",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="secretsmanager_rotation_hijack_persistence_chain",
+        name="Secrets Rotation Hijack Persistence Chain",
+        description="Rotation workflow abuse can enable covert secret exfiltration and long-lived persistence.",
+        severity="Critical",
+        skills_required=["secretsmanager"],
+        matcher=_match_sm_rotation_hijack_chain,
+        attack_path_generator=_sm_rotation_hijack_attack_path,
+        remediation_generator=_sm_rotation_hijack_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0006", "TA0003", "TA0005"],
+            mitre_attack_techniques=["T1552.001", "T1098"],
+            observed_in_wild=True,
+            exploit_maturity="Functional",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "aws secretsmanager describe-secret --secret-id <secret-id>",
+                "aws secretsmanager rotate-secret --secret-id <secret-id> --rotation-lambda-arn <attacker-lambda> --rotate-immediately",
+                "aws secretsmanager list-secret-version-ids --secret-id <secret-id>",
+            ],
+            tools_required=["aws-cli"],
+            exploitation_complexity="High",
+            estimated_time_to_compromise="90 minutes",
+        ),
+        amplification_factor=1.8,
+    )
+)
+
+
+def _match_sm_cross_region_backdoor_chain(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    sm_findings = findings_by_skill.get("secretsmanager", [])
+    ids = {f.id for f in sm_findings}
+    return bool({"SM-013", "SM-015", "SM-017"}.intersection(ids))
+
+
+def _sm_cross_region_backdoor_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker leverages permissive secret resource policies and replication capabilities",
+        "Creates or promotes replica secret in alternate region with attacker-favorable controls",
+        "Pairs secret access with KMS decrypt path to read sensitive values",
+        "Maintains stealthy cross-region backdoor while primary secret appears unchanged",
+    ]
+
+
+def _sm_cross_region_backdoor_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Restrict ReplicateSecretToRegions/StopReplicationToReplica/PutResourcePolicy permissions",
+        "Enforce region allowlists and approved KMS keys for secrets encryption",
+        "Continuously monitor cross-region secret replication and external principal grants",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="secretsmanager_cross_region_backdoor_chain",
+        name="Secrets Cross-Region Backdoor Chain",
+        description="Replication plus permissive policy/KMS combinations can create durable cross-region secret backdoors.",
+        severity="High",
+        skills_required=["secretsmanager"],
+        matcher=_match_sm_cross_region_backdoor_chain,
+        attack_path_generator=_sm_cross_region_backdoor_attack_path,
+        remediation_generator=_sm_cross_region_backdoor_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0003", "TA0010"],
+            mitre_attack_techniques=["T1098", "T1020"],
+            observed_in_wild=True,
+            exploit_maturity="Proof-of-Concept",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "aws secretsmanager replicate-secret-to-regions --secret-id <secret-id> --add-replica-regions Region=<region>",
+                "aws secretsmanager stop-replication-to-replica --secret-id <secret-id>",
+                "aws secretsmanager put-resource-policy --secret-id <secret-id> --resource-policy file:///tmp/policy.json",
+            ],
+            tools_required=["aws-cli"],
+            exploitation_complexity="High",
+            estimated_time_to_compromise="2 hours",
+        ),
+        amplification_factor=1.6,
+    )
+)
+
+
+def _match_kms_ransomware_actions(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    kms_findings = findings_by_skill.get("kms", [])
+    return any(f.id in {"KMS-005", "KMS-006"} for f in kms_findings)
+
+
+def _kms_ransomware_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker identifies KMS permissions enabling key disable/deletion or imported key material deletion",
+        "Executes destructive KMS action to break decryptability of dependent services",
+        "Forces operational outage or ransomware-like recovery pressure",
+    ]
+
+
+def _kms_ransomware_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Restrict destructive KMS lifecycle permissions to tightly controlled break-glass roles",
+        "Alert on DisableKey, ScheduleKeyDeletion, DeleteImportedKeyMaterial, alias mutations",
+        "Use dual-approval workflows and tested recovery playbooks for key operations",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="kms_ransomware_availability_chain",
+        name="KMS Availability/Ransomware Chain",
+        description="Destructive KMS actions can render encrypted workloads inaccessible and drive ransomware-like impact.",
+        severity="Critical",
+        skills_required=["kms"],
+        matcher=_match_kms_ransomware_actions,
+        attack_path_generator=_kms_ransomware_attack_path,
+        remediation_generator=_kms_ransomware_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0040"],
+            mitre_attack_techniques=["T1485"],
+            observed_in_wild=True,
+            exploit_maturity="Functional",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "aws kms list-keys",
+                "aws kms disable-key --key-id <key-id>",
+                "aws kms schedule-key-deletion --key-id <key-id> --pending-window-in-days 7",
+            ],
+            tools_required=["aws-cli"],
+            exploitation_complexity="Medium",
+            estimated_time_to_compromise="30 minutes",
+        ),
+        amplification_factor=1.8,
+    )
+)
+
+
+def _match_kms_grant_persistence(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    kms_findings = findings_by_skill.get("kms", [])
+    return any(f.id == "KMS-007" for f in kms_findings)
+
+
+def _kms_grant_persistence_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker locates KMS grants delegating CreateGrant",
+        "Creates follow-on grants for controlled principals to retain key access",
+        "Maintains persistent decrypt/data-key capability without modifying key policy",
+    ]
+
+
+def _kms_grant_persistence_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Remove or tightly constrain CreateGrant delegation in grants",
+        "Enforce grant constraints (encryption context, service scoping)",
+        "Continuously review and alert on anomalous grant creation patterns",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="kms_grant_persistence_chain",
+        name="KMS Grant Persistence Chain",
+        description="Unconstrained CreateGrant delegation can provide durable and stealthy key access persistence.",
+        severity="High",
+        skills_required=["kms"],
+        matcher=_match_kms_grant_persistence,
+        attack_path_generator=_kms_grant_persistence_attack_path,
+        remediation_generator=_kms_grant_persistence_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0003", "TA0005"],
+            mitre_attack_techniques=["T1098"],
+            observed_in_wild=True,
+            exploit_maturity="Proof-of-Concept",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "aws kms list-grants --key-id <key-id>",
+                "aws kms create-grant --key-id <key-id> --grantee-principal <principal-arn> --operations CreateGrant Decrypt",
+                "aws kms list-grants --key-id <key-id>",
+            ],
+            tools_required=["aws-cli"],
+            exploitation_complexity="Medium",
+            estimated_time_to_compromise="45 minutes",
+        ),
+        amplification_factor=1.5,
+    )
+)
+
+
 def _match_cicd_plus_overpriv_iam(
     findings_by_skill: Dict[str, List[Finding]],
     resource_index: Dict[str, List[Finding]],
@@ -1128,6 +1584,153 @@ PATTERN_REGISTRY.register(
             estimated_time_to_compromise="90 minutes",
         ),
         amplification_factor=1.35,
+    )
+)
+
+
+def _match_compute_ec2_imdsv1_profile_chain(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    comp = evidence_by_skill.get("compute", {}) if isinstance(evidence_by_skill, dict) else {}
+    ec2_doc = comp.get("ec2-inventory") or {}
+    instances = ec2_doc.get("instances", []) if isinstance(ec2_doc, dict) else []
+    if not isinstance(instances, list):
+        return False
+    for it in instances:
+        if not isinstance(it, dict):
+            continue
+        md = it.get("MetadataOptions")
+        md = md if isinstance(md, dict) else {}
+        has_profile = isinstance(it.get("IamInstanceProfile"), dict) and bool(
+            it.get("IamInstanceProfile")
+        )
+        imdsv1 = str(md.get("HttpTokens") or "optional").lower() != "required"
+        if has_profile and imdsv1:
+            return True
+    return False
+
+
+def _compute_ec2_imdsv1_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker gains SSRF or host-level foothold on EC2 workload",
+        "Queries IMDSv1 endpoint and retrieves role credentials from metadata",
+        "Uses temporary credentials for lateral movement and control-plane abuse",
+    ]
+
+
+def _compute_ec2_imdsv1_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Enforce IMDSv2 (HttpTokens=require) on all EC2 instances",
+        "Reduce privileges on instance profile roles",
+        "Continuously monitor metadata credential abuse indicators",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="compute_ec2_imdsv1_instance_profile_credential_theft",
+        name="EC2 IMDSv1 Instance Profile Credential Theft",
+        description="IMDSv1 with attached instance profiles increases risk of credential theft and pivoting.",
+        severity="High",
+        skills_required=["compute"],
+        matcher=_match_compute_ec2_imdsv1_profile_chain,
+        attack_path_generator=_compute_ec2_imdsv1_attack_path,
+        remediation_generator=_compute_ec2_imdsv1_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0001", "TA0006", "TA0008"],
+            mitre_attack_techniques=["T1190", "T1552.005", "T1078.004"],
+            observed_in_wild=True,
+            exploit_maturity="Functional",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "curl http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+                "curl http://169.254.169.254/latest/meta-data/iam/security-credentials/<role>",
+                "aws sts get-caller-identity",
+            ],
+            tools_required=["curl", "aws-cli"],
+            exploitation_complexity="Medium",
+            estimated_time_to_compromise="30 minutes",
+        ),
+        amplification_factor=1.45,
+    )
+)
+
+
+def _match_compute_lambda_public_url_overpriv_chain(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    comp = evidence_by_skill.get("compute", {}) if isinstance(evidence_by_skill, dict) else {}
+    lmb_doc = comp.get("lambda-inventory") or {}
+    funcs = lmb_doc.get("functions", []) if isinstance(lmb_doc, dict) else []
+    if not isinstance(funcs, list):
+        return False
+
+    risky_tokens = ["administratoraccess", "admin", "poweruser", "fullaccess"]
+    for fn in funcs:
+        if not isinstance(fn, dict):
+            continue
+        if str(fn.get("AuthType") or "").upper() != "NONE":
+            continue
+        attached = fn.get("AttachedPolicies")
+        if not isinstance(attached, list):
+            continue
+        for p in attached:
+            if not isinstance(p, dict):
+                continue
+            pname = str(p.get("PolicyName") or "").lower()
+            if any(tok in pname for tok in risky_tokens):
+                return True
+    return False
+
+
+def _compute_lambda_public_url_overpriv_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker reaches unauthenticated Lambda Function URL",
+        "Abuses vulnerable function path or runtime flaw",
+        "Executes with over-privileged execution role to pivot across AWS resources",
+    ]
+
+
+def _compute_lambda_public_url_overpriv_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Disable unauthenticated Function URLs (AuthType=AWS_IAM)",
+        "Constrain Lambda execution role permissions to least privilege",
+        "Add request validation, WAF/API Gateway front-door controls, and runtime monitoring",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="compute_lambda_public_url_overprivileged_role_chain",
+        name="Lambda Public URL + Overprivileged Role Chain",
+        description="Unauthenticated Lambda URLs combined with broad execution-role permissions amplify compromise impact.",
+        severity="Critical",
+        skills_required=["compute"],
+        matcher=_match_compute_lambda_public_url_overpriv_chain,
+        attack_path_generator=_compute_lambda_public_url_overpriv_attack_path,
+        remediation_generator=_compute_lambda_public_url_overpriv_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0001", "TA0004", "TA0008"],
+            mitre_attack_techniques=["T1190", "T1078.004", "T1528"],
+            observed_in_wild=False,
+            exploit_maturity="Proof-of-Concept",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "Enumerate Lambda Function URLs with AuthType NONE",
+                "Invoke endpoint with crafted payloads",
+                "Use role credentials to enumerate and access internal resources",
+            ],
+            tools_required=["curl", "aws-cli"],
+            exploitation_complexity="Medium",
+            estimated_time_to_compromise="45 minutes",
+        ),
+        amplification_factor=1.7,
     )
 )
 
@@ -1939,5 +2542,305 @@ PATTERN_REGISTRY.register(
             estimated_time_to_compromise="30 minutes",
         ),
         amplification_factor=1.35,
+    )
+)
+
+
+def _match_exposure_api_unauth_mutation_chain(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    exposure_findings = findings_by_skill.get("exposure", [])
+    ids = {f.id for f in exposure_findings}
+    return "EXP-021" in ids or "EXP-022" in ids
+
+
+def _exposure_api_unauth_mutation_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker discovers public API Gateway endpoint and stage",
+        "Invokes unauthenticated mutating route (POST/PUT/PATCH/DELETE or ANY/proxy)",
+        "Abuses business logic to alter data/state and pivot into internal workflows",
+    ]
+
+
+def _exposure_api_unauth_mutation_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Require strong authorizers for all mutating and wildcard routes",
+        "Avoid ANY/proxy routes without strict auth and input validation",
+        "Enforce least privilege at route, integration, and backend IAM layers",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="exposure_api_unauthenticated_mutation_chain",
+        name="API Unauthenticated Mutation Chain",
+        description="Unauthenticated mutating API routes enable direct business-logic abuse and unauthorized state changes.",
+        severity="Critical",
+        skills_required=["exposure"],
+        matcher=_match_exposure_api_unauth_mutation_chain,
+        attack_path_generator=_exposure_api_unauth_mutation_attack_path,
+        remediation_generator=_exposure_api_unauth_mutation_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0001", "TA0003"],
+            mitre_attack_techniques=["T1190", "T1565"],
+            observed_in_wild=False,
+            exploit_maturity="Proof-of-Concept",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "Enumerate API stages and routes",
+                "Invoke unauthenticated mutating endpoints",
+                "Manipulate backend state and extract side-channel data",
+            ],
+            tools_required=["curl", "aws-cli"],
+            exploitation_complexity="Low",
+            estimated_time_to_compromise="20 minutes",
+        ),
+        amplification_factor=1.5,
+    )
+)
+
+
+def _match_vulns_userdata_to_iam_pivot(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    vulns_findings = findings_by_skill.get("vulns", [])
+    iam_findings = findings_by_skill.get("iam", [])
+    has_userdata_secret = any(f.id == "VULN-023" for f in vulns_findings)
+    has_iam_escalation_surface = any(
+        _is_overprivileged_iam_finding(f) or f.id == "IAM-008" for f in iam_findings
+    )
+    return has_userdata_secret and has_iam_escalation_surface
+
+
+def _vulns_userdata_to_iam_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker obtains credential material from EC2 user-data bootstrap scripts",
+        "Reuses exposed secrets or tokens to authenticate into AWS APIs",
+        "Pivots through over-privileged IAM permissions for lateral movement",
+    ]
+
+
+def _vulns_userdata_to_iam_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Remove secrets from EC2 user-data and rotate exposed credentials",
+        "Use Secrets Manager/SSM Parameter Store for bootstrap secret delivery",
+        "Reduce IAM privileges attached to identities reachable from compute bootstrap",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="vulns_ec2_userdata_iam_pivot_chain",
+        name="EC2 User-Data Secret to IAM Pivot Chain",
+        description="Secrets exposed in EC2 user-data combined with over-privileged IAM increase lateral movement risk.",
+        severity="Critical",
+        skills_required=["vulns", "iam"],
+        matcher=_match_vulns_userdata_to_iam_pivot,
+        attack_path_generator=_vulns_userdata_to_iam_attack_path,
+        remediation_generator=_vulns_userdata_to_iam_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0006", "TA0008"],
+            mitre_attack_techniques=["T1552", "T1078.004"],
+            observed_in_wild=False,
+            exploit_maturity="Functional",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "Read user-data from compromised instance metadata or host artifacts",
+                "Extract keys/tokens and call aws sts get-caller-identity",
+                "Enumerate and abuse reachable IAM permissions",
+            ],
+            tools_required=["aws-cli", "curl"],
+            exploitation_complexity="Medium",
+            estimated_time_to_compromise="40 minutes",
+        ),
+        amplification_factor=1.6,
+    )
+)
+
+
+def _match_vulns_lambda_secret_to_public_api_chain(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    vulns_findings = findings_by_skill.get("vulns", [])
+    has_lambda_secret = any(f.id in {"VULN-024", "VULN-025"} for f in vulns_findings)
+    if not has_lambda_secret:
+        return False
+
+    exp_evidence = (
+        evidence_by_skill.get("exposure", {}) if isinstance(evidence_by_skill, dict) else {}
+    )
+    fn_doc = exp_evidence.get("lambda-function-urls") or {}
+    urls = fn_doc.get("function_urls", []) if isinstance(fn_doc, dict) else []
+    if not isinstance(urls, list):
+        return False
+    return any(isinstance(x, dict) and bool(x.get("IsPublic")) for x in urls)
+
+
+def _vulns_lambda_secret_to_public_api_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker reaches publicly exposed Lambda/API entrypoint",
+        "Obtains or abuses leaked runtime secrets from Lambda environment configuration",
+        "Uses recovered credentials/tokens to access internal AWS resources",
+    ]
+
+
+def _vulns_lambda_secret_to_public_api_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Eliminate plaintext secrets from Lambda environment variables",
+        "Restrict public Lambda/API exposure with auth and WAF controls",
+        "Rotate exposed credentials and enforce scoped runtime IAM roles",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="vulns_lambda_secret_public_entrypoint_chain",
+        name="Lambda Secret Exposure + Public Entrypoint Chain",
+        description="Public Lambda entrypoints combined with leaked runtime secrets increase direct exploitation impact.",
+        severity="High",
+        skills_required=["vulns", "exposure"],
+        matcher=_match_vulns_lambda_secret_to_public_api_chain,
+        attack_path_generator=_vulns_lambda_secret_to_public_api_attack_path,
+        remediation_generator=_vulns_lambda_secret_to_public_api_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0001", "TA0006", "TA0008"],
+            mitre_attack_techniques=["T1190", "T1552", "T1078.004"],
+            observed_in_wild=False,
+            exploit_maturity="Proof-of-Concept",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "Enumerate public Lambda function URLs",
+                "Trigger error paths and inspect runtime leakage vectors",
+                "Reuse leaked credentials to access AWS APIs",
+            ],
+            tools_required=["curl", "aws-cli"],
+            exploitation_complexity="Medium",
+            estimated_time_to_compromise="60 minutes",
+        ),
+        amplification_factor=1.35,
+    )
+)
+
+
+def _match_vulns_s3_ransomware_chain(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    exposure_findings = findings_by_skill.get("exposure", [])
+    iam_findings = findings_by_skill.get("iam", [])
+    has_s3_recoverability_gap = any(f.id in {"EXP-001", "EXP-014"} for f in exposure_findings)
+    has_destructive_iam = any(f.id in {"IAM-038", "IAM-039"} for f in iam_findings)
+    return has_s3_recoverability_gap and has_destructive_iam
+
+
+def _vulns_s3_ransomware_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker gains write/delete capability over S3 data paths",
+        "Targets buckets lacking strong recoverability controls (e.g., no versioning)",
+        "Overwrites/deletes objects to enforce business-impacting data denial",
+    ]
+
+
+def _vulns_s3_ransomware_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Enable S3 versioning and additional immutable backup controls for critical buckets",
+        "Restrict destructive IAM permissions (delete/detach/policy mutation)",
+        "Monitor anomalous object overwrite/delete bursts and key security changes",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="exposure_s3_ransomware_impact_chain",
+        name="S3 Ransomware Impact Chain",
+        description="S3 recoverability gaps plus destructive IAM capabilities increase ransomware impact.",
+        severity="Critical",
+        skills_required=["exposure", "iam"],
+        matcher=_match_vulns_s3_ransomware_chain,
+        attack_path_generator=_vulns_s3_ransomware_attack_path,
+        remediation_generator=_vulns_s3_ransomware_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0040", "TA0005"],
+            mitre_attack_techniques=["T1486", "T1485"],
+            observed_in_wild=True,
+            exploit_maturity="Functional",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "Enumerate target buckets and recoverability controls",
+                "Overwrite/encrypt/delete key objects at scale",
+                "Disrupt restoration paths",
+            ],
+            tools_required=["aws-cli"],
+            exploitation_complexity="Medium",
+            estimated_time_to_compromise="60 minutes",
+        ),
+        amplification_factor=1.85,
+    )
+)
+
+
+def _match_vulns_public_snapshot_exfil_chain(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    vulns_findings = findings_by_skill.get("vulns", [])
+    return any(f.id == "VULN-028" for f in vulns_findings)
+
+
+def _vulns_public_snapshot_exfil_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker discovers public EBS snapshot IDs",
+        "Creates volume from exposed snapshot and mounts data offline",
+        "Extracts credentials, source code, and sensitive application artifacts",
+    ]
+
+
+def _vulns_public_snapshot_exfil_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Remove public createVolumePermission from all snapshots",
+        "Continuously audit snapshot sharing posture across regions",
+        "Rotate credentials potentially exposed through historical snapshots",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="vulns_public_ebs_snapshot_exfiltration_chain",
+        name="Public EBS Snapshot Exfiltration Chain",
+        description="Publicly shared EBS snapshots can expose full disk-level sensitive data.",
+        severity="Critical",
+        skills_required=["vulns"],
+        matcher=_match_vulns_public_snapshot_exfil_chain,
+        attack_path_generator=_vulns_public_snapshot_exfil_attack_path,
+        remediation_generator=_vulns_public_snapshot_exfil_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0009", "TA0006"],
+            mitre_attack_techniques=["T1537", "T1005"],
+            observed_in_wild=True,
+            exploit_maturity="Functional",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "Locate snapshots with Group=all restore permission",
+                "Create a volume from snapshot and attach to attacker-controlled instance",
+                "Mount filesystem and extract sensitive data",
+            ],
+            tools_required=["aws-cli"],
+            exploitation_complexity="Low",
+            estimated_time_to_compromise="25 minutes",
+        ),
+        amplification_factor=1.7,
     )
 )

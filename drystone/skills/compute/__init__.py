@@ -1,9 +1,11 @@
-"""Compute security audit skill (ECS/EKS first).
+"""Compute security audit skill (ECS/EKS/EC2/Lambda).
 
 Collects evidence about:
 - ECS: clusters, services, task definitions, and running tasks (labels)
 - EventBridge: rules/targets relevant for ECS scheduled execution
 - EKS: clusters and nodegroups (endpoint exposure + logging posture)
+- EC2: metadata posture + user-data risk indicators
+- Lambda: function URLs + execution role policy posture
 
 Goal: enable pentest-oriented correlations around persistence and workload
 attack surface without performing active exploitation.
@@ -11,7 +13,9 @@ attack surface without performing active exploitation.
 
 from __future__ import annotations
 
+import base64
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -70,16 +74,140 @@ class ComputeSkill(BaseSkill):
         self._save_json(evidence_path / "eks-inventory.json", eks_out)
         self._save_json(evidence_path / "eks-errors.json", eks_errors)
 
-        ok = not (ecs_errors or ev_errors or eks_errors)
+        ec2_out, ec2_errors = self._collect_ec2(session_obj.client("ec2", region_name=region))
+        self._save_json(evidence_path / "ec2-inventory.json", ec2_out)
+        self._save_json(evidence_path / "ec2-errors.json", ec2_errors)
+
+        lambda_out, lambda_errors = self._collect_lambda(
+            session_obj.client("lambda", region_name=region),
+            session_obj.client("iam", region_name=region),
+        )
+        self._save_json(evidence_path / "lambda-inventory.json", lambda_out)
+        self._save_json(evidence_path / "lambda-errors.json", lambda_errors)
+
+        ok = not (ecs_errors or ev_errors or eks_errors or ec2_errors or lambda_errors)
         logger.info(
             "Compute collection complete",
             extra={
                 "region": region,
                 "ecs_clusters": len(ecs_out.get("clusters", [])),
                 "eks_clusters": len(eks_out.get("clusters", [])),
+                "ec2_instances": len(ec2_out.get("instances", [])),
+                "lambda_functions": len(lambda_out.get("functions", [])),
                 "ok": ok,
             },
         )
+
+    def _scan_for_secrets(self, text: str) -> Dict[str, bool]:
+        patterns = {
+            "aws_access_key": r"AKIA[0-9A-Z]{16}",
+            "aws_secret_key": r"(?i)aws(.{0,20})?(secret|access).{0,10}[=:]\s*[A-Za-z0-9/+=]{30,}",
+            "password": r"(?i)password\s*[=:]\s*[^\s\"']+",
+            "api_key": r"(?i)api[_-]?key\s*[=:]\s*[^\s\"']+",
+            "token": r"(?i)(token|secret)\s*[=:]\s*[^\s\"']+",
+        }
+        return {name: bool(re.search(pattern, text)) for name, pattern in patterns.items()}
+
+    def _collect_ec2(self, ec2) -> Tuple[Dict[str, Any], Dict[str, str]]:
+        out: Dict[str, Any] = {"instances": []}
+        errors: Dict[str, str] = {}
+
+        try:
+            paginator = ec2.get_paginator("describe_instances")
+            for page in paginator.paginate():
+                for reservation in page.get("Reservations", []) or []:
+                    for instance in reservation.get("Instances", []) or []:
+                        iid = instance.get("InstanceId")
+                        if not iid:
+                            continue
+                        item: Dict[str, Any] = {
+                            "InstanceId": iid,
+                            "State": (instance.get("State") or {}).get("Name"),
+                            "IamInstanceProfile": instance.get("IamInstanceProfile"),
+                            "MetadataOptions": instance.get("MetadataOptions") or {},
+                            "SecurityGroups": instance.get("SecurityGroups", []),
+                        }
+
+                        try:
+                            attr = ec2.describe_instance_attribute(
+                                InstanceId=iid, Attribute="userData"
+                            )
+                            raw = ((attr or {}).get("UserData") or {}).get("Value")
+                            decoded = ""
+                            if raw:
+                                try:
+                                    decoded = base64.b64decode(raw).decode(
+                                        "utf-8", errors="replace"
+                                    )
+                                except Exception:
+                                    decoded = str(raw)
+                            item["UserData"] = decoded
+                            item["ContainsSecrets"] = (
+                                self._scan_for_secrets(decoded) if decoded else {}
+                            )
+                            ldec = decoded.lower() if decoded else ""
+                            item["HasRemoteBootstrap"] = "curl " in ldec or "wget " in ldec
+                        except Exception as e:
+                            errors[f"describe_instance_attribute:{iid}"] = str(e)
+
+                        out["instances"].append(item)
+        except ClientError as e:
+            errors["describe_instances"] = e.response.get("Error", {}).get("Code", "Unknown")
+        except Exception as e:
+            errors["describe_instances"] = str(e)
+
+        return out, errors
+
+    def _collect_lambda(self, lam, iam) -> Tuple[Dict[str, Any], Dict[str, str]]:
+        out: Dict[str, Any] = {"functions": []}
+        errors: Dict[str, str] = {}
+
+        try:
+            paginator = lam.get_paginator("list_functions")
+            for page in paginator.paginate():
+                for fn in page.get("Functions", []) or []:
+                    fn_name = fn.get("FunctionName")
+                    if not fn_name:
+                        continue
+                    role_arn = fn.get("Role")
+                    role_name = (
+                        role_arn.split("/")[-1]
+                        if isinstance(role_arn, str) and "/" in role_arn
+                        else None
+                    )
+                    item: Dict[str, Any] = {
+                        "FunctionName": fn_name,
+                        "FunctionArn": fn.get("FunctionArn"),
+                        "Role": role_arn,
+                    }
+
+                    try:
+                        cfg = lam.get_function_url_config(FunctionName=fn_name)
+                        item["FunctionUrl"] = cfg.get("FunctionUrl")
+                        item["AuthType"] = cfg.get("AuthType")
+                    except ClientError:
+                        item["FunctionUrl"] = None
+                        item["AuthType"] = None
+                    except Exception as e:
+                        errors[f"get_function_url_config:{fn_name}"] = str(e)
+
+                    attached = []
+                    if role_name:
+                        try:
+                            attached = iam.list_attached_role_policies(RoleName=role_name).get(
+                                "AttachedPolicies", []
+                            )
+                        except Exception as e:
+                            errors[f"list_attached_role_policies:{role_name}"] = str(e)
+
+                    item["AttachedPolicies"] = attached
+                    out["functions"].append(item)
+        except ClientError as e:
+            errors["list_functions"] = e.response.get("Error", {}).get("Code", "Unknown")
+        except Exception as e:
+            errors["list_functions"] = str(e)
+
+        return out, errors
 
     def _collect_ecs(self, ecs) -> Tuple[Dict[str, Any], Dict[str, str]]:
         out: Dict[str, Any] = {"clusters": [], "services": [], "tasks": [], "task_definitions": []}

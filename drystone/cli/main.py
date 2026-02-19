@@ -290,6 +290,7 @@ def audit(
 
         # Submit all skills to executor
         for skill_name, skill in skill_instances.items():
+            metrics_tracker.record_skill_start(skill_name)
             future = executor.submit(
                 lambda sn=skill_name, sk=skill: (sn, sk.analyze(session, agent))
             )
@@ -308,6 +309,12 @@ def audit(
 
                 # Show summary
                 summary = findings_data["summary"]
+                metrics_tracker.record_skill_findings(
+                    skill_name,
+                    int(summary.get("total_findings", 0)),
+                    float(summary.get("overall_risk_score", 0.0)),
+                )
+                metrics_tracker.record_skill_complete(skill_name, True)
                 click.echo(f"   ✅ {skill_name.capitalize()}:")
                 click.echo(
                     f"      Total: {summary['total_findings']} | "
@@ -317,6 +324,7 @@ def audit(
                 )
 
             except Exception as e:
+                metrics_tracker.record_skill_complete(skill_name, False)
                 click.echo(f"   ❌ Analysis error for {skill_name}: {e}\n")
 
     # === PHASE 4: REPORT GENERATION ===

@@ -766,10 +766,194 @@
           "reason": "Compute identities must operate with least privilege to reduce blast radius if compromised."
         }
       ]
+    },
+    {
+      "id": "IAM-032",
+      "cis_id": "N/A",
+      "title": "OIDC role trust policies (GitHub Actions) must be tightly scoped",
+      "severity": "Critical",
+      "description": "Roles trusting token.actions.githubusercontent.com without strict subject/audience conditions can be assumed by unintended GitHub workflows.",
+      "evidence_files": [
+        "roles.json"
+      ],
+      "check_keywords": [
+        "AssumeRoleWithWebIdentity",
+        "token.actions.githubusercontent.com",
+        "sub",
+        "aud"
+      ],
+      "remediation": "Require strict Conditions for GitHub OIDC trust: aud=sts.amazonaws.com and sub pinned to exact org/repo/branch/environment (avoid broad wildcards).",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "Federated role assumption must be limited to explicit workload identities following least privilege."
+        }
+      ]
+    },
+    {
+      "id": "IAM-033",
+      "cis_id": "N/A",
+      "title": "Cross-account role trust must require ExternalId",
+      "severity": "High",
+      "description": "Cross-account AssumeRole trust without sts:ExternalId increases confused-deputy risk and third-party abuse paths.",
+      "evidence_files": [
+        "roles.json"
+      ],
+      "check_keywords": [
+        "cross-account",
+        "sts:AssumeRole",
+        "sts:ExternalId",
+        "Principal"
+      ],
+      "remediation": "Add sts:ExternalId condition for third-party cross-account trust relationships and rotate ExternalId values through change control.",
+      "pci_dss": [
+        {
+          "control": "8.5.1",
+          "reason": "Context-bound access controls reduce role assumption abuse and authorization bypass risks."
+        }
+      ]
+    },
+    {
+      "id": "IAM-034",
+      "cis_id": "N/A",
+      "title": "IAM policies should not broadly allow identity provider mutation",
+      "severity": "High",
+      "description": "Permissions to update SAML/OIDC providers can allow federation takeover and role impersonation if granted broadly.",
+      "evidence_files": [
+        "policies.json"
+      ],
+      "check_keywords": [
+        "iam:UpdateSAMLProvider",
+        "iam:UpdateOpenIDConnectProviderThumbprint",
+        "iam:CreateSAMLProvider",
+        "iam:CreateOpenIDConnectProvider"
+      ],
+      "remediation": "Restrict IdP mutation actions to break-glass roles, add approvals, and monitor changes to SAML/OIDC provider configuration.",
+      "pci_dss": [
+        {
+          "control": "7.2.2",
+          "reason": "High-impact federation administration must be strictly limited to authorized roles with explicit business justification."
+        }
+      ]
+    },
+    {
+      "id": "IAM-035",
+      "cis_id": "N/A",
+      "title": "IAM policies should not allow policy version escalation paths",
+      "severity": "Critical",
+      "description": "CreatePolicyVersion/SetDefaultPolicyVersion can backdoor permissions and escalate access while appearing benign in current policy views.",
+      "evidence_files": [
+        "policies.json"
+      ],
+      "check_keywords": [
+        "iam:CreatePolicyVersion",
+        "iam:SetDefaultPolicyVersion",
+        "policy version",
+        "set-as-default"
+      ],
+      "remediation": "Disallow policy-version mutation actions for non-security-admin roles and monitor CloudTrail for policy version creation/default switches.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "Policy version mutation can bypass least-privilege boundaries and must be tightly controlled."
+        }
+      ]
+    },
+    {
+      "id": "IAM-036",
+      "cis_id": "N/A",
+      "title": "IAM policies should not allow broad service-specific credential takeover",
+      "severity": "High",
+      "description": "CreateServiceSpecificCredential and ResetServiceSpecificCredential over broad resources can be abused for persistence and lateral movement through service credentials (e.g., CodeCommit).",
+      "evidence_files": [
+        "policies.json"
+      ],
+      "check_keywords": [
+        "iam:CreateServiceSpecificCredential",
+        "iam:ResetServiceSpecificCredential",
+        "service specific credential",
+        "codecommit"
+      ],
+      "remediation": "Limit service-specific credential actions to tightly scoped break-glass identities and monitor creation/reset events in CloudTrail.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "Credential issuance operations must be constrained to least privilege to prevent unauthorized access expansion."
+        }
+      ]
+    },
+    {
+      "id": "IAM-037",
+      "cis_id": "N/A",
+      "title": "IAM policies should not allow broad MFA device manipulation",
+      "severity": "High",
+      "description": "EnableMFADevice, CreateVirtualMFADevice, DeactivateMFADevice, and ResyncMFADevice can be abused to lock out users or hijack MFA flows when granted broadly.",
+      "evidence_files": [
+        "policies.json"
+      ],
+      "check_keywords": [
+        "iam:EnableMFADevice",
+        "iam:CreateVirtualMFADevice",
+        "iam:DeactivateMFADevice",
+        "iam:ResyncMFADevice"
+      ],
+      "remediation": "Restrict MFA lifecycle actions to limited security admin roles and alert on MFA device enrollment/deactivation events.",
+      "pci_dss": [
+        {
+          "control": "8.4.1",
+          "reason": "MFA control integrity is critical; unauthorized MFA device operations can subvert authentication protections."
+        }
+      ]
+    },
+    {
+      "id": "IAM-038",
+      "cis_id": "N/A",
+      "title": "IAM wildcard delete permissions (iam:Delete*) must be prohibited",
+      "severity": "Critical",
+      "description": "iam:Delete* grants a destructive blast radius over identities, policies, keys, and federation objects, enabling denial of service and anti-forensics.",
+      "evidence_files": [
+        "policies.json"
+      ],
+      "check_keywords": [
+        "iam:Delete*",
+        "delete user",
+        "delete role",
+        "delete policy"
+      ],
+      "remediation": "Remove wildcard delete privileges, split destructive IAM actions into controlled emergency roles, and enforce approval workflows.",
+      "pci_dss": [
+        {
+          "control": "7.2.2",
+          "reason": "Destructive identity and authorization actions must be granted only to explicitly authorized personnel with defined responsibilities."
+        }
+      ]
+    },
+    {
+      "id": "IAM-039",
+      "cis_id": "N/A",
+      "title": "IAM policies should not allow broad detachment/deletion of authorization controls",
+      "severity": "High",
+      "description": "Detach* and DeletePolicyVersion/Delete*Policy actions over broad scope can remove guardrails and silently strip access controls for persistence or disruption.",
+      "evidence_files": [
+        "policies.json"
+      ],
+      "check_keywords": [
+        "iam:DetachUserPolicy",
+        "iam:DetachRolePolicy",
+        "iam:DeletePolicyVersion",
+        "iam:DeleteRolePolicy"
+      ],
+      "remediation": "Restrict policy detachment/deletion actions, require change approvals, and continuously monitor authorization-control modifications.",
+      "pci_dss": [
+        {
+          "control": "6.5.1",
+          "reason": "Authorization-control changes must follow controlled and auditable change management to prevent unauthorized security regression."
+        }
+      ]
     }
   ],
-  "version": "2.1",
-  "total_checks": 31,
-  "last_updated": "2026-02-14",
+  "version": "2.3",
+  "total_checks": 39,
+  "last_updated": "2026-02-18",
   "notes": "Expanded checklist covers CIS AWS Foundations v1.5.0 + AWS Security Best Practices. Includes critical, high, medium, and low severity items. Mapped to PCI DSS v4.0 controls."
 }

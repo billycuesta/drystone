@@ -87,6 +87,67 @@ class _DummyEKSClient:
         }
 
 
+class _DummyEC2Client:
+    def get_paginator(self, op_name: str):
+        assert op_name == "describe_instances"
+        return _DummyPaginator(
+            [
+                {
+                    "Reservations": [
+                        {
+                            "Instances": [
+                                {
+                                    "InstanceId": "i-123",
+                                    "State": {"Name": "running"},
+                                    "IamInstanceProfile": {
+                                        "Arn": "arn:aws:iam::1:instance-profile/p1"
+                                    },
+                                    "MetadataOptions": {"HttpTokens": "optional"},
+                                    "SecurityGroups": [],
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        )
+
+    def describe_instance_attribute(self, InstanceId: str, Attribute: str):
+        assert InstanceId and Attribute == "userData"
+        return {"UserData": {"Value": "IyEvYmluL2Jhc2gKZWNobyBoZWxsbwo="}}
+
+
+class _DummyLambdaClient:
+    def get_paginator(self, op_name: str):
+        assert op_name == "list_functions"
+        return _DummyPaginator(
+            [
+                {
+                    "Functions": [
+                        {
+                            "FunctionName": "fn-a",
+                            "FunctionArn": "arn:aws:lambda:us-east-1:1:function:fn-a",
+                            "Role": "arn:aws:iam::1:role/lambda-role",
+                        }
+                    ]
+                }
+            ]
+        )
+
+    def get_function_url_config(self, FunctionName: str):
+        assert FunctionName
+        return {
+            "FunctionUrl": "https://abc.lambda-url.us-east-1.on.aws/",
+            "AuthType": "NONE",
+        }
+
+
+class _DummyIAMClient:
+    def list_attached_role_policies(self, RoleName: str):
+        assert RoleName
+        return {"AttachedPolicies": [{"PolicyName": "AdministratorAccess"}]}
+
+
 class _DummySession:
     def client(self, service_name: str, region_name: str):
         assert region_name
@@ -96,6 +157,12 @@ class _DummySession:
             return _DummyEventsClient()
         if service_name == "eks":
             return _DummyEKSClient()
+        if service_name == "ec2":
+            return _DummyEC2Client()
+        if service_name == "lambda":
+            return _DummyLambdaClient()
+        if service_name == "iam":
+            return _DummyIAMClient()
         raise AssertionError(service_name)
 
 
@@ -117,3 +184,5 @@ def test_compute_collect_writes_expected_files(tmp_path: Path):
     assert (tmp_path / "ecs-inventory.json").exists()
     assert (tmp_path / "eventbridge-rules.json").exists()
     assert (tmp_path / "eks-inventory.json").exists()
+    assert (tmp_path / "ec2-inventory.json").exists()
+    assert (tmp_path / "lambda-inventory.json").exists()

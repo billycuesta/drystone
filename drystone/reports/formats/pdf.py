@@ -394,6 +394,7 @@ class PDFFormatter(BaseFormatter):
                 evidence_refs=[str(ref) for ref in (finding.get("evidence_refs", []) or [])],
                 region=str(getattr(self.config, "aws_region", "us-east-1")),
                 account_id=self._resolved_account_id(self.findings.get("findings", [])),
+                finding_id=str(finding.get("id", "")),
             )
             suggested = bool(cleaned)
         return cleaned, suggested

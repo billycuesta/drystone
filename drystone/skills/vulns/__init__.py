@@ -346,6 +346,20 @@ class VulnsSkill(BaseSkill):
         except Exception as e:
             logger.error(f"Could not collect instance profile permissions: {e}")
 
+        # === EBS SNAPSHOT SHARING ===
+        print("  Collecting EBS snapshot sharing posture...")
+        try:
+            snapshots, snapshots_error = self._collect_ebs_snapshot_sharing(client_kwargs)
+            self._save_json(
+                evidence_path / "ebs-snapshot-sharing.json",
+                {
+                    "items": snapshots,
+                    "error": snapshots_error,
+                },
+            )
+        except Exception as e:
+            logger.error(f"Could not collect EBS snapshot sharing posture: {e}")
+
         print("\n✅ Vulnerability collection complete")
 
     def _scan_for_secrets(self, text: str) -> Dict[str, bool]:
@@ -521,6 +535,50 @@ class VulnsSkill(BaseSkill):
                         "Roles": roles_out,
                     }
                 )
+            return out, None
+        except Exception as e:
+            return out, str(e)
+
+    def _collect_ebs_snapshot_sharing(
+        self, client_kwargs: Dict[str, Any]
+    ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+        """Collect EBS snapshot sharing posture (public createVolumePermission)."""
+        ec2 = boto3.client("ec2", **client_kwargs)
+        out: List[Dict[str, Any]] = []
+        try:
+            paginator = ec2.get_paginator("describe_snapshots")
+            for page in paginator.paginate(OwnerIds=["self"]):
+                for snap in page.get("Snapshots", []) or []:
+                    if not isinstance(snap, dict):
+                        continue
+                    snap_id = snap.get("SnapshotId")
+                    if not isinstance(snap_id, str) or not snap_id:
+                        continue
+
+                    rec: Dict[str, Any] = {
+                        "SnapshotId": snap_id,
+                        "VolumeId": snap.get("VolumeId"),
+                        "State": snap.get("State"),
+                        "Encrypted": snap.get("Encrypted"),
+                    }
+                    try:
+                        attrs = ec2.describe_snapshot_attribute(
+                            SnapshotId=snap_id,
+                            Attribute="createVolumePermission",
+                        )
+                        perms = (
+                            attrs.get("CreateVolumePermissions", [])
+                            if isinstance(attrs, dict)
+                            else []
+                        )
+                        rec["CreateVolumePermissions"] = perms
+                        rec["IsPublic"] = any(
+                            isinstance(p, dict) and p.get("Group") == "all" for p in perms
+                        )
+                    except Exception as e:
+                        rec["AttributeError"] = str(e)
+
+                    out.append(rec)
             return out, None
         except Exception as e:
             return out, str(e)
