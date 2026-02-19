@@ -183,36 +183,6 @@ class NetworkSkill(BaseSkill):
         except Exception as e:
             print(f"    Warning: Could not collect route table data: {e}")
 
-        # === NETWORK INTERFACES ===
-        print("  Collecting network interfaces...")
-        try:
-            enis = ec2_client.describe_network_interfaces()
-            enis_list = []
-
-            for eni in enis.get("NetworkInterfaces", []):
-                eni_detail = {
-                    "NetworkInterfaceId": eni.get("NetworkInterfaceId"),
-                    "VpcId": eni.get("VpcId"),
-                    "SubnetId": eni.get("SubnetId"),
-                    "InterfaceType": eni.get("InterfaceType"),
-                    "RequesterManaged": eni.get("RequesterManaged"),
-                    "Status": eni.get("Status"),
-                    "Attachment": eni.get("Attachment"),
-                    "Groups": eni.get("Groups", []),
-                    "PrivateIpAddresses": eni.get("PrivateIpAddresses", []),
-                    "PublicIp": eni.get("Association", {}).get("PublicIp"),
-                    "Description": eni.get("Description"),
-                    "Tags": eni.get("Tags", []),
-                }
-                enis_list.append(eni_detail)
-
-            _save(
-                evidence_path / "network-interfaces.json",
-                _wrap_indexed(enis_list, by_key="NetworkInterfaceId"),
-            )
-        except Exception as e:
-            print(f"    Warning: Could not collect ENI data: {e}")
-
         # === SUBNETS ===
         print("  Collecting subnets...")
         try:
@@ -492,21 +462,6 @@ class NetworkSkill(BaseSkill):
             _save(evidence_path / "nat-gateway-routes.json", {"items": nat_routes})
         except Exception as e:
             print(f"    Warning: Could not collect NAT Gateway routes: {e}")
-
-        # === PRIVATELINK ENDPOINTS ===
-        print("  Collecting PrivateLink endpoints...")
-        try:
-            endpoints = ec2_client.describe_vpc_endpoints().get("VpcEndpoints", [])
-            services = ec2_client.describe_vpc_endpoint_services().get("ServiceDetails", [])
-            _save(
-                evidence_path / "privatelink-endpoints.json",
-                {
-                    "endpoints": endpoints,
-                    "services": services,
-                },
-            )
-        except Exception as e:
-            print(f"    Warning: Could not collect PrivateLink data: {e}")
 
         # Persist audit metadata last so it includes all files.
         _save(evidence_path / "_audit_metadata.json", audit_metadata)

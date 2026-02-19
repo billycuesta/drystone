@@ -160,38 +160,6 @@ class ExposureSkill(BaseSkill):
         except Exception as e:
             print(f"    Warning: Could not collect RDS data: {e}")
 
-        # === RDS SNAPSHOTS ===
-        print("  Collecting RDS snapshot sharing...")
-        try:
-            if rds_client is None:
-                rds_client = boto3.client("rds", **client_kwargs)
-            snapshots = rds_client.describe_db_snapshots()
-            snapshots_list: List[Dict[str, Any]] = []
-
-            for snapshot in snapshots.get("DBSnapshots", []):
-                snapshot_detail = {
-                    "DBSnapshotIdentifier": snapshot.get("DBSnapshotIdentifier"),
-                    "Engine": snapshot.get("Engine"),
-                    "SnapshotCreateTime": snapshot.get("SnapshotCreateTime"),
-                }
-
-                try:
-                    attributes = rds_client.describe_db_snapshot_attributes(
-                        DBSnapshotIdentifier=snapshot.get("DBSnapshotIdentifier")
-                    )
-                    snapshot_detail["Attributes"] = attributes.get("DBSnapshotAttributesResult", {})
-                except Exception:
-                    snapshot_detail["Attributes"] = {}
-
-                snapshots_list.append(snapshot_detail)
-
-            _save(
-                evidence_path / "rds-snapshots.json",
-                _wrap_indexed(snapshots_list, by_key="DBSnapshotIdentifier"),
-            )
-        except Exception as e:
-            print(f"    Warning: Could not collect RDS snapshot data: {e}")
-
         ec2_client = None
 
         # === AMI IMAGES ===

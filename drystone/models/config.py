@@ -72,6 +72,12 @@ class WizardConfig(BaseModel):
         description="Minimum severity level for collected findings (filters out lower severities at collection time)",
     )
 
+    # Report language
+    report_language: Literal["en", "es"] = Field(
+        default="en",
+        description="Language used in generated reports",
+    )
+
     # Metadata
     created_at: datetime = Field(default_factory=datetime.utcnow)
     non_interactive: bool = Field(default=False)

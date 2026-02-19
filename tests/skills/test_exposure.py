@@ -58,7 +58,6 @@ def test_exposure_analyze_adds_deterministic_s3_findings(tmp_path):
     # Other evidence files expected by prompt are optional for deterministic.
     for name in [
         "rds-instances.json",
-        "rds-snapshots.json",
         "ami-images.json",
         "security-groups.json",
         "cloudfront-distributions.json",

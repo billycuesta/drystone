@@ -66,6 +66,30 @@ class ReportGenerator:
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid findings JSON: {e}\nFile: {findings_path}")
 
+        # Enforce skill metadata consistency in per-skill files.
+        expected_skill = str(skill)
+        actual_skill = str(findings_data.get("skill") or "")
+        if actual_skill.lower() == "aggregated" or not actual_skill:
+            findings_data["skill"] = expected_skill
+        if not findings_data.get("evidence_count"):
+            evidence_dir = self.session.get_evidence_path(expected_skill)
+            if isinstance(evidence_dir, Path) and evidence_dir.exists():
+                findings_data["evidence_count"] = len(list(evidence_dir.glob("*.json")))
+        if (
+            not findings_data.get("checklist_version")
+            or findings_data.get("checklist_version") == "N/A"
+        ):
+            checklist_path = (
+                Path(__file__).parents[1] / "skills" / expected_skill / "checklist.json"
+            )
+            try:
+                with open(checklist_path) as cf:
+                    findings_data["checklist_version"] = str(
+                        (json.load(cf) or {}).get("version") or "1.0"
+                    )
+            except Exception:
+                findings_data["checklist_version"] = "1.0"
+
         # Post-process alerting skill to add architecture diagram
         if skill == "alerting":
             from drystone.skills.alerting.post_processor import AlertingPostProcessor
@@ -232,7 +256,8 @@ class ReportGenerator:
             except json.JSONDecodeError as e:
                 raise ValueError(f"Invalid findings JSON: {e}\nFile: {fp}")
 
-            skill_name = str(data.get("skill") or fp.stem)
+            raw_skill_name = str(data.get("skill") or fp.stem)
+            skill_name = fp.stem if raw_skill_name.lower() == "aggregated" else raw_skill_name
             skills_included.append(skill_name)
             for finding in data.get("findings", []) or []:
                 if isinstance(finding, dict):

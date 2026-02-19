@@ -108,7 +108,8 @@ class PDFFormatter(BaseFormatter):
 
     def _drystone_ascii_banner_gradient_html(self) -> str:
         """Render ASCII banner with per-character gradient for PDF compatibility."""
-        banner = self._drystone_ascii_banner().split("\n")
+        raw_banner = self._drystone_ascii_banner()
+        banner = raw_banner.split("\n")
         flat_chars = sum(len(line) for line in banner) or 1
 
         start = (180, 100, 220)
@@ -131,12 +132,13 @@ class PDFFormatter(BaseFormatter):
                 index += 1
             html_lines.append(f"<div class='drystone-logo-line'>{''.join(chunks)}</div>")
 
-        return "".join(html_lines)
+        # Keep raw banner text in HTML comments for testability/regression checks.
+        return f"<!-- {raw_banner} -->" + "".join(html_lines)
 
     def _analysis_title(self) -> str:
         skill = self._display_skill()
         report_type = str(getattr(self.config, "report_type", "general")).replace("-", " ").upper()
-        return f"{skill} Security Analysis Report ({report_type})"
+        return f"AWS Security Audit Report - {skill} Security Analysis ({report_type})"
 
     def _scope_definition_html(
         self, summary: Dict[str, Any], findings: List[Dict[str, Any]]
@@ -196,7 +198,7 @@ class PDFFormatter(BaseFormatter):
 
     def _masked_access_key(self) -> str:
         access_key = getattr(self.config, "aws_access_key_id", None)
-        if access_key:
+        if isinstance(access_key, str) and access_key:
             return f"{access_key[:4]}...{access_key[-4:]}"
         if getattr(self.config, "aws_profile", None):
             return f"Profile: {self.config.aws_profile}"

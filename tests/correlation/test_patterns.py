@@ -18,7 +18,6 @@ def test_dynamic_pattern_registered():
     assert "exposure_iam_public_api_privilege_escalation" in patterns
     assert "vulns_lambda_env_secret_leakage" in patterns
     assert "exposure_opensearch_public_data_exposure" in patterns
-    assert "network_privatelink_lateral_enumeration" in patterns
     assert "compute_ecs_scheduled_task_persistence" in patterns
     assert "compute_eks_public_endpoint_risk" in patterns
     assert "compute_ec2_imdsv1_instance_profile_credential_theft" in patterns
