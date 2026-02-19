@@ -26,6 +26,8 @@ def test_dynamic_pattern_registered():
     assert "exposure_iam_compute_entrypoint_chain" in patterns
     assert "cicd_codebuild_token_leakage_chain" in patterns
     assert "messaging_sqs_dlq_exfiltration_chain" in patterns
+    assert "messaging_sns_sqs_unauth_exfiltration_chain" in patterns
+    assert "messaging_queue_destruction_disruption_chain" in patterns
     assert "kms_policy_backdoor_exfil_chain" in patterns
     assert "cicd_iam_token_leakage_privilege_escalation" in patterns
     assert "messaging_iam_dlq_exfiltration_chain" in patterns
@@ -40,6 +42,8 @@ def test_dynamic_pattern_registered():
     assert "vulns_lambda_secret_public_entrypoint_chain" in patterns
     assert "exposure_s3_ransomware_impact_chain" in patterns
     assert "vulns_public_ebs_snapshot_exfiltration_chain" in patterns
+    assert "alerting_sns_subscription_exfiltration_chain" in patterns
+    assert "alerting_sns_publish_spoofing_chain" in patterns
 
 
 def test_assume_role_pattern_matches_wildcard_trust():
@@ -151,6 +155,110 @@ def test_exposure_api_unauthenticated_mutation_pattern_matches():
     resource_index = {}
     evidence = {}
     assert pattern.matcher(findings_by_skill, resource_index, evidence) is True
+
+
+def test_alerting_sns_subscription_exfiltration_pattern_matches():
+    pattern = {p.id: p for p in PATTERN_REGISTRY.all()}[
+        "alerting_sns_subscription_exfiltration_chain"
+    ]
+    findings_by_skill = {
+        "alerting": [
+            Finding(
+                id="ALRT-023",
+                severity="High",
+                risk_score=8.2,
+                title="Permissive subscribe on alert SNS topic",
+                description="...",
+                evidence_refs=[],
+                affected_resources=[],
+                remediation="...",
+                cis_reference=None,
+                pci_dss=[],
+            )
+        ]
+    }
+    assert pattern.matcher(findings_by_skill, {}, {}) is True
+
+
+def test_alerting_sns_publish_spoofing_pattern_matches():
+    pattern = {p.id: p for p in PATTERN_REGISTRY.all()}["alerting_sns_publish_spoofing_chain"]
+    findings_by_skill = {
+        "alerting": [
+            Finding(
+                id="ALRT-022",
+                severity="Critical",
+                risk_score=9.0,
+                title="Permissive publish on alert SNS topic",
+                description="...",
+                evidence_refs=[],
+                affected_resources=[],
+                remediation="...",
+                cis_reference=None,
+                pci_dss=[],
+            )
+        ]
+    }
+    assert pattern.matcher(findings_by_skill, {}, {}) is True
+
+
+def test_messaging_unauth_exfiltration_chain_matches():
+    pattern = {p.id: p for p in PATTERN_REGISTRY.all()}[
+        "messaging_sns_sqs_unauth_exfiltration_chain"
+    ]
+    findings_by_skill = {
+        "messaging": [
+            Finding(
+                id="MSG-007",
+                severity="High",
+                risk_score=8.1,
+                title="Wildcard SNS subscribe",
+                description="...",
+                evidence_refs=[],
+                affected_resources=[],
+                remediation="...",
+                cis_reference=None,
+                pci_dss=[],
+            )
+        ]
+    }
+    assert pattern.matcher(findings_by_skill, {}, {}) is True
+
+
+def test_messaging_destruction_disruption_chain_matches():
+    pattern = {p.id: p for p in PATTERN_REGISTRY.all()}[
+        "messaging_queue_destruction_disruption_chain"
+    ]
+    findings_by_skill = {
+        "messaging": [
+            Finding(
+                id="MSG-005",
+                severity="Critical",
+                risk_score=9.0,
+                title="Wildcard SQS data-plane",
+                description="...",
+                evidence_refs=[],
+                affected_resources=[],
+                remediation="...",
+                cis_reference=None,
+                pci_dss=[],
+            )
+        ],
+        "iam": [
+            Finding(
+                id="IAM-038",
+                severity="Critical",
+                risk_score=9.2,
+                title="IAM delete wildcard",
+                description="...",
+                evidence_refs=[],
+                affected_resources=[],
+                remediation="...",
+                cis_reference=None,
+                pci_dss=[],
+            )
+        ],
+    }
+    assert pattern.matcher(findings_by_skill, {}, {}) is True
 
 
 def test_secretsmanager_rotation_hijack_pattern_matches():

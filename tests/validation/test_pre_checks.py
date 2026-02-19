@@ -38,6 +38,10 @@ from drystone.validation.pre_checks import (
     check_hrd_014,
     check_alr_001,
     check_alr_003,
+    check_alr_022,
+    check_alr_023,
+    check_alr_024,
+    check_alr_025,
     check_exp_001,
     check_exp_002,
     check_exp_003,
@@ -60,6 +64,10 @@ from drystone.validation.pre_checks import (
     check_waf_013,
     check_msg_001,
     check_msg_002,
+    check_msg_005,
+    check_msg_006,
+    check_msg_007,
+    check_msg_008,
     check_cicd_001,
     check_cicd_002,
     check_comp_eks_001,
@@ -693,6 +701,84 @@ class TestALR003:
 
     def test_fail_when_no_log_group(self):
         r = check_alr_003({"cloudtrail-trails": [{"Name": "main"}]})
+        assert r.status == "FAIL"
+
+
+class TestALR022:
+    def test_fail_when_alert_topic_allows_wildcard_publish(self):
+        r = check_alr_022(
+            {
+                "cloudwatch-alarms": [
+                    {"AlarmActions": ["arn:aws:sns:us-east-1:111111111111:alerts"]}
+                ],
+                "sns-topics": [
+                    {
+                        "TopicArn": "arn:aws:sns:us-east-1:111111111111:alerts",
+                        "Attributes": {
+                            "Policy": '{"Statement":[{"Effect":"Allow","Principal":"*","Action":"sns:Publish"}]}'
+                        },
+                    }
+                ],
+            }
+        )
+        assert r.status == "FAIL"
+
+
+class TestALR023:
+    def test_fail_when_alert_topic_allows_wildcard_subscribe(self):
+        r = check_alr_023(
+            {
+                "cloudwatch-alarms": [
+                    {"AlarmActions": ["arn:aws:sns:us-east-1:111111111111:alerts"]}
+                ],
+                "sns-topics": [
+                    {
+                        "TopicArn": "arn:aws:sns:us-east-1:111111111111:alerts",
+                        "Attributes": {
+                            "Policy": '{"Statement":[{"Effect":"Allow","Principal":"*","Action":"sns:Subscribe"}]}'
+                        },
+                    }
+                ],
+            }
+        )
+        assert r.status == "FAIL"
+
+
+class TestALR024:
+    def test_fail_when_alert_topic_has_http_subscription(self):
+        r = check_alr_024(
+            {
+                "eventbridge-rules": [
+                    {
+                        "Targets": [{"Arn": "arn:aws:sns:us-east-1:111111111111:alerts"}],
+                    }
+                ],
+                "sns-topics": [
+                    {
+                        "TopicArn": "arn:aws:sns:us-east-1:111111111111:alerts",
+                        "Subscriptions": [{"Protocol": "https"}],
+                    }
+                ],
+            }
+        )
+        assert r.status == "FAIL"
+
+
+class TestALR025:
+    def test_fail_when_security_eventbridge_rule_has_no_sns_target(self):
+        r = check_alr_025(
+            {
+                "eventbridge-rules": [
+                    {
+                        "Name": "ct-stoplogging",
+                        "EventPattern": '{"source":["aws.cloudtrail"],"detail":{"eventName":["StopLogging"]}}',
+                        "Targets": [
+                            {"Arn": "arn:aws:lambda:us-east-1:111111111111:function:handler"}
+                        ],
+                    }
+                ]
+            }
+        )
         assert r.status == "FAIL"
 
 
@@ -1350,6 +1436,103 @@ class TestMSG002:
 
     def test_fail_no_redrive(self):
         r = check_msg_002({"sqs-queues": {"items": [{"QueueUrl": "q1"}]}})
+        assert r.status == "FAIL"
+
+
+class TestMSG005:
+    def test_fail_wildcard_data_plane(self):
+        r = check_msg_005(
+            {
+                "sqs-queues": {
+                    "items": [
+                        {
+                            "QueueArn": "arn:aws:sqs:us-east-1:111111111111:q1",
+                            "Policy": {
+                                "Statement": [
+                                    {
+                                        "Effect": "Allow",
+                                        "Principal": "*",
+                                        "Action": "sqs:ReceiveMessage",
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                }
+            }
+        )
+        assert r.status == "FAIL"
+
+
+class TestMSG006:
+    def test_fail_unencrypted_queue(self):
+        r = check_msg_006(
+            {
+                "sqs-queues": {
+                    "items": [
+                        {
+                            "QueueArn": "arn:aws:sqs:us-east-1:111111111111:q1",
+                            "KmsMasterKeyId": None,
+                            "SqsManagedSseEnabled": "false",
+                        }
+                    ]
+                }
+            }
+        )
+        assert r.status == "FAIL"
+
+
+class TestMSG007:
+    def test_fail_wildcard_subscribe(self):
+        r = check_msg_007(
+            {
+                "sns-topics": {
+                    "items": [
+                        {
+                            "TopicArn": "arn:aws:sns:us-east-1:111111111111:t1",
+                            "Attributes": {
+                                "Policy": {
+                                    "Statement": [
+                                        {
+                                            "Effect": "Allow",
+                                            "Principal": "*",
+                                            "Action": "sns:Subscribe",
+                                        }
+                                    ]
+                                }
+                            },
+                        }
+                    ]
+                }
+            }
+        )
+        assert r.status == "FAIL"
+
+
+class TestMSG008:
+    def test_fail_wildcard_publish(self):
+        r = check_msg_008(
+            {
+                "sns-topics": {
+                    "items": [
+                        {
+                            "TopicArn": "arn:aws:sns:us-east-1:111111111111:t1",
+                            "Attributes": {
+                                "Policy": {
+                                    "Statement": [
+                                        {
+                                            "Effect": "Allow",
+                                            "Principal": "*",
+                                            "Action": "sns:Publish",
+                                        }
+                                    ]
+                                }
+                            },
+                        }
+                    ]
+                }
+            }
+        )
         assert r.status == "FAIL"
 
 

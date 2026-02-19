@@ -198,7 +198,7 @@ def _actions_from_stmt(stmt: Dict[str, Any]) -> List[str]:
     return []
 
 
-def _principal_is_wildcard(principal: Any) -> bool:
+def _principal_is_wildcard_any(principal: Any) -> bool:
     """Check if principal is '*' (public access)."""
     if principal == "*":
         return True
@@ -350,7 +350,7 @@ def check_iam_011(evidence: Dict[str, Any]) -> PreCheckResult:
                 continue
             if str(st.get("Effect") or "").upper() != "ALLOW":
                 continue
-            if _principal_is_wildcard(st.get("Principal")):
+            if _principal_is_wildcard_any(st.get("Principal")):
                 rname = r.get("RoleName", "unknown")
                 return PreCheckResult(
                     "IAM-011",
@@ -1110,6 +1110,200 @@ def check_alr_003(evidence: Dict[str, Any]) -> PreCheckResult:
         if isinstance(trail, dict) and trail.get("CloudWatchLogsLogGroupArn"):
             return PreCheckResult("ALR-003", "PASS", "LogGroupArn present", [])
     return PreCheckResult("ALR-003", "FAIL", "no trail with CloudWatch Logs", [])
+
+
+def _alerting_critical_topic_arns(evidence: Dict[str, Any]) -> List[str]:
+    arns: List[str] = []
+    alarms = evidence.get("cloudwatch-alarms")
+    if isinstance(alarms, list):
+        for a in alarms:
+            if not isinstance(a, dict):
+                continue
+            for act in a.get("AlarmActions", []) or []:
+                if isinstance(act, str) and act.startswith("arn:aws:sns:"):
+                    arns.append(act)
+
+    rules = evidence.get("eventbridge-rules")
+    if isinstance(rules, list):
+        for r in rules:
+            if not isinstance(r, dict):
+                continue
+            for t in r.get("Targets", []) or []:
+                if isinstance(t, dict):
+                    arn = t.get("Arn")
+                    if isinstance(arn, str) and arn.startswith("arn:aws:sns:"):
+                        arns.append(arn)
+    return list(dict.fromkeys(arns))
+
+
+def _parse_policy_json(value: Any) -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _principal_is_wildcard(principal: Any) -> bool:
+    if principal == "*":
+        return True
+    if isinstance(principal, dict):
+        aws = principal.get("AWS")
+        if aws == "*":
+            return True
+        if isinstance(aws, list) and any(x == "*" for x in aws):
+            return True
+    return False
+
+
+@_register("alerting")
+def check_alr_022(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Critical alert topics should not allow broad publish access."""
+    topics = evidence.get("sns-topics")
+    if not isinstance(topics, list) or not topics:
+        return PreCheckResult("ALRT-022", "SKIP", "no sns-topics evidence", [])
+
+    critical = set(_alerting_critical_topic_arns(evidence))
+    for t in topics:
+        if not isinstance(t, dict):
+            continue
+        arn = str(t.get("TopicArn") or "")
+        if critical and arn not in critical:
+            continue
+        attrs = t.get("Attributes") if isinstance(t.get("Attributes"), dict) else {}
+        pol = _parse_policy_json(attrs.get("Policy"))
+        for st in pol.get("Statement", []) or []:
+            if not isinstance(st, dict) or str(st.get("Effect") or "").upper() != "ALLOW":
+                continue
+            actions = st.get("Action")
+            actions_list = (
+                [actions]
+                if isinstance(actions, str)
+                else (actions if isinstance(actions, list) else [])
+            )
+            actions_list = [str(a).lower() for a in actions_list]
+            if not any(a in {"sns:publish", "sns:*", "*"} for a in actions_list):
+                continue
+            if _principal_is_wildcard_any(st.get("Principal")):
+                return PreCheckResult(
+                    "ALRT-022", "FAIL", "alert SNS topic allows broad Publish", [arn]
+                )
+
+    return PreCheckResult(
+        "ALRT-022", "PASS", "no broad publish permissions on alert SNS topics", []
+    )
+
+
+@_register("alerting")
+def check_alr_023(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Critical alert topics should not allow broad subscribe access."""
+    topics = evidence.get("sns-topics")
+    if not isinstance(topics, list) or not topics:
+        return PreCheckResult("ALRT-023", "SKIP", "no sns-topics evidence", [])
+
+    critical = set(_alerting_critical_topic_arns(evidence))
+    for t in topics:
+        if not isinstance(t, dict):
+            continue
+        arn = str(t.get("TopicArn") or "")
+        if critical and arn not in critical:
+            continue
+        attrs = t.get("Attributes") if isinstance(t.get("Attributes"), dict) else {}
+        pol = _parse_policy_json(attrs.get("Policy"))
+        for st in pol.get("Statement", []) or []:
+            if not isinstance(st, dict) or str(st.get("Effect") or "").upper() != "ALLOW":
+                continue
+            actions = st.get("Action")
+            actions_list = (
+                [actions]
+                if isinstance(actions, str)
+                else (actions if isinstance(actions, list) else [])
+            )
+            actions_list = [str(a).lower() for a in actions_list]
+            if not any(a in {"sns:subscribe", "sns:*", "*"} for a in actions_list):
+                continue
+            if _principal_is_wildcard(st.get("Principal")):
+                return PreCheckResult(
+                    "ALRT-023", "FAIL", "alert SNS topic allows broad Subscribe", [arn]
+                )
+
+    return PreCheckResult(
+        "ALRT-023", "PASS", "no broad subscribe permissions on alert SNS topics", []
+    )
+
+
+@_register("alerting")
+def check_alr_024(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Critical alert topics should avoid risky HTTP/HTTPS subscriptions."""
+    topics = evidence.get("sns-topics")
+    if not isinstance(topics, list) or not topics:
+        return PreCheckResult("ALRT-024", "SKIP", "no sns-topics evidence", [])
+
+    critical = set(_alerting_critical_topic_arns(evidence))
+    risky = []
+    for t in topics:
+        if not isinstance(t, dict):
+            continue
+        arn = str(t.get("TopicArn") or "")
+        if critical and arn not in critical:
+            continue
+        subs = t.get("Subscriptions") if isinstance(t.get("Subscriptions"), list) else []
+        for s in subs:
+            if not isinstance(s, dict):
+                continue
+            protocol = str(s.get("Protocol") or "").lower()
+            if protocol in {"http", "https"}:
+                risky.append(arn)
+                break
+
+    if not risky:
+        return PreCheckResult(
+            "ALRT-024", "PASS", "no risky HTTP/HTTPS subscriptions on alert topics", []
+        )
+    return PreCheckResult(
+        "ALRT-024",
+        "FAIL",
+        f"{len(risky)} alert SNS topics with HTTP/HTTPS subscriptions",
+        risky[:10],
+    )
+
+
+@_register("alerting")
+def check_alr_025(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Critical EventBridge rules should forward to SNS alerting topics."""
+    rules = evidence.get("eventbridge-rules")
+    if not isinstance(rules, list) or not rules:
+        return PreCheckResult("ALRT-025", "SKIP", "no eventbridge-rules evidence", [])
+
+    for r in rules:
+        if not isinstance(r, dict):
+            continue
+        pattern = str(r.get("EventPattern") or "").lower()
+        is_security_rule = (
+            "cloudtrail" in pattern or "consolelogin" in pattern or "stoplogging" in pattern
+        )
+        if not is_security_rule:
+            continue
+        targets = r.get("Targets") if isinstance(r.get("Targets"), list) else []
+        has_sns = any(
+            isinstance(t, dict) and str(t.get("Arn") or "").startswith("arn:aws:sns:")
+            for t in targets
+        )
+        if not has_sns:
+            return PreCheckResult(
+                "ALRT-025",
+                "FAIL",
+                "security EventBridge rule without SNS target",
+                [str(r.get("Arn") or r.get("Name") or "unknown")],
+            )
+
+    return PreCheckResult(
+        "ALRT-025", "PASS", "critical security EventBridge rules route to SNS", []
+    )
 
 
 # ============================================================================
@@ -2727,6 +2921,139 @@ def check_msg_004(evidence: Dict[str, Any]) -> PreCheckResult:
     if not has_dlq:
         return PreCheckResult("MSG-004", "PASS", "no DLQs configured (N/A)", [])
     return PreCheckResult("MSG-004", "SKIP", "requires AI analysis of DLQ security", [])
+
+
+@_register("messaging")
+def check_msg_005(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Wildcard principals should not have SQS data-plane actions."""
+    q_doc = evidence.get("sqs-queues")
+    items = q_doc.get("items") if isinstance(q_doc, dict) else None
+    if not isinstance(items, list) or not items:
+        return PreCheckResult("MSG-005", "SKIP", "no sqs-queues evidence", [])
+
+    risky_actions = {
+        "sqs:sendmessage",
+        "sqs:sendmessagebatch",
+        "sqs:receivemessage",
+        "sqs:deletemessage",
+        "sqs:changemessagevisibility",
+        "sqs:*",
+        "*",
+    }
+
+    for q in items:
+        if not isinstance(q, dict):
+            continue
+        pol = q.get("Policy")
+        if not isinstance(pol, dict):
+            continue
+        for st in _stmts_from_policy(pol):
+            if not isinstance(st, dict) or str(st.get("Effect") or "").upper() != "ALLOW":
+                continue
+            actions = {str(a).lower() for a in _actions_from_stmt(st)}
+            if not (actions & risky_actions):
+                continue
+            if _principal_is_wildcard_any(st.get("Principal")):
+                return PreCheckResult(
+                    "MSG-005",
+                    "FAIL",
+                    "queue policy allows wildcard principal data-plane actions",
+                    [str(q.get("QueueArn") or q.get("QueueUrl") or "unknown")],
+                )
+
+    return PreCheckResult("MSG-005", "PASS", "no wildcard data-plane access in SQS policies", [])
+
+
+@_register("messaging")
+def check_msg_006(evidence: Dict[str, Any]) -> PreCheckResult:
+    """SQS queues should have encryption enabled."""
+    q_doc = evidence.get("sqs-queues")
+    items = q_doc.get("items") if isinstance(q_doc, dict) else None
+    if not isinstance(items, list) or not items:
+        return PreCheckResult("MSG-006", "SKIP", "no sqs-queues evidence", [])
+
+    unencrypted = []
+    for q in items:
+        if not isinstance(q, dict):
+            continue
+        kms = q.get("KmsMasterKeyId")
+        sse = str(q.get("SqsManagedSseEnabled") or "").lower() == "true"
+        if not kms and not sse:
+            unencrypted.append(str(q.get("QueueArn") or q.get("QueueUrl") or "unknown"))
+
+    if not unencrypted:
+        return PreCheckResult("MSG-006", "PASS", "all queues encrypted at rest", [])
+    return PreCheckResult(
+        "MSG-006", "FAIL", f"{len(unencrypted)} queues without encryption", unencrypted[:10]
+    )
+
+
+@_register("messaging")
+def check_msg_007(evidence: Dict[str, Any]) -> PreCheckResult:
+    """SNS topics should not allow wildcard Subscribe."""
+    t_doc = evidence.get("sns-topics")
+    items = t_doc.get("items") if isinstance(t_doc, dict) else None
+    if not isinstance(items, list) or not items:
+        return PreCheckResult("MSG-007", "SKIP", "no sns-topics evidence", [])
+
+    for t in items:
+        if not isinstance(t, dict):
+            continue
+        attrs = t.get("Attributes")
+        if not isinstance(attrs, dict):
+            continue
+        pol = attrs.get("Policy")
+        if not isinstance(pol, dict):
+            continue
+        for st in _stmts_from_policy(pol):
+            if not isinstance(st, dict) or str(st.get("Effect") or "").upper() != "ALLOW":
+                continue
+            actions = {str(a).lower() for a in _actions_from_stmt(st)}
+            if not ({"sns:subscribe", "sns:*", "*"} & actions):
+                continue
+            if _principal_is_wildcard_any(st.get("Principal")):
+                return PreCheckResult(
+                    "MSG-007",
+                    "FAIL",
+                    "topic policy allows wildcard Subscribe",
+                    [str(t.get("TopicArn") or "unknown")],
+                )
+
+    return PreCheckResult("MSG-007", "PASS", "no wildcard Subscribe in SNS topic policies", [])
+
+
+@_register("messaging")
+def check_msg_008(evidence: Dict[str, Any]) -> PreCheckResult:
+    """SNS topics should not allow wildcard Publish."""
+    t_doc = evidence.get("sns-topics")
+    items = t_doc.get("items") if isinstance(t_doc, dict) else None
+    if not isinstance(items, list) or not items:
+        return PreCheckResult("MSG-008", "SKIP", "no sns-topics evidence", [])
+
+    for t in items:
+        if not isinstance(t, dict):
+            continue
+        attrs = t.get("Attributes")
+        if not isinstance(attrs, dict):
+            continue
+        pol = attrs.get("Policy")
+        if not isinstance(pol, dict):
+            continue
+        for st in _stmts_from_policy(pol):
+            if not isinstance(st, dict) or str(st.get("Effect") or "").upper() != "ALLOW":
+                continue
+            actions = {str(a).lower() for a in _actions_from_stmt(st)}
+            if not ({"sns:publish", "sns:*", "*"} & actions):
+                continue
+            if _principal_is_wildcard_any(st.get("Principal")):
+                return PreCheckResult(
+                    "MSG-008",
+                    "FAIL",
+                    "topic policy allows wildcard Publish",
+                    [str(t.get("TopicArn") or "unknown")],
+                )
+
+    return PreCheckResult("MSG-008", "PASS", "no wildcard Publish in SNS topic policies", [])
 
 
 # ============================================================================

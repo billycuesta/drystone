@@ -2,9 +2,9 @@
   "skill": "messaging",
   "framework": "AWS Security Best Practices + HackTricks Cloud AWS",
   "description": "SQS/SNS policies, injection, and exfiltration persistence checks",
-  "version": "1.0",
-  "total_checks": 4,
-  "last_updated": "2026-02-14",
+  "version": "1.1",
+  "total_checks": 8,
+  "last_updated": "2026-02-19",
   "items": [
     {
       "id": "MSG-001",
@@ -63,6 +63,66 @@
         {
           "control": "10.4.1",
           "reason": "Time-synchronized audit logging and monitoring support detection of abnormal administrative actions."
+        }
+      ]
+    },
+    {
+      "id": "MSG-005",
+      "title": "SQS queue policy permite principal wildcard para data-plane",
+      "severity": "Critical",
+      "description": "SQS policies granting Send/Receive/Delete/ChangeVisibility to wildcard principals expose queues to unauthorized injection, theft, and disruption.",
+      "evidence_files": ["sqs-queues.json"],
+      "check_keywords": ["Principal", "*", "sqs:SendMessage", "sqs:ReceiveMessage", "sqs:DeleteMessage"],
+      "remediation": "Restrict queue policy principals explicitly and require strong conditions (SourceArn/SourceAccount) for service-to-service paths.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "Messaging resources carrying sensitive workflows must enforce strict least-privilege access."
+        }
+      ]
+    },
+    {
+      "id": "MSG-006",
+      "title": "SQS queue sin cifrado en reposo",
+      "severity": "High",
+      "description": "Queues without KMS-managed or SQS-managed server-side encryption increase risk of message disclosure at rest.",
+      "evidence_files": ["sqs-queues.json"],
+      "check_keywords": ["KmsMasterKeyId", "SqsManagedSseEnabled"],
+      "remediation": "Enable SSE using KMS CMKs for sensitive queues (or SQS managed SSE where acceptable) and validate key policy constraints.",
+      "pci_dss": [
+        {
+          "control": "3.5.1",
+          "reason": "Sensitive data at rest must be protected with strong cryptography and key management controls."
+        }
+      ]
+    },
+    {
+      "id": "MSG-007",
+      "title": "SNS topic policy permite Subscribe wildcard/external",
+      "severity": "High",
+      "description": "Permissive sns:Subscribe grants enable unauthorized subscriptions and message exfiltration channels.",
+      "evidence_files": ["sns-topics.json"],
+      "check_keywords": ["sns:Subscribe", "Principal", "*"],
+      "remediation": "Allow subscriptions only from approved principals/endpoints and remove wildcard subscribe permissions.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "Message fanout channels must enforce explicit authorization to prevent data leakage."
+        }
+      ]
+    },
+    {
+      "id": "MSG-008",
+      "title": "SNS topic policy permite Publish wildcard/no restringido",
+      "severity": "High",
+      "description": "Broad sns:Publish permissions can enable unauthorized message injection and abuse of downstream integrations.",
+      "evidence_files": ["sns-topics.json"],
+      "check_keywords": ["sns:Publish", "Principal", "*", "SourceArn", "SourceAccount"],
+      "remediation": "Restrict publishing principals and enforce source conditions for trusted service integrations.",
+      "pci_dss": [
+        {
+          "control": "6.4.2",
+          "reason": "Public/integration-facing channels must validate trusted producers and prevent unauthorized input."
         }
       ]
     }

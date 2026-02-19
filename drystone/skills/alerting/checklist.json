@@ -299,10 +299,62 @@
           "reason": "While not directly about log retention, ensuring reliable delivery of security alerts contributes to the overall objective of having complete and actionable security event data, which could indirectly relate to audit trail completeness."
         }
       ]
+    },
+    {
+      "id": "ALRT-022",
+      "title": "SNS de alertas permite Publish amplio/no restringido",
+      "severity": "Critical",
+      "description": "Security alert SNS topics should not allow broad publish permissions (Principal:* or weak cross-account grants), which can enable spoofed alerts/noise injection and detection evasion.",
+      "remediation": "Restrict sns:Publish to expected CloudWatch/EventBridge principals and enforce aws:SourceArn/aws:SourceAccount conditions in topic policies.",
+      "pci_dss": [
+        {
+          "control": "10.6.1",
+          "reason": "Alerting pipelines must remain trustworthy; unauthorized publishing can corrupt or mask security signal quality."
+        }
+      ]
+    },
+    {
+      "id": "ALRT-023",
+      "title": "SNS de alertas permite Subscribe amplio/external",
+      "severity": "High",
+      "description": "Permissive sns:Subscribe on alert topics can allow unauthorized subscriptions and exfiltration of sensitive security notifications.",
+      "remediation": "Restrict sns:Subscribe to approved principals/endpoints and remove wildcard or unnecessary cross-account subscription permissions.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "Access to security notifications must follow least privilege and explicit authorization."
+        }
+      ]
+    },
+    {
+      "id": "ALRT-024",
+      "title": "SNS de alertas usa subscripciones HTTP/S sin control fuerte",
+      "severity": "High",
+      "description": "HTTP/HTTPS subscriptions on critical alert topics can increase exfiltration and reliability risk when endpoint ownership/validation is weak.",
+      "remediation": "Prefer controlled endpoints (email distro/SQS/Lambda), validate ownership, and monitor unexpected HTTP/HTTPS subscriptions.",
+      "pci_dss": [
+        {
+          "control": "10.6.1",
+          "reason": "Alert delivery channels must be reliable and controlled to ensure security personnel are properly notified."
+        }
+      ]
+    },
+    {
+      "id": "ALRT-025",
+      "title": "Reglas EventBridge criticas sin target SNS de alerta",
+      "severity": "High",
+      "description": "Security-relevant EventBridge rules (CloudTrail events) without SNS notification targets reduce immediate alerting effectiveness.",
+      "remediation": "Attach approved SNS targets (with subscribers and least-privilege policies) to critical security EventBridge rules.",
+      "pci_dss": [
+        {
+          "control": "10.6.1",
+          "reason": "Critical security events must trigger notifications to responsible personnel in near real-time."
+        }
+      ]
     }
   ],
-  "version": "1.0",
-  "total_checks": 21,
-  "last_updated": "2026-01-23",
+  "version": "1.1",
+  "total_checks": 25,
+  "last_updated": "2026-02-19",
   "notes": "Generated based on aws-alerting-skill.md and mapped against PCI DSS v4.0 controls."
 }
