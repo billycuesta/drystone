@@ -2,10 +2,13 @@
 
 import json
 import sys
+import threading
 from pathlib import Path
 from typing import Literal, Optional, cast
 
 import click
+from rich.console import Console
+from rich.progress import BarColumn, Progress, TextColumn
 
 from drystone.cli import __version__
 from drystone.cli.config import load_last_config, save_config
@@ -13,6 +16,9 @@ from drystone.cli.ui import print_banner, run_setup_wizard
 from drystone.cli.ui.branding import print_summary
 from drystone.cloud.aws import validate_aws_credentials
 from drystone.models import WizardConfig
+
+
+console = Console()
 
 
 @click.group()
@@ -207,6 +213,17 @@ def audit(
     metrics_file = session.base_path / "metrics.json"
     metrics_tracker = MetricsTracker(metrics_file)
 
+    overall_progress = Progress(
+        TextColumn("[bold cyan]Overall[/bold cyan]"),
+        BarColumn(bar_width=32),
+        TextColumn("{task.percentage:>3.0f}%"),
+        TextColumn("({task.completed}/{task.total} phases)"),
+        console=console,
+        transient=False,
+    )
+    overall_progress.start()
+    overall_task = overall_progress.add_task("overall", total=3)
+
     # Create AWS client for all skills
     aws_client = AWSClient(config)
 
@@ -228,38 +245,54 @@ def audit(
     }
 
     skill_instances = {}
-    for skill_name in config.skills:
-        if skill_name not in skills_map:
-            click.echo(f"⚠️  Unknown skill: {skill_name}")
-            continue
+    collection_progress = Progress(
+        TextColumn("[bold]Phase 1/3 Collection[/bold]"),
+        BarColumn(bar_width=32),
+        TextColumn("{task.percentage:>3.0f}%"),
+        TextColumn("({task.completed}/{task.total} skills)"),
+        console=console,
+        transient=False,
+    )
+    with collection_progress:
+        collection_task = collection_progress.add_task(
+            "collection", total=max(1, len(config.skills))
+        )
+        for skill_name in config.skills:
+            if skill_name not in skills_map:
+                click.echo(f"⚠️  Unknown skill: {skill_name}")
+                collection_progress.advance(collection_task, 1)
+                continue
 
-        module_name, class_name = skills_map[skill_name]
-        try:
-            # Dynamically import skill
-            module = __import__(module_name, fromlist=[class_name])
-            skill_class = getattr(module, class_name)
-            skill = skill_class()
-            skill_instances[skill_name] = skill
+            module_name, class_name = skills_map[skill_name]
+            try:
+                # Dynamically import skill
+                module = __import__(module_name, fromlist=[class_name])
+                skill_class = getattr(module, class_name)
+                skill = skill_class()
+                skill_instances[skill_name] = skill
 
-            # Execute collector
-            click.echo(f"🔍 Executing {skill_name.capitalize()} Security Audit...")
-            skill.collect(aws_client, session)
+                # Execute collector
+                click.echo(f"🔍 Executing {skill_name.capitalize()} Security Audit...")
+                skill.collect(aws_client, session)
 
-            # List generated files
-            evidence_path = session.get_evidence_path(skill_name)
-            files = sorted(evidence_path.glob("*"))
+                # List generated files
+                evidence_path = session.get_evidence_path(skill_name)
+                files = sorted(evidence_path.glob("*"))
 
-            click.echo(f"   ✅ Evidence saved ({len(files)} files):")
-            for file in files:
-                size_kb = file.stat().st_size / 1024
-                click.echo(f"      - {file.name} ({size_kb:.1f} KB)")
-            click.echo()
+                click.echo(f"   ✅ Evidence saved ({len(files)} files):")
+                for file in files:
+                    size_kb = file.stat().st_size / 1024
+                    click.echo(f"      - {file.name} ({size_kb:.1f} KB)")
+                click.echo()
 
-        except Exception as e:
-            click.echo(f"   ❌ Error collecting {skill_name}: {e}")
-            import traceback
+            except Exception as e:
+                click.echo(f"   ❌ Error collecting {skill_name}: {e}")
+                import traceback
 
-            traceback.print_exc()
+                traceback.print_exc()
+            finally:
+                collection_progress.advance(collection_task, 1)
+    overall_progress.advance(overall_task, 1)
 
     # === PHASE 3: AGENT ANALYSIS ===
     click.echo("🤖 Analyzing evidence with AI...\n")
@@ -290,8 +323,58 @@ def audit(
         click.echo("   🚀 Running skills in PARALLEL for maximum speed...\n")
 
     all_findings = {}
+    analysis_progress = Progress(
+        TextColumn("[bold]Phase 2/3 Analysis  [/bold]"),
+        BarColumn(bar_width=32),
+        TextColumn("{task.percentage:>3.0f}%"),
+        TextColumn("({task.completed}/{task.total} skills)"),
+        console=console,
+        transient=False,
+    )
+    chunk_progress = Progress(
+        TextColumn("[dim]Chunks: {task.description}[/dim]"),
+        BarColumn(bar_width=24),
+        TextColumn("{task.completed}/{task.total}"),
+        console=console,
+        transient=False,
+    )
+    chunk_task_ids = {}
+    chunk_lock = threading.Lock()
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    def _on_chunk_progress(
+        skill_name: str, current: int, total: int, stage: str, _note: str
+    ) -> None:
+        with chunk_lock:
+            task_id = chunk_task_ids.get(skill_name)
+            if task_id is None:
+                task_id = chunk_progress.add_task(
+                    skill_name,
+                    total=max(1, total),
+                    completed=0,
+                    visible=(stage != "start"),
+                )
+                chunk_task_ids[skill_name] = task_id
+
+            if stage == "start":
+                chunk_progress.update(
+                    task_id,
+                    description=skill_name,
+                    total=max(1, total),
+                    completed=0,
+                    visible=True,
+                )
+            elif stage in {"advance", "done"}:
+                chunk_progress.update(
+                    task_id,
+                    total=max(1, total),
+                    completed=min(max(0, current), max(1, total)),
+                    visible=True,
+                )
+
+    agent.progress_callback = _on_chunk_progress
+
+    with analysis_progress, chunk_progress, ThreadPoolExecutor(max_workers=max_workers) as executor:
+        analysis_task = analysis_progress.add_task("analysis", total=max(1, len(skill_instances)))
         futures = {}
 
         # Submit all skills to executor
@@ -329,10 +412,12 @@ def audit(
                     f"High: {summary['high']} | "
                     f"Risk: {summary['overall_risk_score']:.1f}/10\n"
                 )
+                analysis_progress.advance(analysis_task, 1)
 
             except Exception as e:
                 metrics_tracker.record_skill_complete(skill_name, False)
                 click.echo(f"   ❌ Analysis error for {skill_name}: {e}\n")
+                analysis_progress.advance(analysis_task, 1)
 
                 err = str(e).lower()
                 if "out of extra usage" in err or "quota" in err or "rate limit" in err:
@@ -344,7 +429,9 @@ def audit(
                             click.echo(
                                 f"   ⚠️  Cancelled {pending_skill} analysis due to provider quota exhaustion"
                             )
+                            analysis_progress.advance(analysis_task, 1)
                     break
+    overall_progress.advance(overall_task, 1)
 
     # === PHASE 4: REPORT GENERATION ===
     if all_findings:
@@ -354,31 +441,44 @@ def audit(
             from drystone.reports import ReportGenerator
 
             generator = ReportGenerator(session, config)
+            reporting_units = 1 if config.report_type == "pentest" else max(1, len(all_findings))
+            reporting_progress = Progress(
+                TextColumn("[bold]Phase 3/3 Reporting [/bold]"),
+                BarColumn(bar_width=32),
+                TextColumn("{task.percentage:>3.0f}%"),
+                TextColumn("({task.completed}/{task.total} units)"),
+                console=console,
+                transient=False,
+            )
 
             # Pentest reports are most useful as a consolidated output.
-            if config.report_type == "pentest":
-                generated_reports = generator.generate_consolidated_reports(
-                    [str(f) for f in config.output_formats]
-                )
-                click.echo("   Consolidated Reports:")
-                for format_name, report_path in generated_reports.items():
-                    size_kb = report_path.stat().st_size / 1024
-                    click.echo(
-                        f"      ✅ {format_name.upper():8} {report_path.name:30} ({size_kb:.1f} KB)"
+            with reporting_progress:
+                reporting_task = reporting_progress.add_task("reporting", total=reporting_units)
+                if config.report_type == "pentest":
+                    generated_reports = generator.generate_consolidated_reports(
+                        [str(f) for f in config.output_formats]
                     )
-            else:
-                # Generate reports for each skill
-                for skill_name in all_findings.keys():
-                    generated_reports = generator.generate_reports(
-                        skill_name, [str(f) for f in config.output_formats]
-                    )
-
-                    click.echo(f"   {skill_name.capitalize()} Reports:")
+                    click.echo("   Consolidated Reports:")
                     for format_name, report_path in generated_reports.items():
                         size_kb = report_path.stat().st_size / 1024
                         click.echo(
                             f"      ✅ {format_name.upper():8} {report_path.name:30} ({size_kb:.1f} KB)"
                         )
+                    reporting_progress.advance(reporting_task, 1)
+                else:
+                    # Generate reports for each skill
+                    for skill_name in all_findings.keys():
+                        generated_reports = generator.generate_reports(
+                            skill_name, [str(f) for f in config.output_formats]
+                        )
+
+                        click.echo(f"   {skill_name.capitalize()} Reports:")
+                        for format_name, report_path in generated_reports.items():
+                            size_kb = report_path.stat().st_size / 1024
+                            click.echo(
+                                f"      ✅ {format_name.upper():8} {report_path.name:30} ({size_kb:.1f} KB)"
+                            )
+                        reporting_progress.advance(reporting_task, 1)
 
             # Show how to view reports
             if "markdown" in config.output_formats:
@@ -387,12 +487,14 @@ def audit(
                 click.echo(f"   ls {reports_path.parent}/")
 
             click.echo("\n✅ Phase 4 Complete (Report Generation)")
+            overall_progress.advance(overall_task, 1)
 
         except Exception as e:
             click.echo(f"\n⚠️  Report generation failed: {e}")
             click.echo("   Evidence and findings are saved, but reports could not be generated")
     else:
         click.echo("⚠️  Skipping Phase 4 (no findings to report)")
+        overall_progress.advance(overall_task, 1)
 
     # Show completion
     try:
@@ -406,8 +508,21 @@ def audit(
         pass
 
     click.echo("\n✅ Audit Complete")
+    try:
+        metrics = metrics_tracker.get_metrics()
+        total_tokens = int(metrics.get("total_tokens_est", 0))
+        prompt_tokens = int(metrics.get("total_prompt_tokens_est", 0))
+        response_tokens = int(metrics.get("total_response_tokens_est", 0))
+        if total_tokens > 0:
+            click.echo(
+                f"   Estimated token usage (heuristic, not provider-billed): total={total_tokens:,} "
+                f"(prompt={prompt_tokens:,}, response={response_tokens:,})"
+            )
+    except Exception:
+        pass
     click.echo(f"   Audit data: {session.base_path}")
     click.echo()
+    overall_progress.stop()
 
 
 @cli.command()

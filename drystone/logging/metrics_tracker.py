@@ -50,6 +50,9 @@ class MetricsTracker:
                 "skills": {},
                 "total_findings": 0,
                 "total_risk_score": 0.0,
+                "total_prompt_tokens_est": 0,
+                "total_response_tokens_est": 0,
+                "total_tokens_est": 0,
                 "validation_failures": 0,
                 "retry_attempts": 0,
             }
@@ -98,7 +101,43 @@ class MetricsTracker:
                 "deterministic_checks": 0,
                 "evidence_distilled_files": 0,
                 "evidence_items_removed": 0,
+                "prompt_tokens_est": 0,
+                "response_tokens_est": 0,
+                "total_tokens_est": 0,
             }
+
+            self._write_metrics(metrics)
+
+    def record_token_usage(self, skill_name: str, prompt_tokens: int, response_tokens: int) -> None:
+        """Record estimated token usage for a model call."""
+        with self.lock:
+            metrics = self._read_metrics()
+
+            if skill_name not in metrics.get("skills", {}):
+                metrics.setdefault("skills", {})[skill_name] = {}
+
+            skill = metrics["skills"][skill_name]
+            skill_prompt = int(skill.get("prompt_tokens_est", 0)) + int(prompt_tokens)
+            skill_response = int(skill.get("response_tokens_est", 0)) + int(response_tokens)
+            skill_total = skill_prompt + skill_response
+
+            skill.update(
+                {
+                    "prompt_tokens_est": skill_prompt,
+                    "response_tokens_est": skill_response,
+                    "total_tokens_est": skill_total,
+                }
+            )
+
+            total_prompt = sum(
+                int(s.get("prompt_tokens_est", 0)) for s in metrics["skills"].values()
+            )
+            total_response = sum(
+                int(s.get("response_tokens_est", 0)) for s in metrics["skills"].values()
+            )
+            metrics["total_prompt_tokens_est"] = total_prompt
+            metrics["total_response_tokens_est"] = total_response
+            metrics["total_tokens_est"] = total_prompt + total_response
 
             self._write_metrics(metrics)
 

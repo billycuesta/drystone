@@ -63,6 +63,16 @@ class PDFFormatter(BaseFormatter):
         report_date = self.findings.get("analyzed_at") or datetime.utcnow().isoformat()
         report_date = report_date.replace("T", " ").split(".")[0]
 
+        architecture_html = self._architecture_section_html()
+        correlation_html = self._correlation_section_html()
+        findings_html = self._findings_by_severity_html(findings)
+
+        pagebreak_arch_corr = (
+            "<div class='page-break'></div>" if (architecture_html or correlation_html) else ""
+        )
+        has_findings = bool(findings) and "No findings detected" not in findings_html
+        pagebreak_findings = "<div class='page-break'></div>" if has_findings else ""
+
         return {
             "DRYSTONE_BANNER_HTML": self._drystone_ascii_banner_gradient_html(),
             "ANALYSIS_TITLE": html.escape(self._analysis_title()),
@@ -82,9 +92,11 @@ class PDFFormatter(BaseFormatter):
             "SEVERITY_CHART": self._severity_distribution_chart_html(summary),
             "TOP_RESOURCES": self._top_resources_html(findings),
             "TOP_FINDINGS_ROWS": self._top_findings_rows_html(findings),
-            "ARCHITECTURE_SECTION": self._architecture_section_html(),
-            "CORRELATION_SECTION": self._correlation_section_html(),
-            "FINDINGS_BY_SEVERITY": self._findings_by_severity_html(findings),
+            "ARCHITECTURE_SECTION": architecture_html,
+            "CORRELATION_SECTION": correlation_html,
+            "PAGEBREAK_ARCH_CORR": pagebreak_arch_corr,
+            "FINDINGS_BY_SEVERITY": findings_html,
+            "PAGEBREAK_FINDINGS": pagebreak_findings,
             "OBSERVATIONS": self._observations_html(),
             "REMEDIATION_TIMELINE": self._remediation_timeline_html(findings),
             "REFERENCES": self._references_html(),
@@ -137,8 +149,90 @@ class PDFFormatter(BaseFormatter):
 
     def _analysis_title(self) -> str:
         skill = self._display_skill()
-        report_type = str(getattr(self.config, "report_type", "general")).replace("-", " ").upper()
-        return f"AWS Security Audit Report - {skill} Security Analysis ({report_type})"
+        return f"Security Audit Report: {skill} Security Analysis"
+
+    def _looks_spanish(self, text: str) -> bool:
+        t = str(text or "").lower()
+        markers = [
+            " sin ",
+            " con ",
+            " para ",
+            " debe ",
+            " deben ",
+            "múltiples",
+            "hallazgos",
+            " misma vuln",
+            " publico",
+            " pública",
+            " publica",
+            " politicas",
+            " políticas",
+            " auditoria",
+            " auditoría",
+            " habilitado",
+            " proteccion",
+            " protección",
+            " deshabilitado",
+            " vulnerabilidades",
+        ]
+        return any(m in t for m in markers)
+
+    def _translate_to_english(self, text: str) -> str:
+        out = str(text or "")
+        replacements = [
+            ("Múltiples CVEs en mismo recurso", "Multiple CVEs in the same resource"),
+            (
+                "Hallazgos duplicados (misma vuln en múltiples recursos)",
+                "Duplicate findings (same vulnerability in multiple resources)",
+            ),
+            (
+                "(misma vuln en múltiples recursos)",
+                "(same vulnerability in multiple resources)",
+            ),
+            ("Múltiples", "Multiple"),
+            ("múltiples", "multiple"),
+            ("Hallazgos duplicados", "Duplicate findings"),
+            ("hallazgos duplicados", "duplicate findings"),
+            ("Hallazgos", "Findings"),
+            ("hallazgos", "findings"),
+            ("duplicados", "duplicate"),
+            ("Vulnerabilidades", "Vulnerabilities"),
+            ("vulnerabilidades", "vulnerabilities"),
+            ("deshabilitado", "disabled"),
+            ("sin plan de remediación", "without remediation plan"),
+            ("sin remediar", "unremediated"),
+            ("Variables de entorno", "Environment variables"),
+            ("claves sensibles", "sensitive keys"),
+            ("imágenes privadas", "private images"),
+            ("sin auditar", "unaudited"),
+            (" en mismo recurso", " in same resource"),
+            (" en múltiples", " in multiple"),
+            (" para ECR", " for ECR"),
+            (" con sensitive", " with sensitive"),
+            (" mismo recurso", "same resource"),
+            ("misma vuln", "same vulnerability"),
+            ("recursos", "resources"),
+            ("recurso", "resource"),
+            ("público", "public"),
+            ("publico", "public"),
+            ("políticas", "policies"),
+            ("politicas", "policies"),
+            ("protección", "protection"),
+            ("proteccion", "protection"),
+        ]
+        for src, dst in replacements:
+            out = out.replace(src, dst)
+        return out
+
+    def _normalize_finding_language(self, finding: Dict[str, Any]) -> Dict[str, Any]:
+        if str(getattr(self.config, "report_language", "en")).lower() != "en":
+            return finding
+        out = dict(finding)
+        for key in ("title", "description", "remediation"):
+            val = str(out.get(key, ""))
+            if self._looks_spanish(val):
+                out[key] = self._translate_to_english(val)
+        return out
 
     def _scope_definition_html(
         self, summary: Dict[str, Any], findings: List[Dict[str, Any]]
@@ -244,6 +338,7 @@ class PDFFormatter(BaseFormatter):
 
         rows = []
         for finding in ordered:
+            finding = self._normalize_finding_language(finding)
             finding_id = html.escape(str(finding.get("id", "N/A")))
             title = html.escape(str(finding.get("title", "Untitled"))[:72])
             severity = html.escape(str(finding.get("severity", "Unknown")))
@@ -327,6 +422,7 @@ class PDFFormatter(BaseFormatter):
         return "".join(sections)
 
     def _finding_card_html(self, finding: Dict[str, Any]) -> str:
+        finding = self._normalize_finding_language(finding)
         finding_id = html.escape(str(finding.get("id", "N/A")))
         title = html.escape(str(finding.get("title", "Untitled")))
         severity = html.escape(str(finding.get("severity", "Unknown")))
@@ -520,10 +616,13 @@ class PDFFormatter(BaseFormatter):
         def _items(rows: List[Dict[str, Any]], limit: int) -> str:
             if not rows:
                 return "<li>No items</li>"
-            return "".join(
-                f"<li>[{html.escape(str(row.get('id', 'N/A')))}] {html.escape(str(row.get('title', 'Untitled')))}</li>"
-                for row in rows[:limit]
-            )
+            items = []
+            for row in rows[:limit]:
+                normalized = self._normalize_finding_language(row)
+                items.append(
+                    f"<li>[{html.escape(str(normalized.get('id', 'N/A')))}] {html.escape(str(normalized.get('title', 'Untitled')))}</li>"
+                )
+            return "".join(items)
 
         return (
             "<h3>Immediate (0-7 days) - Critical Priority</h3>"

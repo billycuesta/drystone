@@ -221,10 +221,7 @@ class FindingsNormalizer:
             finding.severity = severity
             finding.risk_score = risk_score
 
-            # Enforce checklist title for language consistency.
-            item = self.checklist_map.get(normalized_id)
-            if isinstance(item, dict) and isinstance(item.get("title"), str) and item.get("title"):
-                finding.title = str(item.get("title"))
+            # Keep model-provided title to preserve report language alignment.
 
             # Patch obviously incorrect account IDs in affected resource ARNs using audit metadata.
             # This avoids reports listing placeholder ARNs like 123456789012.

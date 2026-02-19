@@ -1,6 +1,56 @@
 """Evidence distillation to reduce prompt/token size."""
 
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
+
+
+FILE_ALLOWLIST_FIELDS = {
+    "vpcs": {"VpcId", "CidrBlock", "State", "IsDefault", "Tags"},
+    "security-groups": {
+        "GroupId",
+        "GroupName",
+        "VpcId",
+        "Description",
+        "IpPermissions",
+        "IpPermissionsEgress",
+    },
+    "route-tables": {"RouteTableId", "VpcId", "Routes", "Associations", "Tags"},
+    "subnets": {"SubnetId", "VpcId", "CidrBlock", "AvailabilityZone", "MapPublicIpOnLaunch"},
+    "roles": {"Arn", "RoleName", "AssumeRolePolicyDocument", "AttachedManagedPolicies"},
+    "policies": {"Arn", "PolicyName", "DefaultVersionId", "AttachmentCount", "IsAttachable"},
+    "inspector-findings": {
+        "findingArn",
+        "severity",
+        "title",
+        "description",
+        "resource",
+        "packageVulnerabilityDetails",
+    },
+}
+
+
+def _normalize_file_key(key: str) -> str:
+    return str(key).replace(".json", "").lower()
+
+
+def _prune_dict_fields(resource: Dict[str, Any], file_key: str) -> Dict[str, Any]:
+    allow = FILE_ALLOWLIST_FIELDS.get(file_key)
+    if not allow:
+        return resource
+    out = {k: v for k, v in resource.items() if k in allow}
+    if len(out) == 0:
+        return resource
+    return out
+
+
+def _prune_list_items(items: List[Any], file_key: str, keep_count: int) -> List[Any]:
+    trimmed = items[:keep_count]
+    pruned: List[Any] = []
+    for item in trimmed:
+        if isinstance(item, dict):
+            pruned.append(_prune_dict_fields(item, file_key))
+        else:
+            pruned.append(item)
+    return pruned
 
 
 def distill_evidence(
@@ -18,6 +68,7 @@ def distill_evidence(
     items_removed = 0
 
     for key, value in evidence.items():
+        file_key = _normalize_file_key(str(key))
         if str(key).startswith("_"):
             distilled[key] = value
             continue
@@ -30,10 +81,10 @@ def distill_evidence(
                     "_distilled": True,
                     "_original_count": len(value),
                     "_kept_count": max_list_items,
-                    "items": value[:max_list_items],
+                    "items": _prune_list_items(value, file_key, max_list_items),
                 }
             else:
-                distilled[key] = value
+                distilled[key] = _prune_list_items(value, file_key, len(value))
             continue
 
         if isinstance(value, dict):
@@ -48,8 +99,10 @@ def distill_evidence(
                         "_distilled": True,
                         "_original_count": len(sub_value),
                         "_kept_count": max_list_items,
-                        "items": sub_value[:max_list_items],
+                        "items": _prune_list_items(sub_value, file_key, max_list_items),
                     }
+                elif isinstance(sub_value, list):
+                    compact[sub_key] = _prune_list_items(sub_value, file_key, len(sub_value))
             distilled[key] = compact if changed else value
             continue
 

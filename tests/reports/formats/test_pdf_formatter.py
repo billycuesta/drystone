@@ -68,7 +68,7 @@ def test_pdf_formatter_generates_pdf_with_weasyprint_stub(tmp_path, monkeypatch)
 
     assert report_path.exists()
     assert report_path.suffix == ".pdf"
-    assert "AWS Security Audit Report" in captured["html"]
+    assert "Security Audit Report: IAM Security Analysis" in captured["html"]
     assert "██████╗" in captured["html"]
 
 

@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 import anthropic
 
@@ -14,6 +14,7 @@ from drystone.agent.chunker import EvidenceChunker, FindingsAggregator
 from drystone.agent.budget import get_budget_policy
 from drystone.agent.cache import FindingsCache
 from drystone.agent.retry import analyze_with_retry
+from drystone.analysis.prioritizer import score_chunk
 from drystone.logging import CrashSafeLogger
 from drystone.models.findings import SkillFindings
 from drystone.prompts import get_audit_template
@@ -74,6 +75,7 @@ class AgentClient:
         self.crash_safe_logger = crash_safe_logger
         self.metrics_tracker: Any = None
         self.findings_cache = FindingsCache()
+        self.progress_callback: Optional[Callable[[str, int, int, str, str], None]] = None
 
         # Validate provider type
         valid_types = {"claude-api", "claude-cli"}
@@ -219,10 +221,22 @@ class AgentClient:
 
         # 2. Call LLM (Claude CLI or API)
         full_prompt = f"{system_prompt}\n\n{user_prompt}"
+        prompt_tokens_est = self._estimate_tokens_text(full_prompt)
         if self.use_cli:
             response_text = self._call_claude_cli(full_prompt)
         else:
             response_text = self._call_claude_api(full_prompt)
+        response_tokens_est = self._estimate_tokens_text(response_text)
+
+        if self.metrics_tracker:
+            try:
+                self.metrics_tracker.record_token_usage(
+                    skill_name,
+                    prompt_tokens=prompt_tokens_est,
+                    response_tokens=response_tokens_est,
+                )
+            except Exception:
+                pass
 
         # 3. Parse JSON response
         try:
@@ -282,6 +296,12 @@ class AgentClient:
 
         return findings
 
+    def _estimate_tokens_text(self, text: str) -> int:
+        """Estimate tokens from text using conservative JSON-friendly ratio."""
+        if not isinstance(text, str) or not text:
+            return 0
+        return max(1, len(text) // 3)
+
     def analyze_evidence_chunked(
         self,
         skill_name: str,
@@ -339,12 +359,26 @@ class AgentClient:
         chunks = list(chunker.chunk_evidence(evidence))
         if len(chunks) > budget.max_chunks:
             print(f"  ⚠️  Budget cap active: trimming chunks {len(chunks)} -> {budget.max_chunks}")
-            chunks = chunks[: budget.max_chunks]
+            ranked = sorted(
+                chunks,
+                key=lambda c: score_chunk(str(c.metadata.get("source_file", "")), c.evidence),
+                reverse=True,
+            )
+            chunks = ranked[: budget.max_chunks]
+            kept = ", ".join(str(c.metadata.get("source_file", "unknown")) for c in chunks[:3])
+            if kept:
+                print(f"  📌 Prioritized chunks kept first: {kept}")
         print(f"  📦 Processing {len(chunks)} chunks...")
+        if self.progress_callback:
+            try:
+                self.progress_callback(skill_name, 0, len(chunks), "start", "chunking")
+            except Exception:
+                pass
 
         failed_chunks = 0
         aborted_due_to_quota = False
         aborted_due_to_auth = False
+        processed_chunks = 0
         for i, chunk in enumerate(chunks):
             source_file = chunk.metadata.get("source_file", "unknown")
             extra = ""
@@ -377,6 +411,14 @@ class AgentClient:
 
                 # Aggregate findings
                 aggregator.add_findings(chunk_findings)
+                processed_chunks += 1
+                if self.progress_callback:
+                    try:
+                        self.progress_callback(
+                            skill_name, processed_chunks, len(chunks), "advance", source_file
+                        )
+                    except Exception:
+                        pass
             except (AgentError, Exception) as e:
                 # Gracefully skip chunks that fail (e.g., metadata files that
                 # produce invalid responses). Log and continue.
@@ -415,6 +457,14 @@ class AgentClient:
 
                 short_reason = err_text.splitlines()[0][:140] if err_text else "unknown error"
                 print(f"     ⚠️  Chunk {source_file} skipped ({short_reason})")
+                processed_chunks += 1
+                if self.progress_callback:
+                    try:
+                        self.progress_callback(
+                            skill_name, processed_chunks, len(chunks), "advance", source_file
+                        )
+                    except Exception:
+                        pass
                 continue
 
         if failed_chunks:
@@ -438,6 +488,13 @@ class AgentClient:
         print(
             f"  ✅ Aggregated {final_findings.summary.total_findings} findings from {len(chunks)} chunks"
         )
+        if self.progress_callback:
+            try:
+                self.progress_callback(
+                    skill_name, len(chunks), len(chunks), "done", "chunking_done"
+                )
+            except Exception:
+                pass
 
         self.findings_cache.set(cache_key, final_findings)
 

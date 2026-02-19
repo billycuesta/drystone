@@ -68,6 +68,96 @@ class MarkdownFormatter(BaseFormatter):
         parts = [p for p in parts if p]
         return "\n\n".join(parts)
 
+    def _is_english_report(self) -> bool:
+        return str(getattr(self.config, "report_language", "en")).lower() == "en"
+
+    def _looks_spanish(self, text: str) -> bool:
+        t = str(text or "").lower()
+        markers = [
+            " sin ",
+            " con ",
+            " para ",
+            " debe ",
+            " deben ",
+            "múltiples",
+            "hallazgos",
+            " misma vuln",
+            " publico",
+            " publica",
+            " politicas",
+            " auditoria",
+            " habilitado",
+            " proteccion",
+        ]
+        return any(m in t for m in markers)
+
+    def _translate_to_english(self, text: str) -> str:
+        out = str(text or "")
+        replacements = [
+            ("Múltiples CVEs en mismo recurso", "Multiple CVEs in the same resource"),
+            (
+                "Hallazgos duplicados (misma vuln en múltiples recursos)",
+                "Duplicate findings (same vulnerability in multiple resources)",
+            ),
+            (
+                "(misma vuln en múltiples recursos)",
+                "(same vulnerability in multiple resources)",
+            ),
+            ("Múltiples", "Multiple"),
+            ("múltiples", "multiple"),
+            ("Hallazgos duplicados", "Duplicate findings"),
+            ("hallazgos duplicados", "duplicate findings"),
+            ("Hallazgos", "Findings"),
+            ("hallazgos", "findings"),
+            ("duplicados", "duplicate"),
+            ("Vulnerabilidades", "Vulnerabilities"),
+            ("vulnerabilidades", "vulnerabilities"),
+            ("deshabilitado", "disabled"),
+            ("sin plan de remediación", "without remediation plan"),
+            ("sin remediar", "unremediated"),
+            ("Variables de entorno", "Environment variables"),
+            ("claves sensibles", "sensitive keys"),
+            ("imágenes privadas", "private images"),
+            ("sin auditar", "unaudited"),
+            (" en mismo recurso", " in same resource"),
+            (" en múltiples", " in multiple"),
+            (" para ECR", " for ECR"),
+            (" con sensitive", " with sensitive"),
+            (" mismo recurso", "same resource"),
+            ("misma vuln", "same vulnerability"),
+            ("recursos", "resources"),
+            ("recurso", "resource"),
+            ("público", "public"),
+            ("publico", "public"),
+            ("políticas", "policies"),
+            ("politicas", "policies"),
+            ("protección", "protection"),
+            ("proteccion", "protection"),
+        ]
+        for src, dst in replacements:
+            out = out.replace(src, dst)
+        return out
+
+    def _normalize_finding_language(self, finding: Dict[str, Any]) -> Dict[str, Any]:
+        if not self._is_english_report():
+            return finding
+
+        out = dict(finding)
+
+        title = str(out.get("title", ""))
+        if self._looks_spanish(title):
+            out["title"] = self._translate_to_english(title)
+
+        desc = str(out.get("description", ""))
+        if self._looks_spanish(desc):
+            out["description"] = self._translate_to_english(desc)
+
+        remediation = str(out.get("remediation", ""))
+        if self._looks_spanish(remediation):
+            out["remediation"] = self._translate_to_english(remediation)
+
+        return out
+
     def _header(self) -> str:
         """Generate report header."""
         skill = self.findings.get("skill", "Unknown")
@@ -207,14 +297,17 @@ This report presents security findings from the {skill.upper()} security assessm
 
         timeline += "### Immediate (0-7 days) - Critical Priority\n"
         for f in immediate[:5]:  # Limit to top 5
+            f = self._normalize_finding_language(f)
             timeline += f"- [ ] {f.get('id')}: {f.get('title')}\n"
 
         timeline += "\n### Short-term (8-30 days) - High Priority\n"
         for f in short_term[:5]:
+            f = self._normalize_finding_language(f)
             timeline += f"- [ ] {f.get('id')}: {f.get('title')}\n"
 
         timeline += "\n### Medium-term (31-90 days) - Medium Priority\n"
         for f in medium_term[:3]:
+            f = self._normalize_finding_language(f)
             timeline += f"- [ ] {f.get('id')}: {f.get('title')}\n"
 
         return timeline
@@ -432,6 +525,7 @@ These correlations represent multi-stage attack scenarios where findings from di
         output += "|----|-------|----------|------|-----------|\n"
 
         for finding in top_findings:
+            finding = self._normalize_finding_language(finding)
             finding_id = finding.get("id", "N/A")
             title = finding.get("title", "Unknown")[:50]  # Truncate to 50 chars
             severity = finding.get("severity", "Unknown")
@@ -477,6 +571,7 @@ These correlations represent multi-stage attack scenarios where findings from di
         grouped = {sev: [] for sev in severity_order}
 
         for finding in findings:
+            finding = self._normalize_finding_language(finding)
             severity = finding.get("severity", "Low")
             grouped.get(severity, []).append(finding)
 
@@ -564,6 +659,7 @@ These correlations represent multi-stage attack scenarios where findings from di
 
         if critical:
             for f in critical[:3]:
+                f = self._normalize_finding_language(f)
                 finding_id = f.get("id", "N/A")
                 title = f.get("title", "")
                 guide += f"- **[{finding_id}]** {title}\n"
@@ -576,6 +672,7 @@ These correlations represent multi-stage attack scenarios where findings from di
 
         if high:
             for f in high[:3]:
+                f = self._normalize_finding_language(f)
                 finding_id = f.get("id", "N/A")
                 title = f.get("title", "")
                 guide += f"- **[{finding_id}]** {title}\n"
