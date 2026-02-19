@@ -63,7 +63,13 @@ class VulnsSkill(BaseSkill):
                 delegated = inspector_client.describe_organization_configuration()
                 self._save_json(evidence_path / "inspector-org-config.json", delegated)
             except Exception as e:
-                logger.warning(f"Could not describe Inspector organization config: {e}")
+                err = str(e)
+                if "AccessDeniedException" in err:
+                    logger.info(
+                        "Inspector organization config not accessible (expected for non-org/delegated accounts)"
+                    )
+                else:
+                    logger.warning(f"Could not describe Inspector organization config: {e}")
 
             # List findings (filtered by severity: Critical, High, Medium)
             findings_list = []

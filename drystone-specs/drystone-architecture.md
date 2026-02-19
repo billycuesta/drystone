@@ -70,11 +70,13 @@
 │  │                         │                            │            │
 │  │                         ▼                            │            │
 │  │  ┌─────────────────────────────────────────────┐    │            │
-│  │  │  TIER 2: AI ANALYSIS (constrained)           │    │            │
+│  │  │  TIER 2: AI ANALYSIS (constrained + budgeted)│    │            │
 │  │  │  agent/client.py                             │    │            │
 │  │  │                                              │    │            │
-│  │  │  Prompt = XML template + evidence            │    │            │
+│  │  │  Prompt = XML template + distilled evidence  │    │            │
 │  │  │        + <pre_computed_facts> (Tier 1)       │    │            │
+│  │  │        + checklist router (LLM-only checks)  │    │            │
+│  │  │        + budget policy (tokens/chunks caps)  │    │            │
 │  │  │                                              │    │            │
 │  │  │  Rules injected:                             │    │            │
 │  │  │  • PASS → DO NOT generate finding            │    │            │
@@ -250,9 +252,26 @@ Check IAM-005 (Password policy complexity):
 | False positives (Tier 1 checks) | ~5-7% | **~0%** |
 | Missing criticals (Tier 1) | AI-dependent | **Deterministic injection** |
 | Reproducibility (Tier 1) | Variable | **100%** |
-| Tokens to AI | 100% evidence analysis | Evidence + pre-computed hints |
+| Tokens to AI | 100% evidence analysis | Evidence + pre-computed hints + routing/distillation |
 | Post-validation for Tier 1 | Full normalizer | **Skipped** (already resolved) |
 | Deterministic checks | 0 pre-AI | **69** across 13 skills |
+
+## P0 Token Reduction Modules (2026-02)
+
+| Module | Path | Goal |
+|--------|------|------|
+| Checklist Router | `drystone/analysis/router.py` | Exclude PASS/FAIL deterministic checks from LLM checklist |
+| Evidence Distiller | `drystone/analysis/distiller.py` | Truncate oversized evidence lists while preserving summary metadata |
+| Budget Policy | `drystone/agent/budget.py` | Cap `max_tokens_per_chunk` and `max_chunks` per provider/skill |
+| Budget Metrics | `drystone/logging/metrics_tracker.py` | Track `llm_checks`, deterministic checks, and distillation reductions |
+
+### P0 Runtime Flow (inside `BaseSkill.analyze`)
+
+1. Run deterministic pre-checks (`PASS/FAIL/SKIP`)
+2. Route checklist: only unresolved checks go to LLM
+3. Distill evidence by provider budget (`max_list_items`)
+4. Analyze with chunk caps (`max_chunks`) to avoid token/cost spikes
+5. Reconcile + normalize as usual (quality guardrail unchanged)
 
 ## Skills disponibles (13)
 

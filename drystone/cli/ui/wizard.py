@@ -98,6 +98,59 @@ def validate_aws_profile(profile_name: str) -> bool:
         return False
 
 
+def validate_ai_provider_credentials(ai_provider: str, ai_api_key: Optional[str]) -> bool:
+    """Validate AI provider credentials early in wizard flow.
+
+    Returns True when credentials look valid and provider is reachable.
+    For claude-cli (no API key), returns True.
+    """
+    provider = str(ai_provider or "").strip().lower()
+
+    if provider == "claude-cli":
+        return True
+
+    if not ai_api_key or not str(ai_api_key).strip():
+        print(f"❌ API key is required for {ai_provider}")
+        return False
+
+    key = str(ai_api_key).strip()
+
+    try:
+        if provider == "claude-api":
+            import anthropic
+
+            client = anthropic.Anthropic(api_key=key)
+            # Lightweight auth check
+            client.messages.create(
+                model="claude-3-5-haiku-latest",
+                max_tokens=8,
+                temperature=0.0,
+                messages=[{"role": "user", "content": "ping"}],
+            )
+            print("✅ Claude API key validated")
+            return True
+
+        if provider == "openai-api":
+            from openai import OpenAI
+
+            client = OpenAI(api_key=key)
+            # Lightweight auth check (no generation)
+            client.models.list()
+            print("✅ OpenAI API key validated")
+            return True
+
+        print(f"❌ Unsupported AI provider for validation: {ai_provider}")
+        return False
+
+    except Exception as e:
+        msg = str(e)
+        if "invalid_api_key" in msg.lower() or "incorrect api key" in msg.lower():
+            print(f"❌ Invalid API key for {ai_provider}")
+        else:
+            print(f"❌ Could not validate {ai_provider}: {e}")
+        return False
+
+
 class AWSValidationError(Exception):
     """Raised when AWS validation fails."""
 
@@ -462,6 +515,11 @@ def run_ai_menu(current_config: Optional[dict] = None) -> dict:
             questionary.Choice(
                 "Claude API Key", "claude-api", checked=(current_provider == "claude-api")
             ),
+            questionary.Choice(
+                "OpenAI API (GPT-5.3 Codex)",
+                "openai-api",
+                checked=(current_provider == "openai-api"),
+            ),
         ],
     ).ask()
 
@@ -474,14 +532,26 @@ def run_ai_menu(current_config: Optional[dict] = None) -> dict:
         "ai_api_key": None,
     }
 
-    if ai_provider == "claude-api":
-        result["ai_api_key"] = questionary.password(
-            "Enter your Claude API key:",
-            validate=lambda x: len(x) > 0 or "API key cannot be empty",
-        ).ask()
+    if ai_provider in {"claude-api", "openai-api"}:
+        key_prompt = (
+            "Enter your Claude API key:"
+            if ai_provider == "claude-api"
+            else "Enter your OpenAI API key:"
+        )
 
-        if result["ai_api_key"] is None:
-            raise KeyboardInterrupt("Wizard cancelled")
+        while True:
+            result["ai_api_key"] = questionary.password(
+                key_prompt,
+                validate=lambda x: len(x) > 0 or "API key cannot be empty",
+            ).ask()
+
+            if result["ai_api_key"] is None:
+                raise KeyboardInterrupt("Wizard cancelled")
+
+            print("Validating AI provider credentials...")
+            if validate_ai_provider_credentials(ai_provider, result["ai_api_key"]):
+                break
+            print("Please try again with a valid API key.\n")
 
     return result
 
@@ -513,7 +583,7 @@ def run_setup_wizard() -> WizardConfig:
     # Initialize configs: Menu A is empty, Menu B has defaults
     project_config: Optional[dict] = None
     ai_config = get_default_ai_config()
-    last_validation_status = {"aws": False, "bedrock": False}
+    last_validation_status = {"aws": False, "bedrock": False, "ai": False}
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # INTERACTIVE NAVIGATION LOOP
@@ -529,11 +599,17 @@ def run_setup_wizard() -> WizardConfig:
             questionary.Choice("🤖 Configure Menu B: AI Configuration", value="edit_ai"),
         ]
 
-        # Only show "Continue" if Menu A is configured and validated
+        # Only show "Continue" if Menu A and AI config are validated
         if project_config and last_validation_status["aws"]:
-            # Also check bedrock validation if required
             provider = ai_config.get("ai_provider")
-            if provider != "bedrock" or (
+            if provider == "claude-cli":
+                last_validation_status["ai"] = True
+
+            if not last_validation_status["ai"]:
+                # keep continue hidden until API provider validates
+                pass
+            # Also check bedrock validation if required
+            elif provider != "bedrock" or (
                 provider == "bedrock" and last_validation_status["bedrock"]
             ):
                 choices.append(
@@ -558,6 +634,7 @@ def run_setup_wizard() -> WizardConfig:
             ai_config = run_ai_menu(current_config=ai_config)
             print("\n✅ Menu B updated!")
             last_validation_status["bedrock"] = False  # Force re-validation
+            last_validation_status["ai"] = False  # Force re-validation
 
         elif action == "continue":
             print("\n✅ Configuration finalized!\n")
@@ -608,6 +685,15 @@ def run_setup_wizard() -> WizardConfig:
                     except (ValueError, FileNotFoundError) as e:
                         print(f"🚨 Error getting Bedrock credentials: {e}")
                         last_validation_status["bedrock"] = False
+
+                # 3. Validate AI provider credentials (API providers)
+                if last_validation_status["aws"] and not last_validation_status["ai"]:
+                    last_validation_status["ai"] = validate_ai_provider_credentials(
+                        temp_config.ai_provider,
+                        temp_config.ai_api_key,
+                    )
+                    if not last_validation_status["ai"]:
+                        print("🚨 AI provider validation failed. Please edit Menu B.")
 
             except Exception as e:
                 print(f"An unexpected error occurred during validation: {e}")

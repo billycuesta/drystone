@@ -281,11 +281,16 @@ def audit(
     # This dramatically speeds up multi-skill audits (4-5x faster)
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    click.echo("   🚀 Running skills in PARALLEL for maximum speed...\n")
+    max_workers = len(skill_instances)
+    if config.ai_provider == "claude-cli":
+        max_workers = 1
+        click.echo("   🚀 Running skills in SEQUENTIAL mode (claude-cli quota-safe)...\n")
+    else:
+        click.echo("   🚀 Running skills in PARALLEL for maximum speed...\n")
 
     all_findings = {}
 
-    with ThreadPoolExecutor(max_workers=len(skill_instances)) as executor:
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {}
 
         # Submit all skills to executor
@@ -326,6 +331,18 @@ def audit(
             except Exception as e:
                 metrics_tracker.record_skill_complete(skill_name, False)
                 click.echo(f"   ❌ Analysis error for {skill_name}: {e}\n")
+
+                err = str(e).lower()
+                if "out of extra usage" in err or "quota" in err or "rate limit" in err:
+                    for pending_future, pending_skill in futures.items():
+                        if pending_future is future:
+                            continue
+                        if pending_future.cancel():
+                            metrics_tracker.record_skill_complete(pending_skill, False)
+                            click.echo(
+                                f"   ⚠️  Cancelled {pending_skill} analysis due to provider quota exhaustion"
+                            )
+                    break
 
     # === PHASE 4: REPORT GENERATION ===
     if all_findings:

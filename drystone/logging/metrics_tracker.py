@@ -94,7 +94,37 @@ class MetricsTracker:
                 "findings": 0,
                 "risk_score": 0.0,
                 "validation_passed": False,
+                "llm_checks": 0,
+                "deterministic_checks": 0,
+                "evidence_distilled_files": 0,
+                "evidence_items_removed": 0,
             }
+
+            self._write_metrics(metrics)
+
+    def record_llm_budget(
+        self,
+        skill_name: str,
+        llm_checks: int,
+        deterministic_checks: int,
+        distilled_files: int,
+        items_removed: int,
+    ) -> None:
+        """Record P0 token-saving routing/distillation metrics."""
+        with self.lock:
+            metrics = self._read_metrics()
+
+            if skill_name not in metrics.get("skills", {}):
+                metrics["skills"][skill_name] = {}
+
+            metrics["skills"][skill_name].update(
+                {
+                    "llm_checks": int(llm_checks),
+                    "deterministic_checks": int(deterministic_checks),
+                    "evidence_distilled_files": int(distilled_files),
+                    "evidence_items_removed": int(items_removed),
+                }
+            )
 
             self._write_metrics(metrics)
 

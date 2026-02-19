@@ -56,9 +56,9 @@ class WizardConfig(BaseModel):
     )
 
     # Step 7: AI Provider for analysis
-    ai_provider: Literal["claude-api", "claude-cli"] = Field(
+    ai_provider: Literal["claude-api", "claude-cli", "openai-api"] = Field(
         default="claude-cli",
-        description="AI provider for security analysis (claude-cli or claude-api)",
+        description="AI provider for security analysis (claude-cli, claude-api, or openai-api)",
     )
 
     # Step 8: AI API Key (if needed)
@@ -256,10 +256,16 @@ class WizardConfig(BaseModel):
     @validator("ai_api_key", pre=True, always=True)
     def validate_ai_api_key(cls, v: Optional[str], values: dict) -> Optional[str]:
         """Validate AI API key based on provider."""
+        if isinstance(v, str):
+            v = v.strip()
+            # Common copy/paste mistake from markdown bullets: "- sk-..."
+            if v.startswith("- "):
+                v = v[2:].strip()
+
         ai_provider = values.get("ai_provider")
 
         # If using API-based provider, key must be provided
-        if ai_provider in ["claude-api", "gemini-api"]:
+        if ai_provider in ["claude-api", "openai-api"]:
             if not v or not v.strip():
                 raise ValueError(f"API key required for {ai_provider}")
 

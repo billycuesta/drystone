@@ -102,6 +102,9 @@ class BaseSkill(ABC):
         print(f"    Loaded {len(checklist['items'])} security checks")
 
         # 2b. Tier 1: Run deterministic pre-checks
+        from drystone.analysis.distiller import distill_evidence
+        from drystone.analysis.router import route_checklist_for_llm
+        from drystone.agent.budget import get_budget_policy
         from drystone.validation.pre_checks import run_pre_checks
 
         pre_check_results = run_pre_checks(self.name, evidence, checklist)
@@ -115,13 +118,44 @@ class BaseSkill(ABC):
             f"{len(skip_ids)} SKIP, {pending} pending AI"
         )
 
+        # P0 Router: exclude deterministic PASS/FAIL checks from LLM prompt
+        routed_checklist, route_stats = route_checklist_for_llm(checklist, pass_ids, fail_ids)
+        print(
+            f"  🧭 LLM routing: {route_stats['llm_checks']}/{route_stats['total_checks']} checks "
+            f"(deterministic={route_stats['deterministic_resolved']})"
+        )
+
+        # P0 Distiller: compact oversized evidence before sending to LLM
+        budget = get_budget_policy(getattr(agent_client, "provider_type", "claude-cli"), self.name)
+        distilled_evidence, distill_stats = distill_evidence(
+            evidence,
+            max_list_items=budget.distill_max_list_items,
+        )
+        if distill_stats["files_reduced"] > 0:
+            print(
+                f"  🧪 Evidence distilled: files={distill_stats['files_reduced']}, "
+                f"items_removed={distill_stats['items_removed']}"
+            )
+
+        if getattr(agent_client, "metrics_tracker", None):
+            try:
+                agent_client.metrics_tracker.record_llm_budget(
+                    self.name,
+                    llm_checks=route_stats["llm_checks"],
+                    deterministic_checks=route_stats["deterministic_resolved"],
+                    distilled_files=distill_stats["files_reduced"],
+                    items_removed=distill_stats["items_removed"],
+                )
+            except Exception:
+                pass
+
         # 3. Tier 2: Call AI agent (with pre-computed facts injected)
         provider_name = agent_client.get_display_name()
         print(f"  Analyzing with {provider_name}...")
         findings = agent_client.analyze_evidence_chunked(
             skill_name=self.name,
-            evidence=evidence,
-            checklist=checklist,
+            evidence=distilled_evidence,
+            checklist=routed_checklist,
             pre_checks=pre_check_results,
         )
 

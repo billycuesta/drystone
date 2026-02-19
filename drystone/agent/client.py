@@ -1,10 +1,11 @@
-"""AI agent client for security analysis via Claude.
+"""AI agent client for security analysis via LLM providers.
 
-Supports Claude CLI and Claude API for AWS security analysis.
+Supports Claude CLI, Claude API, and OpenAI API for AWS security analysis.
 """
 
 import json
 import logging
+import os
 import shutil
 import subprocess
 import tempfile
@@ -13,7 +14,13 @@ from typing import Any, Dict, Optional
 
 import anthropic
 
+try:
+    from openai import OpenAI
+except Exception:  # pragma: no cover - optional dependency
+    OpenAI = None
+
 from drystone.agent.chunker import EvidenceChunker, FindingsAggregator
+from drystone.agent.budget import get_budget_policy
 from drystone.agent.retry import analyze_with_retry
 from drystone.logging import CrashSafeLogger
 from drystone.models.findings import SkillFindings
@@ -35,7 +42,7 @@ class AgentClient:
     Analyzes collected evidence against security checklists
     and generates findings with recommendations.
 
-    Supports Claude CLI and Claude API (Anthropic).
+    Supports Claude CLI, Claude API (Anthropic), and OpenAI API.
 
     Example:
         >>> agent = AgentClient(api_key="sk-ant-...")
@@ -58,8 +65,8 @@ class AgentClient:
         Args:
             provider_config: Configuration dictionary with:
                 {
-                    'type': 'claude-api' | 'claude-cli',
-                    'api_key': 'sk-ant-...' (optional, required for claude-api)
+                    'type': 'claude-api' | 'claude-cli' | 'openai-api',
+                    'api_key': provider API key (required for API providers)
                 }
             crash_safe_logger: Optional crash-safe logger for audit events
 
@@ -69,14 +76,14 @@ class AgentClient:
         self.provider_config = provider_config or {}
         self.config = self.provider_config  # Store config for chunker
         self.provider_type = self.provider_config.get("type", "claude-cli")
-        self.api_key = self.provider_config.get("api_key")
+        self.api_key = self._sanitize_api_key(self.provider_config.get("api_key"))
         self.client = None
         self.use_cli = False
         self.crash_safe_logger = crash_safe_logger
         self.metrics_tracker: Any = None
 
         # Validate provider type
-        valid_types = {"claude-api", "claude-cli"}
+        valid_types = {"claude-api", "claude-cli", "openai-api"}
         if self.provider_type not in valid_types:
             raise AgentError(
                 f"Provider type '{self.provider_type}' not supported. Valid: {valid_types}"
@@ -85,6 +92,8 @@ class AgentClient:
         # Configure Claude (CLI or API)
         if self.provider_type.startswith("claude"):
             self._setup_claude()
+        elif self.provider_type == "openai-api":
+            self._setup_openai()
 
     def _setup_claude(self) -> None:
         """Setup Claude provider (API or CLI)."""
@@ -107,6 +116,59 @@ class AgentClient:
                 self.temperature = 0.0
             except Exception as e:
                 raise AgentError(f"Failed to initialize Anthropic client: {e}")
+
+    def _setup_openai(self) -> None:
+        """Setup OpenAI API provider."""
+        self.provider_name = "openai"
+
+        if not self.api_key:
+            raise AgentError("OpenAI API key required for 'openai-api' provider")
+        if OpenAI is None:
+            raise AgentError("OpenAI SDK not installed. Install with: pip install 'drystone[llm]'")
+
+        try:
+            self.client = OpenAI(api_key=self.api_key)
+            self.model = self._resolve_openai_model()
+            self.max_tokens = 16000
+            self.temperature = 0.0
+        except Exception as e:
+            raise AgentError(f"Failed to initialize OpenAI client: {e}")
+
+    def _resolve_openai_model(self) -> str:
+        """Resolve OpenAI model with access-aware fallback."""
+        preferred = (
+            self.provider_config.get("model") or os.environ.get("OPENAI_MODEL") or "gpt-5.3-codex"
+        )
+        candidates = [preferred, "gpt-5", "gpt-5-mini", "gpt-4.1"]
+
+        try:
+            if self.client is None:
+                return preferred
+            models = self.client.models.list()
+            available = {getattr(m, "id", "") for m in getattr(models, "data", [])}
+            for model in candidates:
+                if model in available:
+                    if model != preferred:
+                        logger.warning(
+                            "OpenAI model '%s' unavailable; falling back to '%s'",
+                            preferred,
+                            model,
+                        )
+                    return model
+        except Exception:
+            # If model listing fails, keep preferred and let first call return explicit error.
+            pass
+
+        return preferred
+
+    def _sanitize_api_key(self, api_key: Optional[str]) -> Optional[str]:
+        """Normalize API keys to avoid common copy/paste mistakes."""
+        if not isinstance(api_key, str):
+            return api_key
+        key = api_key.strip()
+        if key.startswith("- "):
+            key = key[2:].strip()
+        return key
 
     def _get_claude_cli_path(self) -> str:
         """Get absolute path to claude CLI executable.
@@ -150,6 +212,10 @@ class AgentClient:
 
         elif self.provider_type == "claude-cli":
             return "Claude CLI"
+
+        elif self.provider_type == "openai-api":
+            model = getattr(self, "model", "openai")
+            return f"OpenAI API ({model})"
 
         else:
             return "AI Provider"  # Fallback
@@ -211,6 +277,8 @@ class AgentClient:
         full_prompt = f"{system_prompt}\n\n{user_prompt}"
         if self.use_cli:
             response_text = self._call_claude_cli(full_prompt)
+        elif self.provider_type == "openai-api":
+            response_text = self._call_openai_api(full_prompt)
         else:
             response_text = self._call_claude_api(full_prompt)
 
@@ -292,17 +360,9 @@ class AgentClient:
             SkillFindings with aggregated findings from all chunks
         """
         # Auto-create chunker if not provided
+        budget = get_budget_policy(self.config.get("type", "claude-cli"), skill_name)
         if chunker is None:
-            # Adjust limits per provider
-            # NOTE: These limits control when CHUNKING activates, not LLM context limits
-            provider_type = self.config.get("type", "claude-cli")
-
-            if provider_type == "claude-cli":
-                max_tokens = 20000  # CLI has OS argument limit, be conservative
-            else:
-                max_tokens = 40000  # API has better limits
-
-            chunker = EvidenceChunker(max_tokens_per_chunk=max_tokens)
+            chunker = EvidenceChunker(max_tokens_per_chunk=budget.max_tokens_per_chunk)
 
         # Check if chunking is needed
         if not chunker.should_chunk(evidence):
@@ -314,10 +374,14 @@ class AgentClient:
         aggregator = FindingsAggregator()
 
         chunks = list(chunker.chunk_evidence(evidence))
+        if len(chunks) > budget.max_chunks:
+            print(f"  ⚠️  Budget cap active: trimming chunks {len(chunks)} -> {budget.max_chunks}")
+            chunks = chunks[: budget.max_chunks]
         print(f"  📦 Processing {len(chunks)} chunks...")
 
         failed_chunks = 0
         aborted_due_to_quota = False
+        aborted_due_to_auth = False
         for i, chunk in enumerate(chunks):
             source_file = chunk.metadata.get("source_file", "unknown")
             extra = ""
@@ -358,10 +422,32 @@ class AgentClient:
                 logger.warning(f"Chunk {i + 1}/{len(chunks)} ({source_file}) failed: {err_text}")
 
                 lower_err = err_text.lower()
-                if "out of extra usage" in lower_err or "rate limit" in lower_err:
+                if (
+                    "out of extra usage" in lower_err
+                    or "rate limit" in lower_err
+                    or "exceeded your current quota" in lower_err
+                    or "quota exceeded" in lower_err
+                    or "error code: 429" in lower_err
+                ):
                     print(f"     ⚠️  Chunk {source_file} skipped (provider quota/rate limit)")
                     print("  ⚠️  Stopping remaining chunks due to provider quota/rate limit")
                     aborted_due_to_quota = True
+                    break
+                if (
+                    "model_not_found" in lower_err
+                    or "does not exist or you do not have access" in lower_err
+                ):
+                    print(f"     ⚠️  Chunk {source_file} skipped (model unavailable)")
+                    print("  ⚠️  Stopping remaining chunks due to provider model access")
+                    raise AgentError("Provider model not available for current API key")
+                if (
+                    "invalid_api_key" in lower_err
+                    or "incorrect api key" in lower_err
+                    or "authentication" in lower_err
+                ):
+                    print(f"     ⚠️  Chunk {source_file} skipped (invalid API key)")
+                    print("  ⚠️  Stopping remaining chunks due to authentication failure")
+                    aborted_due_to_auth = True
                     break
 
                 short_reason = err_text.splitlines()[0][:140] if err_text else "unknown error"
@@ -372,9 +458,20 @@ class AgentClient:
             print(f"  ⚠️  {failed_chunks}/{len(chunks)} chunks failed (skipped)")
         if aborted_due_to_quota:
             print("  ⚠️  Results may be partial due to provider quota/rate limit")
+        if aborted_due_to_auth:
+            print("  ⚠️  Results aborted due to provider authentication failure")
 
         # Return aggregated result
         final_findings = aggregator.aggregate()
+        if aborted_due_to_quota and final_findings.summary.total_findings == 0:
+            raise AgentError(
+                "Provider quota/rate limit exhausted before processing enough chunks; "
+                "no reliable findings were produced"
+            )
+        if aborted_due_to_auth and final_findings.summary.total_findings == 0:
+            raise AgentError(
+                "Provider authentication failed (invalid API key); no findings were produced"
+            )
         print(
             f"  ✅ Aggregated {final_findings.summary.total_findings} findings from {len(chunks)} chunks"
         )
@@ -564,6 +661,42 @@ CRITICAL OUTPUT REQUIREMENTS:
             raise AgentError(f"API call failed: {e}")
         except (IndexError, AttributeError) as e:
             raise AgentError(f"Invalid API response format: {e}")
+
+    def _call_openai_api(self, prompt: str) -> str:
+        """Call OpenAI via Responses API."""
+        try:
+            if self.client is None:
+                raise AgentError("OpenAI API client is not initialized")
+
+            response = self.client.responses.create(
+                model=self.model,
+                input=prompt,
+                max_output_tokens=self.max_tokens,
+            )
+
+            text = getattr(response, "output_text", "")
+            if isinstance(text, str) and text.strip():
+                return text
+
+            return str(response)
+
+        except Exception as e:
+            msg = str(e)
+            lower = msg.lower()
+            if "invalid_api_key" in lower or "incorrect api key" in lower:
+                raise AgentError("OpenAI API call failed: invalid API key")
+            if (
+                "exceeded your current quota" in lower
+                or "quota exceeded" in lower
+                or "error code: 429" in lower
+                or "rate limit" in lower
+            ):
+                raise AgentError("OpenAI API call failed: provider quota/rate limit")
+            if "model_not_found" in lower or "does not exist or you do not have access" in lower:
+                raise AgentError(
+                    f"OpenAI API call failed: model '{self.model}' not available for this account"
+                )
+            raise AgentError(f"OpenAI API call failed: {e}")
 
     def _get_system_prompt(self) -> str:
         """Get system prompt for AI agent - SKILL-AGNOSTIC version.
