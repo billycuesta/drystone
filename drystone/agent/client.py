@@ -322,7 +322,11 @@ class AgentClient:
             SkillFindings with aggregated findings from all chunks
         """
         # Auto-create chunker if not provided
-        budget = get_budget_policy(self.config.get("type", "claude-cli"), skill_name)
+        budget = get_budget_policy(
+            self.config.get("type", "claude-cli"),
+            skill_name,
+            self.config.get("scan_depth", "normal"),
+        )
 
         cache_key = self.findings_cache.build_key(
             skill_name=skill_name,

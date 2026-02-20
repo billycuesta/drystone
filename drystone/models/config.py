@@ -77,6 +77,11 @@ class WizardConfig(BaseModel):
         description="Minimum severity level for collected findings (filters out lower severities at collection time)",
     )
 
+    scan_depth: Literal["shallow", "normal", "deep", "very-deep"] = Field(
+        default="normal",
+        description="Scan depth controlling chunk budget and analysis coverage",
+    )
+
     # Report language
     report_language: Literal["en", "es"] = Field(
         default="en",
@@ -102,6 +107,7 @@ class WizardConfig(BaseModel):
                 "ai_provider": "claude-cli",
                 "claude_cli_model": "haiku",
                 "ai_api_key": None,
+                "scan_depth": "normal",
                 "created_at": "2026-01-17T10:30:00",
                 "non_interactive": False,
             }
@@ -207,6 +213,12 @@ class WizardConfig(BaseModel):
                 raise ValueError("'pentest' skill cannot be combined with other skills")
             return ["iam", "exposure", "network", "vulns"]
 
+        pentest_core = ["iam", "exposure", "network", "vulns"]
+        if len(v) > 1 and v != pentest_core:
+            raise ValueError(
+                "Single-skill scans only. Select one skill, or use 'pentest' preset for multi-skill execution."
+            )
+
         valid_skills = {
             "iam",
             "exposure",
@@ -276,6 +288,21 @@ class WizardConfig(BaseModel):
                 raise ValueError(f"API key required for {ai_provider}")
 
         return v
+
+    @validator("scan_depth", pre=True, always=True)
+    def normalize_scan_depth(cls, v: Optional[str]) -> str:
+        """Normalize scan depth values and support legacy Spanish values."""
+        value = str(v or "normal").strip().lower()
+        legacy_map = {
+            "superficial": "shallow",
+            "profundo": "deep",
+            "muy-profundo": "very-deep",
+        }
+        value = legacy_map.get(value, value)
+        allowed = {"shallow", "normal", "deep", "very-deep"}
+        if value not in allowed:
+            raise ValueError(f"Invalid scan_depth: {value}. Valid: {sorted(allowed)}")
+        return value
 
     def dict_for_json(self) -> dict:
         """Convert to JSON-serializable dict, excluding sensitive credentials if not stored directly."""

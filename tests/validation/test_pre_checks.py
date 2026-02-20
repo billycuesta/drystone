@@ -57,6 +57,9 @@ from drystone.validation.pre_checks import (
     check_sm_015,
     check_sm_017,
     check_ecr_001,
+    check_ecr_002,
+    check_ecr_005,
+    check_ecr_006,
     check_ecr_004,
     check_ecr_007,
     check_kms_001,
@@ -1288,6 +1291,106 @@ class TestECR004:
     def test_skip_error(self):
         r = check_ecr_004({"registry": {"registry_scanning": {"error": "AccessDenied"}}})
         assert r.status == "SKIP"
+
+
+class TestECR002:
+    def test_fail_when_mutable_tags_present(self):
+        r = check_ecr_002(
+            {
+                "repositories": {
+                    "repositories": [
+                        {
+                            "RepositoryArn": "arn:aws:ecr:us-east-1:123:repository/app",
+                            "ImageTagMutability": "MUTABLE",
+                        }
+                    ]
+                }
+            }
+        )
+        assert r.status == "FAIL"
+
+    def test_pass_when_all_immutable(self):
+        r = check_ecr_002(
+            {
+                "repositories": {
+                    "repositories": [
+                        {
+                            "RepositoryArn": "arn:aws:ecr:us-east-1:123:repository/app",
+                            "ImageTagMutability": "IMMUTABLE",
+                        }
+                    ]
+                }
+            }
+        )
+        assert r.status == "PASS"
+
+
+class TestECR005:
+    def test_fail_when_non_kms_or_missing_key(self):
+        r = check_ecr_005(
+            {
+                "repositories": {
+                    "repositories": [
+                        {
+                            "RepositoryArn": "arn:aws:ecr:us-east-1:123:repository/app",
+                            "EncryptionType": "AES256",
+                            "KmsKey": None,
+                        }
+                    ]
+                }
+            }
+        )
+        assert r.status == "FAIL"
+
+    def test_pass_when_kms_with_key(self):
+        r = check_ecr_005(
+            {
+                "repositories": {
+                    "repositories": [
+                        {
+                            "RepositoryArn": "arn:aws:ecr:us-east-1:123:repository/app",
+                            "EncryptionType": "KMS",
+                            "KmsKey": "arn:aws:kms:us-east-1:123:key/abc",
+                        }
+                    ]
+                }
+            }
+        )
+        assert r.status == "PASS"
+
+
+class TestECR006:
+    def test_fail_when_lifecycle_missing(self):
+        r = check_ecr_006(
+            {
+                "repositories": {
+                    "repositories": [
+                        {
+                            "RepositoryArn": "arn:aws:ecr:us-east-1:123:repository/app",
+                            "HasLifecyclePolicy": False,
+                            "LifecyclePolicy": None,
+                        }
+                    ]
+                }
+            }
+        )
+        assert r.status == "FAIL"
+
+    def test_pass_when_lifecycle_present(self):
+        r = check_ecr_006(
+            {
+                "repositories": {
+                    "repositories": [
+                        {
+                            "RepositoryArn": "arn:aws:ecr:us-east-1:123:repository/app",
+                            "HasLifecyclePolicy": True,
+                            "LifecyclePolicy": {"rules": []},
+                        }
+                    ]
+                }
+            }
+        )
+        assert r.status == "PASS"
 
 
 # ============================================================================

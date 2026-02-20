@@ -181,6 +181,7 @@ def display_config_summary(project_config: dict, ai_config: dict) -> None:
     # Skills
     skills_display = ", ".join(project_config["skills"]) if project_config["skills"] else "None"
     print(f"   Security Skills: {skills_display}")
+    print(f"   Scan Depth: {project_config.get('scan_depth', 'normal')}")
 
     # Output formats
     formats_display = (
@@ -367,59 +368,70 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
     # Note: AWS credential validation happens later in run_setup_wizard() after all config is collected
     # This allows validation of file/profile sources which need the full config context
 
-    # Step 5: Skills to execute
+    # Step 5: Single skill selection per scan (except pentest preset)
     current_skills = defaults.get("skills", ["iam"])
-    skills = questionary.checkbox(
-        "Security Skills to Execute:",
+    pentest_core = ["iam", "exposure", "network", "vulns"]
+    if current_skills == pentest_core:
+        default_skill = "pentest"
+    elif isinstance(current_skills, list) and current_skills:
+        default_skill = str(current_skills[0])
+    else:
+        default_skill = "iam"
+
+    selected_skill = questionary.select(
+        "Security Skill to Execute:",
         choices=[
-            questionary.Choice("IAM Security Audit", "iam", checked="iam" in current_skills),
+            questionary.Choice("IAM Security Audit", "iam", checked=default_skill == "iam"),
             questionary.Choice(
-                "Internet Exposure Audit", "exposure", checked="exposure" in current_skills
+                "Internet Exposure Audit", "exposure", checked=default_skill == "exposure"
             ),
             questionary.Choice(
-                "Network Policies Audit", "network", checked="network" in current_skills
+                "Network Policies Audit", "network", checked=default_skill == "network"
+            ),
+            questionary.Choice("Vulnerability Scanning", "vulns", checked=default_skill == "vulns"),
+            questionary.Choice(
+                "Alerting & Monitoring Audit", "alerting", checked=default_skill == "alerting"
             ),
             questionary.Choice(
-                "Vulnerability Scanning", "vulns", checked="vulns" in current_skills
+                "Account Hardening Audit", "hardening", checked=default_skill == "hardening"
             ),
             questionary.Choice(
-                "Alerting & Monitoring Audit", "alerting", checked="alerting" in current_skills
-            ),
-            questionary.Choice(
-                "Account Hardening Audit", "hardening", checked="hardening" in current_skills
-            ),
-            questionary.Choice(
-                "ECR Container Registry Audit", "ecr", checked="ecr" in current_skills
+                "ECR Container Registry Audit", "ecr", checked=default_skill == "ecr"
             ),
             questionary.Choice(
                 "Secrets Manager Security Audit",
                 "secretsmanager",
-                checked="secretsmanager" in current_skills,
+                checked=default_skill == "secretsmanager",
             ),
-            questionary.Choice("WAF Security Audit", "waf", checked="waf" in current_skills),
-            questionary.Choice("KMS Key Management Audit", "kms", checked="kms" in current_skills),
+            questionary.Choice("WAF Security Audit", "waf", checked=default_skill == "waf"),
+            questionary.Choice("KMS Key Management Audit", "kms", checked=default_skill == "kms"),
             questionary.Choice(
-                "Messaging (SQS/SNS) Audit", "messaging", checked="messaging" in current_skills
+                "Messaging (SQS/SNS) Audit", "messaging", checked=default_skill == "messaging"
             ),
-            questionary.Choice("CI/CD (CodeBuild) Audit", "cicd", checked="cicd" in current_skills),
+            questionary.Choice("CI/CD (CodeBuild) Audit", "cicd", checked=default_skill == "cicd"),
             questionary.Choice(
-                "Compute (ECS/EKS) Audit", "compute", checked="compute" in current_skills
+                "Compute (ECS/EKS) Audit", "compute", checked=default_skill == "compute"
             ),
-            # Subtle separator: pentest preset is intentionally isolated (complex mode).
             questionary.Separator("────────────"),
-            questionary.Choice(
-                "Internal Pentest",
-                "pentest",
-                checked="pentest" in current_skills,
-            ),
+            questionary.Choice("Internal Pentest", "pentest", checked=default_skill == "pentest"),
         ],
-        validate=lambda x: (
-            (len(x) > 0 or "Select at least one skill")
-            if ("pentest" not in x or len(x) == 1)
-            else "Pentest preset cannot be combined with other skills"
-        ),
     ).ask()
-    if skills is None:
+    if selected_skill is None:
+        raise KeyboardInterrupt("Wizard cancelled")
+
+    # Step 5.5: Scan depth (token/cost vs coverage)
+    current_depth = defaults.get("scan_depth", "normal")
+    scan_depth = questionary.select(
+        "Scan Depth:",
+        choices=[
+            questionary.Choice("Shallow (faster, lower token usage)", "shallow"),
+            questionary.Choice("Normal (recommended)", "normal"),
+            questionary.Choice("Deep (more coverage)", "deep"),
+            questionary.Choice("Very deep (max coverage, higher tokens)", "very-deep"),
+        ],
+        default=current_depth,
+    ).ask()
+    if scan_depth is None:
         raise KeyboardInterrupt("Wizard cancelled")
 
     # Step 6: Output formats
@@ -440,10 +452,11 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
     current_report_type = defaults.get("report_type", "general")
 
     # If the user selected the pentest preset, enforce core skills + report type.
-    if "pentest" in skills:
+    if selected_skill == "pentest":
         skills = ["iam", "exposure", "network", "vulns"]
         report_type = "pentest"
     else:
+        skills = [selected_skill]
         report_type = None
 
     if report_type is None:
@@ -471,6 +484,7 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
         "client_name": client_name,
         "aws_region": aws_region,
         "skills": skills,
+        "scan_depth": scan_depth,
         "output_formats": output_formats,
         "report_type": report_type,
     }

@@ -689,12 +689,48 @@ These correlations represent multi-stage attack scenarios where findings from di
 
     def _observations(self) -> str:
         """Generate observations section."""
-        return """## 📝 Observations
+        findings = self.findings.get("findings", [])
+        summary = self.findings.get("summary", {})
+        total = int(
+            summary.get("total_findings", len(findings) if isinstance(findings, list) else 0)
+        )
+        critical = int(summary.get("critical", 0))
+        high = int(summary.get("high", 0))
 
-- **Positive:** Observations about positive security controls will be listed here.
-- **Concerns:** General concerns or patterns of weakness will be listed here.
-- **Recommendations:** High-level recommendations will be listed here.
-"""
+        positives = []
+        concerns = []
+        recommendations = []
+
+        if total == 0:
+            positives.append("No findings at the selected severity threshold.")
+        else:
+            if critical == 0:
+                positives.append("No critical findings identified in this scan.")
+            if high <= 1:
+                positives.append("High-severity exposure appears limited in this run.")
+
+        if high + critical > 0:
+            concerns.append(
+                f"{critical + high} high-impact findings require prioritized remediation."
+            )
+        if total >= 3:
+            concerns.append("Repeated control gaps indicate policy enforcement drift.")
+
+        if high + critical > 0:
+            recommendations.append("Remediate high-impact findings in the next 7-30 days.")
+        recommendations.append("Re-run the scan after fixes to confirm closure and risk reduction.")
+
+        if not positives:
+            positives.append("Baseline security controls are present but can be strengthened.")
+        if not concerns:
+            concerns.append("No systemic weakness pattern detected in this run.")
+
+        return (
+            "## 📝 Observations\n\n"
+            f"- **Positive:** {positives[0]}\n"
+            f"- **Concerns:** {concerns[0]}\n"
+            f"- **Recommendations:** {recommendations[0]}\n"
+        )
 
     def _references(self) -> str:
         """Generate references section.

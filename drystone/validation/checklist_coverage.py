@@ -4,12 +4,13 @@ Ensures 100% of checklist items are evaluated, regardless of findings.
 This validation is deterministic, cost-free, and guaranteed to be accurate.
 """
 
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional, Set
 
 
 def validate_checklist_coverage(
     checklist: Dict[str, Any],
     findings: List[Dict[str, Any]],
+    pre_evaluated_checks: Optional[Set[str]] = None,
 ) -> Dict[str, Any]:
     """Verify all checklist items were evaluated in the analysis.
 
@@ -55,13 +56,11 @@ def validate_checklist_coverage(
     """
 
     # Extract check IDs and their metadata
-    checklist_items = {
-        item["id"]: item for item in checklist.get("items", [])
-    }
+    checklist_items = {item["id"]: item for item in checklist.get("items", [])}
     total_checks = len(checklist_items)
 
     # Extract evaluated check IDs from findings
-    evaluated_checks: Set[str] = set()
+    evaluated_checks: Set[str] = set(pre_evaluated_checks or set())
     finding_mapping: Dict[str, str] = {}
 
     for finding in findings:
@@ -73,9 +72,7 @@ def validate_checklist_coverage(
 
     # Calculate coverage
     num_evaluated = len(evaluated_checks)
-    coverage_percentage = (
-        (num_evaluated / total_checks * 100) if total_checks > 0 else 100.0
-    )
+    coverage_percentage = (num_evaluated / total_checks * 100) if total_checks > 0 else 100.0
 
     # Identify missing checks
     missing_checks = sorted(list(checklist_items.keys() - evaluated_checks))
@@ -84,13 +81,15 @@ def validate_checklist_coverage(
     details = []
     for check_id in sorted(checklist_items.keys()):
         is_evaluated = check_id in evaluated_checks
-        details.append({
-            "check_id": check_id,
-            "check_title": checklist_items[check_id].get("title", ""),
-            "check_severity": checklist_items[check_id].get("severity", "Unknown"),
-            "evaluated": is_evaluated,
-            "finding_id": finding_mapping.get(check_id) if is_evaluated else None,
-        })
+        details.append(
+            {
+                "check_id": check_id,
+                "check_title": checklist_items[check_id].get("title", ""),
+                "check_severity": checklist_items[check_id].get("severity", "Unknown"),
+                "evaluated": is_evaluated,
+                "finding_id": finding_mapping.get(check_id) if is_evaluated else None,
+            }
+        )
 
     return {
         "coverage_valid": len(missing_checks) == 0,
@@ -120,9 +119,6 @@ def get_unevaluated_checks(
     coverage = validate_checklist_coverage(checklist, findings)
     missing_ids = set(coverage["missing_checks"])
 
-    unevaluated = [
-        item for item in checklist.get("items", [])
-        if item["id"] in missing_ids
-    ]
+    unevaluated = [item for item in checklist.get("items", []) if item["id"] in missing_ids]
 
     return unevaluated

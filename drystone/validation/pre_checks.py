@@ -2430,6 +2430,76 @@ def check_ecr_001(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("ecr")
+def check_ecr_002(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Image tags should be immutable."""
+    repos_doc = evidence.get("repositories", {})
+    repos_list = repos_doc.get("repositories", []) if isinstance(repos_doc, dict) else []
+    if not isinstance(repos_list, list) or not repos_list:
+        return PreCheckResult("ECR-002", "SKIP", "no repositories evidence", [])
+
+    mutable = []
+    for r in repos_list:
+        if not isinstance(r, dict):
+            continue
+        if str(r.get("ImageTagMutability") or "").upper() == "MUTABLE":
+            mutable.append(str(r.get("RepositoryArn") or r.get("RepositoryName") or "unknown"))
+
+    if mutable:
+        return PreCheckResult(
+            "ECR-002", "FAIL", f"{len(mutable)} repositories with mutable tags", mutable[:10]
+        )
+    return PreCheckResult("ECR-002", "PASS", "all repositories use immutable tags", [])
+
+
+@_register("ecr")
+def check_ecr_005(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Repositories should use KMS customer-managed keys when required."""
+    repos_doc = evidence.get("repositories", {})
+    repos_list = repos_doc.get("repositories", []) if isinstance(repos_doc, dict) else []
+    if not isinstance(repos_list, list) or not repos_list:
+        return PreCheckResult("ECR-005", "SKIP", "no repositories evidence", [])
+
+    non_cmk = []
+    for r in repos_list:
+        if not isinstance(r, dict):
+            continue
+        enc = str(r.get("EncryptionType") or "").upper()
+        kms_key = str(r.get("KmsKey") or "")
+        if enc != "KMS" or not kms_key:
+            non_cmk.append(str(r.get("RepositoryArn") or r.get("RepositoryName") or "unknown"))
+
+    if non_cmk:
+        return PreCheckResult(
+            "ECR-005", "FAIL", f"{len(non_cmk)} repositories without CMK encryption", non_cmk[:10]
+        )
+    return PreCheckResult("ECR-005", "PASS", "all repositories use KMS customer-managed keys", [])
+
+
+@_register("ecr")
+def check_ecr_006(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Lifecycle policies should be configured to expire unused images."""
+    repos_doc = evidence.get("repositories", {})
+    repos_list = repos_doc.get("repositories", []) if isinstance(repos_doc, dict) else []
+    if not isinstance(repos_list, list) or not repos_list:
+        return PreCheckResult("ECR-006", "SKIP", "no repositories evidence", [])
+
+    missing = []
+    for r in repos_list:
+        if not isinstance(r, dict):
+            continue
+        has_policy = r.get("HasLifecyclePolicy")
+        lifecycle = r.get("LifecyclePolicy")
+        if has_policy is False or not lifecycle:
+            missing.append(str(r.get("RepositoryArn") or r.get("RepositoryName") or "unknown"))
+
+    if missing:
+        return PreCheckResult(
+            "ECR-006", "FAIL", f"{len(missing)} repositories without lifecycle policy", missing[:10]
+        )
+    return PreCheckResult("ECR-006", "PASS", "all repositories have lifecycle policies", [])
+
+
+@_register("ecr")
 def check_ecr_003(evidence: Dict[str, Any]) -> PreCheckResult:
     """Image scanning on push."""
     # If registry has ENHANCED scanning, this may be covered at registry level

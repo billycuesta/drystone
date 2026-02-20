@@ -36,3 +36,18 @@ def test_budget_policy_by_provider():
     claude_api = get_budget_policy("claude-api", "iam")
     assert claude_cli.max_tokens_per_chunk < claude_api.max_tokens_per_chunk
     assert claude_cli.max_chunks <= claude_api.max_chunks
+
+
+def test_budget_policy_changes_with_scan_depth():
+    shallow = get_budget_policy("claude-cli", "vulns", "shallow")
+    normal = get_budget_policy("claude-cli", "vulns", "normal")
+    deep = get_budget_policy("claude-cli", "vulns", "deep")
+    very_deep = get_budget_policy("claude-cli", "vulns", "very-deep")
+
+    assert shallow.max_chunks <= normal.max_chunks <= deep.max_chunks <= very_deep.max_chunks
+    assert (
+        shallow.distill_max_list_items
+        <= normal.distill_max_list_items
+        <= deep.distill_max_list_items
+        <= very_deep.distill_max_list_items
+    )

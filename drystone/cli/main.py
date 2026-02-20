@@ -7,8 +7,6 @@ from pathlib import Path
 from typing import Literal, Optional, cast
 
 import click
-from rich.console import Console
-from rich.progress import BarColumn, Progress, TextColumn
 
 from drystone.cli import __version__
 from drystone.cli.config import load_last_config, save_config
@@ -16,9 +14,6 @@ from drystone.cli.ui import print_banner, run_setup_wizard
 from drystone.cli.ui.branding import print_summary
 from drystone.cloud.aws import validate_aws_credentials
 from drystone.models import WizardConfig
-
-
-console = Console()
 
 
 @click.group()
@@ -44,7 +39,6 @@ def cli() -> None:
 )
 @click.option(
     "--skills",
-    multiple=True,
     type=click.Choice(
         [
             "pentest",
@@ -63,7 +57,7 @@ def cli() -> None:
             "compute",
         ]
     ),
-    help="Skills to execute (can specify multiple times)",
+    help="Single skill to execute (use 'pentest' for multi-skill preset)",
 )
 @click.option(
     "--formats",
@@ -82,14 +76,20 @@ def cli() -> None:
     type=click.Choice(["general", "pci-dss", "pentest"], case_sensitive=False),
     help="Report type (general, pci-dss, pentest)",
 )
+@click.option(
+    "--scan-depth",
+    type=click.Choice(["shallow", "normal", "deep", "very-deep"]),
+    help="Scan depth controlling chunk budget and token usage",
+)
 def audit(
     non_interactive: bool,
     client: Optional[str] = None,
     region: Optional[str] = None,
-    skills: tuple = (),
+    skills: Optional[str] = None,
     formats: tuple = (),
     min_severity: Literal["low", "medium", "high", "critical"] = "low",
     report_type: Optional[Literal["general", "pci-dss", "pentest"]] = None,
+    scan_depth: Optional[Literal["shallow", "normal", "deep", "very-deep"]] = None,
 ) -> None:
     """Run AWS security audit."""
 
@@ -102,7 +102,7 @@ def audit(
 
     # Determine if we should use interactive mode
     has_cli_args = bool(
-        client or region or skills or formats or min_severity != "low" or report_type
+        client or region or skills or formats or min_severity != "low" or report_type or scan_depth
     )
     should_use_interactive = not non_interactive and not has_cli_args
 
@@ -138,13 +138,19 @@ def audit(
             if region:
                 config.aws_region = region
             if skills:
-                config.skills = list(skills)
+                if skills == "pentest":
+                    config.skills = ["iam", "exposure", "network", "vulns"]
+                    config.report_type = "pentest"
+                else:
+                    config.skills = [skills]
             if formats:
                 config.output_formats = list(formats)
             if min_severity:
                 config.min_severity = min_severity
             if report_type:
                 config.report_type = cast(Literal["general", "pci-dss", "pentest"], report_type)
+            if scan_depth:
+                config.scan_depth = scan_depth
 
         else:  # non-interactive and no other args
             # No interactive mode and no CLI args - try last config
@@ -160,6 +166,8 @@ def audit(
         config.min_severity = cast(Literal["low", "medium", "high", "critical"], min_severity)
     if report_type and config is not None:
         config.report_type = cast(Literal["general", "pci-dss", "pentest"], report_type)
+    if scan_depth and config is not None:
+        config.scan_depth = scan_depth
 
     # Show summary
     try:
@@ -213,16 +221,14 @@ def audit(
     metrics_file = session.base_path / "metrics.json"
     metrics_tracker = MetricsTracker(metrics_file)
 
-    overall_progress = Progress(
-        TextColumn("[bold cyan]Overall[/bold cyan]"),
-        BarColumn(bar_width=32),
-        TextColumn("{task.percentage:>3.0f}%"),
-        TextColumn("({task.completed}/{task.total} phases)"),
-        console=console,
-        transient=False,
-    )
-    overall_progress.start()
-    overall_task = overall_progress.add_task("overall", total=3)
+    phase_total = 3
+    phase_done = 0
+
+    def _print_progress(phase_label: str, completed: int, total: int) -> None:
+        pct = int((completed / max(1, total)) * 100)
+        click.echo(f"📊 Progress: {completed}/{total} phases ({pct}%) - {phase_label}")
+
+    _print_progress("Starting collection", phase_done, phase_total)
 
     # Create AWS client for all skills
     aws_client = AWSClient(config)
@@ -245,54 +251,48 @@ def audit(
     }
 
     skill_instances = {}
-    collection_progress = Progress(
-        TextColumn("[bold]Phase 1/3 Collection[/bold]"),
-        BarColumn(bar_width=32),
-        TextColumn("{task.percentage:>3.0f}%"),
-        TextColumn("({task.completed}/{task.total} skills)"),
-        console=console,
-        transient=False,
-    )
-    with collection_progress:
-        collection_task = collection_progress.add_task(
-            "collection", total=max(1, len(config.skills))
-        )
-        for skill_name in config.skills:
-            if skill_name not in skills_map:
-                click.echo(f"⚠️  Unknown skill: {skill_name}")
-                collection_progress.advance(collection_task, 1)
-                continue
+    collection_total = max(1, len(config.skills))
+    collection_done = 0
+    click.echo(f"🔄 Phase 1/3 Collection: 0/{collection_total} skills")
+    for skill_name in config.skills:
+        if skill_name not in skills_map:
+            click.echo(f"⚠️  Unknown skill: {skill_name}")
+            collection_done += 1
+            click.echo(f"   Phase 1/3 progress: {collection_done}/{collection_total}")
+            continue
 
-            module_name, class_name = skills_map[skill_name]
-            try:
-                # Dynamically import skill
-                module = __import__(module_name, fromlist=[class_name])
-                skill_class = getattr(module, class_name)
-                skill = skill_class()
-                skill_instances[skill_name] = skill
+        module_name, class_name = skills_map[skill_name]
+        try:
+            # Dynamically import skill
+            module = __import__(module_name, fromlist=[class_name])
+            skill_class = getattr(module, class_name)
+            skill = skill_class()
+            skill_instances[skill_name] = skill
 
-                # Execute collector
-                click.echo(f"🔍 Executing {skill_name.capitalize()} Security Audit...")
-                skill.collect(aws_client, session)
+            # Execute collector
+            click.echo(f"🔍 Executing {skill_name.capitalize()} Security Audit...")
+            skill.collect(aws_client, session)
 
-                # List generated files
-                evidence_path = session.get_evidence_path(skill_name)
-                files = sorted(evidence_path.glob("*"))
+            # List generated files
+            evidence_path = session.get_evidence_path(skill_name)
+            files = sorted(evidence_path.glob("*"))
 
-                click.echo(f"   ✅ Evidence saved ({len(files)} files):")
-                for file in files:
-                    size_kb = file.stat().st_size / 1024
-                    click.echo(f"      - {file.name} ({size_kb:.1f} KB)")
-                click.echo()
+            click.echo(f"   ✅ Evidence saved ({len(files)} files):")
+            for file in files:
+                size_kb = file.stat().st_size / 1024
+                click.echo(f"      - {file.name} ({size_kb:.1f} KB)")
+            click.echo()
 
-            except Exception as e:
-                click.echo(f"   ❌ Error collecting {skill_name}: {e}")
-                import traceback
+        except Exception as e:
+            click.echo(f"   ❌ Error collecting {skill_name}: {e}")
+            import traceback
 
-                traceback.print_exc()
-            finally:
-                collection_progress.advance(collection_task, 1)
-    overall_progress.advance(overall_task, 1)
+            traceback.print_exc()
+        finally:
+            collection_done += 1
+            click.echo(f"   Phase 1/3 progress: {collection_done}/{collection_total}")
+    phase_done += 1
+    _print_progress("Collection complete", phase_done, phase_total)
 
     # === PHASE 3: AGENT ANALYSIS ===
     click.echo("🤖 Analyzing evidence with AI...\n")
@@ -306,6 +306,7 @@ def audit(
         "type": config.ai_provider,
         "api_key": config.ai_api_key,
         "model": config.claude_cli_model,
+        "scan_depth": getattr(config, "scan_depth", "normal"),
     }
 
     agent = AgentClient(provider_config=provider_config)
@@ -323,58 +324,31 @@ def audit(
         click.echo("   🚀 Running skills in PARALLEL for maximum speed...\n")
 
     all_findings = {}
-    analysis_progress = Progress(
-        TextColumn("[bold]Phase 2/3 Analysis  [/bold]"),
-        BarColumn(bar_width=32),
-        TextColumn("{task.percentage:>3.0f}%"),
-        TextColumn("({task.completed}/{task.total} skills)"),
-        console=console,
-        transient=False,
-    )
-    chunk_progress = Progress(
-        TextColumn("[dim]Chunks: {task.description}[/dim]"),
-        BarColumn(bar_width=24),
-        TextColumn("{task.completed}/{task.total}"),
-        console=console,
-        transient=False,
-    )
-    chunk_task_ids = {}
+    analysis_total = max(1, len(skill_instances))
+    analysis_done = 0
+    click.echo(f"🔄 Phase 2/3 Analysis: 0/{analysis_total} skills")
+
+    chunk_state = {}
     chunk_lock = threading.Lock()
 
     def _on_chunk_progress(
         skill_name: str, current: int, total: int, stage: str, _note: str
     ) -> None:
         with chunk_lock:
-            task_id = chunk_task_ids.get(skill_name)
-            if task_id is None:
-                task_id = chunk_progress.add_task(
-                    skill_name,
-                    total=max(1, total),
-                    completed=0,
-                    visible=(stage != "start"),
-                )
-                chunk_task_ids[skill_name] = task_id
-
             if stage == "start":
-                chunk_progress.update(
-                    task_id,
-                    description=skill_name,
-                    total=max(1, total),
-                    completed=0,
-                    visible=True,
-                )
+                chunk_state[skill_name] = {"current": 0, "total": max(1, total)}
+                click.echo(f"   📦 {skill_name}: chunking started (0/{max(1, total)})")
             elif stage in {"advance", "done"}:
-                chunk_progress.update(
-                    task_id,
-                    total=max(1, total),
-                    completed=min(max(0, current), max(1, total)),
-                    visible=True,
-                )
+                safe_total = max(1, total)
+                safe_current = min(max(0, current), safe_total)
+                prev = chunk_state.get(skill_name, {}).get("current", -1)
+                if safe_current != prev:
+                    chunk_state[skill_name] = {"current": safe_current, "total": safe_total}
+                    click.echo(f"   📦 {skill_name}: chunks {safe_current}/{safe_total}")
 
     agent.progress_callback = _on_chunk_progress
 
-    with analysis_progress, chunk_progress, ThreadPoolExecutor(max_workers=max_workers) as executor:
-        analysis_task = analysis_progress.add_task("analysis", total=max(1, len(skill_instances)))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {}
 
         # Submit all skills to executor
@@ -412,12 +386,14 @@ def audit(
                     f"High: {summary['high']} | "
                     f"Risk: {summary['overall_risk_score']:.1f}/10\n"
                 )
-                analysis_progress.advance(analysis_task, 1)
+                analysis_done += 1
+                click.echo(f"   Phase 2/3 progress: {analysis_done}/{analysis_total}")
 
             except Exception as e:
                 metrics_tracker.record_skill_complete(skill_name, False)
                 click.echo(f"   ❌ Analysis error for {skill_name}: {e}\n")
-                analysis_progress.advance(analysis_task, 1)
+                analysis_done += 1
+                click.echo(f"   Phase 2/3 progress: {analysis_done}/{analysis_total}")
 
                 err = str(e).lower()
                 if "out of extra usage" in err or "quota" in err or "rate limit" in err:
@@ -429,9 +405,11 @@ def audit(
                             click.echo(
                                 f"   ⚠️  Cancelled {pending_skill} analysis due to provider quota exhaustion"
                             )
-                            analysis_progress.advance(analysis_task, 1)
+                            analysis_done += 1
+                            click.echo(f"   Phase 2/3 progress: {analysis_done}/{analysis_total}")
                     break
-    overall_progress.advance(overall_task, 1)
+    phase_done += 1
+    _print_progress("Analysis complete", phase_done, phase_total)
 
     # === PHASE 4: REPORT GENERATION ===
     if all_findings:
@@ -442,43 +420,37 @@ def audit(
 
             generator = ReportGenerator(session, config)
             reporting_units = 1 if config.report_type == "pentest" else max(1, len(all_findings))
-            reporting_progress = Progress(
-                TextColumn("[bold]Phase 3/3 Reporting [/bold]"),
-                BarColumn(bar_width=32),
-                TextColumn("{task.percentage:>3.0f}%"),
-                TextColumn("({task.completed}/{task.total} units)"),
-                console=console,
-                transient=False,
-            )
+            reporting_done = 0
+            click.echo(f"🔄 Phase 3/3 Reporting: 0/{reporting_units} units")
 
             # Pentest reports are most useful as a consolidated output.
-            with reporting_progress:
-                reporting_task = reporting_progress.add_task("reporting", total=reporting_units)
-                if config.report_type == "pentest":
-                    generated_reports = generator.generate_consolidated_reports(
-                        [str(f) for f in config.output_formats]
+            if config.report_type == "pentest":
+                generated_reports = generator.generate_consolidated_reports(
+                    [str(f) for f in config.output_formats]
+                )
+                click.echo("   Consolidated Reports:")
+                for format_name, report_path in generated_reports.items():
+                    size_kb = report_path.stat().st_size / 1024
+                    click.echo(
+                        f"      ✅ {format_name.upper():8} {report_path.name:30} ({size_kb:.1f} KB)"
                     )
-                    click.echo("   Consolidated Reports:")
+                reporting_done += 1
+                click.echo(f"   Phase 3/3 progress: {reporting_done}/{reporting_units}")
+            else:
+                # Generate reports for each skill
+                for skill_name in all_findings.keys():
+                    generated_reports = generator.generate_reports(
+                        skill_name, [str(f) for f in config.output_formats]
+                    )
+
+                    click.echo(f"   {skill_name.capitalize()} Reports:")
                     for format_name, report_path in generated_reports.items():
                         size_kb = report_path.stat().st_size / 1024
                         click.echo(
                             f"      ✅ {format_name.upper():8} {report_path.name:30} ({size_kb:.1f} KB)"
                         )
-                    reporting_progress.advance(reporting_task, 1)
-                else:
-                    # Generate reports for each skill
-                    for skill_name in all_findings.keys():
-                        generated_reports = generator.generate_reports(
-                            skill_name, [str(f) for f in config.output_formats]
-                        )
-
-                        click.echo(f"   {skill_name.capitalize()} Reports:")
-                        for format_name, report_path in generated_reports.items():
-                            size_kb = report_path.stat().st_size / 1024
-                            click.echo(
-                                f"      ✅ {format_name.upper():8} {report_path.name:30} ({size_kb:.1f} KB)"
-                            )
-                        reporting_progress.advance(reporting_task, 1)
+                    reporting_done += 1
+                    click.echo(f"   Phase 3/3 progress: {reporting_done}/{reporting_units}")
 
             # Show how to view reports
             if "markdown" in config.output_formats:
@@ -487,14 +459,16 @@ def audit(
                 click.echo(f"   ls {reports_path.parent}/")
 
             click.echo("\n✅ Phase 4 Complete (Report Generation)")
-            overall_progress.advance(overall_task, 1)
+            phase_done += 1
+            _print_progress("Reporting complete", phase_done, phase_total)
 
         except Exception as e:
             click.echo(f"\n⚠️  Report generation failed: {e}")
             click.echo("   Evidence and findings are saved, but reports could not be generated")
     else:
         click.echo("⚠️  Skipping Phase 4 (no findings to report)")
-        overall_progress.advance(overall_task, 1)
+        phase_done += 1
+        _print_progress("Reporting skipped", phase_done, phase_total)
 
     # Show completion
     try:
@@ -506,6 +480,22 @@ def audit(
             click.echo(f"   ⚙️  P3 optimizer updated {updated} budget override(s)")
     except Exception:
         pass
+
+    # Post-scan QA gate
+    qa_failed = False
+    try:
+        from drystone.validation.qa_gate import run_qa_gate
+
+        qa = run_qa_gate(session.base_path, list(config.skills))
+        if qa.passed:
+            click.echo("✅ QA Gate: PASS (critical coverage 100%, no placeholders)")
+        else:
+            qa_failed = True
+            click.echo("⚠️  QA Gate: FAIL")
+            for issue in qa.issues:
+                click.echo(f"   - {issue}")
+    except Exception as e:
+        click.echo(f"⚠️  QA Gate execution error: {e}")
 
     click.echo("\n✅ Audit Complete")
     try:
@@ -522,7 +512,9 @@ def audit(
         pass
     click.echo(f"   Audit data: {session.base_path}")
     click.echo()
-    overall_progress.stop()
+
+    if qa_failed:
+        sys.exit(2)
 
 
 @cli.command()

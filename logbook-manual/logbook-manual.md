@@ -1,0 +1,50 @@
+- [x] Podar datos de entrada de información innecesaria.
+- [ ] Cortar chunks de forma inteligente.
+- [ ] Añadir en el informe de pentest complejidad de explotación.
+- [ ] Rebajar criticidad de mayoría de findings
+- [x] El informe de exposure tiene fragmentos en castellano
+- [x] Hacer un contador de tokens gastados por skill
+- [ ] Animaciones durante scan
+
+# Scans
+
+- [ ] iam
+	- [ ] Preguntar si podemos añadir pre-checks
+	- [ ] Iteración hasta robusto
+- [ ] exposure
+	- [ ] Preguntar si podemos añadir pre-checks
+	- [ ] Iteración hasta robusto
+- [ ] network
+	- [ ] Preguntar si podemos añadir pre-checks
+	- [ ] Iteración hasta robusto
+- [ ] vulns
+	- [ ] Preguntar si podemos añadir pre-checks
+	- [ ] Iteración hasta robusto
+- [ ] alerting
+	- [ ] Preguntar si podemos añadir pre-checks
+	- [ ] Iteración hasta robusto
+- [ ] hardening
+	- [ ] Preguntar si podemos añadir pre-checks
+	- [ ] Iteración hasta robusto
+- [x] ecr
+	- [x] Preguntar si podemos añadir pre-checks
+	- [x] Iteración hasta robusto
+- [ ] secretsmanager - inprogress
+	- [ ] Preguntar si podemos añadir pre-checks
+	- [ ] Iteración hasta robusto
+- [ ] waf
+	- [ ] Preguntar si podemos añadir pre-checks
+	- [ ] Iteración hasta robusto
+- [ ] kms
+	- [ ] Preguntar si podemos añadir pre-checks
+	- [ ] Iteración hasta robusto
+- [ ] messaging - inprogress
+	- [ ] Preguntar si podemos añadir pre-checks
+	- [ ] Iteración hasta robusto
+	- [ ] Problema informe en español algunos puntos
+- [ ] cicd
+	- [ ] Preguntar si podemos añadir pre-checks
+	- [ ] Iteración hasta robusto
+- [ ] compute
+	- [ ] Preguntar si podemos añadir pre-checks
+	- [ ] Iteración hasta robusto

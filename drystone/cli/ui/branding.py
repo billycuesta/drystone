@@ -120,6 +120,9 @@ def print_summary(config: WizardConfig) -> None:
 
     table.add_row("AWS Region", f"[bold]{config.aws_region}[/bold]")
     table.add_row("Skills", f"[bold]{', '.join(config.skills)}[/bold]")
+    table.add_row(
+        "Scan Depth", f"[bold]{str(getattr(config, 'scan_depth', 'normal')).capitalize()}[/bold]"
+    )
     table.add_row("Output Formats", f"[bold]{', '.join(config.output_formats)}[/bold]")
     table.add_row("Minimum Severity", f"[bold]{config.min_severity.capitalize()}[/bold]")
 

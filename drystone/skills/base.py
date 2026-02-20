@@ -122,13 +122,24 @@ class BaseSkill(ABC):
 
         # P0 Router: exclude deterministic PASS/FAIL checks from LLM prompt
         routed_checklist, route_stats = route_checklist_for_llm(checklist, pass_ids, fail_ids)
+        routed_ids = {
+            str(it.get("id"))
+            for it in (
+                routed_checklist.get("items", []) if isinstance(routed_checklist, dict) else []
+            )
+            if isinstance(it, dict) and it.get("id")
+        }
         print(
             f"  🧭 LLM routing: {route_stats['llm_checks']}/{route_stats['total_checks']} checks "
             f"(deterministic={route_stats['deterministic_resolved']})"
         )
 
         # P0 Distiller: compact oversized evidence before sending to LLM
-        budget = get_budget_policy(getattr(agent_client, "provider_type", "claude-cli"), self.name)
+        budget = get_budget_policy(
+            getattr(agent_client, "provider_type", "claude-cli"),
+            self.name,
+            getattr(agent_client, "config", {}).get("scan_depth", "normal"),
+        )
         distilled_evidence, distill_stats = distill_evidence(
             evidence,
             max_list_items=budget.distill_max_list_items,
@@ -218,6 +229,7 @@ class BaseSkill(ABC):
             coverage = validate_checklist_coverage(
                 checklist,
                 [f.model_dump(mode="json") for f in findings.findings],
+                pre_evaluated_checks=pre_checked_ids | routed_ids,
             )
             if not coverage["coverage_valid"]:
                 missing_criticals = [
@@ -391,8 +403,153 @@ class BaseSkill(ABC):
         evidence: Dict[str, Any],
     ) -> tuple[List[str], Optional[Dict[str, Any]]]:
         """Attach best-effort refs/snippet for injected pre-check findings."""
+
+        def _resource_matches(obj: Dict[str, Any], affected: set[str]) -> bool:
+            if not affected:
+                return False
+            candidates = [
+                str(obj.get("Arn") or ""),
+                str(obj.get("ARN") or ""),
+                str(obj.get("RepositoryArn") or ""),
+                str(obj.get("RoleArn") or ""),
+                str(obj.get("UserArn") or ""),
+                str(obj.get("KeyArn") or ""),
+                str(obj.get("VpcId") or ""),
+                str(obj.get("Id") or ""),
+                str(obj.get("Name") or ""),
+                str(obj.get("RepositoryName") or ""),
+            ]
+            for c in candidates:
+                if not c:
+                    continue
+                if c in affected:
+                    return True
+                for a in affected:
+                    if c and c in a:
+                        return True
+            return False
+
+        def _generic_traceability() -> tuple[List[str], Optional[Dict[str, Any]]]:
+            affected = set(str(r) for r in (getattr(result, "affected_resources", []) or []))
+            refs: List[str] = []
+            snippets: List[Dict[str, Any]] = []
+
+            for file_key, doc in (evidence or {}).items():
+                if not isinstance(file_key, str) or file_key.startswith("_"):
+                    continue
+
+                # Common envelope: {"<collection>": [..]}
+                if isinstance(doc, dict):
+                    for coll_key in (
+                        "items",
+                        "repositories",
+                        "users",
+                        "roles",
+                        "vpcs",
+                        "security_groups",
+                        "securityGroups",
+                        "subnets",
+                        "policies",
+                        "keys",
+                        "findings",
+                    ):
+                        items = doc.get(coll_key)
+                        if not isinstance(items, list):
+                            continue
+                        for idx, item in enumerate(items):
+                            if not isinstance(item, dict):
+                                continue
+                            if _resource_matches(item, affected):
+                                refs.append(f"{file_key}.json#/{coll_key}/{idx}")
+                                snippets.append(item)
+                                if len(snippets) >= 3:
+                                    return refs[:10], {"items": snippets}
+
+                    # Single object fallback
+                    if _resource_matches(doc, affected):
+                        refs.append(f"{file_key}.json#/")
+                        snippets.append(doc)
+                        if len(snippets) >= 3:
+                            return refs[:10], {"items": snippets}
+
+                elif isinstance(doc, list):
+                    for idx, item in enumerate(doc):
+                        if not isinstance(item, dict):
+                            continue
+                        if _resource_matches(item, affected):
+                            refs.append(f"{file_key}.json#/{idx}")
+                            snippets.append(item)
+                            if len(snippets) >= 3:
+                                return refs[:10], {"items": snippets}
+
+            if refs and snippets:
+                return refs[:10], {"items": snippets[:10]}
+
+            if affected:
+                return [], {
+                    "evidence_summary": getattr(result, "evidence_summary", "pre-check fail"),
+                    "affected_resources": list(affected)[:10],
+                }
+
+            return [], {"evidence_summary": getattr(result, "evidence_summary", "pre-check fail")}
+
+        if check_id in {"ECR-002", "ECR-005", "ECR-006"}:
+            repos_doc = evidence.get("repositories")
+            repos = repos_doc.get("repositories") if isinstance(repos_doc, dict) else None
+            if not isinstance(repos, list):
+                return [], {
+                    "evidence_summary": getattr(result, "evidence_summary", "pre-check fail")
+                }
+
+            affected = set(str(r) for r in (getattr(result, "affected_resources", []) or []))
+
+            matched = []
+            refs: List[str] = []
+            for idx, repo in enumerate(repos):
+                if not isinstance(repo, dict):
+                    continue
+                arn = str(repo.get("RepositoryArn") or "")
+                name = str(repo.get("RepositoryName") or "")
+                name_like = f"repository/{name}" if name else ""
+                if affected and arn not in affected and (name_like not in affected):
+                    continue
+
+                refs.append(f"repositories.json#/repositories/{idx}")
+                if check_id == "ECR-002":
+                    matched.append(
+                        {
+                            "RepositoryName": repo.get("RepositoryName"),
+                            "RepositoryArn": repo.get("RepositoryArn"),
+                            "ImageTagMutability": repo.get("ImageTagMutability"),
+                        }
+                    )
+                elif check_id == "ECR-005":
+                    matched.append(
+                        {
+                            "RepositoryName": repo.get("RepositoryName"),
+                            "RepositoryArn": repo.get("RepositoryArn"),
+                            "EncryptionType": repo.get("EncryptionType"),
+                            "KmsKey": repo.get("KmsKey"),
+                        }
+                    )
+                elif check_id == "ECR-006":
+                    matched.append(
+                        {
+                            "RepositoryName": repo.get("RepositoryName"),
+                            "RepositoryArn": repo.get("RepositoryArn"),
+                            "HasLifecyclePolicy": repo.get("HasLifecyclePolicy"),
+                            "LifecyclePolicy": repo.get("LifecyclePolicy"),
+                        }
+                    )
+
+            if refs and matched:
+                snippet = {"repositories": matched[:10]}
+                return refs[:10], snippet
+
+            return [], {"evidence_summary": getattr(result, "evidence_summary", "pre-check fail")}
+
         if check_id not in {"KMS-002", "KMS-007"}:
-            return [], None
+            return _generic_traceability()
 
         grants_doc = evidence.get("kms-grants")
         items = grants_doc.get("items") if isinstance(grants_doc, dict) else None
@@ -449,8 +606,8 @@ class BaseSkill(ABC):
             }
             return [ref], snippet
 
-        # fallback to pre-check summary only
-        return [], {"evidence_summary": getattr(result, "evidence_summary", "pre-check fail")}
+        # fallback to generic traceability for other KMS pre-check fails
+        return _generic_traceability()
 
     def _normalize_findings(
         self,

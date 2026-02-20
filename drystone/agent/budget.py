@@ -23,7 +23,9 @@ def _load_overrides() -> dict:
         return {}
 
 
-def get_budget_policy(provider_type: str, skill_name: str) -> BudgetPolicy:
+def get_budget_policy(
+    provider_type: str, skill_name: str, scan_depth: str = "normal"
+) -> BudgetPolicy:
     """Return conservative token/chunk budgets by provider.
 
     P0 default: prioritize stability/cost over exhaustive context volume.
@@ -40,6 +42,17 @@ def get_budget_policy(provider_type: str, skill_name: str) -> BudgetPolicy:
         base.max_chunks = min(base.max_chunks, 10)
     if s in {"vulns"}:
         base.max_chunks = min(base.max_chunks + 1, 12)
+
+    depth = str(scan_depth or "normal").lower()
+    depth_factors = {
+        "shallow": (0.6, 0.7),
+        "normal": (1.0, 1.0),
+        "deep": (1.4, 1.25),
+        "very-deep": (1.8, 1.5),
+    }
+    chunk_factor, list_factor = depth_factors.get(depth, (1.0, 1.0))
+    base.max_chunks = max(4, int(base.max_chunks * chunk_factor))
+    base.distill_max_list_items = max(12, int(base.distill_max_list_items * list_factor))
 
     overrides = _load_overrides().get("skills", {})
     key = f"{p}:{s}"
