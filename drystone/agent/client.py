@@ -243,10 +243,30 @@ class AgentClient:
             findings_data = self._parse_json_response(response_text)
         except AgentError as first_error:
             # Claude CLI can occasionally return explanatory prose instead of strict JSON.
+            # Detect interactive-session contamination early: if the response looks like
+            # the Claude Code welcome message, raise immediately (repair would be useless).
+            _INTERACTIVE_MARKERS = (
+                "I'm ready to help",
+                "What's next?",
+                "Link to a failing test",
+                "I'm Claude Code",
+            )
+            if any(marker in response_text for marker in _INTERACTIVE_MARKERS):
+                raise AgentError(
+                    f"Claude CLI returned an interactive session response instead of JSON "
+                    f"for {skill_name}. This usually means the CLI binary is in agent-mode. "
+                    f"Try switching to 'claude-api' provider or re-authenticate the CLI."
+                )
             # Attempt one lightweight repair pass that reformats the raw response into
             # the required JSON schema.
             try:
-                repaired = self._repair_response_to_json(response_text)
+                from datetime import datetime as _dt
+                _now = _dt.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+                repaired = self._repair_response_to_json(
+                    response_text,
+                    skill_name=skill_name,
+                    analyzed_at=_now,
+                )
                 findings_data = self._parse_json_response(repaired)
                 logger.warning(
                     "Recovered non-JSON model output via repair pass for %s: %s",
@@ -549,12 +569,14 @@ class AgentClient:
             AgentError: If subprocess fails
         """
         try:
+            import tempfile as _tempfile
             result = subprocess.run(
                 [self.claude_cli_path, "--model", self.model, "-p", prompt],
                 input="",  # Empty stdin
                 capture_output=True,
                 text=True,
                 timeout=120,  # 2 minutes (shorter for faster failure detection)
+                cwd=_tempfile.gettempdir(),  # Prevent CLAUDE.md context leakage
             )
 
             if result.returncode != 0:
@@ -623,12 +645,14 @@ CRITICAL OUTPUT REQUIREMENTS:
 4. Do not include any other text or commentary"""
 
             # Call Claude CLI with combined prompt
+            import tempfile as _tempfile
             result = subprocess.run(
                 [self.claude_cli_path, "--model", self.model, "-p", meta_prompt],
                 input="",
                 capture_output=True,
                 text=True,
                 timeout=120,  # 2 minutes (faster failure detection)
+                cwd=_tempfile.gettempdir(),  # Prevent CLAUDE.md context leakage
             )
 
             if result.returncode != 0:
@@ -1287,17 +1311,27 @@ Missing CloudWatch alarm:
             preview = original_text[:500]
             raise AgentError(f"Invalid JSON response from API\nResponse preview: {preview}")
 
-    def _repair_response_to_json(self, raw_response: str) -> str:
+    def _repair_response_to_json(
+        self,
+        raw_response: str,
+        skill_name: str = "unknown",
+        analyzed_at: str = "1970-01-01T00:00:00Z",
+    ) -> str:
         """Ask the model to convert raw output into strict JSON only.
 
         This is a best-effort recovery path when the first response does not
         follow the required schema/output format.
+
+        Args:
+            raw_response: The raw (non-JSON) response from the model.
+            skill_name: The skill being analyzed (e.g. "cicd", "iam").
+            analyzed_at: ISO-8601 timestamp to embed in the repaired output.
         """
         repair_prompt = f"""Convert the following text into STRICT JSON only.
 
 Required output schema:
 {{
-  "skill": "<skill_name>",
+  "skill": "{skill_name}",
   "findings": [
     {{
       "id": "SKILL-001",
@@ -1321,7 +1355,7 @@ Required output schema:
     "low": 0,
     "overall_risk_score": 0.0
   }},
-  "analyzed_at": "2026-01-01T00:00:00Z",
+  "analyzed_at": "{analyzed_at}",
   "evidence_count": 0,
   "checklist_version": "1.0"
 }}
@@ -1330,6 +1364,7 @@ Rules:
 - Return ONLY valid JSON (no markdown, no explanations)
 - Ensure all brackets/braces are closed
 - If information is missing, use safe defaults consistent with schema
+- The "skill" field MUST be exactly "{skill_name}"
 
 RAW RESPONSE:
 {raw_response}

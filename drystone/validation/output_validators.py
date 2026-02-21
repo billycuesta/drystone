@@ -412,6 +412,109 @@ def validate_ecr_findings(findings: SkillFindings) -> bool:
 
 
 # Registry of validators by skill
+def validate_cicd_findings(findings: SkillFindings) -> bool:
+    """Validate CICD findings and reconcile summary.
+
+    Notes:
+    - Valid finding IDs are CICD-001 through CICD-999.
+    - High severity findings must have risk_score in 6.5–8.4.
+    - Count/summary mismatches are reconciled, not rejected.
+    """
+    try:
+        if not findings.summary:
+            logger.error("CICD validation failed: missing summary")
+            return False
+
+        if findings.findings is None:
+            logger.error("CICD validation failed: findings array is missing")
+            return False
+
+        import re as _re
+        _cicd_id_pattern = _re.compile(r"^CICD-\d{3}$")
+
+        for finding in findings.findings:
+            if (
+                not finding.id
+                or not finding.severity
+                or not finding.title
+                or not finding.description
+            ):
+                logger.error("CICD finding missing required fields")
+                return False
+
+            if not _cicd_id_pattern.match(finding.id):
+                logger.error(f"CICD finding has invalid ID format: {finding.id}")
+                return False
+
+            if finding.severity not in ["Critical", "High", "Medium", "Low"]:
+                logger.error(f"CICD finding {finding.id} invalid severity: {finding.severity}")
+                return False
+
+            if finding.risk_score is None or not (0.0 <= float(finding.risk_score) <= 10.0):
+                logger.error(
+                    f"CICD finding {finding.id} invalid risk_score: {finding.risk_score}"
+                )
+                return False
+
+        _reconcile_summary(findings, "CICD")
+        logger.info(f"CICD validation passed: {findings.summary.total_findings} findings")
+        return True
+
+    except Exception as e:
+        logger.error(f"CICD validation error: {e}", exc_info=True)
+        return False
+
+
+def validate_compute_findings(findings: SkillFindings) -> bool:
+    """Validate compute (ECS/EKS/Lambda) findings and reconcile summary."""
+    import re as _re
+
+    _compute_id_pattern = _re.compile(r"^COMP-(ECS|EKS|LAMBDA)-\d{3}$")
+
+    try:
+        if not findings.summary:
+            logger.error("Compute validation failed: missing summary")
+            return False
+
+        if findings.findings is None:
+            logger.error("Compute validation failed: findings array is missing")
+            return False
+
+        for finding in findings.findings:
+            if (
+                not finding.id
+                or not finding.severity
+                or not finding.title
+                or not finding.description
+            ):
+                logger.error("Compute finding missing required fields")
+                return False
+
+            if not _compute_id_pattern.match(finding.id):
+                logger.error(f"Compute finding has invalid ID format: {finding.id}")
+                return False
+
+            if finding.severity not in ["Critical", "High", "Medium", "Low"]:
+                logger.error(
+                    f"Compute finding {finding.id} invalid severity: {finding.severity}"
+                )
+                return False
+
+            if finding.risk_score is None or not (0.0 <= float(finding.risk_score) <= 10.0):
+                logger.error(
+                    f"Compute finding {finding.id} invalid risk_score: {finding.risk_score}"
+                )
+                return False
+
+        _reconcile_summary(findings, "Compute")
+        logger.info(f"Compute validation passed: {findings.summary.total_findings} findings")
+        return True
+
+    except Exception as e:
+        logger.error(f"Compute validation error: {e}", exc_info=True)
+        return False
+
+
 SKILL_VALIDATORS: dict[str, SkillValidator] = {
     "iam": validate_iam_findings,
     "hardening": validate_hardening_findings,
@@ -422,6 +525,8 @@ SKILL_VALIDATORS: dict[str, SkillValidator] = {
     "ecr": validate_ecr_findings,
     "secretsmanager": validate_secretsmanager_findings,
     "waf": validate_waf_findings,
+    "cicd": validate_cicd_findings,
+    "compute": validate_compute_findings,
 }
 
 

@@ -67,6 +67,25 @@
       ]
     },
     {
+      "id": "COMP-ECS-005",
+      "title": "ECS task definitions contain plaintext credentials in environment variables",
+      "severity": "Critical",
+      "description": "Hardcoded secrets in ECS environment variables expose credentials to anyone with DescribeTaskDefinition permissions and violate PCI DSS secrets management requirements.",
+      "evidence_files": ["ecs-inventory.json"],
+      "check_keywords": ["environment", "password", "secret", "token", "credential"],
+      "remediation": "Remove plaintext secrets from task definition environment variables. Use AWS Secrets Manager or SSM Parameter Store with secretOptions/valueFrom references instead.",
+      "pci_dss": [
+        {
+          "control": "3.3.1",
+          "reason": "Sensitive authentication data must not be stored after authorization."
+        },
+        {
+          "control": "8.3.1",
+          "reason": "All individual non-consumer user IDs and authentication factors must be managed via a secrets management solution."
+        }
+      ]
+    },
+    {
       "id": "COMP-EKS-001",
       "title": "EKS cluster endpoint is public without strong restrictions",
       "severity": "High",
