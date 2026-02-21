@@ -58,6 +58,18 @@ class BaseSkill(ABC):
         """
         pass
 
+    def _load_extra_evidence(self, evidence: Dict[str, Any], evidence_path: "Path") -> None:
+        """Hook for subclasses to load non-JSON evidence (e.g. CSV, XML).
+
+        Called after all *.json files have been loaded into *evidence*.
+        Default implementation is a no-op.
+
+        Args:
+            evidence: Mutable dict populated with JSON evidence so far.
+            evidence_path: Path to the skill's evidence directory.
+        """
+        pass
+
     def analyze(self, session: AuditSession, agent_client: "AgentClient") -> Path:
         """Analyze collected evidence using AI agent with chunking support.
 
@@ -88,6 +100,9 @@ class BaseSkill(ABC):
                     evidence[json_file.stem] = json.load(f)
             except Exception:
                 pass
+
+        # Hook: subclasses may load additional non-JSON evidence (e.g. CSV files)
+        self._load_extra_evidence(evidence, evidence_path)
 
         print(f"    Loaded {len(evidence)} evidence files")
 

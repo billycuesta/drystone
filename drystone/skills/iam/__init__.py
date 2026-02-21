@@ -572,106 +572,36 @@ class IAMSkill(BaseSkill):
         with open(filepath, "w") as f:
             json.dump(data, f, indent=2, default=str)
 
-    def analyze(self, session: AuditSession, agent_client: "AgentClient") -> Path:
-        """Analyze collected IAM evidence using Gemini API.
+    def _load_extra_evidence(self, evidence: dict, evidence_path: Path) -> None:
+        """Load credential-report.csv into evidence dict.
 
-        1. Read all evidence files
-        2. Read security checklist
-        3. Send to Gemini API for analysis
-        4. Save findings to findings/iam.json
-        5. Print summary
-
-        Args:
-            session: Audit session with collected evidence
-            agent_client: Gemini AI client for analysis
-
-        Returns:
-            Path to saved findings JSON file
-
-        Raises:
-            Exception: If evidence cannot be read or analysis fails
+        The IAM credential report is a CSV (not JSON) file that base.py's
+        *.json glob skips.  This hook is called by BaseSkill.analyze() after
+        the JSON files are loaded so that pre-checks can access it via
+        evidence["credential-report"].
         """
-        print("  Reading evidence files...")
-
-        # 1. Read all evidence files
-        evidence_path = session.get_evidence_path(self.name)
-        evidence = {}
-
-        if not evidence_path.exists():
-            raise FileNotFoundError(f"Evidence directory not found: {evidence_path}")
-
-        for json_file in evidence_path.glob("*.json"):
-            try:
-                with open(json_file) as f:
-                    evidence[json_file.stem] = json.load(f)
-            except Exception as e:
-                logger.warning(f"Could not read evidence file {json_file.name}: {e}")
-
-        # Include credential report (CSV) if collected.
-        # This is a high-signal artifact for root MFA + access key checks.
         cred_report_path = evidence_path / "credential-report.csv"
-        if cred_report_path.exists():
-            try:
-                import csv
+        if not cred_report_path.exists():
+            return
+        try:
+            import csv as _csv
 
-                with open(cred_report_path, "r", encoding="utf-8", errors="replace") as f:
-                    reader = csv.DictReader(f)
-                    rows = [dict(r) for r in reader]
+            with open(cred_report_path, "r", encoding="utf-8", errors="replace") as f:
+                reader = _csv.DictReader(f)
+                rows = [dict(r) for r in reader]
 
-                by_user = {}
-                for r in rows:
-                    u = r.get("user")
-                    if u and u not in by_user:
-                        by_user[u] = r
+            by_user: dict = {}
+            for r in rows:
+                u = r.get("user")
+                if u and u not in by_user:
+                    by_user[u] = r
 
-                evidence["credential-report"] = {
-                    "rows": rows,
-                    "by_user": by_user,
-                }
-            except Exception as e:
-                logger.warning(f"Could not read credential report CSV: {e}")
-
-        print(f"    Loaded {len(evidence)} evidence files")
-
-        # 2. Read checklist
-        checklist_path = Path(__file__).parent / "checklist.json"
-        if not checklist_path.exists():
-            raise FileNotFoundError(f"Checklist not found: {checklist_path}")
-
-        with open(checklist_path) as f:
-            checklist = json.load(f)
-
-        print(f"    Loaded {len(checklist['items'])} security checks")
-
-        # 3. Call agent for analysis (chunked for large evidence)
-        provider_name = agent_client.get_display_name()
-        print(f"  Analyzing with {provider_name}...")
-        findings = agent_client.analyze_evidence_chunked(
-            skill_name=self.name, evidence=evidence, checklist=checklist
-        )
-
-        # 3a. Normalize findings (reduce variance between models)
-        print("  Normalizing findings...")
-        findings = self._normalize_findings(findings, checklist, evidence=evidence)
-
-        # 4. Save findings
-        findings_dir = session.get_findings_path()
-        findings_dir.mkdir(parents=True, exist_ok=True)
-        findings_path = findings_dir / f"{self.name}.json"
-
-        with open(findings_path, "w") as f:
-            json.dump(findings.model_dump(mode="json"), f, indent=2, default=str)
-
-        # 5. Print summary
-        print("\n✅ Analysis complete:")
-        print(f"   Total findings: {findings.summary.total_findings}")
-        print(f"   Critical: {findings.summary.critical}")
-        print(f"   High: {findings.summary.high}")
-        print(f"   Medium: {findings.summary.medium}")
-        print(f"   Low: {findings.summary.low}")
-        print(f"   Overall Risk: {findings.summary.overall_risk_score:.1f}/10")
-
-        return findings_path
+            evidence["credential-report"] = {
+                "rows": rows,
+                "by_user": by_user,
+            }
+        except Exception as e:
+            logger.warning(f"Could not read credential report CSV: {e}")
 
 
 __all__ = ["IAMSkill"]

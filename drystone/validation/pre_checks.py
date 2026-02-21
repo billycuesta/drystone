@@ -566,6 +566,16 @@ def check_iam_032(evidence: Dict[str, Any]) -> PreCheckResult:
     return PreCheckResult("IAM-032", "PASS", "OIDC trust conditions appear scoped", [])
 
 
+# Roles whose cross-account trust without ExternalId is by design
+# (AWS-managed or AWS Organizations roles that use management-account trust).
+_IAM_033_ROLE_EXCEPTIONS = frozenset(
+    {
+        "OrganizationAccountAccessRole",
+        "AWSServiceRoleForOrganizations",
+    }
+)
+
+
 @_register("iam")
 def check_iam_033(evidence: Dict[str, Any]) -> PreCheckResult:
     """Cross-account role trust should require sts:ExternalId."""
@@ -581,10 +591,19 @@ def check_iam_033(evidence: Dict[str, Any]) -> PreCheckResult:
         actions = [str(a).lower() for a in _actions_from_stmt(stmt)]
         return any(a in {"sts:assumerole", "sts:*", "*"} for a in actions)
 
+    affected: List[str] = []
+
     for r in roles:
         if not isinstance(r, dict):
             continue
+        role_name = str(r.get("RoleName") or "")
         role_arn = str(r.get("Arn") or "")
+
+        # Skip AWS-managed roles where cross-account trust without ExternalId
+        # is expected by design (e.g. AWS Organizations management account).
+        if role_name in _IAM_033_ROLE_EXCEPTIONS:
+            continue
+
         role_account = _account_from_arn(role_arn)
         if not role_account:
             continue
@@ -619,13 +638,16 @@ def check_iam_033(evidence: Dict[str, Any]) -> PreCheckResult:
 
             cond_text = json.dumps(st.get("Condition", {}), default=str)
             if "sts:ExternalId" not in cond_text:
-                return PreCheckResult(
-                    "IAM-033",
-                    "FAIL",
-                    "cross-account trust without sts:ExternalId",
-                    [role_arn or f"role/{r.get('RoleName', 'unknown')}"],
-                )
+                affected.append(role_arn or f"role/{role_name or 'unknown'}")
+                break  # one violation per role is enough; move to next role
 
+    if affected:
+        return PreCheckResult(
+            "IAM-033",
+            "FAIL",
+            f"{len(affected)} cross-account trust(s) without sts:ExternalId",
+            affected,
+        )
     return PreCheckResult(
         "IAM-033", "PASS", "cross-account trusts enforce ExternalId or are absent", []
     )
