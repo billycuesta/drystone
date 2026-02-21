@@ -342,11 +342,14 @@ class FindingsNormalizer:
         ):
             return False, "critical severity without critical evidence"
 
-        # Rule 4: if affected resources are provided, at least one should exist in evidence
+        # Rule 4: if affected resources are provided, at least one should exist in evidence.
+        # Exception: pre-check verified findings use deterministic ARNs (e.g. execute-api:*)
+        # that may not appear verbatim in raw evidence files but are still valid.
         resources = finding.affected_resources or []
         if (
             finding.severity == "Critical"
             and resources
+            and finding_id not in self._pre_checked_ids
             and not self._resources_exist_in_evidence(resources)
         ):
             return False, "critical finding has affected_resources not found in evidence"

@@ -1824,10 +1824,72 @@ def check_exp_015(evidence: Dict[str, Any]) -> PreCheckResult:
                             "EXP-015",
                             "FAIL",
                             f"cross-account principal {p}",
-                            [f"arn:aws:s3:::{b.get('Name', '')}"],
+                            # Include both bucket and cross-account principal for traceability
+                            [f"arn:aws:s3:::{b.get('Name', '')}", p],
                         )
 
     return PreCheckResult("EXP-015", "PASS", "no cross-account S3 policies", [])
+
+
+@_register("exposure")
+def check_exp_016(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Lambda function URLs without authentication (AuthType=NONE)."""
+    urls_doc = evidence.get("lambda-function-urls")
+    items = _items_from_doc(urls_doc)
+    if not items:
+        return PreCheckResult("EXP-016", "SKIP", "no lambda-function-urls evidence", [])
+
+    unauth = [
+        u for u in items
+        if isinstance(u, dict) and str(u.get("AuthType") or "").upper() == "NONE"
+    ]
+    if not unauth:
+        return PreCheckResult("EXP-016", "PASS", "all Lambda URLs have authorization", [])
+
+    resources = [
+        str(u.get("FunctionArn") or u.get("FunctionUrl") or "unknown")
+        for u in unauth[:5]
+    ]
+    return PreCheckResult(
+        "EXP-016",
+        "FAIL",
+        f"{len(unauth)} Lambda URL(s) without authorization",
+        resources,
+    )
+
+
+@_register("exposure")
+def check_exp_004(evidence: Dict[str, Any]) -> PreCheckResult:
+    """EC2 management/database ports (22, 3389, 3306, 5432) open to internet via SG."""
+    sg_doc = evidence.get("security-groups")
+    sgs = _items_from_doc(sg_doc)
+    if isinstance(sg_doc, dict) and isinstance(sg_doc.get("by_id"), dict):
+        sgs = list(sg_doc["by_id"].values())
+    if not sgs:
+        return PreCheckResult("EXP-004", "SKIP", "no security-groups evidence", [])
+
+    MGMT_PORTS = {22, 3389, 3306, 5432, 1433}
+
+    risky: List[str] = []
+    for sg in sgs:
+        if not isinstance(sg, dict):
+            continue
+        sg_id = str(sg.get("GroupId") or "unknown")
+        for perm in sg.get("IngressRules", []) or []:
+            if not isinstance(perm, dict):
+                continue
+            if any(_sg_allows_world(perm, port=p) for p in MGMT_PORTS):
+                risky.append(sg_id)
+                break
+
+    if not risky:
+        return PreCheckResult("EXP-004", "PASS", "no management ports open to internet", [])
+    return PreCheckResult(
+        "EXP-004",
+        "FAIL",
+        f"{len(risky)} security group(s) with management/DB ports open to internet",
+        risky[:10],
+    )
 
 
 @_register("exposure")
