@@ -238,6 +238,12 @@ def display_config_summary(project_config: dict, ai_config: dict) -> None:
 def run_project_menu(current_config: Optional[dict] = None) -> dict:
     """Run Menu A: Project & AWS Scope Configuration.
 
+    New flow order:
+      1. Client name
+      2. Skill selection
+      3. Credentials + region
+      4. Scan depth, output formats, report type
+
     Args:
         current_config: Optional dict with current values to pre-fill
 
@@ -248,10 +254,9 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
     print("📋 MENU A: Review Scope")
     print("━" * 50 + "\n")
 
-    # Use current values as defaults if provided
     defaults = current_config or {}
 
-    # Step 1: Client/Project Name
+    # ── Step 1: Client/Project Name ──────────────────────────────
     client_name = questionary.text(
         "Client or Project Name:",
         default=defaults.get("client_name", "MyOrg"),
@@ -260,115 +265,7 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
     if client_name is None:
         raise KeyboardInterrupt("Wizard cancelled")
 
-    # Initialize credential dict
-    creds_config = {
-        "aws_access_key_id": None,
-        "aws_secret_access_key": None,
-        "aws_session_token": None,
-        "aws_credentials_file": None,
-        "aws_profile": None,
-    }
-
-    # Step 2: AWS Credentials
-    cred_choice = questionary.select(
-        "How to provide AWS credentials?",
-        choices=[
-            questionary.Choice("Enter manually", "manual"),
-            questionary.Choice("Read from JSON file", "file"),
-            questionary.Choice("Use AWS profile (~/.aws/credentials)", "profile"),
-            questionary.Choice("Use environment variables", "env"),
-        ],
-        default="manual",
-    ).ask()
-    if cred_choice is None:
-        raise KeyboardInterrupt("Wizard cancelled")
-
-    if cred_choice == "manual":
-        creds_config["aws_access_key_id"] = questionary.text(
-            "AWS Access Key ID:",
-            default=defaults.get("aws_access_key_id", ""),
-            validate=lambda x: len(x) > 0 or "Access Key ID cannot be empty",
-        ).ask()
-        if creds_config["aws_access_key_id"] is None:
-            raise KeyboardInterrupt("Wizard cancelled")
-
-        creds_config["aws_secret_access_key"] = questionary.password(
-            "AWS Secret Access Key:",
-            validate=lambda x: len(x) > 0 or "Secret Access Key cannot be empty",
-        ).ask()
-        if creds_config["aws_secret_access_key"] is None:
-            raise KeyboardInterrupt("Wizard cancelled")
-
-        creds_config["aws_session_token"] = questionary.password(
-            "AWS Session Token (optional, press Enter to skip):",
-            default="",
-        ).ask()
-        if creds_config["aws_session_token"] is None:
-            raise KeyboardInterrupt("Wizard cancelled")
-        if not creds_config["aws_session_token"].strip():
-            creds_config["aws_session_token"] = None
-
-    elif cred_choice == "file":
-        # Validate file repeatedly until valid or cancelled
-        while True:
-            creds_config["aws_credentials_file"] = questionary.text(
-                "Path to credentials JSON file:",
-                default=defaults.get("aws_credentials_file", "~/.aws/drystone-creds.json"),
-                validate=lambda x: len(x) > 0 or "Path cannot be empty",
-            ).ask()
-            if creds_config["aws_credentials_file"] is None:
-                raise KeyboardInterrupt("Wizard cancelled")
-
-            # Validate file exists and is readable
-            if validate_credentials_file(creds_config["aws_credentials_file"]):
-                break
-            else:
-                print("Please provide a valid path to a credentials JSON file.\n")
-
-    elif cred_choice == "profile":
-        # Validate profile repeatedly until valid or cancelled
-        while True:
-            creds_config["aws_profile"] = questionary.text(
-                "AWS profile name:",
-                default=defaults.get("aws_profile", "default"),
-                validate=lambda x: len(x) > 0 or "Profile name cannot be empty",
-            ).ask()
-            if creds_config["aws_profile"] is None:
-                raise KeyboardInterrupt("Wizard cancelled")
-
-            # Validate profile exists in ~/.aws/credentials
-            if validate_aws_profile(creds_config["aws_profile"]):
-                break
-            else:
-                print("Please provide a valid AWS profile name.\n")
-
-    elif cred_choice == "env":
-        # Nothing to ask, will be loaded at runtime
-        print("   INFO: Credentials will be loaded from environment variables (AWS_...).")
-
-    # Step 4: AWS Region
-    region_choices = [
-        "us-east-1",
-        "us-east-2",
-        "us-west-1",
-        "us-west-2",
-        "eu-west-1",
-        "eu-central-1",
-        "ap-southeast-1",
-        "ap-northeast-1",
-    ]
-    aws_region = questionary.select(
-        "AWS Region:",
-        choices=region_choices,
-        default=defaults.get("aws_region", "us-east-1"),
-    ).ask()
-    if aws_region is None:
-        raise KeyboardInterrupt("Wizard cancelled")
-
-    # Note: AWS credential validation happens later in run_setup_wizard() after all config is collected
-    # This allows validation of file/profile sources which need the full config context
-
-    # Step 5: Single skill selection per scan (except pentest preset)
+    # ── Step 2: Skill Selection ───────────────────────────────────
     current_skills = defaults.get("skills", ["iam"])
     pentest_core = ["iam", "exposure", "network", "vulns"]
     if current_skills == pentest_core:
@@ -419,7 +316,103 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
     if selected_skill is None:
         raise KeyboardInterrupt("Wizard cancelled")
 
-    # Step 5.5: Scan depth (token/cost vs coverage)
+    # ── Step 3: AWS Credentials + Region ─────────────────────────
+    creds_config: dict = {
+        "aws_access_key_id": None,
+        "aws_secret_access_key": None,
+        "aws_session_token": None,
+        "aws_credentials_file": None,
+        "aws_profile": None,
+    }
+    aws_region = defaults.get("aws_region", "us-east-1")
+
+    cred_choice = questionary.select(
+        "How to provide AWS credentials?",
+        choices=[
+            questionary.Choice("Enter manually", "manual"),
+            questionary.Choice("Read from JSON file", "file"),
+            questionary.Choice("Use AWS profile (~/.aws/credentials)", "profile"),
+            questionary.Choice("Use environment variables", "env"),
+        ],
+        default="manual",
+    ).ask()
+    if cred_choice is None:
+        raise KeyboardInterrupt("Wizard cancelled")
+
+    if cred_choice == "manual":
+        creds_config["aws_access_key_id"] = questionary.text(
+            "AWS Access Key ID:",
+            default=defaults.get("aws_access_key_id", ""),
+            validate=lambda x: len(x) > 0 or "Access Key ID cannot be empty",
+        ).ask()
+        if creds_config["aws_access_key_id"] is None:
+            raise KeyboardInterrupt("Wizard cancelled")
+
+        creds_config["aws_secret_access_key"] = questionary.password(
+            "AWS Secret Access Key:",
+            validate=lambda x: len(x) > 0 or "Secret Access Key cannot be empty",
+        ).ask()
+        if creds_config["aws_secret_access_key"] is None:
+            raise KeyboardInterrupt("Wizard cancelled")
+
+        creds_config["aws_session_token"] = questionary.password(
+            "AWS Session Token (optional, press Enter to skip):",
+            default="",
+        ).ask()
+        if creds_config["aws_session_token"] is None:
+            raise KeyboardInterrupt("Wizard cancelled")
+        if not creds_config["aws_session_token"].strip():
+            creds_config["aws_session_token"] = None
+
+    elif cred_choice == "file":
+        while True:
+            creds_config["aws_credentials_file"] = questionary.text(
+                "Path to credentials JSON file:",
+                default=defaults.get("aws_credentials_file", "~/.aws/drystone-creds.json"),
+                validate=lambda x: len(x) > 0 or "Path cannot be empty",
+            ).ask()
+            if creds_config["aws_credentials_file"] is None:
+                raise KeyboardInterrupt("Wizard cancelled")
+            if validate_credentials_file(creds_config["aws_credentials_file"]):
+                break
+            print("Please provide a valid path to a credentials JSON file.\n")
+
+    elif cred_choice == "profile":
+        while True:
+            creds_config["aws_profile"] = questionary.text(
+                "AWS profile name:",
+                default=defaults.get("aws_profile", "default"),
+                validate=lambda x: len(x) > 0 or "Profile name cannot be empty",
+            ).ask()
+            if creds_config["aws_profile"] is None:
+                raise KeyboardInterrupt("Wizard cancelled")
+            if validate_aws_profile(creds_config["aws_profile"]):
+                break
+            print("Please provide a valid AWS profile name.\n")
+
+    elif cred_choice == "env":
+        print("   INFO: Credentials will be loaded from environment variables (AWS_...).")
+
+    # Region
+    region_choices = [
+        "us-east-1",
+        "us-east-2",
+        "us-west-1",
+        "us-west-2",
+        "eu-west-1",
+        "eu-central-1",
+        "ap-southeast-1",
+        "ap-northeast-1",
+    ]
+    aws_region = questionary.select(
+        "AWS Region:",
+        choices=region_choices,
+        default=defaults.get("aws_region", "us-east-1"),
+    ).ask()
+    if aws_region is None:
+        raise KeyboardInterrupt("Wizard cancelled")
+
+    # ── Step 5: Scan Depth ────────────────────────────────────────
     current_depth = defaults.get("scan_depth", "normal")
     scan_depth = questionary.select(
         "Scan Depth:",
@@ -434,7 +427,7 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
     if scan_depth is None:
         raise KeyboardInterrupt("Wizard cancelled")
 
-    # Step 6: Output formats
+    # ── Step 6: Output Formats ────────────────────────────────────
     current_formats = defaults.get("output_formats", ["markdown"])
     output_formats = questionary.checkbox(
         "Output Formats:",
@@ -448,18 +441,14 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
     if output_formats is None:
         raise KeyboardInterrupt("Wizard cancelled")
 
-    # Step 6.5: Report Type
+    # ── Step 7: Report Type ───────────────────────────────────────
     current_report_type = defaults.get("report_type", "general")
 
-    # If the user selected the pentest preset, enforce core skills + report type.
     if selected_skill == "pentest":
         skills = ["iam", "exposure", "network", "vulns"]
         report_type = "pentest"
     else:
         skills = [selected_skill]
-        report_type = None
-
-    if report_type is None:
         report_type = questionary.select(
             "Report Type:",
             choices=[
@@ -479,7 +468,7 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
         if report_type is None:
             raise KeyboardInterrupt("Wizard cancelled")
 
-    # Combine all results
+    # ── Assemble result ───────────────────────────────────────────
     project_config = {
         "client_name": client_name,
         "aws_region": aws_region,
@@ -732,7 +721,9 @@ def run_setup_wizard() -> WizardConfig:
         has_profile = project_config.get("aws_profile")
 
         if not (has_direct_creds or has_file or has_profile):
-            raise ValueError("No AWS credentials configured (expected direct, file, or profile)")
+            raise ValueError(
+                "No AWS credentials configured (expected direct, file, or profile)"
+            )
 
         config = WizardConfig(
             **project_config,

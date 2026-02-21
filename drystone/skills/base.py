@@ -202,12 +202,35 @@ class BaseSkill(ABC):
                 checklist_version=str(checklist.get("version", "1.0")),
             )
         else:
-            findings = agent_client.analyze_evidence_chunked(
-                skill_name=self.name,
-                evidence=distilled_evidence,
-                checklist=routed_checklist,
-                pre_checks=pre_check_results,
-            )
+            try:
+                findings = agent_client.analyze_evidence_chunked(
+                    skill_name=self.name,
+                    evidence=distilled_evidence,
+                    checklist=routed_checklist,
+                    pre_checks=pre_check_results,
+                )
+            except Exception as ai_error:
+                import logging as _logging
+
+                _logging.getLogger(__name__).warning(
+                    f"AI analysis failed for {self.name}: {ai_error}. "
+                    f"Falling back to pre-check results only."
+                )
+                print(f"  ⚠️  AI analysis failed ({type(ai_error).__name__}). Using pre-check results.")
+                findings = SkillFindings(
+                    skill=self.name,
+                    findings=[],
+                    summary=FindingsSummary(
+                        total_findings=0,
+                        critical=0,
+                        high=0,
+                        medium=0,
+                        low=0,
+                        overall_risk_score=0.0,
+                    ),
+                    evidence_count=len(evidence),
+                    checklist_version=str(checklist.get("version", "1.0")),
+                )
 
         # 4. Tier 3: Reconcile AI findings against pre-checks
         if pre_check_results:
@@ -376,12 +399,26 @@ class BaseSkill(ABC):
                         result=result,
                         evidence=evidence or {},
                     )
+                    # Build a rich description: combine the checklist context with
+                    # the specific evidence observed by the deterministic pre-check.
+                    checklist_desc = (item.get("description") or "").strip()
+                    evidence_line = (result.evidence_summary or "").strip()
+                    if checklist_desc and evidence_line:
+                        precheck_description = (
+                            f"{checklist_desc}\n\n"
+                            f"**Detected:** {evidence_line}"
+                        )
+                    elif checklist_desc:
+                        precheck_description = checklist_desc
+                    else:
+                        precheck_description = evidence_line or check_id
+
                     finding = Finding(
                         id=check_id,
                         severity=item.get("severity", "Medium"),
                         risk_score=_severity_to_risk(item.get("severity", "Medium")),
                         title=item.get("title", check_id),
-                        description=f"Pre-check determined: {result.evidence_summary}",
+                        description=precheck_description,
                         remediation=item.get("remediation", "See checklist for remediation steps."),
                         affected_resources=result.affected_resources,
                         evidence_refs=evidence_refs,

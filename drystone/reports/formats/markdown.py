@@ -472,6 +472,7 @@ These correlations represent multi-stage attack scenarios where findings from di
             "ALERTING": "🚨",
             "ECR": "📦",
             "SECRETSMANAGER": "🔑",
+            "WAF": "🛡️",
         }
         return skill_emojis.get(skill.upper(), "🔹")
 

@@ -283,6 +283,15 @@ class FindingsNormalizer:
             # The agent sometimes emits incorrect control IDs for a given finding ID.
             self._align_pci_dss_controls(normalized_id, finding)
 
+            # Strip LLM-injected meta-keys from evidence_snippet (e.g. "Note", "note").
+            # The AI sometimes appends explanatory notes that don't belong in the snippet.
+            if isinstance(finding.evidence_snippet, dict):
+                finding.evidence_snippet = {
+                    k: v
+                    for k, v in finding.evidence_snippet.items()
+                    if k.lower() not in ("note", "notes", "_note", "_notes")
+                }
+
             logger.debug(f"  ✅ Accepted: {normalized_id} | {severity} | risk={risk_score:.1f}")
             normalized.append(finding)
 

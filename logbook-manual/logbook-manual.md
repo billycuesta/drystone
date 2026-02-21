@@ -29,22 +29,38 @@
 - [x] ecr
 	- [x] Preguntar si podemos añadir pre-checks
 	- [x] Iteración hasta robusto
-- [ ] secretsmanager - inprogress
-	- [ ] Preguntar si podemos añadir pre-checks
-	- [ ] Iteración hasta robusto
-- [ ] waf
-	- [ ] Preguntar si podemos añadir pre-checks
-	- [ ] Iteración hasta robusto
-- [ ] kms
-	- [ ] Preguntar si podemos añadir pre-checks
-	- [ ] Iteración hasta robusto
-- [ ] messaging - inprogress
-	- [ ] Preguntar si podemos añadir pre-checks
-	- [ ] Iteración hasta robusto
-	- [ ] Problema informe en español algunos puntos
-- [ ] cicd
+- [x] secretsmanager - inprogress
+	- [x] Preguntar si podemos añadir pre-checks
+	- [x] Iteración hasta robusto
+- [x] waf
+	- [x] Preguntar si podemos añadir pre-checks
+	- [x] Iteración hasta robusto
+- [x] kms
+	- [x] Preguntar si podemos añadir pre-checks
+	- [x] Iteración hasta robusto
+- [x] messaging - inprogress
+	- [x] Preguntar si podemos añadir pre-checks
+	- [x] Iteración hasta robusto
+	- [x] Problema informe en español algunos puntos
+- [ ] cicd (necesito probar contra una cuenta que lo tenga)
 	- [ ] Preguntar si podemos añadir pre-checks
 	- [ ] Iteración hasta robusto
 - [ ] compute
 	- [ ] Preguntar si podemos añadir pre-checks
 	- [ ] Iteración hasta robusto
+- [ ] Inventario --> incluirlo en pentest
+	- [ ] Explicación de lo que ve
+	- [ ] Diagrama
+- [ ] Pentest
+	- [ ] Incluir breve explicación:
+		- [ ] Que
+		- [ ] Como
+		- [ ] Cuando
+		- [ ] Porque
+	- [ ] Incluir URL para que IA busque explicacion
+	- [ ] Incluir inventario
+
+
+
+
+**sling**

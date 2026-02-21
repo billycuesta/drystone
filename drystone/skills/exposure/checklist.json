@@ -8,7 +8,7 @@
   "items": [
     {
       "id": "EXP-001",
-      "title": "S3 buckets públicos con datos sensibles",
+      "title": "Public S3 buckets with sensitive data",
       "severity": "Critical",
       "description": "S3 buckets containing sensitive data (backups, PII, credentials) are configured to allow public read/write access. This is a direct and severe data exposure risk.",
       "remediation": "Enable 'Block Public Access' at the account and bucket level. Remove any public ACLs or bucket policies. Ensure buckets with sensitive data are encrypted and access is restricted via IAM policies and roles.",
@@ -29,7 +29,7 @@
     },
     {
       "id": "EXP-015",
-      "title": "S3 bucket policy permite acceso cross-account sin condiciones de seguridad",
+      "title": "S3 bucket policy allows cross-account access without security conditions",
       "severity": "High",
       "description": "S3 bucket policies that grant access to principals in other AWS accounts without strong conditions (aws:SourceAccount, aws:SourceArn, or principal scoping to roles) increase exposure risk. This is not public access, but it expands the trust boundary and can lead to data/log tampering or misuse.",
       "remediation": "Review cross-account bucket policy statements. Restrict principals to specific IAM roles (not account root) and add conditions such as aws:SourceAccount and aws:SourceArn (for AWS services), or external ID patterns where applicable. Validate with AWS Policy Simulator.",
@@ -42,7 +42,7 @@
     },
     {
       "id": "EXP-002",
-      "title": "RDS/Databases directamente accesibles desde internet",
+      "title": "RDS/Databases directly accessible from the internet",
       "severity": "Critical",
       "description": "Relational Database Service (RDS) instances or other databases are configured with the 'PubliclyAccessible' flag set to true and have security groups allowing access from 0.0.0.0/0.",
       "remediation": "Set 'PubliclyAccessible' to false for all RDS instances. Place databases in private subnets and restrict access via security groups to only the specific application servers that need to connect to them.",
@@ -63,7 +63,7 @@
     },
     {
       "id": "EXP-003",
-      "title": "Security Groups con SSH/RDP abierto a 0.0.0.0/0",
+      "title": "Security Groups with SSH/RDP open to 0.0.0.0/0",
       "severity": "Critical",
       "description": "Security group rules allow unrestricted access from any IP address (0.0.0.0/0) to administrative ports such as SSH (22) or RDP (3389). This exposes instances to brute-force attacks.",
       "remediation": "Modify the security group to only allow SSH/RDP access from a trusted, limited set of IP addresses (e.g., corporate office, bastion host). The best practice is to use AWS Systems Manager Session Manager and remove direct SSH/RDP access entirely.",
@@ -84,7 +84,7 @@
     },
     {
       "id": "EXP-004",
-      "title": "EC2 con puertos de gestión expuestos (22, 3389, 3306, 5432)",
+      "title": "EC2 with management ports exposed (22, 3389, 3306, 5432)",
       "severity": "Critical",
       "description": "EC2 instances have public IP addresses and are associated with security groups that expose administrative or database ports directly to the internet.",
       "remediation": "Place instances in private subnets. Use an Application Load Balancer (ALB) for web traffic. Restrict security group rules to only necessary sources. Use AWS Systems Manager for management.",
@@ -101,7 +101,7 @@
     },
     {
       "id": "EXP-005",
-      "title": "Lambda URLs sin autenticación con lógica sensible",
+      "title": "Lambda URLs without authentication handling sensitive logic",
       "severity": "Critical",
       "description": "AWS Lambda functions with sensitive business logic are exposed to the internet via a Function URL with the authentication type set to 'NONE'.",
       "remediation": "Change the Lambda Function URL authentication type to 'AWS_IAM'. Use API Gateway with an authorizer (IAM, Cognito, or Lambda authorizer) as a more robust and secure frontend.",
@@ -122,7 +122,7 @@
     },
     {
       "id": "EXP-006",
-      "title": "API Gateway sin autenticación/rate limiting",
+      "title": "API Gateway without authentication/rate limiting",
       "severity": "Critical",
       "description": "API Gateway endpoints that trigger sensitive backend operations are configured without any authentication mechanism (e.g., IAM, Cognito, API Key) and without rate limiting (throttling).",
       "remediation": "Implement an authorizer (IAM, Cognito, or Lambda) for all sensitive endpoints. Configure Usage Plans and API Keys to enforce throttling and prevent abuse.",
@@ -143,7 +143,7 @@
     },
     {
       "id": "EXP-007",
-      "title": "ALB/NLB sin WAF en aplicaciones críticas",
+      "title": "ALB/NLB without WAF on critical applications",
       "severity": "Critical",
       "description": "An internet-facing Application Load Balancer (ALB) or Network Load Balancer (NLB) in front of a critical, public-facing web application does not have AWS WAF associated with it.",
       "remediation": "Create an AWS WAF Web ACL with AWS Managed Rules (e.g., Core rule set, SQLi rule set) and associate it with the critical ALB.",
@@ -156,7 +156,7 @@
     },
     {
       "id": "EXP-008",
-      "title": "Secrets/credenciales hardcodeadas en Lambda",
+      "title": "Hardcoded secrets/credentials in Lambda",
       "severity": "Critical",
       "description": "Sensitive information like database passwords, API keys, or other secrets are stored in plaintext within Lambda environment variables or source code.",
       "remediation": "Remove secrets from environment variables and code. Store them securely in AWS Secrets Manager or AWS Systems Manager Parameter Store (SecureString type) and grant the Lambda function's execution role permission to retrieve them at runtime.",
@@ -177,7 +177,7 @@
     },
     {
       "id": "EXP-009",
-      "title": "CloudFront sin protección DDoS (Shield)",
+      "title": "CloudFront without DDoS protection (Shield)",
       "severity": "High",
       "description": "A CloudFront distribution for a business-critical application is not protected by AWS Shield Advanced, relying only on the default Shield Standard.",
       "remediation": "Subscribe to AWS Shield Advanced and add the CloudFront distribution to its list of protected resources. This provides enhanced DDoS protection and access to the DDoS Response Team (DRT).",
@@ -190,7 +190,7 @@
     },
     {
       "id": "EXP-010",
-      "title": "ALB con TLS 1.0/1.1 (obsoleto)",
+      "title": "ALB with deprecated TLS 1.0/1.1",
       "severity": "High",
       "description": "An internet-facing ALB is configured with a security policy that allows obsolete and insecure TLS versions 1.0 or 1.1.",
       "remediation": "Update the ALB listener's security policy to a modern one that enforces TLS 1.2 or higher, such as 'ELBSecurityPolicy-TLS13-1-2-2021-06'.",
@@ -207,7 +207,7 @@
     },
     {
       "id": "EXP-011",
-      "title": "S3 buckets con listado de objetos público",
+      "title": "S3 buckets with public object listing",
       "severity": "High",
       "description": "S3 bucket permissions allow anyone on the internet to list the contents of the bucket, which can lead to inadvertent disclosure of sensitive file names and structures even if the objects themselves are not public.",
       "remediation": "Modify the bucket policy and/or ACLs to deny the 's3:ListBucket' action for public principals. Ensure that only authorized IAM users or roles can list the bucket contents.",
@@ -224,7 +224,7 @@
     },
     {
       "id": "EXP-013",
-      "title": "S3 bucket policies deben forzar TLS (aws:SecureTransport)",
+      "title": "S3 bucket policies must enforce TLS (aws:SecureTransport)",
       "severity": "High",
       "description": "S3 bucket policies for critical buckets (logs, backups, audit trails) should explicitly deny requests where aws:SecureTransport is false. Missing TLS enforcement can allow accidental misconfigurations or non-TLS access paths for sensitive data/logs.",
       "remediation": "Add a Deny statement in the bucket policy for s3:* on both bucket and object ARNs with Condition Bool aws:SecureTransport=false. Validate policy behavior with AWS Policy Simulator.",
@@ -237,7 +237,7 @@
     },
     {
       "id": "EXP-014",
-      "title": "S3 versioning debe estar habilitado en buckets de auditoria/logs",
+      "title": "S3 versioning must be enabled on audit/log buckets",
       "severity": "High",
       "description": "For buckets storing audit trails, configuration history, or log backups (e.g., CloudTrail/Config/log archives), versioning should be enabled to protect against accidental or malicious overwrites and deletions.",
       "remediation": "Enable S3 versioning on audit/log buckets. Consider S3 Object Lock (WORM) and MFA Delete for high-assurance log integrity.",
@@ -250,7 +250,7 @@
     },
     {
       "id": "EXP-012",
-      "title": "EC2 sin Instance Metadata Service v2 (IMDSv2)",
+      "title": "EC2 without Instance Metadata Service v2 (IMDSv2)",
       "severity": "Medium",
       "description": "EC2 instances are configured to allow IMDSv1, which is vulnerable to Server-Side Request Forgery (SSRF) attacks that can lead to credential exposure. IMDSv2 introduces session-oriented requests that mitigate this risk.",
       "remediation": "Enforce the use of IMDSv2 on all EC2 instances by modifying their metadata options. Set 'HttpTokens' to 'required'.",
@@ -267,7 +267,7 @@
     },
     {
       "id": "EXP-016",
-      "title": "Lambda function URLs sin autenticacion",
+      "title": "Lambda function URLs without authentication",
       "severity": "Critical",
       "description": "Lambda Function URLs with AuthType=NONE expose unauthenticated invocation paths from the public internet.",
       "remediation": "Set Function URL AuthType to AWS_IAM or move endpoint behind API Gateway with strong authz/authn controls.",
@@ -288,7 +288,7 @@
     },
     {
       "id": "EXP-017",
-      "title": "API Gateway stages publicos sin proteccion WAF",
+      "title": "Public API Gateway stages without WAF protection",
       "severity": "High",
       "description": "Public API Gateway stages lacking WAF controls increase exposure to common web attacks and abuse.",
       "remediation": "Associate API frontends with AWS WAF and enable request validation, throttling, and authz where applicable.",
@@ -308,7 +308,7 @@
     },
     {
       "id": "EXP-018",
-      "title": "ECS/EKS ingress expone servicios criticos a internet",
+      "title": "ECS/EKS ingress exposes critical services to the internet",
       "severity": "High",
       "description": "Containerized workloads exposed through internet-facing ingress without strict boundary controls increase compromise blast radius.",
       "remediation": "Restrict ingress paths, enforce private networking where possible, and apply least-privilege security group/network policy controls.",
@@ -329,7 +329,7 @@
     },
     {
       "id": "EXP-019",
-      "title": "Elasticsearch/OpenSearch con acceso publico o politicas debiles",
+      "title": "Elasticsearch/OpenSearch with public access or weak policies",
       "severity": "High",
       "description": "Search domains with public endpoints or permissive access policies may allow unauthorized data access and enumeration.",
       "remediation": "Use VPC-only domain endpoints, tighten access policies to specific principals, and enable authN/authZ controls.",
@@ -350,7 +350,7 @@
     },
     {
       "id": "EXP-020",
-      "title": "CloudFront con origen S3 sin control de acceso de origen fuerte",
+      "title": "CloudFront with S3 origin without strong origin access control",
       "severity": "High",
       "description": "CloudFront distributions using S3 origins without clear origin access restriction (OAI/OAC) can expose direct-bucket access and increase unauthenticated enumeration paths.",
       "remediation": "Enforce private S3 origins behind CloudFront using Origin Access Control (recommended) or Origin Access Identity, and block direct public S3 access.",
@@ -377,7 +377,7 @@
     },
     {
       "id": "EXP-021",
-      "title": "API Gateway expone metodos de mutacion sin autenticacion fuerte",
+      "title": "API Gateway exposes mutation methods without strong authentication",
       "severity": "Critical",
       "description": "Public API routes supporting POST/PUT/PATCH/DELETE without strong authorization increase risk of unauthenticated business-logic abuse and direct data manipulation.",
       "evidence_files": [
@@ -405,7 +405,7 @@
     },
     {
       "id": "EXP-022",
-      "title": "API Gateway con rutas catch-all (ANY/proxy) sin auth",
+      "title": "API Gateway with catch-all routes (ANY/proxy) without auth",
       "severity": "High",
       "description": "Wildcard API routes such as ANY /{proxy+} without authorization broaden attack surface and can bypass intended route-level restrictions.",
       "evidence_files": [

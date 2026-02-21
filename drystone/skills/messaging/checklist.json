@@ -3,7 +3,7 @@
   "framework": "AWS Security Best Practices + HackTricks Cloud AWS",
   "description": "SQS/SNS policies, injection, and exfiltration persistence checks",
   "version": "1.1",
-  "total_checks": 8,
+  "total_checks": 9,
   "last_updated": "2026-02-19",
   "items": [
     {
@@ -68,7 +68,7 @@
     },
     {
       "id": "MSG-005",
-      "title": "SQS queue policy permite principal wildcard para data-plane",
+      "title": "SQS queue policy allows wildcard principal for data-plane operations",
       "severity": "Critical",
       "description": "SQS policies granting Send/Receive/Delete/ChangeVisibility to wildcard principals expose queues to unauthorized injection, theft, and disruption.",
       "evidence_files": ["sqs-queues.json"],
@@ -83,7 +83,7 @@
     },
     {
       "id": "MSG-006",
-      "title": "SQS queue sin cifrado en reposo",
+      "title": "SQS queue without encryption at rest",
       "severity": "High",
       "description": "Queues without KMS-managed or SQS-managed server-side encryption increase risk of message disclosure at rest.",
       "evidence_files": ["sqs-queues.json"],
@@ -98,7 +98,7 @@
     },
     {
       "id": "MSG-007",
-      "title": "SNS topic policy permite Subscribe wildcard/external",
+      "title": "SNS topic policy allows wildcard/external Subscribe",
       "severity": "High",
       "description": "Permissive sns:Subscribe grants enable unauthorized subscriptions and message exfiltration channels.",
       "evidence_files": ["sns-topics.json"],
@@ -113,7 +113,7 @@
     },
     {
       "id": "MSG-008",
-      "title": "SNS topic policy permite Publish wildcard/no restringido",
+      "title": "SNS topic policy allows unrestricted wildcard Publish",
       "severity": "High",
       "description": "Broad sns:Publish permissions can enable unauthorized message injection and abuse of downstream integrations.",
       "evidence_files": ["sns-topics.json"],
@@ -123,6 +123,25 @@
         {
           "control": "6.4.2",
           "reason": "Public/integration-facing channels must validate trusted producers and prevent unauthorized input."
+        }
+      ]
+    }
+    ,{
+      "id": "MSG-009",
+      "title": "SNS topic policy grants administrative actions to wildcard principal",
+      "severity": "Critical",
+      "description": "Wildcard principals with administrative SNS actions (DeleteTopic, SetTopicAttributes, AddPermission, RemovePermission) can modify or destroy the topic and its subscriptions.",
+      "evidence_files": ["sns-topics.json"],
+      "check_keywords": ["sns:DeleteTopic", "sns:SetTopicAttributes", "sns:AddPermission", "sns:RemovePermission", "Principal", "*"],
+      "remediation": "Remove administrative actions from resource policies; restrict to specific IAM principals using conditions. Prefer IAM identity policies over resource policies for administrative operations.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "Administrative access to messaging infrastructure must be restricted to authorized principals only."
+        },
+        {
+          "control": "6.1.1",
+          "reason": "Security controls must prevent unauthorized modification or destruction of communication channels."
         }
       ]
     }

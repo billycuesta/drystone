@@ -5,7 +5,7 @@
   "items": [
     {
       "id": "HRD-001",
-      "title": "AWS Config no habilitado en la región configurada",
+      "title": "AWS Config not enabled in the configured region",
       "severity": "Critical",
       "description": "AWS Config is not enabled in the audited region (e.g., eu-west-1), resulting in a complete lack of continuous configuration monitoring, change tracking, and audit trail for resource configurations in that region.",
       "remediation": "Enable AWS Config in the audited region with an appropriate IAM role and S3 bucket for configuration history and snapshots. For production environments, consider extending enablement to all active AWS regions using a multi-region aggregator for centralized view.",
@@ -26,7 +26,7 @@
     },
     {
       "id": "HRD-002",
-      "title": "Security Hub no habilitado en la región configurada",
+      "title": "Security Hub not enabled in the configured region",
       "severity": "Critical",
       "description": "AWS Security Hub is not enabled in the audited region (e.g., eu-west-1), leading to a lack of centralized security posture management, aggregated findings from multiple services, and continuous compliance checks against industry standards in that region.",
       "remediation": "Enable AWS Security Hub in the audited region. Configure it to automatically enable and aggregate findings from integrated AWS services (e.g., GuardDuty, Inspector, Config) and partner solutions. For production environments, consider extending enablement to all active AWS regions.",
@@ -43,7 +43,7 @@
     },
     {
       "id": "HRD-003",
-      "title": "0 standards de compliance habilitados",
+      "title": "0 compliance standards enabled",
       "severity": "Critical",
       "description": "No compliance standards (e.g., AWS FSBP, CIS, PCI DSS) are enabled in Security Hub, meaning the account's security posture is not being continuously evaluated against established benchmarks.",
       "remediation": "Enable relevant compliance standards in Security Hub, such as AWS Foundational Security Best Practices, CIS AWS Foundations Benchmark, and PCI DSS (if applicable to the environment).",
@@ -73,7 +73,7 @@
     },
     {
       "id": "HRD-005",
-      "title": "Findings CRITICAL sin remediar",
+      "title": "CRITICAL findings not remediated",
       "severity": "Critical",
       "description": "Critical security findings remain un-remediated, indicating unaddressed severe vulnerabilities or misconfigurations that could lead to significant security breaches or data compromise.",
       "remediation": "Immediately address all CRITICAL findings as a top priority. Implement a robust remediation process and track progress until all critical issues are resolved.",
@@ -90,7 +90,7 @@
     },
     {
       "id": "HRD-006",
-      "title": "AWS Config habilitado pero incompleto en la región configurada",
+      "title": "AWS Config enabled but incomplete in the configured region",
       "severity": "High",
       "description": "AWS Config is enabled in the audited region, but configuration recorders are not in full 'RECORDING' state or there are incomplete settings. This results in partial monitoring where some resource configurations may not be fully tracked.",
       "remediation": "Verify that all AWS Config configuration recorders in the audited region are in 'RECORDING' state. Configure an S3 bucket for storing configuration snapshots and enable delivery channels. For multi-region deployments, extend AWS Config enablement to all active AWS regions.",
@@ -107,7 +107,7 @@
     },
     {
       "id": "HRD-007",
-      "title": "Security Hub sin standards PCI DSS (si aplica)",
+      "title": "Security Hub without PCI DSS standard (if applicable)",
       "severity": "High",
       "description": "If the AWS account processes cardholder data or is part of the Cardholder Data Environment (CDE), Security Hub does not have the PCI DSS compliance standard enabled, meaning there is no automated, continuous monitoring against PCI DSS requirements.",
       "remediation": "Enable the PCI DSS compliance standard in AWS Security Hub to continuously monitor and report on the account's adherence to PCI DSS requirements.",
@@ -137,7 +137,7 @@
     },
     {
       "id": "HRD-009",
-      "title": "Findings HIGH sin remediar > 10",
+      "title": "HIGH findings not remediated > 10",
       "severity": "High",
       "description": "More than 10 HIGH severity security findings remain un-remediated, indicating a backlog of significant vulnerabilities or misconfigurations that elevate the account's risk profile.",
       "remediation": "Implement a focused remediation effort to address all HIGH severity findings within a short timeframe (e.g., 1 week).",
@@ -154,7 +154,7 @@
     },
     {
       "id": "HRD-010",
-      "title": "Sin conformance packs configurados",
+      "title": "No conformance packs configured",
       "severity": "High",
       "description": "No AWS Config Conformance Packs are configured, missing an opportunity to automate compliance validation and generate reports against specific security and operational best practices.",
       "remediation": "Deploy relevant AWS Config Conformance Packs (e.g., Operational Best Practices, specific regulatory compliance packs) to automate checks and improve compliance reporting.",
@@ -180,7 +180,7 @@
     },
     {
       "id": "HRD-012",
-      "title": "Findings MEDIUM sin remediar > 20",
+      "title": "MEDIUM findings not remediated > 20",
       "severity": "Medium",
       "description": "More than 20 MEDIUM severity security findings remain un-remediated, creating an accumulation of moderate risks that could become significant if left unaddressed over time.",
       "remediation": "Address MEDIUM severity findings in a planned manner, ideally within 2-4 weeks, to reduce the overall technical debt and improve the security baseline.",
@@ -197,7 +197,7 @@
     },
     {
       "id": "HRD-013",
-      "title": "Standards desactualizados",
+      "title": "Outdated compliance standards",
       "severity": "Medium",
       "description": "The compliance standards enabled in Security Hub are outdated versions, meaning the account is not being assessed against the most current security best practices and regulatory requirements.",
       "remediation": "Update Security Hub to use the latest versions of enabled compliance standards (e.g., CIS v1.4, PCI DSS v4.0) to ensure assessments are based on current benchmarks.",
@@ -210,7 +210,7 @@
     },
     {
       "id": "HRD-014",
-      "title": "Sin integracion con alertas",
+      "title": "No alert integration configured",
       "severity": "Medium",
       "description": "Security Hub findings are not integrated with an alerting mechanism (e.g., SNS, EventBridge to PagerDuty/Slack), leading to delayed notification and response to security events.",
       "remediation": "Configure EventBridge rules to forward Security Hub findings (especially CRITICAL/HIGH) to an appropriate alerting system, ensuring prompt notification of security personnel.",
@@ -236,7 +236,7 @@
     },
     {
       "id": "HRD-016",
-      "title": "Findings LOW pendientes",
+      "title": "LOW findings pending",
       "severity": "Low",
       "description": "Some LOW severity security findings remain un-remediated. While not immediately critical, these findings contribute to technical debt and may indicate areas for process improvement.",
       "remediation": "Address LOW severity findings as part of routine maintenance or during dedicated security improvement sprints. Focus on automation and preventative measures.",
@@ -249,7 +249,7 @@
     },
     {
       "id": "HRD-017",
-      "title": "Tags inconsistentes",
+      "title": "Inconsistent tags",
       "severity": "Low",
       "description": "Lack of consistent tagging across resources hinders effective resource management, cost allocation, automation, and security policy enforcement.",
       "remediation": "Implement a comprehensive tagging strategy. Use AWS Tag Editor or Resource Groups to apply consistent tags for environment, ownership, application, and compliance scope across all resources.",
@@ -262,7 +262,7 @@
     },
     {
       "id": "HRD-018",
-      "title": "Documentacion faltante",
+      "title": "Missing documentation",
       "severity": "Low",
       "description": "Key security policies, operational procedures, or architectural documentation are missing or incomplete, potentially leading to inconsistent security practices and difficulties during audits.",
       "remediation": "Document all missing security policies, operational procedures, and architectural diagrams. Ensure documentation is kept up-to-date, in use, and known to all affected parties.",

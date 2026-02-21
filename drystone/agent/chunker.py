@@ -26,6 +26,7 @@ class EvidenceChunker:
     METADATA_KEYS = frozenset({
         "account-aliases",
         "_audit_metadata",
+        "wafv2-managed-rule-groups",  # AWS catalog data (available managed groups), not config state
     })
 
     def __init__(

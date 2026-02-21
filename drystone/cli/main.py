@@ -191,8 +191,11 @@ def audit(
         sys.exit(1)
 
     # Extract account ID from validation
+    account_id: str
     try:
-        aws_access_key_id, aws_secret_access_key, aws_session_token = config.get_aws_credentials()
+        aws_access_key_id, aws_secret_access_key, aws_session_token = (
+            config.get_aws_credentials()
+        )
         _, _, account_id = validate_aws_credentials(
             aws_access_key_id, aws_secret_access_key, config.aws_region, aws_session_token
         )
@@ -230,7 +233,7 @@ def audit(
 
     _print_progress("Starting collection", phase_done, phase_total)
 
-    # Create AWS client for all skills
+    # Create AWS client
     aws_client = AWSClient(config)
 
     # Dynamically load and execute skills
@@ -300,7 +303,7 @@ def audit(
     from drystone.agent.client import AgentClient
 
     # Create provider configuration once
-    aws_access_key_id, aws_secret_access_key, aws_session_token = config.get_aws_credentials()
+    config.get_aws_credentials()  # validates creds are still accessible (no-op for analysis)
 
     provider_config = {
         "type": config.ai_provider,

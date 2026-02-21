@@ -61,7 +61,13 @@ CHECKLIST = {
         {"id": "IAM-001", "severity": "Critical", "title": "Root MFA", "remediation": "Enable MFA"},
         {"id": "IAM-009", "severity": "Critical", "title": "Root keys", "remediation": "Remove keys"},
         {"id": "IAM-008", "severity": "Critical", "title": "Admin policies", "remediation": "Restrict"},
-        {"id": "IAM-020", "severity": "Medium", "title": "Groups", "remediation": "Add groups"},
+        {
+            "id": "IAM-020",
+            "severity": "Medium",
+            "title": "Groups",
+            "description": "IAM users should belong to at least one group for access management.",
+            "remediation": "Add groups",
+        },
     ],
 }
 
@@ -126,7 +132,10 @@ class TestInjectFindingsForMissedFails:
 
         injected = next(f for f in result.findings if f.id == "IAM-020")
         assert injected.severity == "Medium"
-        assert "Pre-check determined" in injected.description
+        # Description now combines checklist context + specific evidence detected
+        assert "IAM users should belong to at least one group" in injected.description
+        assert "3 users without groups" in injected.description
+        assert "**Detected:**" in injected.description
         assert len(injected.affected_resources) == 2
 
     def test_no_injection_when_ai_already_found(self):

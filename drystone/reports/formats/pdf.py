@@ -297,6 +297,13 @@ class PDFFormatter(BaseFormatter):
         if getattr(self.config, "aws_profile", None):
             return f"Profile: {self.config.aws_profile}"
         if getattr(self.config, "aws_credentials_file", None):
+            # Load the real key from the file and show it masked (AKID****XXXX)
+            try:
+                key_id, _, _ = self.config.get_aws_credentials()
+                if isinstance(key_id, str) and key_id:
+                    return f"{key_id[:4]}...{key_id[-4:]}"
+            except Exception:
+                pass
             return f"File: {self.config.aws_credentials_file}"
         return "Environment variables"
 

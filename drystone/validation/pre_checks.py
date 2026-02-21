@@ -211,6 +211,32 @@ def _principal_is_wildcard_any(principal: Any) -> bool:
     return False
 
 
+def _stmt_has_same_account_restriction(stmt: dict) -> bool:
+    """Return True if the policy statement has a condition that restricts
+    access to the same AWS account (AWS:SourceOwner or aws:SourceAccount).
+
+    The default AWS SNS resource policy uses Principal:* + StringEquals
+    AWS:SourceOwner = <account-id>, which is NOT a public exposure.
+    """
+    cond = stmt.get("Condition")
+    if not isinstance(cond, dict):
+        return False
+    # Normalise keys to lower-case for comparison
+    cond_lower = {k.lower(): v for k, v in cond.items()}
+    # StringEquals or StringEqualsIgnoreCase operators
+    for op_key in ("stringequals", "stringequalsignorecase"):
+        op_val = cond_lower.get(op_key)
+        if not isinstance(op_val, dict):
+            continue
+        for cond_key in op_val:
+            if cond_key.lower() in (
+                "aws:sourceowner",
+                "aws:sourceaccount",
+            ):
+                return True
+    return False
+
+
 # ============================================================================
 # IAM PRE-CHECKS
 # ============================================================================
@@ -1921,10 +1947,23 @@ def check_waf_001(evidence: Dict[str, Any]) -> PreCheckResult:
     if _waf_collection_has_failures(evidence):
         return PreCheckResult("WAF-001", "SKIP", "WAF collection failures (WAF-013)", [])
     albs = evidence.get("alb-waf-associations")
-    if isinstance(albs, list) and len(albs) == 0:
+    if not isinstance(albs, list) or len(albs) == 0:
         return PreCheckResult("WAF-001", "PASS", "no internet-facing ALBs detected", [])
-    # Cannot determine PASS/FAIL without deeper analysis → SKIP for AI
-    return PreCheckResult("WAF-001", "SKIP", "requires AI analysis of ALB associations", [])
+    # Full deterministic check: WAFv2WebACL must be a dict without 'error' key
+    unprotected = [
+        a.get("LoadBalancerArn") or a.get("LoadBalancerName", "unknown")
+        for a in albs
+        if not isinstance(a.get("WAFv2WebACL"), dict)
+        or "error" in (a.get("WAFv2WebACL") or {})
+        or not a.get("WAFv2WebACL")
+    ]
+    if unprotected:
+        return PreCheckResult(
+            "WAF-001", "FAIL",
+            f"{len(unprotected)} internet-facing ALB(s) without WAF protection",
+            unprotected[:5],
+        )
+    return PreCheckResult("WAF-001", "PASS", "all internet-facing ALBs are WAF-protected", [])
 
 
 @_register("waf")
@@ -1933,51 +1972,358 @@ def check_waf_002(evidence: Dict[str, Any]) -> PreCheckResult:
     if _waf_collection_has_failures(evidence):
         return PreCheckResult("WAF-002", "SKIP", "WAF collection failures (WAF-013)", [])
     dists = evidence.get("cloudfront-distributions")
-    if isinstance(dists, list) and len(dists) == 0:
+    if not isinstance(dists, list) or len(dists) == 0:
         return PreCheckResult("WAF-002", "PASS", "no CloudFront distributions detected", [])
-    return PreCheckResult("WAF-002", "SKIP", "requires AI analysis", [])
+    # Full deterministic check: WebACLId must be non-empty
+    unprotected = [
+        d.get("DomainName") or d.get("Id", "unknown")
+        for d in dists
+        if not d.get("WebACLId")
+    ]
+    if unprotected:
+        return PreCheckResult(
+            "WAF-002", "FAIL",
+            f"{len(unprotected)} CloudFront distribution(s) without WAF protection",
+            unprotected[:5],
+        )
+    return PreCheckResult("WAF-002", "PASS", "all CloudFront distributions are WAF-protected", [])
 
 
 @_register("waf")
-def check_waf_003_to_008(evidence: Dict[str, Any]) -> PreCheckResult:
-    """Web ACL configuration checks (WAF-003..008) - gate on Web ACL existence."""
+def check_waf_003(evidence: Dict[str, Any]) -> PreCheckResult:
+    """WAFv2 Web ACL logging should be enabled."""
     if _waf_collection_has_failures(evidence):
-        # Return one SKIP per gate (AI should not evaluate these)
         return PreCheckResult("WAF-003", "SKIP", "WAF collection failures", [])
     web_acls = evidence.get("wafv2-web-acls")
-    if isinstance(web_acls, list) and len(web_acls) == 0:
+    if not isinstance(web_acls, list) or len(web_acls) == 0:
         return PreCheckResult("WAF-003", "PASS", "no Web ACLs (N/A)", [])
-    return PreCheckResult("WAF-003", "SKIP", "requires AI analysis of Web ACL config", [])
+    not_logging = [
+        acl.get("ARN") or acl.get("Name", "unknown")
+        for acl in web_acls
+        if not (acl.get("Logging") or {}).get("enabled", False)
+    ]
+    if not_logging:
+        return PreCheckResult(
+            "WAF-003", "FAIL",
+            f"{len(not_logging)} Web ACL(s) without logging enabled",
+            not_logging[:5],
+        )
+    return PreCheckResult("WAF-003", "PASS", "all Web ACLs have logging enabled", [])
+
+
+@_register("waf")
+def check_waf_004(evidence: Dict[str, Any]) -> PreCheckResult:
+    """WAF logging RedactedFields should cover sensitive headers."""
+    _SENSITIVE_HEADERS = {"cookie", "x-api-key", "authorization", "x-auth-token"}
+    if _waf_collection_has_failures(evidence):
+        return PreCheckResult("WAF-004", "SKIP", "WAF collection failures", [])
+    web_acls = evidence.get("wafv2-web-acls")
+    if not isinstance(web_acls, list) or len(web_acls) == 0:
+        return PreCheckResult("WAF-004", "PASS", "no Web ACLs (N/A)", [])
+    incomplete: list = []
+    all_missing: set = set()
+    for acl in web_acls:
+        logging_cfg = acl.get("Logging") or {}
+        if not logging_cfg.get("enabled", False):
+            continue  # WAF-003 covers disabled logging
+        redacted = {
+            (r.get("SingleHeader") or {}).get("Name", "").lower()
+            for r in (logging_cfg.get("RedactedFields") or [])
+        }
+        missing = _SENSITIVE_HEADERS - redacted
+        if missing:
+            all_missing |= missing
+            incomplete.append(acl.get("ARN") or acl.get("Name", "unknown"))
+    if incomplete:
+        missing_str = "/".join(sorted(all_missing))
+        return PreCheckResult(
+            "WAF-004", "FAIL",
+            f"{len(incomplete)} Web ACL(s) with incomplete log redaction (missing: {missing_str})",
+            incomplete[:5],
+        )
+    return PreCheckResult("WAF-004", "PASS", "all Web ACLs have complete log redaction", [])
+
+
+@_register("waf")
+def check_waf_005(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Web ACL VisibilityConfig should have SampledRequestsEnabled=true."""
+    if _waf_collection_has_failures(evidence):
+        return PreCheckResult("WAF-005", "SKIP", "WAF collection failures", [])
+    web_acls = evidence.get("wafv2-web-acls")
+    if not isinstance(web_acls, list) or len(web_acls) == 0:
+        return PreCheckResult("WAF-005", "PASS", "no Web ACLs (N/A)", [])
+    failing = [
+        acl.get("ARN") or acl.get("Name", "unknown")
+        for acl in web_acls
+        if not (acl.get("WebACL") or {})
+        .get("VisibilityConfig", {})
+        .get("SampledRequestsEnabled", True)
+    ]
+    if failing:
+        return PreCheckResult(
+            "WAF-005", "FAIL",
+            f"{len(failing)} Web ACL(s) with SampledRequestsEnabled=false",
+            failing[:5],
+        )
+    return PreCheckResult("WAF-005", "PASS", "all Web ACLs have sampled requests enabled", [])
+
+
+_WAF_BASELINE_MANAGED_RULES = {
+    "AWSManagedRulesCommonRuleSet",
+    "AWSManagedRulesSQLiRuleSet",
+    "AWSManagedRulesKnownBadInputsRuleSet",
+    "AWSManagedRulesAmazonIpReputationList",
+}
+
+
+@_register("waf")
+def check_waf_006(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Web ACLs should include at least one baseline AWS Managed Rule group."""
+    if _waf_collection_has_failures(evidence):
+        return PreCheckResult("WAF-006", "SKIP", "WAF collection failures", [])
+    web_acls = evidence.get("wafv2-web-acls")
+    if not isinstance(web_acls, list) or len(web_acls) == 0:
+        return PreCheckResult("WAF-006", "PASS", "no Web ACLs (N/A)", [])
+    missing_baseline = []
+    for acl in web_acls:
+        rules = (acl.get("WebACL") or {}).get("Rules", [])
+        used_managed = {
+            (r.get("Statement") or {})
+            .get("ManagedRuleGroupStatement", {})
+            .get("Name", "")
+            for r in rules
+        }
+        if not used_managed & _WAF_BASELINE_MANAGED_RULES:
+            missing_baseline.append(acl.get("ARN") or acl.get("Name", "unknown"))
+    if missing_baseline:
+        return PreCheckResult(
+            "WAF-006", "FAIL",
+            f"{len(missing_baseline)} Web ACL(s) lack baseline AWS Managed Rules",
+            missing_baseline[:5],
+        )
+    return PreCheckResult("WAF-006", "PASS", "all Web ACLs have baseline managed rules", [])
+
+
+@_register("waf")
+def check_waf_007(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Managed rule groups should not be overridden to Count-only mode in production."""
+    if _waf_collection_has_failures(evidence):
+        return PreCheckResult("WAF-007", "SKIP", "WAF collection failures", [])
+    web_acls = evidence.get("wafv2-web-acls")
+    if not isinstance(web_acls, list) or len(web_acls) == 0:
+        return PreCheckResult("WAF-007", "PASS", "no Web ACLs (N/A)", [])
+    count_only: list = []
+    for acl in web_acls:
+        rules = (acl.get("WebACL") or {}).get("Rules", [])
+        for rule in rules:
+            override = rule.get("OverrideAction") or {}
+            if "Count" in override:
+                count_only.append(f"{acl.get('Name', 'unknown')}/{rule.get('Name', 'unknown')}")
+    if count_only:
+        return PreCheckResult(
+            "WAF-007", "FAIL",
+            f"{len(count_only)} managed rule group(s) in Count-only mode",
+            count_only[:5],
+        )
+    return PreCheckResult("WAF-007", "PASS", "no managed rule groups in Count-only mode", [])
+
+
+@_register("waf")
+def check_waf_008(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Web ACLs should include at least one rate-based rule to limit abuse."""
+    if _waf_collection_has_failures(evidence):
+        return PreCheckResult("WAF-008", "SKIP", "WAF collection failures", [])
+    web_acls = evidence.get("wafv2-web-acls")
+    if not isinstance(web_acls, list) or len(web_acls) == 0:
+        return PreCheckResult("WAF-008", "PASS", "no Web ACLs (N/A)", [])
+    no_rate_rules = [
+        acl.get("ARN") or acl.get("Name", "unknown")
+        for acl in web_acls
+        if not any(
+            "RateBasedStatement" in (r.get("Statement") or {})
+            for r in (acl.get("WebACL") or {}).get("Rules", [])
+        )
+    ]
+    if no_rate_rules:
+        return PreCheckResult(
+            "WAF-008", "FAIL",
+            f"{len(no_rate_rules)} Web ACL(s) without rate-based rules",
+            no_rate_rules[:5],
+        )
+    return PreCheckResult("WAF-008", "PASS", "all Web ACLs have rate-based rules", [])
 
 
 @_register("waf")
 def check_waf_009(evidence: Dict[str, Any]) -> PreCheckResult:
-    """WAF IP sets should be reviewed."""
+    """WAF IP sets should not contain overly broad CIDRs (0.0.0.0/0 or ::/0)."""
+    _BROAD_CIDRS = {"0.0.0.0/0", "::/0"}
     if _waf_collection_has_failures(evidence):
         return PreCheckResult("WAF-009", "SKIP", "WAF collection failures", [])
     ip_sets = evidence.get("wafv2-ip-sets")
-    if isinstance(ip_sets, list) and len(ip_sets) == 0:
+    if not isinstance(ip_sets, list) or len(ip_sets) == 0:
         return PreCheckResult("WAF-009", "PASS", "no WAFv2 IP sets", [])
-    return PreCheckResult("WAF-009", "SKIP", "requires AI analysis", [])
+    broad = [
+        ip_set.get("Name", "unknown")
+        for ip_set in ip_sets
+        if _BROAD_CIDRS & set(ip_set.get("Addresses", []))
+    ]
+    if broad:
+        return PreCheckResult(
+            "WAF-009", "FAIL",
+            f"{len(broad)} IP set(s) with broad CIDRs (0.0.0.0/0 or ::/0)",
+            broad[:5],
+        )
+    return PreCheckResult("WAF-009", "PASS", "no IP sets with broad CIDRs", [])
+
+
+@_register("waf")
+def check_waf_010(evidence: Dict[str, Any]) -> PreCheckResult:
+    """WAF Classic Web ACLs should be migrated to WAFv2."""
+    if _waf_collection_has_failures(evidence):
+        return PreCheckResult("WAF-010", "SKIP", "WAF collection failures", [])
+    classic = evidence.get("waf-classic") or {}
+    global_acls = (classic.get("global") or {}).get("web_acls", [])
+    regional_acls: list = []
+    for region_data in (classic.get("regional") or {}).values():
+        regional_acls.extend((region_data or {}).get("web_acls", []))
+    total = len(global_acls) + len(regional_acls)
+    if total > 0:
+        names = [a.get("Name", "unknown") for a in global_acls + regional_acls]
+        return PreCheckResult(
+            "WAF-010", "FAIL",
+            f"{total} WAF Classic Web ACL(s) detected; migrate to WAFv2",
+            names[:5],
+        )
+    return PreCheckResult("WAF-010", "PASS", "no WAF Classic Web ACLs detected", [])
+
+
+@_register("waf")
+def check_waf_011(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Web ACLs with no associated resources should be reviewed for cleanup."""
+    if _waf_collection_has_failures(evidence):
+        return PreCheckResult("WAF-011", "SKIP", "WAF collection failures", [])
+    web_acls = evidence.get("wafv2-web-acls")
+    if not isinstance(web_acls, list) or len(web_acls) == 0:
+        return PreCheckResult("WAF-011", "PASS", "no Web ACLs (N/A)", [])
+    unassociated = [
+        acl.get("ARN") or acl.get("Name", "unknown")
+        for acl in web_acls
+        if not acl.get("AssociatedResourceArns")
+    ]
+    if unassociated:
+        return PreCheckResult(
+            "WAF-011", "FAIL",
+            f"{len(unassociated)} Web ACL(s) with no associated resources",
+            unassociated[:5],
+        )
+    return PreCheckResult("WAF-011", "PASS", "all Web ACLs have associated resources", [])
 
 
 @_register("waf")
 def check_waf_013(evidence: Dict[str, Any]) -> PreCheckResult:
-    """WAF collection status indicates failures."""
+    """WAF collection status indicates failures or unverifiable associations."""
     if _waf_collection_has_failures(evidence):
         return PreCheckResult("WAF-013", "FAIL", "WAF collection has failures", [])
+    # Detect HTTP API entries where GetWebACLForResource returned WAFInvalidParameterException.
+    # This is an AWS SDK limitation: HTTP API V2 ARNs are not supported by that API call.
+    # These endpoints have UNKNOWN WAF protection status and should be noted.
+    api_eps = evidence.get("api-entrypoints-waf-associations")
+    if isinstance(api_eps, list):
+        http_api_errors = [
+            f"{e.get('Name', 'unknown')}/{e.get('Stage', '')}"
+            for e in api_eps
+            if e.get("ApiType") == "HTTP"
+            and isinstance(e.get("WAFv2WebACL"), dict)
+            and "error" in e["WAFv2WebACL"]
+        ]
+        if http_api_errors:
+            return PreCheckResult(
+                "WAF-013", "FAIL",
+                f"WAF status unverifiable for {len(http_api_errors)} HTTP API stage(s) "
+                f"(AWS GetWebACLForResource does not support HTTP API V2 ARN format): "
+                f"{', '.join(http_api_errors[:3])}",
+                http_api_errors[:5],
+            )
     return PreCheckResult("WAF-013", "PASS", "no WAF collection failures", [])
 
 
 @_register("waf")
-def check_waf_014_to_016(evidence: Dict[str, Any]) -> PreCheckResult:
-    """API entry points WAF protection (WAF-014..016) - gate on existence."""
+def check_waf_014(evidence: Dict[str, Any]) -> PreCheckResult:
+    """API Gateway REST stages should be protected by AWS WAF."""
     if _waf_collection_has_failures(evidence):
         return PreCheckResult("WAF-014", "SKIP", "WAF collection failures", [])
     api_eps = evidence.get("api-entrypoints-waf-associations")
-    if isinstance(api_eps, list) and len(api_eps) == 0:
-        return PreCheckResult("WAF-014", "PASS", "no API entry points", [])
-    return PreCheckResult("WAF-014", "SKIP", "requires AI analysis", [])
+    if not isinstance(api_eps, list):
+        return PreCheckResult("WAF-014", "SKIP", "no api-entrypoints evidence", [])
+    # Only evaluate REST APIs (HTTP APIs return WAFInvalidParameterException — AWS limitation)
+    rest_entries = [e for e in api_eps if e.get("Service") == "apigateway" and e.get("ApiType") == "REST"]
+    if not rest_entries:
+        return PreCheckResult("WAF-014", "PASS", "no API Gateway REST stages detected", [])
+    unprotected = [
+        f"{e.get('Name', 'unknown')}/{e.get('Stage', '')}"
+        for e in rest_entries
+        if not isinstance(e.get("WAFv2WebACL"), dict)
+        or "error" in (e.get("WAFv2WebACL") or {})
+    ]
+    if unprotected:
+        return PreCheckResult(
+            "WAF-014", "FAIL",
+            f"{len(unprotected)} API Gateway REST stage(s) without WAF protection",
+            unprotected[:5],
+        )
+    return PreCheckResult("WAF-014", "PASS", "all API Gateway REST stages are WAF-protected", [])
+
+
+@_register("waf")
+def check_waf_015(evidence: Dict[str, Any]) -> PreCheckResult:
+    """AppSync GraphQL APIs should be protected by AWS WAF."""
+    if _waf_collection_has_failures(evidence):
+        return PreCheckResult("WAF-015", "SKIP", "WAF collection failures", [])
+    api_eps = evidence.get("api-entrypoints-waf-associations")
+    if not isinstance(api_eps, list):
+        return PreCheckResult("WAF-015", "SKIP", "no api-entrypoints evidence", [])
+    appsync_entries = [e for e in api_eps if e.get("Service") == "appsync"]
+    if not appsync_entries:
+        return PreCheckResult("WAF-015", "PASS", "no AppSync APIs detected (N/A)", [])
+    unprotected = [
+        e.get("Name", e.get("ApiId", "unknown"))
+        for e in appsync_entries
+        if not isinstance(e.get("WAFv2WebACL"), dict)
+        or "error" in (e.get("WAFv2WebACL") or {})
+    ]
+    if unprotected:
+        return PreCheckResult(
+            "WAF-015", "FAIL",
+            f"{len(unprotected)} AppSync API(s) without WAF protection",
+            unprotected[:5],
+        )
+    return PreCheckResult("WAF-015", "PASS", "all AppSync APIs are WAF-protected", [])
+
+
+@_register("waf")
+def check_waf_016(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Cognito User Pools should be protected by AWS WAF when publicly exposed."""
+    if _waf_collection_has_failures(evidence):
+        return PreCheckResult("WAF-016", "SKIP", "WAF collection failures", [])
+    api_eps = evidence.get("api-entrypoints-waf-associations")
+    if not isinstance(api_eps, list):
+        return PreCheckResult("WAF-016", "SKIP", "no api-entrypoints evidence", [])
+    cognito_entries = [e for e in api_eps if e.get("Service") == "cognito"]
+    if not cognito_entries:
+        return PreCheckResult("WAF-016", "PASS", "no Cognito User Pools detected (N/A)", [])
+    unprotected = [
+        e.get("Name", e.get("ApiId", "unknown"))
+        for e in cognito_entries
+        if not isinstance(e.get("WAFv2WebACL"), dict)
+        or "error" in (e.get("WAFv2WebACL") or {})
+    ]
+    if unprotected:
+        return PreCheckResult(
+            "WAF-016", "FAIL",
+            f"{len(unprotected)} Cognito User Pool(s) without WAF protection",
+            unprotected[:5],
+        )
+    return PreCheckResult("WAF-016", "PASS", "all Cognito User Pools are WAF-protected", [])
 
 
 # ============================================================================
@@ -2398,6 +2744,270 @@ def check_sm_017(evidence: Dict[str, Any]) -> PreCheckResult:
     )
 
 
+@_register("secretsmanager")
+def check_sm_002(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Automatic rotation disabled on secrets."""
+    secrets_doc = evidence.get("secrets", {})
+    secrets_list = secrets_doc.get("secrets", []) if isinstance(secrets_doc, dict) else []
+
+    if not isinstance(secrets_list, list) or not secrets_list:
+        return PreCheckResult("SM-002", "SKIP", "no secrets data available", [])
+
+    failed = [
+        s.get("ARN", s.get("Name", "unknown"))
+        for s in secrets_list
+        if isinstance(s, dict) and not s.get("RotationEnabled")
+    ]
+    if not failed:
+        return PreCheckResult("SM-002", "PASS", "all secrets have rotation enabled", [])
+    return PreCheckResult(
+        "SM-002",
+        "FAIL",
+        f"{len(failed)} secret(s) have automatic rotation disabled",
+        failed,
+    )
+
+
+@_register("secretsmanager")
+def check_sm_004(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Secrets using AWS-managed KMS key instead of customer-managed key."""
+    secrets_doc = evidence.get("secrets", {})
+    secrets_list = secrets_doc.get("secrets", []) if isinstance(secrets_doc, dict) else []
+
+    if not isinstance(secrets_list, list) or not secrets_list:
+        return PreCheckResult("SM-004", "SKIP", "no secrets data available", [])
+
+    # AWS-managed key indicators
+    _aws_kms_patterns = ("alias/aws/secretsmanager", "aws/secretsmanager", "Default AWS managed")
+
+    failed = [
+        s.get("ARN", s.get("Name", "unknown"))
+        for s in secrets_list
+        if isinstance(s, dict) and any(p in str(s.get("KmsKeyId") or "") for p in _aws_kms_patterns)
+    ]
+    if not failed:
+        return PreCheckResult("SM-004", "PASS", "all secrets use customer-managed KMS keys", [])
+    return PreCheckResult(
+        "SM-004",
+        "FAIL",
+        f"{len(failed)} secret(s) use AWS-managed KMS key (not customer-managed)",
+        failed,
+    )
+
+
+@_register("secretsmanager")
+def check_sm_005(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Secrets never rotated OR not changed in >365 days (stale credentials)."""
+    from datetime import datetime, timezone
+
+    secrets_doc = evidence.get("secrets", {})
+    secrets_list = secrets_doc.get("secrets", []) if isinstance(secrets_doc, dict) else []
+
+    if not isinstance(secrets_list, list) or not secrets_list:
+        return PreCheckResult("SM-005", "SKIP", "no secrets data available", [])
+
+    now = datetime.now(tz=timezone.utc)
+    never_rotated = []
+    stale = []
+
+    for s in secrets_list:
+        if not isinstance(s, dict):
+            continue
+        arn = s.get("ARN", s.get("Name", "unknown"))
+
+        # Case 1: LastRotatedDate is empty/null = never rotated (always FAIL)
+        last_rotated = str(s.get("LastRotatedDate") or "").strip()
+        rotation_enabled = bool(s.get("RotationEnabled"))
+        if not last_rotated and not rotation_enabled:
+            never_rotated.append(arn)
+            continue
+
+        # Case 2: LastChangedDate > 365 days ago
+        raw = s.get("LastChangedDate") or s.get("CreatedDate")
+        if not raw:
+            continue
+        try:
+            dt_str = str(raw).replace(" ", "T")
+            if "+" in dt_str[10:] or dt_str.endswith("Z"):
+                dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+            else:
+                dt = datetime.fromisoformat(dt_str).replace(tzinfo=timezone.utc)
+            if (now - dt).days > 365:
+                stale.append(arn)
+        except (ValueError, TypeError):
+            continue
+
+    failed = never_rotated + stale
+    if not failed:
+        return PreCheckResult("SM-005", "PASS", "no stale or never-rotated secrets", [])
+
+    parts = []
+    if never_rotated:
+        parts.append(f"{len(never_rotated)} never rotated")
+    if stale:
+        parts.append(f"{len(stale)} unchanged >365 days")
+    return PreCheckResult(
+        "SM-005",
+        "FAIL",
+        f"stale credentials detected: {', '.join(parts)}",
+        failed,
+    )
+
+
+@_register("secretsmanager")
+def check_sm_006(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Secrets missing required governance tags (Owner, DataClassification)."""
+    secrets_doc = evidence.get("secrets", {})
+    secrets_list = secrets_doc.get("secrets", []) if isinstance(secrets_doc, dict) else []
+
+    if not isinstance(secrets_list, list) or not secrets_list:
+        return PreCheckResult("SM-006", "SKIP", "no secrets data available", [])
+
+    _required = {"Owner", "DataClassification"}
+    failed = []
+    for s in secrets_list:
+        if not isinstance(s, dict):
+            continue
+        existing = {t["Key"] for t in (s.get("Tags") or []) if isinstance(t, dict) and "Key" in t}
+        if _required - existing:
+            failed.append(s.get("ARN", s.get("Name", "unknown")))
+
+    if not failed:
+        return PreCheckResult("SM-006", "PASS", "all secrets have required governance tags", [])
+    return PreCheckResult(
+        "SM-006",
+        "FAIL",
+        f"{len(failed)} secret(s) missing Owner or DataClassification tag",
+        failed,
+    )
+
+
+@_register("secretsmanager")
+def check_sm_007(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Secrets without description (governance / discoverability)."""
+    secrets_doc = evidence.get("secrets", {})
+    secrets_list = secrets_doc.get("secrets", []) if isinstance(secrets_doc, dict) else []
+
+    if not isinstance(secrets_list, list) or not secrets_list:
+        return PreCheckResult("SM-007", "SKIP", "no secrets data available", [])
+
+    _empty = {"", "no description", "none", "n/a"}
+    failed = [
+        s.get("ARN", s.get("Name", "unknown"))
+        for s in secrets_list
+        if isinstance(s, dict) and str(s.get("Description") or "").strip().lower() in _empty
+    ]
+    if not failed:
+        return PreCheckResult("SM-007", "PASS", "all secrets have descriptions", [])
+    return PreCheckResult(
+        "SM-007",
+        "FAIL",
+        f"{len(failed)} secret(s) have no description",
+        failed,
+    )
+
+
+@_register("secretsmanager")
+def check_sm_008(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Production secrets without cross-region replication."""
+    secrets_doc = evidence.get("secrets", {})
+    secrets_list = secrets_doc.get("secrets", []) if isinstance(secrets_doc, dict) else []
+
+    if not isinstance(secrets_list, list) or not secrets_list:
+        return PreCheckResult("SM-008", "SKIP", "no secrets data available", [])
+
+    failed = []
+    for s in secrets_list:
+        if not isinstance(s, dict):
+            continue
+        # Only flag production secrets
+        tags = {t.get("Key"): t.get("Value") for t in (s.get("Tags") or []) if isinstance(t, dict)}
+        env = str(tags.get("Environment") or tags.get("env") or "").lower()
+        if env not in ("prod", "production", ""):
+            continue
+        rep = s.get("ReplicationStatus")
+        if isinstance(rep, list) and not rep:
+            failed.append(s.get("ARN", s.get("Name", "unknown")))
+
+    if not failed:
+        return PreCheckResult("SM-008", "PASS", "secrets have cross-region replication or are non-prod", [])
+    return PreCheckResult(
+        "SM-008",
+        "FAIL",
+        f"{len(failed)} production secret(s) not replicated to any secondary region",
+        failed,
+    )
+
+
+@_register("secretsmanager")
+def check_sm_011(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Secrets resource policies missing MFA condition (empty policy = no MFA)."""
+    secrets_doc = evidence.get("secrets", {})
+    secrets_list = secrets_doc.get("secrets", []) if isinstance(secrets_doc, dict) else []
+
+    if not isinstance(secrets_list, list) or not secrets_list:
+        return PreCheckResult("SM-011", "SKIP", "no secrets data available", [])
+
+    def _policy_has_mfa(policy: Any) -> bool:
+        if not isinstance(policy, dict) or not policy:
+            return False
+        for st in policy.get("Statement", []) or []:
+            cond = st.get("Condition", {}) if isinstance(st, dict) else {}
+            for _op, kv in (cond.items() if isinstance(cond, dict) else []):
+                if isinstance(kv, dict) and "aws:MultiFactorAuthPresent" in kv:
+                    return True
+        return False
+
+    failed = [
+        s.get("ARN", s.get("Name", "unknown"))
+        for s in secrets_list
+        if isinstance(s, dict) and not _policy_has_mfa(s.get("ResourcePolicy"))
+    ]
+    if not failed:
+        return PreCheckResult("SM-011", "PASS", "all secret resource policies require MFA", [])
+    return PreCheckResult(
+        "SM-011",
+        "FAIL",
+        f"{len(failed)} secret(s) lack MFA condition in resource policy",
+        failed,
+    )
+
+
+@_register("secretsmanager")
+def check_sm_012(evidence: Dict[str, Any]) -> PreCheckResult:
+    """No rotation failure alerting configured (CloudWatch + EventBridge)."""
+    cw = evidence.get("cloudwatch_alarms", {})
+    eb = evidence.get("eventbridge_rules", {})
+
+    cw_relevant = sum(
+        int(r.get("likely_relevant_count", 0))
+        for r in (cw.get("regions", {}) or {}).values()
+        if isinstance(r, dict)
+    )
+    eb_relevant = sum(
+        int(r.get("relevant_rule_count", 0))
+        for r in (eb.get("regions", {}) or {}).values()
+        if isinstance(r, dict)
+    )
+
+    if cw_relevant == 0 and eb_relevant == 0:
+        # Only FAIL if we have evidence data (not just missing files)
+        if not cw and not eb:
+            return PreCheckResult("SM-012", "SKIP", "alerting evidence files not collected", [])
+        return PreCheckResult(
+            "SM-012",
+            "FAIL",
+            "no CloudWatch alarms or EventBridge rules monitor Secrets Manager rotation failures",
+            [],
+        )
+    return PreCheckResult(
+        "SM-012",
+        "PASS",
+        f"rotation monitoring found: {cw_relevant} CW alarm(s), {eb_relevant} EventBridge rule(s)",
+        [],
+    )
+
+
 # ============================================================================
 # ECR PRE-CHECKS
 # ============================================================================
@@ -2607,13 +3217,53 @@ def check_ecr_007(evidence: Dict[str, Any]) -> PreCheckResult:
 # ============================================================================
 
 
+def _kms_id_to_arn(evidence: Dict[str, Any]) -> Dict[str, str]:
+    """Build a KeyId → KeyArn map from kms-keys evidence for use in pre-checks."""
+    keys_doc = evidence.get("kms-keys")
+    items = keys_doc.get("items") if isinstance(keys_doc, dict) else None
+    if not isinstance(items, list):
+        return {}
+    result: Dict[str, str] = {}
+    for k in items:
+        if not isinstance(k, dict):
+            continue
+        key_id = str(k.get("KeyId") or (k.get("Metadata") or {}).get("KeyId") or "")
+        key_arn = str(k.get("KeyArn") or (k.get("Metadata") or {}).get("Arn") or "")
+        if key_id and key_arn:
+            result[key_id] = key_arn
+    return result
+
+
+def _kms_stmt_has_binding_conditions(stmt: Dict[str, Any]) -> bool:
+    """Return True if the policy statement has conditions that restrict access to:
+    - The same AWS account (kms:CallerAccount), AND
+    - A specific AWS service (kms:ViaService or StringLike kms:ViaService).
+    Together these constitute an unambiguous binding restriction equivalent to an
+    account-scoped service principal — NOT a public wildcard exposure.
+    """
+    cond = stmt.get("Condition")
+    if not isinstance(cond, dict):
+        return False
+    # Flatten all condition operators to a merged key→value map for inspection
+    merged: Dict[str, Any] = {}
+    for op_val in cond.values():
+        if isinstance(op_val, dict):
+            merged.update({k.lower(): v for k, v in op_val.items()})
+    has_caller_account = "kms:calleraccount" in merged
+    has_via_service = "kms:viaservice" in merged
+    return has_caller_account and has_via_service
+
+
 @_register("kms")
 def check_kms_001(evidence: Dict[str, Any]) -> PreCheckResult:
-    """Key policy with wildcard/broad principals."""
+    """Key policy with wildcard/broad principals not constrained to same account + service."""
     pol_doc = evidence.get("kms-key-policies")
     items = pol_doc.get("items") if isinstance(pol_doc, dict) else None
     if not isinstance(items, list) or not items:
         return PreCheckResult("KMS-001", "SKIP", "no kms-key-policies evidence", [])
+
+    arn_map = _kms_id_to_arn(evidence)
+    flagged_arns: List[str] = []
 
     for rec in items:
         if not isinstance(rec, dict):
@@ -2626,16 +3276,29 @@ def check_kms_001(evidence: Dict[str, Any]) -> PreCheckResult:
                 continue
             if str(st.get("Effect") or "").upper() != "ALLOW":
                 continue
-            if _principal_is_wildcard(st.get("Principal")):
-                key_id = rec.get("KeyId", "unknown")
-                return PreCheckResult(
-                    "KMS-001",
-                    "FAIL",
-                    f"key {key_id} has wildcard principal",
-                    [rec.get("KeyArn", key_id)],
-                )
+            if not _principal_is_wildcard(st.get("Principal")):
+                continue
+            # Standard AWS service-integrated CMK pattern:
+            # Principal=* WITH kms:CallerAccount + kms:ViaService is NOT a wildcard risk.
+            # It restricts access to the same account and a specific service (e.g. Secrets Manager).
+            if _kms_stmt_has_binding_conditions(st):
+                continue
+            key_id = rec.get("KeyId", "unknown")
+            key_arn = arn_map.get(key_id, rec.get("KeyArn", key_id))
+            if key_arn not in flagged_arns:
+                flagged_arns.append(key_arn)
+            break  # one match per key is enough
 
-    return PreCheckResult("KMS-001", "PASS", "no wildcard principals in key policies", [])
+    if flagged_arns:
+        count = len(flagged_arns)
+        return PreCheckResult(
+            "KMS-001",
+            "FAIL",
+            f"{count} key(s) with wildcard principal without account+service binding conditions",
+            flagged_arns[:10],
+        )
+
+    return PreCheckResult("KMS-001", "PASS", "no unbound wildcard principals in key policies", [])
 
 
 @_register("kms")
@@ -2705,12 +3368,17 @@ def check_kms_003(evidence: Dict[str, Any]) -> PreCheckResult:
     if not isinstance(items, list) or not items:
         return PreCheckResult("KMS-003", "SKIP", "no kms-key-policies evidence", [])
 
+    arn_map = _kms_id_to_arn(evidence)
+    flagged_arns: List[str] = []
+
     for rec in items:
         if not isinstance(rec, dict):
             continue
         policy = rec.get("Policy")
         if not isinstance(policy, dict):
             continue
+        key_id = rec.get("KeyId", "unknown")
+        key_arn = arn_map.get(key_id, rec.get("KeyArn", key_id))
         for st in _stmts_from_policy(policy):
             if not isinstance(st, dict):
                 continue
@@ -2718,13 +3386,17 @@ def check_kms_003(evidence: Dict[str, Any]) -> PreCheckResult:
                 continue
             for act in _actions_from_stmt(st):
                 if act.lower() in {"kms:putkeypolicy", "kms:creategrant", "kms:*"}:
-                    return PreCheckResult(
-                        "KMS-003",
-                        "FAIL",
-                        f"key has {act} permission",
-                        [rec.get("KeyArn", "unknown")],
-                    )
+                    if key_arn not in flagged_arns:
+                        flagged_arns.append(key_arn)
+                    break  # one match per key is enough
 
+    if flagged_arns:
+        return PreCheckResult(
+            "KMS-003",
+            "FAIL",
+            f"{len(flagged_arns)} key(s) allow admin modification (PutKeyPolicy/CreateGrant/kms:*)",
+            flagged_arns[:10],
+        )
     return PreCheckResult("KMS-003", "PASS", "no admin modification permissions", [])
 
 
@@ -2754,7 +3426,7 @@ def check_kms_004(evidence: Dict[str, Any]) -> PreCheckResult:
 
 @_register("kms")
 def check_kms_005(evidence: Dict[str, Any]) -> PreCheckResult:
-    """Policies allowing destructive availability-impacting KMS actions."""
+    """Policies allowing destructive KMS actions to non-root, non-standard principals."""
     pol_doc = evidence.get("kms-key-policies")
     items = pol_doc.get("items") if isinstance(pol_doc, dict) else None
     if not isinstance(items, list) or not items:
@@ -2769,6 +3441,8 @@ def check_kms_005(evidence: Dict[str, Any]) -> PreCheckResult:
         "kms:*",
     }
 
+    arn_map = _kms_id_to_arn(evidence)
+
     for rec in items:
         if not isinstance(rec, dict):
             continue
@@ -2780,17 +3454,33 @@ def check_kms_005(evidence: Dict[str, Any]) -> PreCheckResult:
                 continue
             if str(st.get("Effect") or "").upper() != "ALLOW":
                 continue
+
+            # Skip the AWS-required "Enable IAM User Permissions" root statement.
+            # kms:* granted to the account root (arn:aws:iam::<account>:root) is the
+            # standard, mandatory delegation pattern recommended by AWS KMS documentation.
+            # It does NOT grant direct access to any entity — it only enables IAM policies.
+            principal = st.get("Principal")
+            if isinstance(principal, dict):
+                aws_p = principal.get("AWS", "")
+                if isinstance(aws_p, str) and aws_p.endswith(":root"):
+                    continue
+                if isinstance(aws_p, list) and all(
+                    isinstance(p, str) and p.endswith(":root") for p in aws_p
+                ):
+                    continue
+
             for act in _actions_from_stmt(st):
                 if str(act).lower() in destructive:
                     key_id = rec.get("KeyId", "unknown")
+                    key_arn = arn_map.get(key_id, rec.get("KeyArn", key_id))
                     return PreCheckResult(
                         "KMS-005",
                         "FAIL",
-                        f"key {key_id} allows destructive action {act}",
-                        [rec.get("KeyArn", key_id)],
+                        f"key {key_id} allows destructive action {act} to non-root principal",
+                        [key_arn],
                     )
 
-    return PreCheckResult("KMS-005", "PASS", "no destructive key actions in policy", [])
+    return PreCheckResult("KMS-005", "PASS", "no destructive key actions to non-root principals", [])
 
 
 @_register("kms")
@@ -2853,6 +3543,9 @@ def check_kms_007(evidence: Dict[str, Any]) -> PreCheckResult:
     if not isinstance(items, list) or not items:
         return PreCheckResult("KMS-007", "SKIP", "no kms-grants evidence", [])
 
+    flagged_keys: List[str] = []
+    flagged_grants: List[str] = []
+
     for g in items:
         if not isinstance(g, dict):
             continue
@@ -2872,11 +3565,17 @@ def check_kms_007(evidence: Dict[str, Any]) -> PreCheckResult:
 
         key_id = str(g.get("KeyId") or "unknown")
         grant_id = str(g.get("GrantId") or "unknown")
+        if key_id not in flagged_keys:
+            flagged_keys.append(key_id)
+        flagged_grants.append(grant_id[:12])  # abbreviated for readability
+
+    if flagged_keys:
+        count = len(flagged_keys)
         return PreCheckResult(
             "KMS-007",
             "FAIL",
-            f"grant {grant_id} delegates CreateGrant without constraints",
-            [key_id],
+            f"{count} key(s) with grants that delegate CreateGrant without encryption context constraints",
+            flagged_keys[:10],
         )
 
     return PreCheckResult("KMS-007", "PASS", "no unconstrained CreateGrant delegation", [])
@@ -3081,7 +3780,7 @@ def check_msg_007(evidence: Dict[str, Any]) -> PreCheckResult:
             actions = {str(a).lower() for a in _actions_from_stmt(st)}
             if not ({"sns:subscribe", "sns:*", "*"} & actions):
                 continue
-            if _principal_is_wildcard_any(st.get("Principal")):
+            if _principal_is_wildcard_any(st.get("Principal")) and not _stmt_has_same_account_restriction(st):
                 return PreCheckResult(
                     "MSG-007",
                     "FAIL",
@@ -3115,7 +3814,7 @@ def check_msg_008(evidence: Dict[str, Any]) -> PreCheckResult:
             actions = {str(a).lower() for a in _actions_from_stmt(st)}
             if not ({"sns:publish", "sns:*", "*"} & actions):
                 continue
-            if _principal_is_wildcard_any(st.get("Principal")):
+            if _principal_is_wildcard_any(st.get("Principal")) and not _stmt_has_same_account_restriction(st):
                 return PreCheckResult(
                     "MSG-008",
                     "FAIL",
@@ -3124,6 +3823,50 @@ def check_msg_008(evidence: Dict[str, Any]) -> PreCheckResult:
                 )
 
     return PreCheckResult("MSG-008", "PASS", "no wildcard Publish in SNS topic policies", [])
+
+
+@_register("messaging")
+def check_msg_009(evidence: Dict[str, Any]) -> PreCheckResult:
+    """SNS topic policy grants administrative actions (DeleteTopic, SetTopicAttributes,
+    AddPermission, RemovePermission) to a wildcard principal."""
+    _ADMIN_ACTIONS = {
+        "sns:deletetopic",
+        "sns:settopicattributes",
+        "sns:addpermission",
+        "sns:removepermission",
+        "sns:*",
+        "*",
+    }
+    t_doc = evidence.get("sns-topics")
+    items = t_doc.get("items") if isinstance(t_doc, dict) else None
+    if not isinstance(items, list) or not items:
+        return PreCheckResult("MSG-009", "SKIP", "no sns-topics evidence", [])
+
+    for t in items:
+        if not isinstance(t, dict):
+            continue
+        attrs = t.get("Attributes")
+        if not isinstance(attrs, dict):
+            continue
+        pol = attrs.get("Policy")
+        if not isinstance(pol, dict):
+            continue
+        for st in _stmts_from_policy(pol):
+            if not isinstance(st, dict) or str(st.get("Effect") or "").upper() != "ALLOW":
+                continue
+            actions = {str(a).lower() for a in _actions_from_stmt(st)}
+            matched = _ADMIN_ACTIONS & actions
+            if not matched:
+                continue
+            if _principal_is_wildcard_any(st.get("Principal")) and not _stmt_has_same_account_restriction(st):
+                return PreCheckResult(
+                    "MSG-009",
+                    "FAIL",
+                    f"topic policy allows wildcard principal to perform admin actions: {sorted(matched)}",
+                    [str(t.get("TopicArn") or "unknown")],
+                )
+
+    return PreCheckResult("MSG-009", "PASS", "no wildcard admin actions in SNS topic policies", [])
 
 
 # ============================================================================
@@ -3306,26 +4049,37 @@ def check_comp_ecs_002(evidence: Dict[str, Any]) -> PreCheckResult:
                 return True
         return False
 
+    affected_arns: List[str] = []
+    affected_images: List[str] = []
     for td in tdefs:
         if not isinstance(td, dict):
             continue
         cds = td.get("containerDefinitions")
         if not isinstance(cds, list):
             continue
+        arn = td.get("taskDefinitionArn", "unknown")
         for cd in cds:
             if (
                 isinstance(cd, dict)
                 and isinstance(cd.get("image"), str)
                 and _suspicious(cd["image"])
             ):
-                return PreCheckResult(
-                    "COMP-ECS-002",
-                    "FAIL",
-                    f"suspicious image: {cd['image']}",
-                    [td.get("taskDefinitionArn", "unknown")],
-                )
+                if arn not in affected_arns:
+                    affected_arns.append(arn)
+                if cd["image"] not in affected_images:
+                    affected_images.append(cd["image"])
+                break  # one hit per task definition is enough
 
-    return PreCheckResult("COMP-ECS-002", "PASS", "no suspicious container images", [])
+    if not affected_arns:
+        return PreCheckResult("COMP-ECS-002", "PASS", "no suspicious container images", [])
+
+    images_str = ", ".join(affected_images[:5])
+    return PreCheckResult(
+        "COMP-ECS-002",
+        "FAIL",
+        f"{len(affected_arns)} task definition(s) with suspicious images: {images_str}",
+        affected_arns[:10],
+    )
 
 
 @_register("compute")
@@ -3362,6 +4116,92 @@ def check_comp_ecs_003(evidence: Dict[str, Any]) -> PreCheckResult:
                 )
 
     return PreCheckResult("COMP-ECS-003", "PASS", "all containers have awslogs", [])
+
+
+@_register("compute")
+def check_comp_ecs_004(evidence: Dict[str, Any]) -> PreCheckResult:
+    """ECS task definitions without a scoped task role (no taskRoleArn)."""
+    ecs_doc = evidence.get("ecs-inventory")
+    tdefs = ecs_doc.get("task_definitions") if isinstance(ecs_doc, dict) else None
+    if not isinstance(tdefs, list) or not tdefs:
+        return PreCheckResult("COMP-ECS-004", "SKIP", "no ecs-inventory evidence", [])
+
+    affected: List[str] = []
+    seen: set = set()
+    for td in tdefs:
+        if not isinstance(td, dict):
+            continue
+        arn = td.get("taskDefinitionArn", "unknown")
+        if arn in seen:
+            continue
+        seen.add(arn)
+        if not td.get("taskRoleArn"):
+            affected.append(arn)
+
+    if not affected:
+        return PreCheckResult(
+            "COMP-ECS-004", "PASS", "all task definitions have a scoped task role", []
+        )
+    return PreCheckResult(
+        "COMP-ECS-004",
+        "FAIL",
+        f"{len(affected)} task definition(s) without taskRoleArn (no scoped task identity)",
+        affected[:10],
+    )
+
+
+@_register("compute")
+def check_comp_ecs_005(evidence: Dict[str, Any]) -> PreCheckResult:
+    """ECS task definitions must not embed plaintext credentials in environment variables."""
+    import re as _re
+
+    ecs_doc = evidence.get("ecs-inventory")
+    tdefs = ecs_doc.get("task_definitions") if isinstance(ecs_doc, dict) else None
+    if not isinstance(tdefs, list) or not tdefs:
+        return PreCheckResult("COMP-ECS-005", "SKIP", "no ecs-inventory evidence", [])
+
+    _SECRET_KEYWORDS = _re.compile(
+        r"(pass(word)?|secret|api[_\-]?key|token|credential|private[_\-]?key|auth)",
+        _re.IGNORECASE,
+    )
+
+    affected: List[str] = []
+    seen: set = set()
+    for td in tdefs:
+        if not isinstance(td, dict):
+            continue
+        arn = td.get("taskDefinitionArn", "unknown")
+        if arn in seen:
+            continue
+        cds = td.get("containerDefinitions")
+        if not isinstance(cds, list):
+            continue
+        for cd in cds:
+            if not isinstance(cd, dict):
+                continue
+            env_vars = cd.get("environment")
+            if not isinstance(env_vars, list):
+                continue
+            for env in env_vars:
+                if not isinstance(env, dict):
+                    continue
+                name = str(env.get("name") or "")
+                value = str(env.get("value") or "")
+                if _SECRET_KEYWORDS.search(name) and len(value) > 4:
+                    affected.append(arn)
+                    seen.add(arn)
+                    break  # one hit per task definition is enough
+
+    if not affected:
+        return PreCheckResult(
+            "COMP-ECS-005", "PASS", "no plaintext credentials detected in env vars", []
+        )
+    return PreCheckResult(
+        "COMP-ECS-005",
+        "FAIL",
+        f"{len(affected)} task definition(s) with suspected plaintext credentials in env vars",
+        affected[:10],
+    )
 
 
 @_register("compute")

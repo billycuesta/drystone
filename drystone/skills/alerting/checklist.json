@@ -5,7 +5,7 @@
   "items": [
     {
       "id": "ALRT-001",
-      "title": "CloudTrail sin integracion con CloudWatch Logs",
+      "title": "CloudTrail not integrated with CloudWatch Logs",
       "severity": "Critical",
       "description": "AWS CloudTrail is not integrated with CloudWatch Logs, meaning that CloudTrail events are not centrally streamed for monitoring, metric filtering, and alarming, resulting in a critical gap in security visibility.",
       "remediation": "Configure CloudTrail to send all management and data events to a dedicated CloudWatch Logs Log Group. Ensure the IAM role for CloudTrail has necessary permissions to publish to CloudWatch Logs.",
@@ -26,7 +26,7 @@
     },
     {
       "id": "ALRT-002",
-      "title": "CloudTrail sin integracion con EventBridge",
+      "title": "CloudTrail not integrated with EventBridge",
       "severity": "Critical",
       "description": "AWS CloudTrail events are not being routed to Amazon EventBridge, missing a crucial mechanism for real-time, event-driven security automation and advanced alerting workflows.",
       "remediation": "Create EventBridge rules to capture relevant CloudTrail events (e.g., specific API calls) and route them to targets like SNS, Lambda, or Security Hub for advanced processing and alerting.",
@@ -39,7 +39,7 @@
     },
     {
       "id": "ALRT-003",
-      "title": "Metric Filters sin alarmas asociadas",
+      "title": "Metric Filters without associated alarms",
       "severity": "Critical",
       "description": "CloudWatch Metric Filters designed to detect critical security events do not have associated CloudWatch Alarms, meaning that detected event patterns will not trigger proactive notifications to security personnel.",
       "remediation": "For every security-related CloudWatch Metric Filter, create a corresponding CloudWatch Alarm with appropriate thresholds and configure it to publish to an SNS Topic that has confirmed subscribers.",
@@ -52,7 +52,7 @@
     },
     {
       "id": "ALRT-004",
-      "title": "EventBridge rules sin targets SNS",
+      "title": "EventBridge rules without SNS targets",
       "severity": "Critical",
       "description": "EventBridge rules designed to capture CloudTrail security events do not have SNS Topics as targets, preventing real-time notifications to security personnel for detected events.",
       "remediation": "Add an SNS Topic (with confirmed subscribers) as a target for all EventBridge rules that process critical CloudTrail security events.",
@@ -65,7 +65,7 @@
     },
     {
       "id": "ALRT-005",
-      "title": "SNS Topics sin subscripciones",
+      "title": "SNS Topics without subscriptions",
       "severity": "Critical",
       "description": "Security-related SNS Topics (referenced by CloudWatch Alarms or EventBridge Rules) have no active subscribers, meaning that notifications for detected security events will not reach any personnel.",
       "remediation": "Add email endpoints (e.g., security team distribution lists, on-call rotation emails) as subscribers to all critical SNS Topics and ensure all subscriptions are confirmed.",
@@ -78,7 +78,7 @@
     },
     {
       "id": "ALRT-006",
-      "title": "Subscripciones en estado 'PendingConfirmation'",
+      "title": "Subscriptions in 'PendingConfirmation' state",
       "severity": "Critical",
       "description": "One or more email subscriptions to security-related SNS Topics are in 'PendingConfirmation' state, meaning that security alerts are not being delivered to those endpoints.",
       "remediation": "Ensure all pending SNS subscriptions are confirmed by the respective recipients. Implement a process to periodically check and remind recipients of unconfirmed subscriptions.",
@@ -91,7 +91,7 @@
     },
     {
       "id": "ALRT-007",
-      "title": "Eventos criticos sin alerta configurada",
+      "title": "Critical events without configured alert",
       "severity": "Critical",
       "description": "Crucial security events (e.g., `StopLogging`, `DeleteTrail`, `CreateUser`, `ConsoleLogin`) do not have associated Metric Filters or EventBridge rules that trigger alarms/notifications.",
       "remediation": "Configure Metric Filters and CloudWatch Alarms (or EventBridge rules and SNS targets) for all identified critical security events, ensuring comprehensive coverage.",
@@ -108,7 +108,7 @@
     },
     {
       "id": "ALRT-008",
-      "title": "Trail no es multi-region (eventos perdidos en otras regiones)",
+      "title": "Trail is not multi-region (events missed in other regions)",
       "severity": "High",
       "description": "AWS CloudTrail is configured as a single-region trail, leading to potential loss of management events and data events that occur in other AWS regions or global services (e.g., IAM).",
       "remediation": "Configure CloudTrail as a multi-region trail to capture all events across all AWS regions and global services in a single trail.",
@@ -121,7 +121,7 @@
     },
     {
       "id": "ALRT-009",
-      "title": "Log Group sin Metric Filters para eventos de seguridad",
+      "title": "Log Group without Metric Filters for security events",
       "severity": "High",
       "description": "The CloudWatch Logs Log Group receiving CloudTrail events does not have adequately configured Metric Filters to detect and extract metrics for critical security-related events.",
       "remediation": "Create and verify Metric Filters for all critical security events listed in the checklist (e.g., `ConsoleLogin`, `CreateUser`, `StopLogging`, `AuthorizeSecurityGroupIngress`) within the CloudTrail Log Group.",
@@ -134,7 +134,7 @@
     },
     {
       "id": "ALRT-010",
-      "title": "Alarmas en estado INSUFFICIENT_DATA",
+      "title": "Alarms in INSUFFICIENT_DATA state",
       "severity": "High",
       "description": "One or more CloudWatch Alarms intended for security alerts are in 'INSUFFICIENT_DATA' state, indicating that they are not receiving enough data to evaluate their metric, potentially leading to missed alerts.",
       "remediation": "Investigate the root cause of 'INSUFFICIENT_DATA' alarms. This could be due to incorrect metric filter patterns, missing log events, or misconfigured alarm periods/thresholds. Adjust configurations as needed.",
@@ -147,7 +147,7 @@
     },
     {
       "id": "ALRT-011",
-      "title": "SNS Topics sin policy restrictiva",
+      "title": "SNS Topics without restrictive policy",
       "severity": "High",
       "description": "Security-related SNS Topics lack a restrictive access policy, potentially allowing unauthorized principals (users, roles, or even other AWS accounts) to publish messages or read topic metadata.",
       "remediation": "Apply a restrictive IAM policy to all security-related SNS Topics, allowing only authorized CloudWatch Alarms or EventBridge rules to publish messages.",
@@ -160,7 +160,7 @@
     },
     {
       "id": "ALRT-012",
-      "title": "No hay alerta para: ConsoleLogin, CreateUser, StopLogging",
+      "title": "No alert configured for: ConsoleLogin, CreateUser, StopLogging",
       "severity": "High",
       "description": "There are no configured alerts for critical security events such as AWS console logins, new IAM user creation, or CloudTrail logging being stopped.",
       "remediation": "Implement Metric Filters and CloudWatch Alarms (or EventBridge rules) for `ConsoleLogin`, `CreateUser`, and `StopLogging` events to ensure these crucial activities are immediately alerted upon.",
@@ -177,7 +177,7 @@
     },
     {
       "id": "ALRT-013",
-      "title": "Trail sin Log File Validation",
+      "title": "Trail without Log File Validation",
       "severity": "Medium",
       "description": "AWS CloudTrail Log File Validation is not enabled, meaning there is no cryptographic assurance that log files have not been tampered with or altered after delivery to the S3 bucket.",
       "remediation": "Enable Log File Validation for all CloudTrail trails to ensure the integrity and non-repudiation of audit logs.",
@@ -190,7 +190,7 @@
     },
     {
       "id": "ALRT-014",
-      "title": "Trail sin KMS encryption",
+      "title": "Trail without KMS encryption",
       "severity": "Medium",
       "description": "AWS CloudTrail log files are not encrypted using AWS KMS keys when delivered to the S3 bucket, potentially exposing sensitive audit data at rest if the S3 bucket's encryption is not adequately configured or if the bucket is compromised.",
       "remediation": "Configure CloudTrail to encrypt log files using an AWS KMS key when delivering them to the S3 bucket.",
@@ -203,7 +203,7 @@
     },
     {
       "id": "ALRT-015",
-      "title": "No hay alerta para IAM changes",
+      "title": "No alert configured for IAM changes",
       "severity": "Medium",
       "description": "There are no configured alerts for critical IAM changes beyond user creation/deletion, such as policy modifications, role assumption policy changes, or MFA device management.",
       "remediation": "Implement Metric Filters and CloudWatch Alarms (or EventBridge rules) for a broader range of IAM change events, ensuring comprehensive monitoring of identity and access management.",
@@ -220,7 +220,7 @@
     },
     {
       "id": "ALRT-016",
-      "title": "No hay alerta para Security Group changes",
+      "title": "No alert configured for Security Group changes",
       "severity": "Medium",
       "description": "There are no configured alerts for changes to Security Groups (e.g., `AuthorizeSecurityGroupIngress`, `RevokeSecurityGroupIngress`), which are critical network access controls.",
       "remediation": "Implement Metric Filters and CloudWatch Alarms (or EventBridge rules) for Security Group modification events to ensure immediate awareness of changes to network access rules.",
@@ -237,7 +237,7 @@
     },
     {
       "id": "ALRT-017",
-      "title": "CloudWatch Logs retention muy baja (<90 dias)",
+      "title": "CloudWatch Logs retention too low (<90 days)",
       "severity": "Medium",
       "description": "The retention policy for CloudWatch Logs Log Groups storing CloudTrail events is set to less than 90 days, potentially violating compliance requirements for audit log retention.",
       "remediation": "Adjust the retention policy for CloudTrail-related CloudWatch Logs Log Groups to at least 90 days, or longer if required by specific compliance frameworks (e.g., 365 days for PCI DSS).",
@@ -250,7 +250,7 @@
     },
     {
       "id": "ALRT-018",
-      "title": "Alarmas sin descripcion clara",
+      "title": "Alarms without clear description",
       "severity": "Low",
       "description": "CloudWatch Alarms lack clear and descriptive names or descriptions, hindering effective incident response by making it difficult to quickly understand the alarm's purpose or impacted service.",
       "remediation": "Update all CloudWatch Alarms with clear, concise, and descriptive names and descriptions that include the alarm's purpose, what it monitors, and potential impact.",
@@ -263,7 +263,7 @@
     },
     {
       "id": "ALRT-019",
-      "title": "Nombres no descriptivos",
+      "title": "Non-descriptive resource names",
       "severity": "Low",
       "description": "AWS resources related to alerting (e.g., SNS Topics, EventBridge Rules, Metric Filters) have generic or non-descriptive names, making them difficult to identify, manage, and understand within the larger AWS environment.",
       "remediation": "Implement a consistent naming convention for all alerting-related AWS resources. Use prefixes or suffixes to indicate purpose, environment, and owner.",
@@ -276,7 +276,7 @@
     },
     {
       "id": "ALRT-020",
-      "title": "Tags faltantes",
+      "title": "Missing tags on alerting resources",
       "severity": "Low",
       "description": "Key alerting resources (e.g., SNS Topics, CloudWatch Alarms) are missing essential tags, hindering resource organization, cost allocation, and automated management.",
       "remediation": "Apply consistent tags (e.g., 'Environment', 'Owner', 'Application', 'Compliance') to all alerting-related resources for better visibility and management.",
@@ -289,7 +289,7 @@
     },
     {
       "id": "ALRT-021",
-      "title": "SNS sin Dead Letter Queue",
+      "title": "SNS without Dead Letter Queue",
       "severity": "Low",
       "description": "Security-related SNS Topics that fan out to unreliable endpoints (e.g., Lambda, SQS) are not configured with a Dead Letter Queue (DLQ), potentially leading to lost security alerts if delivery fails.",
       "remediation": "Configure a Dead Letter Queue (DLQ) for SNS Topics that have critical subscribers or complex delivery mechanisms to ensure no security alerts are lost due to transient delivery failures.",
@@ -302,7 +302,7 @@
     },
     {
       "id": "ALRT-022",
-      "title": "SNS de alertas permite Publish amplio/no restringido",
+      "title": "Alert SNS topic allows broad/unrestricted Publish",
       "severity": "Critical",
       "description": "Security alert SNS topics should not allow broad publish permissions (Principal:* or weak cross-account grants), which can enable spoofed alerts/noise injection and detection evasion.",
       "remediation": "Restrict sns:Publish to expected CloudWatch/EventBridge principals and enforce aws:SourceArn/aws:SourceAccount conditions in topic policies.",
@@ -315,7 +315,7 @@
     },
     {
       "id": "ALRT-023",
-      "title": "SNS de alertas permite Subscribe amplio/external",
+      "title": "Alert SNS topic allows broad/external Subscribe",
       "severity": "High",
       "description": "Permissive sns:Subscribe on alert topics can allow unauthorized subscriptions and exfiltration of sensitive security notifications.",
       "remediation": "Restrict sns:Subscribe to approved principals/endpoints and remove wildcard or unnecessary cross-account subscription permissions.",
@@ -328,7 +328,7 @@
     },
     {
       "id": "ALRT-024",
-      "title": "SNS de alertas usa subscripciones HTTP/S sin control fuerte",
+      "title": "Alert SNS topic uses HTTP/S subscriptions without strong control",
       "severity": "High",
       "description": "HTTP/HTTPS subscriptions on critical alert topics can increase exfiltration and reliability risk when endpoint ownership/validation is weak.",
       "remediation": "Prefer controlled endpoints (email distro/SQS/Lambda), validate ownership, and monitor unexpected HTTP/HTTPS subscriptions.",
@@ -341,7 +341,7 @@
     },
     {
       "id": "ALRT-025",
-      "title": "Reglas EventBridge criticas sin target SNS de alerta",
+      "title": "Critical EventBridge rules without SNS alert target",
       "severity": "High",
       "description": "Security-relevant EventBridge rules (CloudTrail events) without SNS notification targets reduce immediate alerting effectiveness.",
       "remediation": "Attach approved SNS targets (with subscribers and least-privilege policies) to critical security EventBridge rules.",

@@ -5,7 +5,7 @@
   "items": [
     {
       "id": "VULN-001",
-      "title": "Inspector v2 NO está habilitado en la cuenta",
+      "title": "Inspector v2 NOT enabled in the account",
       "severity": "Critical",
       "description": "AWS Inspector v2 is not enabled in the account, leading to a complete lack of automated vulnerability scanning for EC2 instances, ECR container images, and Lambda functions.",
       "remediation": "Enable AWS Inspector v2 in all relevant regions and ensure it is configured to scan all supported resource types (EC2, ECR, Lambda).",
@@ -26,7 +26,7 @@
     },
     {
       "id": "VULN-002",
-      "title": "Vulnerabilidades CRITICAL sin remediar",
+      "title": "CRITICAL vulnerabilities not remediated",
       "severity": "Critical",
       "description": "Critical severity vulnerabilities detected by Inspector v2 remain un-remediated, indicating severe security flaws that could lead to data breaches, unauthorized access, or system compromise.",
       "remediation": "Prioritize and immediately address all CRITICAL vulnerabilities. This typically involves applying security patches, updating software versions, or implementing compensating controls.",
@@ -43,7 +43,7 @@
     },
     {
       "id": "VULN-003",
-      "title": "Vulnerabilidades en recursos accesibles públicamente",
+      "title": "Vulnerabilities in publicly accessible resources",
       "severity": "Critical",
       "description": "Vulnerabilities present on resources that are directly accessible from the internet (e.g., EC2 with public IP, internet-facing load balancers) significantly increase the attack surface and risk of exploitation.",
       "remediation": "Immediately remediate vulnerabilities on publicly accessible resources. If direct patching is not possible, implement temporary compensating controls like WAF rules, restrictive network ACLs, or consider isolating the resource.",
@@ -60,7 +60,7 @@
     },
     {
       "id": "VULN-004",
-      "title": "CVEs con exploit conocido y activo (0-day, POC público)",
+      "title": "CVEs with known active exploit (0-day, public PoC)",
       "severity": "Critical",
       "description": "Detected vulnerabilities have known and active exploits (e.g., public Proof-of-Concept code or 0-day exploits), indicating an immediate and severe threat of targeted attacks.",
       "remediation": "Isolate or shut down affected systems if necessary. Apply patches or strong mitigating controls immediately. Monitor for signs of exploitation.",
@@ -77,7 +77,7 @@
     },
     {
       "id": "VULN-005",
-      "title": "Vulnerabilidades en recursos de alta criticidad (AD, databases, API servers)",
+      "title": "Vulnerabilities in high-criticality resources (AD, databases, API servers)",
       "severity": "Critical",
       "description": "Vulnerabilities found in highly critical resources such as directory services (Active Directory), databases storing sensitive data, or core API servers have a disproportionately high impact on confidentiality, integrity, and availability.",
       "remediation": "Prioritize remediation for these resources above all others. Implement additional monitoring and access restrictions as temporary measures.",
@@ -94,7 +94,7 @@
     },
     {
       "id": "VULN-006",
-      "title": "Scanning deshabilitado para EC2 (recurso más usado)",
+      "title": "Scanning disabled for EC2 (most used resource)",
       "severity": "Critical",
       "description": "Inspector v2 scanning is disabled for EC2 instances, leaving the most common compute resources in AWS unmonitored for software vulnerabilities and configuration exposures.",
       "remediation": "Enable EC2 scanning for all instances within Inspector v2. Ensure new instances are automatically enrolled for scanning.",
@@ -111,7 +111,7 @@
     },
     {
       "id": "VULN-007",
-      "title": "Scanning deshabilitado para ECR (imágenes privadas sin auditar)",
+      "title": "Scanning disabled for ECR (private images unaudited)",
       "severity": "Critical",
       "description": "Inspector v2 scanning is disabled for ECR repositories, meaning private container images used in critical applications are not being audited for embedded software vulnerabilities.",
       "remediation": "Enable ECR scanning for all repositories within Inspector v2. Integrate vulnerability scanning into the CI/CD pipeline to prevent vulnerable images from reaching production.",
@@ -128,7 +128,7 @@
     },
     {
       "id": "VULN-008",
-      "title": "Vulnerabilidades HIGH sin plan de remediación",
+      "title": "HIGH vulnerabilities without remediation plan",
       "severity": "High",
       "description": "High severity vulnerabilities detected by Inspector v2 lack a defined remediation plan, leading to prolonged exposure to significant risks.",
       "remediation": "Develop and assign clear remediation plans, including responsible teams and timelines (e.g., within 1 week), for all HIGH severity findings.",
@@ -145,7 +145,7 @@
     },
     {
       "id": "VULN-009",
-      "title": "Múltiples CVEs en mismo recurso (accumulation risk)",
+      "title": "Multiple CVEs on same resource (accumulation risk)",
       "severity": "High",
       "description": "A single resource (e.g., an EC2 instance or container image) presents multiple high-severity CVEs, significantly increasing its overall risk profile due to accumulated vulnerabilities.",
       "remediation": "Prioritize multi-vulnerability resources for remediation. Consider re-deploying or re-architecting the resource with a hardened base image and up-to-date software.",
@@ -158,7 +158,7 @@
     },
     {
       "id": "VULN-010",
-      "title": "Vulnerabilidades en componentes de servicio crítico",
+      "title": "Vulnerabilities in critical service components",
       "severity": "High",
       "description": "Vulnerabilities exist in components directly supporting critical business services, increasing the likelihood of service disruption or compromise if exploited.",
       "remediation": "Accelerate remediation efforts for vulnerabilities impacting critical service components. Ensure robust monitoring is in place.",
@@ -171,7 +171,7 @@
     },
     {
       "id": "VULN-011",
-      "title": "ECR scanning deshabilitado (imágenes no auditadas)",
+      "title": "ECR scanning disabled (images not audited)",
       "severity": "High",
       "description": "Inspector v2 scanning for ECR repositories is disabled, meaning private container images that are critical for applications are not being audited for embedded software vulnerabilities.",
       "remediation": "Enable ECR scanning for all relevant repositories within Inspector v2. Integrate image scanning into the CI/CD pipeline.",
@@ -184,7 +184,7 @@
     },
     {
       "id": "VULN-012",
-      "title": "Lambda scanning deshabilitado (código no verificado)",
+      "title": "Lambda scanning disabled (code not verified)",
       "severity": "High",
       "description": "Inspector v2 scanning for Lambda functions is disabled, leaving serverless code unverified for software vulnerabilities and configuration issues.",
       "remediation": "Enable Lambda scanning for all functions within Inspector v2. Integrate code analysis into the serverless development pipeline.",
@@ -197,7 +197,7 @@
     },
     {
       "id": "VULN-013",
-      "title": "Hallazgos de Inspector sin investigar >7 días",
+      "title": "Inspector findings uninvestigated for >7 days",
       "severity": "High",
       "description": "Inspector findings, especially high-severity ones, remain uninvestigated for more than 7 days, indicating a delay in security incident response or vulnerability management processes.",
       "remediation": "Establish and enforce SLAs for investigating Inspector findings. Integrate Security Hub findings with a ticketing or incident management system for prompt action.",
@@ -214,7 +214,7 @@
     },
     {
       "id": "VULN-014",
-      "title": "Recurso con vulnerabilidad no parcheado >30 días",
+      "title": "Resource with vulnerability unpatched for >30 days",
       "severity": "High",
       "description": "A resource with a detected vulnerability has not been patched or remediated for over 30 days, increasing the window of exposure and potential for exploitation.",
       "remediation": "Implement and enforce a patching policy with strict deadlines (e.g., 7-30 days depending on severity). Automate patching where possible.",
@@ -227,7 +227,7 @@
     },
     {
       "id": "VULN-015",
-      "title": "Vulnerabilidades MEDIUM sin timeline de remediación",
+      "title": "MEDIUM vulnerabilities without remediation timeline",
       "severity": "Medium",
       "description": "Medium severity vulnerabilities lack a defined timeline for remediation, potentially leading to an accumulation of technical debt and unaddressed risks over time.",
       "remediation": "Assign clear remediation timelines for all MEDIUM severity findings (e.g., within 2-4 weeks) and integrate them into project backlogs or maintenance schedules.",
@@ -240,7 +240,7 @@
     },
     {
       "id": "VULN-016",
-      "title": "Scanning habilitado pero sin automación de reportes",
+      "title": "Scanning enabled but without automated reporting",
       "severity": "Medium",
       "description": "Inspector v2 is enabled and performing scans, but its findings are not automatically integrated into reports, dashboards, or external systems, hindering proactive management.",
       "remediation": "Configure automated reporting mechanisms for Inspector findings, such as sending them to AWS Security Hub, custom dashboards, or exporting them periodically.",
@@ -253,7 +253,7 @@
     },
     {
       "id": "VULN-017",
-      "title": "Inspector no está enviando notificaciones de nuevos hallazgos",
+      "title": "Inspector not sending notifications for new findings",
       "severity": "Medium",
       "description": "New Inspector findings are not generating active notifications (e.g., via SNS to email/chat), delaying security team awareness and response to emerging vulnerabilities.",
       "remediation": "Configure Amazon EventBridge rules to trigger SNS notifications for new Inspector findings, especially for CRITICAL and HIGH severities, to alert security personnel.",
@@ -266,7 +266,7 @@
     },
     {
       "id": "VULN-018",
-      "title": "Recursos excluidos de scanning sin justificación documentada",
+      "title": "Resources excluded from scanning without documented justification",
       "severity": "Medium",
       "description": "Some resources are explicitly excluded from Inspector v2 scanning without a clear, documented business or technical justification, creating potential blind spots in vulnerability coverage.",
       "remediation": "Review all excluded resources. Either provide clear, documented justification for their exclusion and any compensating controls, or re-include them in the Inspector v2 scanning scope.",
@@ -279,7 +279,7 @@
     },
     {
       "id": "VULN-019",
-      "title": "Vulnerabilidades LOW/INFORMATIONAL pendientes",
+      "title": "LOW/INFORMATIONAL vulnerabilities pending",
       "severity": "Low",
       "description": "Low or informational severity vulnerabilities, while not immediately critical, remain unaddressed. These can contribute to technical debt or be part of a larger attack chain.",
       "remediation": "Address LOW/INFORMATIONAL findings as part of routine maintenance, during resource lifecycle updates, or when patching higher-severity issues on the same resource.",
@@ -292,7 +292,7 @@
     },
     {
       "id": "VULN-020",
-      "title": "Hallazgos duplicados (misma vuln en múltiples recursos)",
+      "title": "Duplicate findings (same vulnerability across multiple resources)",
       "severity": "Low",
       "description": "Multiple instances of the same vulnerability are detected across numerous resources, often indicating a common underlying issue such as an outdated base image, shared library, or system configuration.",
       "remediation": "Identify the common root cause (e.g., base AMI, Docker image) and implement a centralized fix to efficiently address the vulnerability across all affected resources.",
@@ -305,7 +305,7 @@
     },
     {
       "id": "VULN-021",
-      "title": "CVEs resueltos en versión más nueva pero no disponible",
+      "title": "CVEs resolved in newer version but not yet available",
       "severity": "Low",
       "description": "A CVE has a fix available in a newer software version, but that version is not currently compatible or readily deployable in the environment, leading to a temporary inability to fully remediate.",
       "remediation": "Plan an upgrade path for the affected component, evaluate workarounds, or accept the temporary risk with compensating controls if deemed appropriate after a risk assessment.",
@@ -318,7 +318,7 @@
     },
     {
       "id": "VULN-022",
-      "title": "Instancias con IMDSv1 habilitado (riesgo SSRF -> robo de credenciales)",
+      "title": "Instances with IMDSv1 enabled (SSRF risk -> credential theft)",
       "severity": "High",
       "description": "EC2 instances that do not require IMDSv2 (HttpTokens != required) are exposed to metadata credential theft in SSRF scenarios.",
       "remediation": "Enforce IMDSv2 on all EC2 instances by setting HttpTokens=require and review workloads for metadata access compatibility.",
@@ -335,7 +335,7 @@
     },
     {
       "id": "VULN-023",
-      "title": "EC2 user-data contiene secretos o credenciales potenciales",
+      "title": "EC2 user-data contains potential secrets or credentials",
       "severity": "High",
       "description": "User-data scripts include patterns consistent with credentials (keys, tokens, passwords), creating immediate post-compromise exposure.",
       "remediation": "Remove secrets from user-data, rotate exposed credentials, and move secret retrieval to managed services such as Secrets Manager or Parameter Store.",
@@ -352,7 +352,7 @@
     },
     {
       "id": "VULN-024",
-      "title": "Variables de entorno Lambda con claves sensibles",
+      "title": "Lambda environment variables with sensitive keys",
       "severity": "High",
       "description": "Lambda environment variables contain keys likely representing secrets, increasing impact of function compromise or log leakage.",
       "remediation": "Move sensitive values to Secrets Manager/SSM Parameter Store, enable KMS protections, and minimize plaintext secret exposure in runtime configuration.",
@@ -369,7 +369,7 @@
     },
     {
       "id": "VULN-025",
-      "title": "Instance profiles con permisos excesivos (admin/wildcard)",
+      "title": "Instance profiles with excessive permissions (admin/wildcard)",
       "severity": "Critical",
       "description": "EC2 instance profiles include attached policies indicating over-privileged permissions, amplifying impact of workload compromise and lateral movement.",
       "remediation": "Reduce role permissions to least privilege, remove administrator-equivalent policies from compute roles, and isolate sensitive actions behind scoped roles.",
@@ -386,7 +386,7 @@
     },
     {
       "id": "VULN-028",
-      "title": "Snapshots EBS compartidos públicamente",
+      "title": "EBS snapshots shared publicly",
       "severity": "Critical",
       "description": "EBS snapshots shared with all accounts (public restore permissions) can expose disk contents, credentials, and sensitive data.",
       "remediation": "Revoke public snapshot sharing, restrict createVolumePermission to specific accounts, and continuously audit snapshot ACLs.",
