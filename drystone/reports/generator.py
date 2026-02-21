@@ -75,19 +75,19 @@ class ReportGenerator:
             evidence_dir = self.session.get_evidence_path(expected_skill)
             if isinstance(evidence_dir, Path) and evidence_dir.exists():
                 findings_data["evidence_count"] = len(list(evidence_dir.glob("*.json")))
-        if (
-            not findings_data.get("checklist_version")
-            or findings_data.get("checklist_version") == "N/A"
-        ):
-            checklist_path = (
-                Path(__file__).parents[1] / "skills" / expected_skill / "checklist.json"
-            )
-            try:
-                with open(checklist_path) as cf:
-                    findings_data["checklist_version"] = str(
-                        (json.load(cf) or {}).get("version") or "1.0"
-                    )
-            except Exception:
+        # Always read the canonical version from the checklist file — never rely on
+        # the LLM/repair-pass value which may be stale or hardcoded to "1.0".
+        checklist_path = (
+            Path(__file__).parents[1] / "skills" / expected_skill / "checklist.json"
+        )
+        try:
+            with open(checklist_path) as cf:
+                canonical_version = str((json.load(cf) or {}).get("version") or "1.0")
+            findings_data["checklist_version"] = canonical_version
+        except Exception:
+            if not findings_data.get("checklist_version") or findings_data.get(
+                "checklist_version"
+            ) in {"N/A", "1.0"}:
                 findings_data["checklist_version"] = "1.0"
 
         # Post-process alerting skill to add architecture diagram

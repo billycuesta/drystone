@@ -358,8 +358,9 @@ def check_iam_004(evidence: Dict[str, Any]) -> PreCheckResult:
             except Exception:
                 continue
             if (now - created).days > 90:
-                uname = u.get("UserName", u.get("Arn", "unknown"))
-                old_users.append(f"arn:aws:iam::*:user/{uname}")
+                uname = str(u.get("UserName") or "unknown")
+                arn = str(u.get("Arn") or f"arn:aws:iam::*:user/{uname}")
+                old_users.append(arn)
                 break
 
     if not old_users:
