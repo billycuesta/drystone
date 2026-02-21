@@ -446,6 +446,31 @@ class BaseSkill(ABC):
         if injected:
             _logger.info(f"Pre-check reconciliation: injected {injected} findings for missed FAILs")
 
+        # Rule 2b: Correct affected_resources on existing LLM findings using pre-check data.
+        # The LLM sometimes generates wrong resource identifiers (e.g. EXP-015 using the
+        # audited account root instead of the actual cross-account principal). Pre-checks
+        # produce authoritative, evidence-derived resource lists — use them to override.
+        _RESOURCE_AUTHORITATIVE_CHECKS = {"EXP-015"}
+        corrected = 0
+        for check_id, result in fail_results.items():
+            if check_id not in _RESOURCE_AUTHORITATIVE_CHECKS:
+                continue
+            if check_id not in existing_ids or not result.affected_resources:
+                continue
+            for f in findings.findings:
+                if f.id == check_id:
+                    f.affected_resources = list(result.affected_resources)
+                    _logger.debug(
+                        f"Pre-check reconciliation: corrected affected_resources for {check_id}"
+                    )
+                    corrected += 1
+                    break
+
+        if corrected:
+            _logger.info(
+                f"Pre-check reconciliation: corrected affected_resources on {corrected} finding(s)"
+            )
+
         return findings
 
     def _build_precheck_traceability(
