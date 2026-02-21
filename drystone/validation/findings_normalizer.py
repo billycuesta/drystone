@@ -328,9 +328,13 @@ class FindingsNormalizer:
             if not self._resolve_evidence_ref(ref):
                 return False, f"unresolved evidence ref: {ref}"
 
-        # Rule 3: critical findings require stronger evidence signal
+        # Rule 3: critical findings require stronger evidence signal.
+        # Skip for findings already confirmed deterministically by Tier-1 pre-checks
+        # (_pre_checked_ids) — those have been verified against real evidence and
+        # don't need a heuristic signal check.
         if (
             finding.severity == "Critical"
+            and finding_id not in self._pre_checked_ids
             and self.skill_name not in {"HARDENING"}
             and not self._has_critical_evidence(finding)
         ):

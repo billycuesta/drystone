@@ -250,6 +250,13 @@ class AgentClient:
                 "What's next?",
                 "Link to a failing test",
                 "I'm Claude Code",
+                # Spanish conversational responses from global ~/.claude/ context
+                "Listo para empezar",
+                "¿Evidencia a analizar?",
+                "¿Cuál es el target?",
+                "¿Qué necesito?",
+                "/roth-init",
+                "/roth-session-start",
             )
             if any(marker in response_text for marker in _INTERACTIVE_MARKERS):
                 raise AgentError(
@@ -1299,8 +1306,18 @@ Missing CloudWatch alarm:
                 except json.JSONDecodeError:
                     pass
 
-            # Step 4: If still failing, check if text appears truncated
+            # Step 4: If still failing but text doesn't end with } or ], try to
+            # salvage valid JSON by truncating at the last closing brace/bracket.
+            # This handles the case where global ~/.claude/CLAUDE.md context causes
+            # the model to append help text after valid JSON output.
             if text and text[-1] not in ["}", "]"]:
+                last_brace = max(text.rfind("}"), text.rfind("]"))
+                if last_brace > 0:
+                    candidate = text[: last_brace + 1].strip()
+                    try:
+                        return json.loads(candidate)
+                    except json.JSONDecodeError:
+                        pass
                 last_chars = text[-200:] if len(text) > 200 else text
                 raise AgentError(
                     f"Response appears truncated (doesn't end with }} or ])\n"
