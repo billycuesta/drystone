@@ -45,6 +45,7 @@ class MarkdownFormatter(BaseFormatter):
         """
         parts = [
             self._header(),
+            self._narrative_executive_summary(),
             self._executive_summary(),
             self._architecture_diagram(),
             self._correlation_section(),
@@ -157,6 +158,130 @@ class MarkdownFormatter(BaseFormatter):
             out["remediation"] = self._translate_to_english(remediation)
 
         return out
+
+    _SKILL_SCOPE_DESCRIPTIONS: Dict[str, str] = {
+        "iam": "Identity and Access Management (IAM) controls, evaluating user privileges, password policies, MFA enforcement, access key rotation, root account usage, and IAM role trust relationships.",
+        "exposure": "public internet exposure across S3 buckets, API Gateway endpoints, Lambda function URLs, EC2 security groups, and CloudFront distributions.",
+        "network": "network segmentation controls including VPC configurations, Security Groups, Network ACLs, VPN endpoints, and inter-VPC connectivity.",
+        "vulns": "vulnerability landscape reported by AWS Inspector v2, covering CVEs affecting EC2 instances, container images, and Lambda functions.",
+        "hardening": "account-level hardening controls via AWS Config and Security Hub, evaluating CIS AWS Foundations Benchmark and PCI DSS compliance standards.",
+        "alerting": "security alerting and monitoring pipelines via CloudTrail, CloudWatch alarms, EventBridge rules, and SNS notification flows.",
+        "secretsmanager": "secrets lifecycle management including rotation policies, KMS encryption, access controls, and secret staleness.",
+        "waf": "Web Application Firewall coverage across ALBs, CloudFront distributions, API Gateway endpoints, and AppSync APIs.",
+        "ecr": "container registry security including image scanning configuration, lifecycle policies, and repository access controls.",
+        "webpen": "web application security through active HTTP probing, TLS configuration analysis, security headers, CORS policies, and sensitive path discovery.",
+        "kms": "KMS key management controls including rotation policies, key usage policies, and encryption coverage across AWS services.",
+        "cicd": "CI/CD pipeline security covering CodePipeline, CodeBuild configurations, and artifact security controls.",
+        "compute": "compute resource security including EC2 instance configurations, Launch Templates, and Auto Scaling group settings.",
+    }
+
+    def _compute_assessment_rating(
+        self,
+        critical: int,
+        high: int,
+        medium: int,
+        low: int,
+        risk_score: float,
+        total: int,
+    ) -> tuple:
+        """Compute qualitative assessment rating.
+
+        Returns:
+            (icon, label, description) tuple
+        """
+        if total == 0:
+            return (
+                "🟢",
+                "Excellent",
+                "No security findings were identified. The assessed controls demonstrate a strong security posture with no remediation required at this time.",
+            )
+        if critical == 0 and high == 0 and risk_score < 3.5:
+            return (
+                "🟢",
+                "Very Good",
+                "The environment demonstrates a solid security posture. Only minor findings were identified, none of which represent immediate risk. Remediation can be planned as part of the regular improvement cycle.",
+            )
+        if critical == 0 and high <= 1 and risk_score < 5.5:
+            return (
+                "🟡",
+                "Good",
+                "The environment shows a generally sound security posture with some areas requiring attention. High-severity findings should be scheduled for remediation within 30 days.",
+            )
+        if critical <= 1 and risk_score < 7.5:
+            return (
+                "🟠",
+                "Needs Improvement",
+                "Significant security gaps have been identified. One or more critical or multiple high-severity findings require prompt remediation to reduce exposure and meet compliance requirements.",
+            )
+        return (
+            "🔴",
+            "Immediate Attention Required",
+            "Critical security deficiencies have been detected that represent substantial risk to the environment. Immediate remediation is strongly recommended before the next assessment cycle.",
+        )
+
+    def _narrative_executive_summary(self) -> str:
+        """Generate narrative executive summary with overall assessment rating."""
+        summary = self.findings.get("summary", {})
+        skill = self.findings.get("skill", "Unknown").lower()
+        client = self.session.client_name or "the assessed environment"
+
+        total = int(summary.get("total_findings", 0))
+        critical = int(summary.get("critical", 0))
+        high = int(summary.get("high", 0))
+        medium = int(summary.get("medium", 0))
+        low = int(summary.get("low", 0))
+        risk_score = float(summary.get("overall_risk_score", 0.0))
+
+        scope = self._SKILL_SCOPE_DESCRIPTIONS.get(
+            skill,
+            f"{skill.upper()} security controls and configurations",
+        ).rstrip(".")
+
+        if total == 0:
+            findings_text = (
+                "No security findings were identified during this assessment. "
+                "The evaluated controls appear to be properly configured."
+            )
+        elif critical > 0 and high > 0:
+            findings_text = (
+                f"The assessment identified **{total} finding(s)**: "
+                f"**{critical} critical** and **{high} high** severity issue(s) "
+                f"alongside {medium} medium and {low} low severity item(s). "
+                f"Immediate action is required on the critical findings."
+            )
+        elif critical > 0:
+            findings_text = (
+                f"The assessment identified **{total} finding(s)**, including "
+                f"**{critical} critical** severity issue(s) requiring immediate remediation."
+            )
+        elif high > 0:
+            findings_text = (
+                f"The assessment identified **{total} finding(s)**, including "
+                f"**{high} high** severity issue(s) that should be addressed promptly."
+            )
+        elif medium > 0:
+            findings_text = (
+                f"The assessment identified **{total} finding(s)** of medium or low severity, "
+                f"representing opportunities for security improvement."
+            )
+        else:
+            findings_text = (
+                f"The assessment identified **{total}** low severity finding(s) "
+                f"representing minor improvement opportunities."
+            )
+
+        rating_icon, rating_label, rating_desc = self._compute_assessment_rating(
+            critical, high, medium, low, risk_score, total
+        )
+
+        return f"""## 🔍 Narrative Assessment
+
+This security assessment evaluated the {scope} for **{client}**. {findings_text}
+
+**Overall Assessment:** {rating_icon} **{rating_label}**
+
+> {rating_desc}
+"""
 
     def _header(self) -> str:
         """Generate report header."""

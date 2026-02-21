@@ -76,6 +76,7 @@ class PDFFormatter(BaseFormatter):
         return {
             "DRYSTONE_BANNER_HTML": self._drystone_ascii_banner_gradient_html(),
             "ANALYSIS_TITLE": html.escape(self._analysis_title()),
+            "INDEX_SECTION": self._index_section_html(findings),
             "CLIENT_NAME": html.escape(self.session.client_name or "Unknown Client"),
             "REPORT_DATE": html.escape(report_date),
             "AWS_ACCOUNT_ID": html.escape(self._resolved_account_id(findings)),
@@ -88,6 +89,7 @@ class PDFFormatter(BaseFormatter):
             "TOTAL_FINDINGS": str(summary.get("total_findings", len(findings))),
             "RISK_SCORE": f"{float(summary.get('overall_risk_score', 0.0)):.1f}",
             "SCOPE_DEFINITION": self._scope_definition_html(summary, findings),
+            "EXECUTIVE_NARRATIVE": self._executive_narrative_html(summary),
             "METHODOLOGY_SECTION": self._methodology_section_html(),
             "SEVERITY_CHART": self._severity_distribution_chart_html(summary),
             "TOP_RESOURCES": self._top_resources_html(findings),
@@ -102,6 +104,35 @@ class PDFFormatter(BaseFormatter):
             "REFERENCES": self._references_html(),
             "FOOTER_NOTES": self._footer_notes_html(),
         }
+
+    def _index_section_html(self, findings: List[Dict[str, Any]]) -> str:
+        ordered = sorted(findings, key=self._finding_sort_key)
+        finding_items = []
+        for finding in ordered:
+            fid = html.escape(str(finding.get("id", "N/A")))
+            title = html.escape(str(finding.get("title", "Untitled")))
+            finding_items.append(f"<li><span class='index-code'>{fid}</span> {title}</li>")
+
+        nested_findings = (
+            "<ol class='index-sublist'>" + "".join(finding_items) + "</ol>"
+            if finding_items
+            else "<ol class='index-sublist'><li>No findings</li></ol>"
+        )
+
+        return (
+            "<ol class='index-list'>"
+            "<li>Scope Definition</li>"
+            "<li>Executive Summary</li>"
+            "<li>Risk Analysis</li>"
+            "<li>Architecture Overview (if available)</li>"
+            "<li>Cross-Skill Correlations (if available)</li>"
+            "<li>Detailed Findings by Severity" + nested_findings + "</li>"
+            "<li>Observations</li>"
+            "<li>Remediation Timeline</li>"
+            "<li>References</li>"
+            "<li>Notes</li>"
+            "</ol>"
+        )
 
     def _display_skill(self) -> str:
         report_meta = self.findings.get("report_metadata", {})
@@ -122,6 +153,13 @@ class PDFFormatter(BaseFormatter):
         """Render ASCII banner with per-character gradient for PDF compatibility."""
         raw_banner = self._drystone_ascii_banner()
         banner = raw_banner.split("\n")
+
+        # Normalize left padding so all lines start from the same column in PDF.
+        leading_spaces = [len(line) - len(line.lstrip(" ")) for line in banner if line.strip()]
+        trim = min(leading_spaces) if leading_spaces else 0
+        banner = [line[trim:] if len(line) >= trim else line for line in banner]
+
+        normalized_banner = "\n".join(banner)
         flat_chars = sum(len(line) for line in banner) or 1
 
         start = (180, 100, 220)
@@ -144,8 +182,8 @@ class PDFFormatter(BaseFormatter):
                 index += 1
             html_lines.append(f"<div class='drystone-logo-line'>{''.join(chunks)}</div>")
 
-        # Keep raw banner text in HTML comments for testability/regression checks.
-        return f"<!-- {raw_banner} -->" + "".join(html_lines)
+        # Keep normalized banner text in comments for regression checks.
+        return f"<!-- {normalized_banner} -->" + "".join(html_lines)
 
     def _analysis_title(self) -> str:
         skill = self._display_skill()
@@ -234,6 +272,131 @@ class PDFFormatter(BaseFormatter):
                 out[key] = self._translate_to_english(val)
         return out
 
+    _SKILL_SCOPE_DESCRIPTIONS: Dict[str, str] = {
+        "iam": "Identity and Access Management (IAM) controls, evaluating user privileges, password policies, MFA enforcement, access key rotation, root account usage, and IAM role trust relationships.",
+        "exposure": "public internet exposure across S3 buckets, API Gateway endpoints, Lambda function URLs, EC2 security groups, and CloudFront distributions.",
+        "network": "network segmentation controls including VPC configurations, Security Groups, Network ACLs, VPN endpoints, and inter-VPC connectivity.",
+        "vulns": "vulnerability landscape reported by AWS Inspector v2, covering CVEs affecting EC2 instances, container images, and Lambda functions.",
+        "hardening": "account-level hardening controls via AWS Config and Security Hub, evaluating CIS AWS Foundations Benchmark and PCI DSS compliance standards.",
+        "alerting": "security alerting and monitoring pipelines via CloudTrail, CloudWatch alarms, EventBridge rules, and SNS notification flows.",
+        "secretsmanager": "secrets lifecycle management including rotation policies, KMS encryption, access controls, and secret staleness.",
+        "waf": "Web Application Firewall coverage across ALBs, CloudFront distributions, API Gateway endpoints, and AppSync APIs.",
+        "ecr": "container registry security including image scanning configuration, lifecycle policies, and repository access controls.",
+        "webpen": "web application security through active HTTP probing, TLS configuration analysis, security headers, CORS policies, and sensitive path discovery.",
+        "kms": "KMS key management controls including rotation policies, key usage policies, and encryption coverage across AWS services.",
+        "cicd": "CI/CD pipeline security covering CodePipeline, CodeBuild configurations, and artifact security controls.",
+        "compute": "compute resource security including EC2 instance configurations, Launch Templates, and Auto Scaling group settings.",
+    }
+
+    def _compute_assessment_rating_pdf(
+        self,
+        critical: int,
+        high: int,
+        medium: int,
+        low: int,
+        risk_score: float,
+        total: int,
+    ) -> tuple:
+        """Compute qualitative assessment rating for PDF reports.
+
+        Returns:
+            (css_class, label, description) tuple
+        """
+        if total == 0:
+            return (
+                "rating-excellent",
+                "Excellent",
+                "No security findings were identified. The assessed controls demonstrate a strong security posture with no remediation required at this time.",
+            )
+        if critical == 0 and high == 0 and risk_score < 3.5:
+            return (
+                "rating-very-good",
+                "Very Good",
+                "The environment demonstrates a solid security posture. Only minor findings were identified, none of which represent immediate risk. Remediation can be planned as part of the regular improvement cycle.",
+            )
+        if critical == 0 and high <= 1 and risk_score < 5.5:
+            return (
+                "rating-good",
+                "Good",
+                "The environment shows a generally sound security posture with some areas requiring attention. High-severity findings should be scheduled for remediation within 30 days.",
+            )
+        if critical <= 1 and risk_score < 7.5:
+            return (
+                "rating-improvable",
+                "Needs Improvement",
+                "Significant security gaps have been identified. One or more critical or multiple high-severity findings require prompt remediation to reduce exposure and meet compliance requirements.",
+            )
+        return (
+            "rating-critical",
+            "Immediate Attention Required",
+            "Critical security deficiencies have been detected that represent substantial risk to the environment. Immediate remediation is strongly recommended before the next assessment cycle.",
+        )
+
+    def _executive_narrative_html(self, summary: Dict[str, Any]) -> str:
+        """Generate narrative executive summary section for PDF reports."""
+        skill = str(self.findings.get("skill", "unknown")).lower()
+        client = html.escape(str(self.session.client_name or "the assessed environment"))
+
+        total = int(summary.get("total_findings", 0))
+        critical = int(summary.get("critical", 0))
+        high = int(summary.get("high", 0))
+        medium = int(summary.get("medium", 0))
+        low = int(summary.get("low", 0))
+        risk_score = float(summary.get("overall_risk_score", 0.0))
+
+        scope = html.escape(
+            self._SKILL_SCOPE_DESCRIPTIONS.get(
+                skill, f"{skill.upper()} security controls and configurations"
+            ).rstrip(".")
+        )
+
+        if total == 0:
+            findings_text = (
+                "No security findings were identified during this assessment. "
+                "The evaluated controls appear to be properly configured."
+            )
+        elif critical > 0 and high > 0:
+            findings_text = (
+                f"The assessment identified <strong>{total} finding(s)</strong>: "
+                f"<strong>{critical} critical</strong> and <strong>{high} high</strong> severity issue(s) "
+                f"alongside {medium} medium and {low} low severity item(s). "
+                f"Immediate action is required on the critical findings."
+            )
+        elif critical > 0:
+            findings_text = (
+                f"The assessment identified <strong>{total} finding(s)</strong>, including "
+                f"<strong>{critical} critical</strong> severity issue(s) requiring immediate remediation."
+            )
+        elif high > 0:
+            findings_text = (
+                f"The assessment identified <strong>{total} finding(s)</strong>, including "
+                f"<strong>{high} high</strong> severity issue(s) that should be addressed promptly."
+            )
+        elif medium > 0:
+            findings_text = (
+                f"The assessment identified <strong>{total} finding(s)</strong> of medium or low severity, "
+                f"representing opportunities for security improvement."
+            )
+        else:
+            findings_text = (
+                f"The assessment identified <strong>{total}</strong> low severity finding(s) "
+                f"representing minor improvement opportunities."
+            )
+
+        rating_class, rating_label, rating_desc = self._compute_assessment_rating_pdf(
+            critical, high, medium, low, risk_score, total
+        )
+
+        return (
+            f"<p>This security assessment evaluated the {scope} for <strong>{client}</strong>. "
+            f"{findings_text}</p>"
+            f"<div class='assessment-rating {rating_class}'>"
+            f"<span class='rating-label'>Overall Assessment:</span> "
+            f"<span class='rating-value'>{html.escape(rating_label)}</span>"
+            f"<p class='rating-desc'>{html.escape(rating_desc)}</p>"
+            f"</div>"
+        )
+
     def _scope_definition_html(
         self, summary: Dict[str, Any], findings: List[Dict[str, Any]]
     ) -> str:
@@ -291,6 +454,8 @@ class PDFFormatter(BaseFormatter):
         return labels.get(report_type, report_type.upper())
 
     def _masked_access_key(self) -> str:
+        import os
+
         access_key = getattr(self.config, "aws_access_key_id", None)
         if isinstance(access_key, str) and access_key:
             return f"{access_key[:4]}...{access_key[-4:]}"
@@ -305,6 +470,11 @@ class PDFFormatter(BaseFormatter):
             except Exception:
                 pass
             return f"File: {self.config.aws_credentials_file}"
+
+        env_access_key = os.getenv("AWS_ACCESS_KEY_ID")
+        if isinstance(env_access_key, str) and env_access_key:
+            return f"{env_access_key[:4]}...{env_access_key[-4:]}"
+
         return "Environment variables"
 
     def _severity_distribution_chart_html(self, summary: Dict[str, Any]) -> str:
@@ -315,7 +485,7 @@ class PDFFormatter(BaseFormatter):
             pct = int((count / total) * 100)
             rows.append(
                 "<tr>"
-                f"<td>{sev}</td>"
+                f"<td><span class='severity-pill severity-{sev.lower()}'>{sev}</span></td>"
                 f"<td><div class='bar'><span class='bar-fill severity-{sev.lower()}' style='width:{pct}%;'></span></div></td>"
                 f"<td>{count} ({pct}%)</td>"
                 "</tr>"
@@ -354,7 +524,7 @@ class PDFFormatter(BaseFormatter):
             rows.append(
                 "<tr>"
                 f"<td>{finding_id}</td><td>{title}</td>"
-                f"<td class='severity-{severity.lower()}'>{severity}</td>"
+                f"<td><span class='severity-pill severity-{severity.lower()}'>{severity}</span></td>"
                 f"<td>{risk:.1f}/10</td><td>{resources}</td>"
                 "</tr>"
             )
@@ -402,7 +572,7 @@ class PDFFormatter(BaseFormatter):
             blocks.append(
                 '<div class="individual-finding">'
                 f"<h3>[{corr_id}] {title}</h3>"
-                f"<p><strong>Severity:</strong> <span class='severity-{severity.lower()}'>{severity}</span> "
+                f"<p><strong>Severity:</strong> <span class='severity-pill severity-{severity.lower()}'>{severity}</span> "
                 f"| <strong>Compound Risk:</strong> {risk:.1f}/10</p>"
                 f"<p>{desc}</p>"
                 "</div>"
@@ -467,9 +637,9 @@ class PDFFormatter(BaseFormatter):
             '<div class="individual-finding">'
             f"<h3>[{finding_id}] {title}</h3>"
             f"<p><strong>Risk Score:</strong> {risk:.1f}/10 | <strong>Severity:</strong> "
-            f"<span class='severity-{severity.lower()}'>{severity}</span></p>"
+            f"<span class='severity-pill severity-{severity.lower()}'>{severity}</span></p>"
             f"<div class='finding-description'><p>{description}</p></div>"
-            "<div class='finding-resources'><h4>Affected Resources</h4>"
+            "<div class='finding-resources finding-affected'><h4>Affected Resources</h4>"
             f"<ul class='resource-list'>{res_items}</ul></div>"
             f"{commands_block}"
             f"{evidence_block}"
@@ -515,7 +685,7 @@ class PDFFormatter(BaseFormatter):
         heading = "Validation Commands (AWS CLI Suggested)" if suggested else "Validation Commands"
 
         return (
-            f"<div class='finding-resources'><h4>{heading}</h4>"
+            f"<div class='finding-resources finding-validation'><h4>{heading}</h4>"
             f"<ul class='resource-list'>{items}</ul></div>"
         )
 
