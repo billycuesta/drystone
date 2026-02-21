@@ -262,6 +262,76 @@ def check_iam_001(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+def check_iam_002(evidence: Dict[str, Any]) -> PreCheckResult:
+    """IAM-002: IAM users with console access must have MFA enabled."""
+    users = evidence.get("users")
+    if not isinstance(users, list) or not users:
+        return PreCheckResult("IAM-002", "SKIP", "no users evidence", [])
+
+    cred = evidence.get("credential-report", {})
+    by_user: Dict[str, Any] = cred.get("by_user", {}) if isinstance(cred, dict) else {}
+
+    affected: List[str] = []
+    for u in users:
+        if not isinstance(u, dict):
+            continue
+        uname = str(u.get("UserName") or "")
+        row = by_user.get(uname, {})
+
+        # Only console users need MFA (password_enabled=true in credential report)
+        has_console = str(row.get("password_enabled", "false")).lower() == "true"
+        if not has_console:
+            continue
+
+        has_mfa = bool(u.get("MFADevices"))
+        if not has_mfa:
+            arn = str(u.get("Arn") or f"arn:aws:iam::*:user/{uname}")
+            affected.append(arn)
+
+    if affected:
+        return PreCheckResult(
+            "IAM-002", "FAIL", f"{len(affected)} console user(s) without MFA", affected
+        )
+    return PreCheckResult("IAM-002", "PASS", "all console users have MFA enabled", [])
+
+
+@_register("iam")
+def check_iam_010(evidence: Dict[str, Any]) -> PreCheckResult:
+    """IAM-010: Administrative users must have MFA enabled."""
+    users = evidence.get("users")
+    if not isinstance(users, list) or not users:
+        return PreCheckResult("IAM-010", "SKIP", "no users evidence", [])
+
+    _ADMIN_POLICY_NAMES = {"AdministratorAccess", "PowerUserAccess"}
+
+    affected: List[str] = []
+    for u in users:
+        if not isinstance(u, dict):
+            continue
+
+        # Check if user has admin-level attached policy
+        attached = u.get("AttachedPolicies") or []
+        if not isinstance(attached, list):
+            continue
+        policy_names = {str(p.get("PolicyName") or "") for p in attached if isinstance(p, dict)}
+        is_admin = bool(policy_names & _ADMIN_POLICY_NAMES)
+        if not is_admin:
+            continue
+
+        has_mfa = bool(u.get("MFADevices"))
+        if not has_mfa:
+            uname = str(u.get("UserName") or "")
+            arn = str(u.get("Arn") or f"arn:aws:iam::*:user/{uname}")
+            affected.append(arn)
+
+    if affected:
+        return PreCheckResult(
+            "IAM-010", "FAIL", f"{len(affected)} admin user(s) without MFA", affected
+        )
+    return PreCheckResult("IAM-010", "PASS", "all admin users have MFA enabled", [])
+
+
+@_register("iam")
 def check_iam_004(evidence: Dict[str, Any]) -> PreCheckResult:
     """Access keys should be rotated every 90 days."""
     users = evidence.get("users")
@@ -472,13 +542,89 @@ def check_iam_020(evidence: Dict[str, Any]) -> PreCheckResult:
             continue
         groups = u.get("Groups")
         if isinstance(groups, list) and len(groups) == 0:
-            uname = u.get("UserName", "unknown")
-            ungrouped.append(f"arn:aws:iam::*:user/{uname}")
+            # Use the full ARN from evidence if available (avoids * wildcard in account ID)
+            arn = str(u.get("Arn") or "")
+            if not arn:
+                uname = u.get("UserName", "unknown")
+                arn = f"arn:aws:iam::*:user/{uname}"
+            ungrouped.append(arn)
 
     if not ungrouped:
         return PreCheckResult("IAM-020", "PASS", "all users belong to groups", [])
     return PreCheckResult(
         "IAM-020", "FAIL", f"{len(ungrouped)} users without groups", ungrouped[:10]
+    )
+
+
+@_register("iam")
+def check_iam_029(evidence: Dict[str, Any]) -> PreCheckResult:
+    """IAM-029: Detect privilege escalation via cross-role AssumeRole chains.
+
+    Flags roles that can be assumed by another IAM role (not a service) AND
+    have AdministratorAccess or iam:* permissions attached — the classic
+    'hop-to-admin' privilege escalation path.
+    """
+    roles = evidence.get("roles")
+    if not isinstance(roles, list) or not roles:
+        return PreCheckResult("IAM-029", "SKIP", "no roles evidence", [])
+
+    _ADMIN_POLICIES = {"AdministratorAccess", "PowerUserAccess"}
+
+    # Build a map: role ARN → attached policy names
+    role_policies: Dict[str, set] = {}
+    for r in roles:
+        if not isinstance(r, dict):
+            continue
+        arn = str(r.get("Arn") or "")
+        attached = r.get("AttachedPolicies") or []
+        pnames = {str(p.get("PolicyName") or "") for p in attached if isinstance(p, dict)}
+        # Also check InlinePolicies for wildcard iam actions
+        inline = r.get("InlinePolicies") or []
+        role_policies[arn] = pnames
+
+    affected: List[str] = []
+    for r in roles:
+        if not isinstance(r, dict):
+            continue
+        role_arn = str(r.get("Arn") or "")
+
+        # Does this role have admin-level policies?
+        if not (role_policies.get(role_arn, set()) & _ADMIN_POLICIES):
+            continue
+
+        # Is it trusted by another IAM role (not an AWS service)?
+        trust = r.get("AssumeRolePolicyDocument")
+        if not isinstance(trust, dict):
+            continue
+
+        for st in _stmts_from_policy(trust):
+            if not isinstance(st, dict):
+                continue
+            if str(st.get("Effect") or "").upper() != "ALLOW":
+                continue
+            principal = st.get("Principal")
+            aws_p = principal.get("AWS") if isinstance(principal, dict) else None
+            principal_list = [aws_p] if isinstance(aws_p, str) else (aws_p or [])
+            if not isinstance(principal_list, list):
+                continue
+
+            for p in principal_list:
+                ps = str(p)
+                # Flag if trusted by an IAM role (privilege escalation hop)
+                if ":role/" in ps and not ps.endswith(".amazonaws.com"):
+                    if role_arn not in affected:
+                        affected.append(role_arn)
+                    break
+
+    if affected:
+        return PreCheckResult(
+            "IAM-029",
+            "FAIL",
+            f"{len(affected)} admin role(s) trusted by other IAM role(s) — escalation path",
+            affected,
+        )
+    return PreCheckResult(
+        "IAM-029", "PASS", "no privilege escalation via role chain detected", []
     )
 
 

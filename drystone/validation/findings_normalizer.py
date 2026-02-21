@@ -318,7 +318,9 @@ class FindingsNormalizer:
         if finding.severity == "Critical" and not refs:
             # IAM findings must be traceable to specific evidence locations.
             # For other skills we allow evidence_snippet/evidence-content-based verification.
-            if self.skill_name in {"IAM"}:
+            # Exception: pre-check confirmed findings (in _pre_checked_ids) are already
+            # verified against real evidence deterministically — no refs needed.
+            if self.skill_name in {"IAM"} and finding_id not in self._pre_checked_ids:
                 return False, "missing evidence_refs for critical finding"
 
         # Rule 2: references should resolve to known evidence keys/files

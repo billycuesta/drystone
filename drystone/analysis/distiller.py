@@ -15,8 +15,22 @@ FILE_ALLOWLIST_FIELDS = {
     },
     "route-tables": {"RouteTableId", "VpcId", "Routes", "Associations", "Tags"},
     "subnets": {"SubnetId", "VpcId", "CidrBlock", "AvailabilityZone", "MapPublicIpOnLaunch"},
-    "roles": {"Arn", "RoleName", "AssumeRolePolicyDocument", "AttachedManagedPolicies"},
-    "policies": {"Arn", "PolicyName", "DefaultVersionId", "AttachmentCount", "IsAttachable"},
+    "roles": {
+        "Arn",
+        "RoleName",
+        "AssumeRolePolicyDocument",
+        "AttachedPolicies",   # actual field name (was wrongly "AttachedManagedPolicies")
+        "InlinePolicies",
+        "Path",
+    },
+    "policies": {
+        "Arn",
+        "PolicyName",
+        "DefaultVersionId",
+        "AttachmentCount",
+        "IsAttachable",
+        "PolicyDocument",     # policy content needed for LLM checks (IAM-007, -008, etc.)
+    },
     "inspector-findings": {
         "findingArn",
         "severity",

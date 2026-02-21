@@ -122,11 +122,15 @@ def suggest_aws_cli_commands(
 
     # Smart per-file commands for IAM special cases.
     def _iam_specific(file_name: str, token: str) -> str:
-        if file_name == "users.json" and token:
+        # Skip anchor tokens that are bare numeric indices (e.g. from "roles.json#/5").
+        # These are JSON-pointer array offsets, not resource names — using them directly
+        # would produce invalid CLI commands like `--role-name 5`.
+        is_array_index = token.lstrip("/").isdigit()
+        if file_name == "users.json" and token and not is_array_index:
             return f"aws iam get-user --user-name {token}"
-        if file_name == "roles.json" and token:
+        if file_name == "roles.json" and token and not is_array_index:
             return f"aws iam get-role --role-name {token}"
-        if file_name == "groups.json" and token:
+        if file_name == "groups.json" and token and not is_array_index:
             return f"aws iam get-group --group-name {token}"
         if file_name == "resource-based-policies.json":
             return f"aws sns get-topic-attributes --topic-arn arn:aws:sns:{region}:{account_id}:OpsGenie"
