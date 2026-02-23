@@ -2564,31 +2564,72 @@ def check_waf_016(evidence: Dict[str, Any]) -> PreCheckResult:
 
 @_register("vulns")
 def check_vuln_001(evidence: Dict[str, Any]) -> PreCheckResult:
-    """Inspector v2 should be enabled."""
-    inspector = evidence.get("inspector-coverage")
-    if isinstance(inspector, dict):
-        status = inspector.get("status") or inspector.get("Status")
-        if status in ("ENABLED", "ACTIVE"):
-            return PreCheckResult("VULN-001", "PASS", f"Inspector status={status}", [])
-    return PreCheckResult("VULN-001", "SKIP", "requires AI analysis of inspector state", [])
+    """Inspector v2 should be enabled (inferred from inspector-findings presence)."""
+    findings = evidence.get("inspector-findings")
+    if isinstance(findings, list):
+        # Collector successfully queried Inspector v2 → service is enabled
+        return PreCheckResult(
+            "VULN-001", "PASS",
+            f"Inspector v2 is enabled ({len(findings)} finding(s) returned)", [],
+        )
+    return PreCheckResult("VULN-001", "SKIP", "no inspector-findings evidence to determine status", [])
 
 
 @_register("vulns")
 def check_vuln_002(evidence: Dict[str, Any]) -> PreCheckResult:
-    """GuardDuty findings review."""
-    gd = evidence.get("guardduty-findings")
-    if isinstance(gd, list) and len(gd) == 0:
-        return PreCheckResult("VULN-002", "PASS", "no GuardDuty findings", [])
-    return PreCheckResult("VULN-002", "SKIP", "requires AI analysis", [])
+    """CRITICAL CVEs not remediated — scan inspector-findings for CRITICAL+ACTIVE entries."""
+    findings = evidence.get("inspector-findings")
+    if not isinstance(findings, list):
+        return PreCheckResult("VULN-002", "SKIP", "no inspector-findings evidence", [])
+
+    critical_active = [
+        f.get("resources", [{}])[0].get("id", "unknown")
+        for f in findings
+        if isinstance(f, dict)
+        and str(f.get("severity", "")).upper() == "CRITICAL"
+        and str(f.get("status", "")).upper() == "ACTIVE"
+    ]
+
+    if not critical_active:
+        return PreCheckResult("VULN-002", "PASS", "no CRITICAL active Inspector findings", [])
+    return PreCheckResult(
+        "VULN-002", "FAIL",
+        f"{len(critical_active)} CRITICAL active Inspector finding(s)",
+        critical_active[:10],
+    )
 
 
 @_register("vulns")
 def check_vuln_009(evidence: Dict[str, Any]) -> PreCheckResult:
-    """Macie sensitive data findings."""
-    macie = evidence.get("macie-findings")
-    if isinstance(macie, list) and len(macie) == 0:
-        return PreCheckResult("VULN-009", "PASS", "no Macie findings", [])
-    return PreCheckResult("VULN-009", "SKIP", "requires AI analysis", [])
+    """Multiple CVEs on same resource — count ACTIVE Inspector findings per resource."""
+    findings = evidence.get("inspector-findings")
+    if not isinstance(findings, list) or not findings:
+        return PreCheckResult("VULN-009", "SKIP", "no inspector-findings evidence", [])
+
+    from collections import Counter
+
+    resource_counts: Counter = Counter()
+    for f in findings:
+        if not isinstance(f, dict):
+            continue
+        if str(f.get("status", "")).upper() != "ACTIVE":
+            continue
+        for res in f.get("resources", []):
+            rid = res.get("id") if isinstance(res, dict) else None
+            if rid:
+                resource_counts[rid] += 1
+
+    multi_vuln = {rid: cnt for rid, cnt in resource_counts.items() if cnt >= 3}
+    if not multi_vuln:
+        return PreCheckResult("VULN-009", "PASS", "no resource has 3+ active CVEs", [])
+
+    top = sorted(multi_vuln.items(), key=lambda x: x[1], reverse=True)
+    resources = [f"{rid} ({cnt} CVEs)" for rid, cnt in top[:5]]
+    return PreCheckResult(
+        "VULN-009", "FAIL",
+        f"{len(multi_vuln)} resource(s) with 3+ active CVEs",
+        resources,
+    )
 
 
 @_register("vulns")

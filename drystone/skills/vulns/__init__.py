@@ -234,19 +234,32 @@ class VulnsSkill(BaseSkill):
                 }
 
                 try:
-                    # Get upgrade details
+                    # Check if an upgrade is available (boolean summary, not full list)
+                    # Full ValidUpgradeTarget list is omitted — it contains 20-30 entries per
+                    # RDS instance and adds thousands of tokens with no security value.
                     upgradeable = rds_client.describe_db_engine_versions(
                         Engine=instance.get("Engine"),
                         EngineVersion=instance.get("EngineVersion"),
                     )
-                    rds_detail["ValidUpgradeTarget"] = upgradeable.get("DBEngineVersions", [{}])[
-                        0
-                    ].get("ValidUpgradeTarget", [])
+                    targets = upgradeable.get("DBEngineVersions", [{}])[0].get(
+                        "ValidUpgradeTarget", []
+                    )
+                    minor_upgrades = [t for t in targets if not t.get("IsMajorVersionUpgrade")]
+                    major_upgrades = [t for t in targets if t.get("IsMajorVersionUpgrade")]
+                    rds_detail["UpgradeAvailable"] = len(targets) > 0
+                    rds_detail["MinorUpgradeCount"] = len(minor_upgrades)
+                    rds_detail["MajorUpgradeCount"] = len(major_upgrades)
+                    rds_detail["LatestMinorVersion"] = (
+                        minor_upgrades[-1].get("EngineVersion") if minor_upgrades else None
+                    )
+                    rds_detail["LatestMajorVersion"] = (
+                        major_upgrades[-1].get("EngineVersion") if major_upgrades else None
+                    )
                 except Exception as e:
                     logger.warning(
                         f"Could not describe DB engine versions for {instance.get('DBInstanceIdentifier')}: {e}"
                     )
-                    rds_detail["ValidUpgradeTarget"] = []
+                    rds_detail["UpgradeAvailable"] = None
 
                 rds_patch_list.append(rds_detail)
 
@@ -288,7 +301,15 @@ class VulnsSkill(BaseSkill):
                                 )
                                 image_detail["ScanFindings"] = {}
 
-                        ecr_images_list.append(image_detail)
+                        # Only keep records with actual scan data to avoid token bloat
+                        # Inspector v2 already captures CVEs; ECR legacy scans with no data add noise
+                        has_scan_data = (
+                            image_detail.get("ImageId") is not None
+                            or bool(image_detail.get("ImageScanStatus"))
+                            or bool(image_detail.get("ImageScanFindingsSummary"))
+                        )
+                        if has_scan_data:
+                            ecr_images_list.append(image_detail)
                 except Exception as e:
                     logger.warning(f"Could not describe images for repository {repo_name}: {e}")
 
