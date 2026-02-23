@@ -641,119 +641,125 @@ class ExposureSkill(BaseSkill):
             json.dump(data, f, indent=2, default=str)
 
     def analyze(self, session: AuditSession, agent_client: "AgentClient") -> Path:
-        """Analyze collected exposure evidence using configured AI provider.
+        """Analyze exposure evidence via the full 3-Tier pipeline.
 
-        1. Read all evidence files
-        2. Read security checklist
-        3. Send to Gemini API for analysis
-        4. Save findings to findings/exposure.json
-        5. Print summary
+        Extends BaseSkill.analyze() with deterministic S3 checks (EXP-013 TLS,
+        EXP-014 versioning, EXP-015 cross-account) and region patching for
+        ':unknown:' ARNs, applied as post-processing after the pipeline saves.
 
         Args:
             session: Audit session with collected evidence
-            agent_client: Gemini AI client for analysis
+            agent_client: AI client for analysis
 
         Returns:
             Path to saved findings JSON file
-
-        Raises:
-            Exception: If evidence cannot be read or analysis fails
         """
-        print("  Reading evidence files...")
+        # Run the full 3-Tier pipeline: pre-checks → LLM → reconciler → normalizer → save
+        findings_path = super().analyze(session, agent_client)
 
-        # 1. Read all evidence files
+        # Post-process: inject deterministic S3 findings + patch ':unknown:' regions
+        try:
+            self._apply_exposure_post_processing(session, findings_path)
+        except Exception as e:
+            print(f"    Warning: exposure post-processing failed: {e}")
+
+        return findings_path
+
+    def _apply_exposure_post_processing(
+        self, session: AuditSession, findings_path: Path
+    ) -> None:
+        """Inject deterministic S3 findings and patch ':unknown:' region ARNs.
+
+        Reads the saved findings JSON, applies _generate_deterministic_findings()
+        (EXP-013/014/015) and region patching, then re-saves in-place.
+
+        Args:
+            session: Audit session (for evidence path resolution)
+            findings_path: Path to the already-saved findings JSON file
+        """
+        # Load evidence (needed for deterministic checks + region patching)
         evidence_path = session.get_evidence_path(self.name)
-        evidence = {}
+        evidence: Dict[str, Any] = {}
+        if evidence_path.exists():
+            for json_file in evidence_path.glob("*.json"):
+                try:
+                    with open(json_file) as f:
+                        evidence[json_file.stem] = json.load(f)
+                except Exception:
+                    pass
 
-        if not evidence_path.exists():
-            raise FileNotFoundError(f"Evidence directory not found: {evidence_path}")
-
-        for json_file in evidence_path.glob("*.json"):
-            try:
-                with open(json_file) as f:
-                    evidence[json_file.stem] = json.load(f)
-            except Exception as e:
-                print(f"    Warning: Could not read {json_file.name}: {e}")
-
-        print(f"    Loaded {len(evidence)} evidence files")
-
-        # 2. Read checklist
+        # Load checklist (needed for deterministic checks)
         checklist_path = Path(__file__).parent / "checklist.json"
-        if not checklist_path.exists():
-            raise FileNotFoundError(f"Checklist not found: {checklist_path}")
+        checklist: Dict[str, Any] = {}
+        if checklist_path.exists():
+            try:
+                with open(checklist_path) as f:
+                    checklist = json.load(f)
+            except Exception:
+                pass
 
-        with open(checklist_path) as f:
-            checklist = json.load(f)
+        # Load saved findings payload (preserves analysis_metadata, validation_commands, etc.)
+        with open(findings_path) as f:
+            payload = json.load(f)
 
-        print(f"    Loaded {len(checklist['items'])} security checks")
+        current_findings: List[Dict[str, Any]] = payload.get("findings") or []
 
-        # 3. Call agent for analysis (chunked for large evidence)
-        provider_name = agent_client.get_display_name()
-        print(f"  Analyzing with {provider_name}...")
-        findings = agent_client.analyze_evidence_chunked(
-            skill_name=self.name, evidence=evidence, checklist=checklist
-        )
-
-        # 3a. Deterministic findings from evidence (reduce false negatives)
-        # Some exposure checks are reliably derivable from evidence and should not
-        # depend on model variability.
+        # Apply deterministic findings (override model findings for the same ID)
         try:
             deterministic = self._generate_deterministic_findings(evidence, checklist)
             if deterministic:
-                # Deterministic findings should override model-emitted findings for the same ID.
-                merged = {}
-                for f in findings.findings or []:
-                    fid = getattr(f, "id", None)
-                    if isinstance(fid, str) and fid:
-                        merged[fid] = f
+                merged: Dict[str, Any] = {
+                    str(f["id"]): f
+                    for f in current_findings
+                    if isinstance(f, dict) and f.get("id")
+                }
                 for df in deterministic:
-                    merged[df.id] = df
-                findings.findings = list(merged.values())
+                    merged[df.id] = df.model_dump(mode="json")
+                current_findings = list(merged.values())
         except Exception as e:
             print(f"    Warning: deterministic exposure checks failed: {e}")
 
-        # 3b. Normalize findings (reduce variance between models)
-        print("  Normalizing findings...")
-        findings = self._normalize_findings(findings, checklist, evidence=evidence)
-
-        # Enforce server-side metadata for report generation and QA consistency.
-        findings.skill = self.name
-        findings.evidence_count = len(evidence)
-        findings.checklist_version = str(checklist.get("version") or "1.0")
-
-        # Override analyzed_at with a reliable server-side timestamp.
-        findings.analyzed_at = datetime.now(timezone.utc)
-
-        # Patch affected_resources that use ':unknown:' region.
+        # Patch ':unknown:' region placeholders with the actual audit region
         audit_region = (evidence.get("_audit_metadata") or {}).get("_region")
         if audit_region:
-            for f in findings.findings:
+            for f in current_findings:
                 patched = []
-                for r in f.affected_resources or []:
+                for r in f.get("affected_resources") or []:
                     if isinstance(r, str) and ":unknown:" in r:
                         patched.append(r.replace(":unknown:", f":{audit_region}:"))
                     else:
                         patched.append(r)
-                f.affected_resources = patched
+                f["affected_resources"] = patched
 
-        # 4. Save findings
-        findings_dir = session.get_findings_path()
-        findings_dir.mkdir(parents=True, exist_ok=True)
-        findings_path = findings_dir / f"{self.name}.json"
+        # Recalculate summary to reflect any added deterministic findings
+        sev_counts: Dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+        risk_scores: List[float] = []
+        for f in current_findings:
+            sev = str(f.get("severity", "")).lower()
+            if sev in sev_counts:
+                sev_counts[sev] += 1
+            rs = f.get("risk_score")
+            if rs is not None:
+                try:
+                    risk_scores.append(float(rs))
+                except (TypeError, ValueError):
+                    pass
 
+        payload["findings"] = current_findings
+        payload["summary"] = {
+            "total_findings": len(current_findings),
+            "critical": sev_counts["critical"],
+            "high": sev_counts["high"],
+            "medium": sev_counts["medium"],
+            "low": sev_counts["low"],
+            "overall_risk_score": (
+                round(sum(risk_scores) / len(risk_scores), 1) if risk_scores else 0.0
+            ),
+        }
+
+        # Re-save in-place (keeps analysis_metadata, validation_commands intact)
         with open(findings_path, "w") as f:
-            json.dump(findings.model_dump(mode="json"), f, indent=2, default=str)
-
-        # 5. Print summary
-        print("\n✅ Analysis complete:")
-        print(f"   Total findings: {findings.summary.total_findings}")
-        print(f"   Critical: {findings.summary.critical}")
-        print(f"   High: {findings.summary.high}")
-        print(f"   Medium: {findings.summary.medium}")
-        print(f"   Low: {findings.summary.low}")
-        print(f"   Overall Risk: {findings.summary.overall_risk_score:.1f}/10")
-
-        return findings_path
+            json.dump(payload, f, indent=2, default=str)
 
     def _generate_deterministic_findings(
         self, evidence: Dict[str, Any], checklist: Dict[str, Any]
