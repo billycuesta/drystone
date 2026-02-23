@@ -8,18 +8,18 @@
 
 # Scans
 
-- [ ] iam
-	- [ ] Preguntar si podemos añadir pre-checks
-	- [ ] Iteración hasta robusto
-- [ ] exposure
-	- [ ] Preguntar si podemos añadir pre-checks
-	- [ ] Iteración hasta robusto
+- [x] iam
+	- [x] Preguntar si podemos añadir pre-checks
+	- [x] Iteración hasta robusto
+- [x] exposure
+	- [x] Preguntar si podemos añadir pre-checks
+	- [x] Iteración hasta robusto
 - [ ] network
 	- [ ] Preguntar si podemos añadir pre-checks
 	- [ ] Iteración hasta robusto
-- [ ] vulns
-	- [ ] Preguntar si podemos añadir pre-checks
-	- [ ] Iteración hasta robusto
+- [x] vulns
+	- [x] Preguntar si podemos añadir pre-checks
+	- [x] Iteración hasta robusto
 - [ ] alerting
 	- [ ] Preguntar si podemos añadir pre-checks
 	- [ ] Iteración hasta robusto
@@ -45,9 +45,9 @@
 - [ ] cicd (necesito probar contra una cuenta que lo tenga)
 	- [ ] Preguntar si podemos añadir pre-checks
 	- [ ] Iteración hasta robusto
-- [ ] compute
-	- [ ] Preguntar si podemos añadir pre-checks
-	- [ ] Iteración hasta robusto
+- [x] compute
+	- [x] Preguntar si podemos añadir pre-checks
+	- [x] Iteración hasta robusto
 - [ ] Inventario --> incluirlo en pentest
 	- [ ] Explicación de lo que ve
 	- [ ] Diagrama
