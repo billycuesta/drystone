@@ -2775,6 +2775,125 @@ def check_vuln_028(evidence: Dict[str, Any]) -> PreCheckResult:
     )
 
 
+@_register("vulns")
+def check_vuln_004(evidence: Dict[str, Any]) -> PreCheckResult:
+    """VULN-004: CVEs with known active exploit (exploitAvailable=YES + status=ACTIVE)."""
+    findings = evidence.get("inspector-findings")
+    if not isinstance(findings, list):
+        return PreCheckResult("VULN-004", "SKIP", "no inspector-findings evidence", [])
+
+    exploitable = []
+    for f in findings:
+        if not isinstance(f, dict):
+            continue
+        if (
+            str(f.get("exploitAvailable", "")).upper() == "YES"
+            and str(f.get("status", "")).upper() == "ACTIVE"
+        ):
+            title = f.get("title", "unknown")
+            resources = f.get("resources", [])
+            rid = resources[0].get("id", "unknown") if resources else "unknown"
+            exploitable.append(f"{title} @ {rid}")
+
+    if not exploitable:
+        return PreCheckResult("VULN-004", "PASS", "no actively exploitable CVEs detected", [])
+    return PreCheckResult(
+        "VULN-004",
+        "FAIL",
+        f"{len(exploitable)} CVE(s) with known active exploit and ACTIVE status",
+        exploitable[:10],
+    )
+
+
+@_register("vulns")
+def check_vuln_006(evidence: Dict[str, Any]) -> PreCheckResult:
+    """VULN-006: EC2 scanning by Inspector (inferred from EC2 findings presence)."""
+    findings = evidence.get("inspector-findings")
+    if not isinstance(findings, list):
+        return PreCheckResult("VULN-006", "SKIP", "no inspector-findings evidence", [])
+
+    ec2_resources = []
+    for f in findings:
+        if not isinstance(f, dict):
+            continue
+        for res in f.get("resources", []):
+            if isinstance(res, dict) and str(res.get("type", "")).upper() == "AWS_EC2_INSTANCE":
+                rid = res.get("id", "unknown")
+                if rid not in ec2_resources:
+                    ec2_resources.append(rid)
+
+    if ec2_resources:
+        return PreCheckResult(
+            "VULN-006",
+            "PASS",
+            f"Inspector EC2 scanning active ({len(ec2_resources)} instance(s) scanned)",
+            ec2_resources[:5],
+        )
+    return PreCheckResult(
+        "VULN-006", "SKIP", "no EC2 findings in inspector-findings — cannot confirm EC2 scanning status", []
+    )
+
+
+@_register("vulns")
+def check_vuln_007(evidence: Dict[str, Any]) -> PreCheckResult:
+    """VULN-007: ECR container scanning by Inspector (inferred from ECR findings presence)."""
+    findings = evidence.get("inspector-findings")
+    if not isinstance(findings, list):
+        return PreCheckResult("VULN-007", "SKIP", "no inspector-findings evidence", [])
+
+    ecr_resources = []
+    for f in findings:
+        if not isinstance(f, dict):
+            continue
+        for res in f.get("resources", []):
+            if isinstance(res, dict) and str(res.get("type", "")).upper() == "AWS_ECR_CONTAINER_IMAGE":
+                rid = res.get("id", "unknown")
+                if rid not in ecr_resources:
+                    ecr_resources.append(rid)
+
+    if ecr_resources:
+        return PreCheckResult(
+            "VULN-007",
+            "PASS",
+            f"Inspector ECR scanning active ({len(ecr_resources)} image(s) scanned)",
+            ecr_resources[:5],
+        )
+    return PreCheckResult(
+        "VULN-007", "SKIP", "no ECR findings in inspector-findings — cannot confirm ECR scanning status", []
+    )
+
+
+@_register("vulns")
+def check_vuln_008(evidence: Dict[str, Any]) -> PreCheckResult:
+    """VULN-008: HIGH severity vulnerabilities without remediation plan (accurate count)."""
+    findings = evidence.get("inspector-findings")
+    if not isinstance(findings, list):
+        return PreCheckResult("VULN-008", "SKIP", "no inspector-findings evidence", [])
+
+    high_active = []
+    for f in findings:
+        if not isinstance(f, dict):
+            continue
+        if (
+            str(f.get("severity", "")).upper() == "HIGH"
+            and str(f.get("status", "")).upper() == "ACTIVE"
+        ):
+            resources = f.get("resources", [])
+            rid = resources[0].get("id", "unknown") if resources else "unknown"
+            high_active.append(rid)
+
+    if not high_active:
+        return PreCheckResult("VULN-008", "PASS", "no ACTIVE HIGH Inspector findings", [])
+
+    unique_resources = list(dict.fromkeys(high_active))
+    return PreCheckResult(
+        "VULN-008",
+        "FAIL",
+        f"{len(high_active)} ACTIVE HIGH Inspector finding(s) across {len(unique_resources)} resource(s) — no remediation plan evident",
+        unique_resources[:10],
+    )
+
+
 # ============================================================================
 # SECRETS MANAGER PRE-CHECKS
 # ============================================================================
