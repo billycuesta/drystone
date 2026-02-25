@@ -1299,12 +1299,12 @@ def check_alr_003(evidence: Dict[str, Any]) -> PreCheckResult:
     """CloudTrail should have CloudWatch Logs integration."""
     trails = evidence.get("cloudtrail-trails", [])
     if not isinstance(trails, list) or len(trails) == 0:
-        return PreCheckResult("ALR-003", "SKIP", "no trails (ALR-001 applies)", [])
+        return PreCheckResult("ALRT-001", "SKIP", "no trails (ALR-001 applies)", [])
 
     for trail in trails:
         if isinstance(trail, dict) and trail.get("CloudWatchLogsLogGroupArn"):
-            return PreCheckResult("ALR-003", "PASS", "LogGroupArn present", [])
-    return PreCheckResult("ALR-003", "FAIL", "no trail with CloudWatch Logs", [])
+            return PreCheckResult("ALRT-001", "PASS", "LogGroupArn present", [])
+    return PreCheckResult("ALRT-001", "FAIL", "no trail with CloudWatch Logs", [])
 
 
 def _alerting_critical_topic_arns(evidence: Dict[str, Any]) -> List[str]:
@@ -1383,7 +1383,7 @@ def check_alr_022(evidence: Dict[str, Any]) -> PreCheckResult:
             actions_list = [str(a).lower() for a in actions_list]
             if not any(a in {"sns:publish", "sns:*", "*"} for a in actions_list):
                 continue
-            if _principal_is_wildcard_any(st.get("Principal")):
+            if _principal_is_wildcard_any(st.get("Principal")) and not _stmt_has_same_account_restriction(st):
                 return PreCheckResult(
                     "ALRT-022", "FAIL", "alert SNS topic allows broad Publish", [arn]
                 )
@@ -1421,7 +1421,7 @@ def check_alr_023(evidence: Dict[str, Any]) -> PreCheckResult:
             actions_list = [str(a).lower() for a in actions_list]
             if not any(a in {"sns:subscribe", "sns:*", "*"} for a in actions_list):
                 continue
-            if _principal_is_wildcard(st.get("Principal")):
+            if _principal_is_wildcard(st.get("Principal")) and not _stmt_has_same_account_restriction(st):
                 return PreCheckResult(
                     "ALRT-023", "FAIL", "alert SNS topic allows broad Subscribe", [arn]
                 )
@@ -1477,6 +1477,10 @@ def check_alr_025(evidence: Dict[str, Any]) -> PreCheckResult:
     for r in rules:
         if not isinstance(r, dict):
             continue
+        name = str(r.get("Name") or "")
+        # Skip AWS-managed service rules (e.g. Amazon Inspector managed rules)
+        if name.startswith("DO-NOT-DELETE-Amazon"):
+            continue
         pattern = str(r.get("EventPattern") or "").lower()
         is_security_rule = (
             "cloudtrail" in pattern or "consolelogin" in pattern or "stoplogging" in pattern
@@ -1498,6 +1502,87 @@ def check_alr_025(evidence: Dict[str, Any]) -> PreCheckResult:
 
     return PreCheckResult(
         "ALRT-025", "PASS", "critical security EventBridge rules route to SNS", []
+    )
+
+
+@_register("alerting")
+def check_alrt_005(evidence: Dict[str, Any]) -> PreCheckResult:
+    """ALRT-005: Critical alert SNS topics should have confirmed subscriptions."""
+    topics = evidence.get("sns-topics")
+    if not isinstance(topics, list) or not topics:
+        return PreCheckResult("ALRT-005", "SKIP", "no sns-topics evidence", [])
+
+    critical = set(_alerting_critical_topic_arns(evidence))
+    no_subs = []
+    for t in topics:
+        if not isinstance(t, dict):
+            continue
+        arn = str(t.get("TopicArn") or "")
+        if critical and arn not in critical:
+            continue
+        attrs = t.get("Attributes") if isinstance(t.get("Attributes"), dict) else {}
+        confirmed = int(attrs.get("SubscriptionsConfirmed", 0) or 0)
+        if confirmed == 0:
+            no_subs.append(arn)
+
+    if no_subs:
+        return PreCheckResult(
+            "ALRT-005", "FAIL", "alert SNS topic(s) have no confirmed subscriptions", no_subs[:5]
+        )
+    return PreCheckResult("ALRT-005", "PASS", "alert SNS topics have confirmed subscriptions", [])
+
+
+@_register("alerting")
+def check_alrt_006(evidence: Dict[str, Any]) -> PreCheckResult:
+    """ALRT-006: Critical alert SNS topics should not have pending subscriptions."""
+    topics = evidence.get("sns-topics")
+    if not isinstance(topics, list) or not topics:
+        return PreCheckResult("ALRT-006", "SKIP", "no sns-topics evidence", [])
+
+    critical = set(_alerting_critical_topic_arns(evidence))
+    pending_topics = []
+    for t in topics:
+        if not isinstance(t, dict):
+            continue
+        arn = str(t.get("TopicArn") or "")
+        if critical and arn not in critical:
+            continue
+        attrs = t.get("Attributes") if isinstance(t.get("Attributes"), dict) else {}
+        pending = int(attrs.get("SubscriptionsPending", 0) or 0)
+        if pending > 0:
+            pending_topics.append(arn)
+
+    if pending_topics:
+        return PreCheckResult(
+            "ALRT-006",
+            "FAIL",
+            f"{len(pending_topics)} alert SNS topic(s) with pending subscriptions",
+            pending_topics[:5],
+        )
+    return PreCheckResult(
+        "ALRT-006", "PASS", "no pending subscriptions on alert SNS topics", []
+    )
+
+
+@_register("alerting")
+def check_alrt_008(evidence: Dict[str, Any]) -> PreCheckResult:
+    """ALRT-008: At least one CloudTrail trail should be multi-region."""
+    trails = evidence.get("cloudtrail-trails", [])
+    if not isinstance(trails, list) or not trails:
+        return PreCheckResult("ALRT-008", "SKIP", "no cloudtrail-trails evidence", [])
+
+    for trail in trails:
+        if isinstance(trail, dict) and trail.get("IsMultiRegionTrail"):
+            return PreCheckResult("ALRT-008", "PASS", "multi-region trail present", [])
+
+    single_region_names = [
+        str(t.get("Name") or "") for t in trails if isinstance(t, dict)
+    ]
+    return PreCheckResult(
+        "ALRT-008",
+        "FAIL",
+        "no multi-region trail configured",
+        single_region_names[:5],
     )
 
 
