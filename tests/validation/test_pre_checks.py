@@ -36,8 +36,8 @@ from drystone.validation.pre_checks import (
     check_hrd_005,
     check_hrd_006,
     check_hrd_014,
-    check_alr_001,
     check_alr_003,
+    check_alrt_002,
     check_alr_022,
     check_alr_023,
     check_alr_024,
@@ -677,16 +677,6 @@ class TestHRD014:
 # ============================================================================
 
 
-class TestALR001:
-    def test_pass_when_trails_exist(self):
-        r = check_alr_001({"cloudtrail-trails": [{"Name": "main"}]})
-        assert r.status == "PASS"
-
-    def test_fail_when_no_trails(self):
-        r = check_alr_001({"cloudtrail-trails": []})
-        assert r.status == "FAIL"
-
-
 class TestALR003:
     def test_skip_when_no_trails(self):
         r = check_alr_003({"cloudtrail-trails": []})
@@ -782,6 +772,73 @@ class TestALR025:
                 ]
             }
         )
+        assert r.status == "FAIL"
+
+
+class TestALRT002:
+    def test_pass_when_cloudtrail_eventbridge_rule_exists(self):
+        r = check_alrt_002(
+            {
+                "eventbridge-rules": [
+                    {
+                        "Name": "ct-security-alerts",
+                        "EventPattern": '{"source":["aws.cloudtrail"]}',
+                        "State": "ENABLED",
+                        "Targets": [{"Arn": "arn:aws:sns:us-east-1:111:alerts"}],
+                    }
+                ]
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_fail_when_no_cloudtrail_rules(self):
+        r = check_alrt_002(
+            {
+                "eventbridge-rules": [
+                    {
+                        "Name": "some-other-rule",
+                        "EventPattern": '{"source":["aws.ec2"]}',
+                        "State": "ENABLED",
+                        "Targets": [],
+                    }
+                ]
+            }
+        )
+        assert r.status == "FAIL"
+
+    def test_fail_when_cloudtrail_rule_disabled(self):
+        r = check_alrt_002(
+            {
+                "eventbridge-rules": [
+                    {
+                        "Name": "ct-disabled",
+                        "EventPattern": '{"source":["aws.cloudtrail"]}',
+                        "State": "DISABLED",
+                        "Targets": [],
+                    }
+                ]
+            }
+        )
+        assert r.status == "FAIL"
+
+    def test_skip_when_no_evidence(self):
+        r = check_alrt_002({})
+        assert r.status == "SKIP"
+
+    def test_skips_aws_managed_rules(self):
+        r = check_alrt_002(
+            {
+                "eventbridge-rules": [
+                    {
+                        "Name": "DO-NOT-DELETE-AmazonInspectorManagedRule",
+                        "EventPattern": '{"source":["aws.cloudtrail"]}',
+                        "State": "ENABLED",
+                        "Targets": [],
+                    }
+                ]
+            }
+        )
+        # Managed rule skipped → no matching rules → FAIL
         assert r.status == "FAIL"
 
 

@@ -1284,17 +1284,6 @@ def _get_hardening_counts(evidence: Dict[str, Any]):
 
 
 @_register("alerting")
-def check_alr_001(evidence: Dict[str, Any]) -> PreCheckResult:
-    """CloudTrail should be enabled."""
-    trails = evidence.get("cloudtrail-trails", [])
-    if not isinstance(trails, list):
-        trails = []
-    if len(trails) > 0:
-        return PreCheckResult("ALR-001", "PASS", f"{len(trails)} trails enabled", [])
-    return PreCheckResult("ALR-001", "FAIL", "no CloudTrail trails", [])
-
-
-@_register("alerting")
 def check_alr_003(evidence: Dict[str, Any]) -> PreCheckResult:
     """CloudTrail should have CloudWatch Logs integration."""
     trails = evidence.get("cloudtrail-trails", [])
@@ -1647,6 +1636,44 @@ def check_alrt_014(evidence: Dict[str, Any]) -> PreCheckResult:
             no_kms[:5],
         )
     return PreCheckResult("ALRT-014", "PASS", "all trails encrypted with KMS", [])
+
+
+@_register("alerting")
+def check_alrt_002(evidence: Dict[str, Any]) -> PreCheckResult:
+    """ALRT-002: CloudTrail should be integrated with EventBridge (active security rules)."""
+    rules = evidence.get("eventbridge-rules")
+    if not isinstance(rules, list):
+        return PreCheckResult("ALRT-002", "SKIP", "no eventbridge-rules evidence", [])
+
+    cloudtrail_rules: List[str] = []
+    for r in rules:
+        if not isinstance(r, dict):
+            continue
+        name = str(r.get("Name") or "")
+        # Skip AWS-managed service rules (e.g. Inspector managed rules)
+        if name.startswith("DO-NOT-DELETE-Amazon"):
+            continue
+        # Must be ENABLED
+        if str(r.get("State") or "").upper() != "ENABLED":
+            continue
+        pattern = str(r.get("EventPattern") or "").lower()
+        if "aws.cloudtrail" in pattern or '"cloudtrail"' in pattern:
+            cloudtrail_rules.append(name)
+
+    if cloudtrail_rules:
+        return PreCheckResult(
+            "ALRT-002",
+            "PASS",
+            f"{len(cloudtrail_rules)} enabled EventBridge rule(s) processing CloudTrail events",
+            [],
+        )
+
+    return PreCheckResult(
+        "ALRT-002",
+        "FAIL",
+        "no enabled EventBridge rules processing CloudTrail events",
+        [],
+    )
 
 
 # ============================================================================
