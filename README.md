@@ -28,7 +28,7 @@ Auditorías de seguridad automatizadas en AWS con análisis inteligente usando C
 | **Error Resilience** | +90% (retry + validation) | ✅ |
 | **Validation Framework** | Multi-skill gating rules + snippet extraction | ✅ |
 | **Report Structure** | Findings summary + architecture visualization | ✅ |
-| **Last Updated** | 2026-02-18 | ✅ |
+| **Last Updated** | 2026-02-26 | ✅ |
 
 ---
 
@@ -410,7 +410,7 @@ When adding features or fixes:
 
 For issues or questions:
 1. Check [PROJECT_PLAN.md](PROJECT_PLAN.md) for architecture
-2. Check [CLAUDE.md](CLAUDE.md) for development patterns
+2. Check [CLAUDE.md](drystone/CLAUDE.md) for development patterns
 3. Review test files for usage examples
 
 ---
