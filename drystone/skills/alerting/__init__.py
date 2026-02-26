@@ -66,6 +66,11 @@ class AlertingSkill(BaseSkill):
                     "HasCustomEventSelectors": trail.get("HasCustomEventSelectors"),
                     "HasInsightSelectors": trail.get("HasInsightSelectors"),
                     "IsOrganizationTrail": trail.get("IsOrganizationTrail"),
+                    # Fields required by pre-checks ALRT-001, ALRT-013, ALRT-014
+                    "CloudWatchLogsLogGroupArn": trail.get("CloudWatchLogsLogGroupArn"),
+                    "CloudWatchLogsRoleArn": trail.get("CloudWatchLogsRoleArn"),
+                    "KMSKeyId": trail.get("KMSKeyId"),
+                    "LogFileValidationEnabled": trail.get("LogFileValidationEnabled"),
                 }
 
                 # Get trail status

@@ -1586,6 +1586,69 @@ def check_alrt_008(evidence: Dict[str, Any]) -> PreCheckResult:
     )
 
 
+@_register("alerting")
+def check_alrt_013(evidence: Dict[str, Any]) -> PreCheckResult:
+    """ALRT-013: CloudTrail trails should have log file validation enabled."""
+    trails = evidence.get("cloudtrail-trails", [])
+    if not isinstance(trails, list) or not trails:
+        return PreCheckResult("ALRT-013", "SKIP", "no cloudtrail-trails evidence", [])
+
+    # Only check trails we own (not org trails from other accounts)
+    invalid = []
+    has_checkable_trail = False
+    for trail in trails:
+        if not isinstance(trail, dict):
+            continue
+        # Skip org trails where we can't verify status (Status is empty dict)
+        if trail.get("IsOrganizationTrail") and not trail.get("Status", {}).get("IsLogging"):
+            continue
+        has_checkable_trail = True
+        if not trail.get("LogFileValidationEnabled"):
+            invalid.append(str(trail.get("Name") or "unknown"))
+
+    if not has_checkable_trail:
+        return PreCheckResult("ALRT-013", "SKIP", "no locally-owned trails to check", [])
+    if invalid:
+        return PreCheckResult(
+            "ALRT-013",
+            "FAIL",
+            f"{len(invalid)} trail(s) without log file validation",
+            invalid[:5],
+        )
+    return PreCheckResult("ALRT-013", "PASS", "all trails have log file validation enabled", [])
+
+
+@_register("alerting")
+def check_alrt_014(evidence: Dict[str, Any]) -> PreCheckResult:
+    """ALRT-014: CloudTrail trails should encrypt logs with KMS."""
+    trails = evidence.get("cloudtrail-trails", [])
+    if not isinstance(trails, list) or not trails:
+        return PreCheckResult("ALRT-014", "SKIP", "no cloudtrail-trails evidence", [])
+
+    no_kms = []
+    has_checkable_trail = False
+    for trail in trails:
+        if not isinstance(trail, dict):
+            continue
+        # Skip org trails we don't own
+        if trail.get("IsOrganizationTrail") and not trail.get("Status", {}).get("IsLogging"):
+            continue
+        has_checkable_trail = True
+        if not trail.get("KMSKeyId"):
+            no_kms.append(str(trail.get("Name") or "unknown"))
+
+    if not has_checkable_trail:
+        return PreCheckResult("ALRT-014", "SKIP", "no locally-owned trails to check", [])
+    if no_kms:
+        return PreCheckResult(
+            "ALRT-014",
+            "FAIL",
+            f"{len(no_kms)} trail(s) without KMS encryption",
+            no_kms[:5],
+        )
+    return PreCheckResult("ALRT-014", "PASS", "all trails encrypted with KMS", [])
+
+
 # ============================================================================
 # EXPOSURE PRE-CHECKS
 # ============================================================================
