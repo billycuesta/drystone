@@ -56,6 +56,7 @@ from drystone.validation.pre_checks import (
     check_alrt_014,
     check_alrt_015,
     check_alrt_016,
+    check_alrt_012,
     check_exp_001,
     check_exp_002,
     check_exp_003,
@@ -1430,6 +1431,114 @@ class TestALRT016:
     def test_skip_when_no_evidence(self):
         r = check_alrt_016({})
         assert r.status == "SKIP"
+
+
+class TestALRT012:
+    def test_pass_when_metric_filter_covers_consolelogin(self):
+        r = check_alrt_012(
+            {
+                "cloudwatch-metric-filters": [
+                    {
+                        "filterName": "ConsoleLogin",
+                        "filterPattern": '{ $.eventName = "ConsoleLogin" }',
+                        "metricTransformations": [{"metricName": "ConsoleLoginCount"}],
+                    }
+                ],
+                "eventbridge-rules": [],
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_pass_when_metric_filter_covers_stoplogging(self):
+        r = check_alrt_012(
+            {
+                "cloudwatch-metric-filters": [
+                    {
+                        "filterName": "StopLogging",
+                        "filterPattern": '{ $.eventName = "StopLogging" }',
+                        "metricTransformations": [{"metricName": "StopLoggingCount"}],
+                    }
+                ],
+                "eventbridge-rules": [],
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_pass_when_eventbridge_rule_covers_consolelogin(self):
+        r = check_alrt_012(
+            {
+                "cloudwatch-metric-filters": [],
+                "eventbridge-rules": [
+                    {
+                        "Name": "security-consolelogin",
+                        "EventPattern": '{"source":["aws.signin"],"detail-type":["ConsoleLogin"]}',
+                        "State": "ENABLED",
+                        "Targets": [{"Arn": "arn:aws:sns:us-east-1:111:security-alerts"}],
+                    }
+                ],
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_pass_ignores_disabled_eventbridge_rules(self):
+        """Disabled EB rules should not count as coverage."""
+        r = check_alrt_012(
+            {
+                "cloudwatch-metric-filters": [],
+                "eventbridge-rules": [
+                    {
+                        "Name": "security-consolelogin",
+                        "EventPattern": '{"source":["aws.signin"],"detail-type":["ConsoleLogin"]}',
+                        "State": "DISABLED",
+                        "Targets": [],
+                    }
+                ],
+            }
+        )
+        assert r.status == "FAIL"
+
+    def test_pass_ignores_do_not_delete_managed_rules(self):
+        """Inspector-managed rules should not count as security event coverage."""
+        r = check_alrt_012(
+            {
+                "cloudwatch-metric-filters": [],
+                "eventbridge-rules": [
+                    {
+                        "Name": "DO-NOT-DELETE-AmazonInspectorEc2ManagedRule",
+                        "EventPattern": '{"source":["aws.ec2"]}',
+                        "State": "ENABLED",
+                        "Targets": [{"Arn": "arn:aws:inspector2:us-east-1:::"}],
+                    }
+                ],
+            }
+        )
+        assert r.status == "FAIL"
+
+    def test_fail_when_no_metric_filters_and_no_security_eventbridge_rules(self):
+        """No metric filters and only managed EB rules -> FAIL."""
+        r = check_alrt_012(
+            {
+                "cloudwatch-metric-filters": [],
+                "eventbridge-rules": [
+                    {
+                        "Name": "DO-NOT-DELETE-AmazonInspectorEc2ManagedRule",
+                        "EventPattern": '{"source":["aws.ec2"]}',
+                        "State": "ENABLED",
+                        "Targets": [{"Arn": "arn:aws:inspector2:us-east-1:::"}],
+                    }
+                ],
+            }
+        )
+        assert r.status == "FAIL"
+        assert "ConsoleLogin" in r.evidence_summary
+
+    def test_skip_when_no_evidence_at_all(self):
+        r = check_alrt_012({})
+        assert r.status == "SKIP"
+
+    def test_fail_when_both_sources_empty(self):
+        r = check_alrt_012({"cloudwatch-metric-filters": [], "eventbridge-rules": []})
+        assert r.status == "FAIL"
 
 
 class TestALR022WithSameAccountPass:

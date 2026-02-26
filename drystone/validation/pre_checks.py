@@ -2060,6 +2060,59 @@ def check_alrt_016(evidence: Dict[str, Any]) -> PreCheckResult:
     )
 
 
+@_register("alerting")
+def check_alrt_012(evidence: Dict[str, Any]) -> PreCheckResult:
+    """ALRT-012: Critical security events (ConsoleLogin, CreateUser, StopLogging) should be alerted via metric filter or EventBridge rule."""
+    metric_filters = evidence.get("cloudwatch-metric-filters")
+    rules = evidence.get("eventbridge-rules")
+
+    # Need at least one evidence source to evaluate
+    if not isinstance(metric_filters, list) and not isinstance(rules, list):
+        return PreCheckResult("ALRT-012", "SKIP", "no metric-filter or eventbridge evidence", [])
+
+    _CRITICAL_EVENTS = ["consolelogin", "createuser", "stoplogging"]
+
+    # Check metric filters for coverage
+    if isinstance(metric_filters, list):
+        for mf in metric_filters:
+            if not isinstance(mf, dict):
+                continue
+            pattern = str(mf.get("filterPattern") or "").lower()
+            if any(evt in pattern for evt in _CRITICAL_EVENTS):
+                return PreCheckResult(
+                    "ALRT-012",
+                    "PASS",
+                    "metric filter covers critical security events (ConsoleLogin/CreateUser/StopLogging)",
+                    [],
+                )
+
+    # Check EventBridge rules for security event coverage
+    if isinstance(rules, list):
+        for r in rules:
+            if not isinstance(r, dict):
+                continue
+            name = str(r.get("Name") or "")
+            if name.startswith("DO-NOT-DELETE-Amazon"):
+                continue
+            if str(r.get("State") or "").upper() != "ENABLED":
+                continue
+            pattern = str(r.get("EventPattern") or "").lower()
+            if any(evt in pattern for evt in _CRITICAL_EVENTS):
+                return PreCheckResult(
+                    "ALRT-012",
+                    "PASS",
+                    "EventBridge rule covers critical security events (ConsoleLogin/CreateUser/StopLogging)",
+                    [],
+                )
+
+    return PreCheckResult(
+        "ALRT-012",
+        "FAIL",
+        "no alert configured for critical events: ConsoleLogin, CreateUser, StopLogging",
+        [],
+    )
+
+
 # ============================================================================
 # EXPOSURE PRE-CHECKS
 # ============================================================================
