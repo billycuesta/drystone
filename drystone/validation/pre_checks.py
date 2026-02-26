@@ -1765,8 +1765,9 @@ def check_alrt_004(evidence: Dict[str, Any]) -> PreCheckResult:
 def check_alrt_007(evidence: Dict[str, Any]) -> PreCheckResult:
     """ALRT-007: Critical security events should be covered by metric filters."""
     metric_filters = evidence.get("cloudwatch-metric-filters")
-    if not isinstance(metric_filters, list) or not metric_filters:
+    if not isinstance(metric_filters, list):
         return PreCheckResult("ALRT-007", "SKIP", "no cloudwatch-metric-filters evidence", [])
+    # Empty list = no filters at all = ALL critical events uncovered → FAIL
 
     # Critical events that must be covered by at least one metric filter
     critical_events = {
@@ -1808,10 +1809,17 @@ def check_alrt_009(evidence: Dict[str, Any]) -> PreCheckResult:
     if not isinstance(metric_filters, list):
         return PreCheckResult("ALRT-009", "SKIP", "no cloudwatch-metric-filters evidence", [])
 
-    # Find the CloudTrail-integrated log group name from the trail's ARN
+    # Find the local (non-org) CloudTrail-integrated log group name from the trail's ARN.
+    # Org trails belong to a management account and cannot have metric filters added
+    # from this account — always prefer non-org trails.
     ct_log_group: str = ""
     for trail in trails:
-        if isinstance(trail, dict) and trail.get("CloudWatchLogsLogGroupArn"):
+        if not isinstance(trail, dict):
+            continue
+        # Skip organization trails — they're owned by a parent account
+        if trail.get("IsOrganizationTrail"):
+            continue
+        if trail.get("CloudWatchLogsLogGroupArn"):
             arn = str(trail["CloudWatchLogsLogGroupArn"])
             # ARN format: arn:aws:logs:region:account:log-group:NAME:*
             parts = arn.split(":")
