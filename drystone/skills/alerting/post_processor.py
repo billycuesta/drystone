@@ -63,6 +63,7 @@ class AlertingPostProcessor:
             "cloudtrail_trails": "cloudtrail-trails.json",
             "cloudwatch_alarms": "cloudwatch-alarms.json",
             "cloudwatch_log_groups": "cloudwatch-log-groups.json",
+            "cloudwatch_metric_filters": "cloudwatch-metric-filters.json",
             "eventbridge_rules": "eventbridge-rules.json",
             "sns_topics": "sns-topics.json",
             "config_rules": "config-rules.json",
@@ -132,11 +133,9 @@ class AlertingPostProcessor:
             if cloudtrail_logs:
                 analysis["cloudwatch_integration"] = True
 
-        # Check for metric filters (indicates CloudWatch Logs monitoring)
-        # Note: metric filters are part of the log group analysis
-        if analysis["cloudwatch_integration"]:
-            # Assume metric filters exist if CloudWatch is integrated
-            # (In real scenario, would parse log group details)
+        # Check for metric filters using actual metric filters evidence
+        metric_filters = evidence.get("cloudwatch_metric_filters", [])
+        if metric_filters:
             analysis["metric_filters_exist"] = True
 
         # Check CloudWatch Alarms

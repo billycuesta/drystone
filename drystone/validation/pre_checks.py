@@ -106,6 +106,7 @@ def format_pre_checks_for_prompt(
         "    They are AUTHORITATIVE — do not contradict them.",
         "    - For PASS items: DO NOT generate a finding (the check passed).",
         "    - For FAIL items: Generate a finding with professional description and remediation.",
+        "    - For SKIP items: DO NOT generate a finding (the check is not applicable to this environment).",
         "    - For items NOT listed: Analyze evidence yourself.",
         "  </instructions>",
         "",
@@ -1680,8 +1681,16 @@ def check_alrt_002(evidence: Dict[str, Any]) -> PreCheckResult:
 def check_alrt_003(evidence: Dict[str, Any]) -> PreCheckResult:
     """ALRT-003: Metric filters should have associated CloudWatch alarms."""
     metric_filters = evidence.get("cloudwatch-metric-filters")
-    if not isinstance(metric_filters, list) or not metric_filters:
+    if not isinstance(metric_filters, list):
         return PreCheckResult("ALRT-003", "SKIP", "no cloudwatch-metric-filters evidence", [])
+    # Empty list = evidence collected but zero filters exist → no alarms possible → FAIL
+    if not metric_filters:
+        return PreCheckResult(
+            "ALRT-003",
+            "FAIL",
+            "no metric filters configured (zero filters means no alarm coverage possible)",
+            [],
+        )
 
     alarms = evidence.get("cloudwatch-alarms")
     if not isinstance(alarms, list):
@@ -1871,7 +1880,7 @@ def check_alrt_017(evidence: Dict[str, Any]) -> PreCheckResult:
             "ALRT-017",
             "FAIL",
             f"{len(short_retention)} log group(s) with retention < 90 days",
-            short_retention[:10],
+            short_retention[:15],
         )
     return PreCheckResult(
         "ALRT-017", "PASS", "all log groups have retention >= 90 days or unlimited", []

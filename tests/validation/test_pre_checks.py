@@ -891,6 +891,12 @@ class TestALRT003:
         r = check_alrt_003({"cloudwatch-alarms": []})
         assert r.status == "SKIP"
 
+    def test_fail_when_empty_metric_filters_list(self):
+        # Empty list = evidence collected but zero filters = no alarm coverage possible
+        r = check_alrt_003({"cloudwatch-metric-filters": [], "cloudwatch-alarms": []})
+        assert r.status == "FAIL"
+        assert "zero filters" in r.evidence_summary
+
 
 class TestALRT004:
     def test_skip_when_no_security_rules(self):
@@ -2693,3 +2699,23 @@ class TestFormatPreChecksForPrompt:
         assert 'status="FAIL"' in xml
         assert "arn:aws:iam::*:root" in xml
         assert "</pre_computed_facts>" in xml
+
+    def test_skip_instruction_present(self):
+        """SKIP items should carry a 'DO NOT generate a finding' instruction."""
+        xml = format_pre_checks_for_prompt([])
+        # empty returns ""
+        assert xml == ""
+
+        checks = [PreCheckResult("ALRT-004", "SKIP", "no security-relevant EventBridge rules found")]
+        xml = format_pre_checks_for_prompt(checks)
+        assert 'status="SKIP"' in xml
+        # The instruction for SKIP must explicitly tell the LLM to not generate a finding
+        assert "SKIP" in xml
+        assert "DO NOT generate a finding" in xml or "not applicable" in xml
+
+    def test_skip_status_in_xml(self):
+        """SKIP status should appear in the fact element."""
+        checks = [PreCheckResult("ALRT-025", "SKIP", "no eventbridge-rules evidence")]
+        xml = format_pre_checks_for_prompt(checks)
+        assert 'id="ALRT-025"' in xml
+        assert 'status="SKIP"' in xml
