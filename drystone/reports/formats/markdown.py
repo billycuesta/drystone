@@ -48,6 +48,7 @@ class MarkdownFormatter(BaseFormatter):
             self._narrative_executive_summary(),
             self._executive_summary(),
             self._architecture_diagram(),
+            self._resources_audited_section(),
             self._correlation_section(),
         ]
 
@@ -173,6 +174,68 @@ class MarkdownFormatter(BaseFormatter):
         "kms": "KMS key management controls including rotation policies, key usage policies, and encryption coverage across AWS services.",
         "cicd": "CI/CD pipeline security covering CodePipeline, CodeBuild configurations, and artifact security controls.",
         "compute": "compute resource security including EC2 instance configurations, Launch Templates, and Auto Scaling group settings.",
+    }
+
+    _EVIDENCE_FILE_LABELS: Dict[str, str] = {
+        # IAM
+        "users.json": "IAM Users",
+        "roles.json": "IAM Roles",
+        "policies.json": "IAM Policies",
+        "groups.json": "IAM Groups",
+        "account-summary.json": "Account Summary",
+        "mfa-devices.json": "MFA Devices",
+        "access-keys.json": "Access Keys",
+        # Alerting / Monitoring
+        "cloudtrail-trails.json": "CloudTrail Trails",
+        "cloudwatch-alarms.json": "CloudWatch Alarms",
+        "cloudwatch-log-groups.json": "CloudWatch Log Groups",
+        "cloudwatch-metric-filters.json": "CloudWatch Metric Filters",
+        "eventbridge-rules.json": "EventBridge Rules",
+        "sns-topics.json": "SNS Topics",
+        "sns-subscriptions.json": "SNS Subscriptions",
+        "vpc-flow-logs.json": "VPC Flow Logs",
+        # Network
+        "vpcs.json": "VPCs",
+        "security-groups.json": "Security Groups",
+        "nacls.json": "Network ACLs",
+        "subnets.json": "Subnets",
+        "route-tables.json": "Route Tables",
+        "internet-gateways.json": "Internet Gateways",
+        "nat-gateways.json": "NAT Gateways",
+        "vpc-endpoints.json": "VPC Endpoints",
+        "transit-gateways.json": "Transit Gateways",
+        # Load Balancing / Compute
+        "load-balancers.json": "Load Balancers",
+        "ec2-instances.json": "EC2 Instances",
+        "lambda-functions.json": "Lambda Functions",
+        "auto-scaling-groups.json": "Auto Scaling Groups",
+        # Exposure / Storage / API
+        "s3-buckets.json": "S3 Buckets",
+        "rds-instances.json": "RDS Instances",
+        "api-gateways.json": "API Gateways",
+        "cloudfront-distributions.json": "CloudFront Distributions",
+        "elasticache-clusters.json": "ElastiCache Clusters",
+        "opensearch-domains.json": "OpenSearch Domains",
+        # Vulns
+        "inspector-findings.json": "Inspector Findings",
+        # Hardening
+        "config-rules.json": "AWS Config Rules",
+        "security-hub-findings.json": "Security Hub Findings",
+        "security-hub-standards.json": "Security Hub Standards",
+        "guardduty-detectors.json": "GuardDuty Detectors",
+        "guardduty-findings.json": "GuardDuty Findings",
+        # Secrets Manager
+        "secrets.json": "Secrets",
+        # WAF
+        "web-acls.json": "Web ACLs",
+        "waf-rules.json": "WAF Rules",
+        "ip-sets.json": "IP Sets",
+        # ECR
+        "repositories.json": "ECR Repositories",
+        "scanning-config.json": "ECR Scanning Config",
+        "lifecycle-policies.json": "ECR Lifecycle Policies",
+        # KMS
+        "kms-keys.json": "KMS Keys",
     }
 
     def _compute_assessment_rating(
@@ -407,6 +470,57 @@ This report presents security findings from the {skill.upper()} security assessm
             section += "\n### 🚨 Critical Gaps Identified\n\n"
             for gap in critical_gaps:
                 section += f"- {gap}\n"
+
+        return section
+
+    def _resources_audited_section(self) -> str:
+        """Generate resources audited section from skill evidence files.
+
+        Reads evidence/<skill>/ directory, counts items per evidence JSON file,
+        and renders a table of audited resource types. Works generically for
+        all skills (alerting, iam, network, waf, ecr, etc.).
+
+        Returns:
+            Markdown section string, or empty string if no countable evidence.
+        """
+        skill = self.findings.get("skill", "")
+        if not skill:
+            return ""
+
+        evidence_dir = self.session.base_path / "evidence" / skill
+        if not evidence_dir.exists() or not evidence_dir.is_dir():
+            return ""
+
+        rows = []
+        for json_file in sorted(evidence_dir.glob("*.json")):
+            # Skip internal / metadata files
+            if json_file.stem.startswith("_"):
+                continue
+
+            try:
+                with open(json_file, "r") as f:
+                    data = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                continue
+
+            # Only count list-type evidence (skip scalar dicts like password-policy)
+            if not isinstance(data, list):
+                continue
+
+            label = self._EVIDENCE_FILE_LABELS.get(
+                json_file.name,
+                json_file.stem.replace("-", " ").replace("_", " ").title(),
+            )
+            rows.append((label, len(data)))
+
+        if not rows:
+            return ""
+
+        section = "## 🗂️ Resources Audited\n\n"
+        section += "| Resource Type | Count |\n"
+        section += "|---------------|-------|\n"
+        for label, count in rows:
+            section += f"| {label} | {count} |\n"
 
         return section
 
