@@ -1878,6 +1878,179 @@ def check_alrt_017(evidence: Dict[str, Any]) -> PreCheckResult:
     )
 
 
+@_register("alerting")
+def check_alrt_010(evidence: Dict[str, Any]) -> PreCheckResult:
+    """ALRT-010: CloudWatch alarms should not be in INSUFFICIENT_DATA state."""
+    alarms = evidence.get("cloudwatch-alarms")
+    if not isinstance(alarms, list) or not alarms:
+        return PreCheckResult("ALRT-010", "SKIP", "no cloudwatch-alarms evidence", [])
+
+    # Only check alarms that have a StateValue (collector must include it)
+    alarms_with_state = [a for a in alarms if isinstance(a, dict) and a.get("StateValue")]
+    if not alarms_with_state:
+        return PreCheckResult(
+            "ALRT-010", "SKIP", "no StateValue data in alarms (collector may not collect it)", []
+        )
+
+    insufficient = [
+        str(a.get("AlarmName") or "unknown")
+        for a in alarms_with_state
+        if str(a.get("StateValue") or "").upper() == "INSUFFICIENT_DATA"
+    ]
+
+    if insufficient:
+        return PreCheckResult(
+            "ALRT-010",
+            "FAIL",
+            f"{len(insufficient)} alarm(s) in INSUFFICIENT_DATA state",
+            insufficient[:10],
+        )
+    return PreCheckResult(
+        "ALRT-010", "PASS", "no alarms in INSUFFICIENT_DATA state", []
+    )
+
+
+@_register("alerting")
+def check_alrt_011(evidence: Dict[str, Any]) -> PreCheckResult:
+    """ALRT-011: Alert SNS topics should restrict Publish to authorized principals."""
+    topics = evidence.get("sns-topics")
+    if not isinstance(topics, list) or not topics:
+        return PreCheckResult("ALRT-011", "SKIP", "no sns-topics evidence", [])
+
+    critical = set(_alerting_critical_topic_arns(evidence))
+    if not critical:
+        return PreCheckResult(
+            "ALRT-011", "SKIP", "no alert SNS topics found (no alarm/EB actions)", []
+        )
+
+    # Authorized publishers: CloudWatch Alarms and EventBridge services
+    _AUTHORIZED_SERVICE_PRINCIPALS = {
+        "cloudwatch.amazonaws.com",
+        "events.amazonaws.com",
+        "lambda.amazonaws.com",
+    }
+
+    broad_topics: List[str] = []
+    for t in topics:
+        if not isinstance(t, dict):
+            continue
+        arn = str(t.get("TopicArn") or "")
+        if arn not in critical:
+            continue
+        attrs = t.get("Attributes") if isinstance(t.get("Attributes"), dict) else {}
+        pol = _parse_policy_json(attrs.get("Policy"))
+        for st in pol.get("Statement", []) or []:
+            if not isinstance(st, dict) or str(st.get("Effect") or "").upper() != "ALLOW":
+                continue
+            actions = st.get("Action")
+            actions_list = (
+                [actions]
+                if isinstance(actions, str)
+                else (actions if isinstance(actions, list) else [])
+            )
+            actions_list = [str(a).lower() for a in actions_list]
+            if not any(a in {"sns:publish", "sns:*", "*"} for a in actions_list):
+                continue
+            principal = st.get("Principal")
+            # PASS: service principal (e.g. cloudwatch.amazonaws.com)
+            if isinstance(principal, dict):
+                service = principal.get("Service")
+                services = [service] if isinstance(service, str) else (service if isinstance(service, list) else [])
+                if all(str(s) in _AUTHORIZED_SERVICE_PRINCIPALS for s in services if s):
+                    continue
+            # PASS: same-account restriction (Principal:* + SourceOwner condition) is
+            # the AWS default policy. We only flag it if there is NO condition at all
+            # or the condition does not restrict to same account.
+            if _principal_is_wildcard_any(principal):
+                if not _stmt_has_same_account_restriction(st):
+                    broad_topics.append(arn)
+                    break
+                # Has same-account condition but still allows any IAM principal to Publish.
+                # This is the AWS default policy — flag as informational (PASS here, LLM catches nuance)
+                # We don't fail here because AWS auto-creates this policy for every new topic.
+
+    if broad_topics:
+        return PreCheckResult(
+            "ALRT-011",
+            "FAIL",
+            f"{len(broad_topics)} alert topic(s) allow broad Publish without account restriction",
+            broad_topics[:5],
+        )
+    return PreCheckResult(
+        "ALRT-011", "PASS", "alert topics restrict Publish to authorized principals", []
+    )
+
+
+@_register("alerting")
+def check_alrt_015(evidence: Dict[str, Any]) -> PreCheckResult:
+    """ALRT-015: A metric filter should cover IAM change events."""
+    metric_filters = evidence.get("cloudwatch-metric-filters")
+    if not isinstance(metric_filters, list):
+        return PreCheckResult("ALRT-015", "SKIP", "no cloudwatch-metric-filters evidence", [])
+    # Empty list = no filters at all = IAM events not monitored
+
+    _IAM_EVENTS = [
+        "putuseropolicy",
+        "attachuserpolicy",
+        "attachgrouppolicy",
+        "putgrouppolicy",
+        "putrolepolicy",
+        "attachrolepolicy",
+        "createaccesskey",
+        "putuserpolicy",  # alternate casing
+    ]
+
+    for mf in metric_filters:
+        if not isinstance(mf, dict):
+            continue
+        pattern = str(mf.get("filterPattern") or "").lower()
+        if any(event in pattern for event in _IAM_EVENTS):
+            return PreCheckResult(
+                "ALRT-015", "PASS", "metric filter covers IAM change events", []
+            )
+
+    return PreCheckResult(
+        "ALRT-015",
+        "FAIL",
+        "no metric filter covering IAM change events (PutUserPolicy, AttachUserPolicy, etc.)",
+        [],
+    )
+
+
+@_register("alerting")
+def check_alrt_016(evidence: Dict[str, Any]) -> PreCheckResult:
+    """ALRT-016: A metric filter should cover Security Group change events."""
+    metric_filters = evidence.get("cloudwatch-metric-filters")
+    if not isinstance(metric_filters, list):
+        return PreCheckResult("ALRT-016", "SKIP", "no cloudwatch-metric-filters evidence", [])
+    # Empty list = no filters at all = SG events not monitored
+
+    _SG_EVENTS = [
+        "authorizesecuritygroupingress",
+        "authorizesecuritygroupegress",
+        "revokesecuritygroupingress",
+        "revokesecuritygroupegress",
+        "createsecuritygroup",
+        "deletesecuritygroup",
+    ]
+
+    for mf in metric_filters:
+        if not isinstance(mf, dict):
+            continue
+        pattern = str(mf.get("filterPattern") or "").lower()
+        if any(event in pattern for event in _SG_EVENTS):
+            return PreCheckResult(
+                "ALRT-016", "PASS", "metric filter covers Security Group change events", []
+            )
+
+    return PreCheckResult(
+        "ALRT-016",
+        "FAIL",
+        "no metric filter covering Security Group change events (AuthorizeSecurityGroupIngress, etc.)",
+        [],
+    )
+
+
 # ============================================================================
 # EXPOSURE PRE-CHECKS
 # ============================================================================

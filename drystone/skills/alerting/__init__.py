@@ -169,6 +169,7 @@ class AlertingSkill(BaseSkill):
                         "Threshold": alarm.get("Threshold"),
                         "ComparisonOperator": alarm.get("ComparisonOperator"),
                         "AlarmActions": alarm.get("AlarmActions", []),
+                        "StateValue": alarm.get("StateValue"),
                         "StateUpdatedTimestamp": alarm.get("StateUpdatedTimestamp"),
                     }
                     alarms_list.append(alarm_detail)

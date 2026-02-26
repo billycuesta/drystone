@@ -47,6 +47,15 @@ from drystone.validation.pre_checks import (
     check_alr_023,
     check_alr_024,
     check_alr_025,
+    check_alrt_005,
+    check_alrt_006,
+    check_alrt_008,
+    check_alrt_010,
+    check_alrt_011,
+    check_alrt_013,
+    check_alrt_014,
+    check_alrt_015,
+    check_alrt_016,
     check_exp_001,
     check_exp_002,
     check_exp_003,
@@ -1016,6 +1025,513 @@ class TestALRT017:
     def test_skip_when_no_evidence(self):
         r = check_alrt_017({})
         assert r.status == "SKIP"
+
+
+class TestALRT005:
+    def test_pass_when_alert_topic_has_confirmed_subscriptions(self):
+        r = check_alrt_005(
+            {
+                "cloudwatch-alarms": [
+                    {"AlarmActions": ["arn:aws:sns:us-east-1:111:sec-alerts"]}
+                ],
+                "sns-topics": [
+                    {
+                        "TopicArn": "arn:aws:sns:us-east-1:111:sec-alerts",
+                        "Attributes": {"SubscriptionsConfirmed": "2"},
+                    }
+                ],
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_fail_when_alert_topic_has_no_confirmed_subscriptions(self):
+        r = check_alrt_005(
+            {
+                "cloudwatch-alarms": [
+                    {"AlarmActions": ["arn:aws:sns:us-east-1:111:sec-alerts"]}
+                ],
+                "sns-topics": [
+                    {
+                        "TopicArn": "arn:aws:sns:us-east-1:111:sec-alerts",
+                        "Attributes": {"SubscriptionsConfirmed": "0"},
+                    }
+                ],
+            }
+        )
+        assert r.status == "FAIL"
+        assert "arn:aws:sns:us-east-1:111:sec-alerts" in r.affected_resources
+
+    def test_skip_when_no_sns_evidence(self):
+        r = check_alrt_005({})
+        assert r.status == "SKIP"
+
+
+class TestALRT006:
+    def test_pass_when_no_pending_subscriptions(self):
+        r = check_alrt_006(
+            {
+                "cloudwatch-alarms": [
+                    {"AlarmActions": ["arn:aws:sns:us-east-1:111:sec-alerts"]}
+                ],
+                "sns-topics": [
+                    {
+                        "TopicArn": "arn:aws:sns:us-east-1:111:sec-alerts",
+                        "Attributes": {"SubscriptionsPending": "0", "SubscriptionsConfirmed": "1"},
+                    }
+                ],
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_fail_when_pending_subscriptions_exist(self):
+        r = check_alrt_006(
+            {
+                "cloudwatch-alarms": [
+                    {"AlarmActions": ["arn:aws:sns:us-east-1:111:sec-alerts"]}
+                ],
+                "sns-topics": [
+                    {
+                        "TopicArn": "arn:aws:sns:us-east-1:111:sec-alerts",
+                        "Attributes": {"SubscriptionsPending": "2"},
+                    }
+                ],
+            }
+        )
+        assert r.status == "FAIL"
+
+    def test_skip_when_no_sns_evidence(self):
+        r = check_alrt_006({})
+        assert r.status == "SKIP"
+
+
+class TestALRT008:
+    def test_pass_when_multi_region_trail_exists(self):
+        r = check_alrt_008(
+            {
+                "cloudtrail-trails": [
+                    {"Name": "main", "IsMultiRegionTrail": True}
+                ]
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_fail_when_all_trails_single_region(self):
+        r = check_alrt_008(
+            {
+                "cloudtrail-trails": [
+                    {"Name": "main", "IsMultiRegionTrail": False},
+                    {"Name": "backup", "IsMultiRegionTrail": False},
+                ]
+            }
+        )
+        assert r.status == "FAIL"
+        assert "main" in r.affected_resources
+
+    def test_skip_when_no_evidence(self):
+        r = check_alrt_008({})
+        assert r.status == "SKIP"
+
+    def test_skip_when_empty_trails(self):
+        r = check_alrt_008({"cloudtrail-trails": []})
+        assert r.status == "SKIP"
+
+
+class TestALRT010:
+    def test_pass_when_no_alarms_insufficient_data(self):
+        r = check_alrt_010(
+            {
+                "cloudwatch-alarms": [
+                    {"AlarmName": "alarm1", "StateValue": "OK"},
+                    {"AlarmName": "alarm2", "StateValue": "ALARM"},
+                ]
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_fail_when_alarm_in_insufficient_data(self):
+        r = check_alrt_010(
+            {
+                "cloudwatch-alarms": [
+                    {"AlarmName": "security-alarm", "StateValue": "INSUFFICIENT_DATA"},
+                    {"AlarmName": "ok-alarm", "StateValue": "OK"},
+                ]
+            }
+        )
+        assert r.status == "FAIL"
+        assert "security-alarm" in r.affected_resources
+
+    def test_skip_when_no_alarms(self):
+        r = check_alrt_010({})
+        assert r.status == "SKIP"
+
+    def test_skip_when_state_value_not_collected(self):
+        # StateValue is None/absent — skip since collector didn't collect it
+        r = check_alrt_010(
+            {
+                "cloudwatch-alarms": [
+                    {"AlarmName": "alarm1"},
+                ]
+            }
+        )
+        assert r.status == "SKIP"
+
+
+class TestALRT011:
+    def test_pass_when_alert_topic_restricts_publish_to_cloudwatch(self):
+        r = check_alrt_011(
+            {
+                "cloudwatch-alarms": [
+                    {"AlarmActions": ["arn:aws:sns:us-east-1:111:sec-alerts"]}
+                ],
+                "sns-topics": [
+                    {
+                        "TopicArn": "arn:aws:sns:us-east-1:111:sec-alerts",
+                        "Attributes": {
+                            "Policy": '{"Statement":[{"Effect":"Allow","Principal":{"Service":"cloudwatch.amazonaws.com"},"Action":"sns:Publish"}]}'
+                        },
+                    }
+                ],
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_pass_when_alert_topic_has_same_account_condition(self):
+        # AWS default policy: Principal:* + SourceOwner condition is acceptable
+        r = check_alrt_011(
+            {
+                "cloudwatch-alarms": [
+                    {"AlarmActions": ["arn:aws:sns:us-east-1:111:sec-alerts"]}
+                ],
+                "sns-topics": [
+                    {
+                        "TopicArn": "arn:aws:sns:us-east-1:111:sec-alerts",
+                        "Attributes": {
+                            "Policy": '{"Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"sns:Publish","Condition":{"StringEquals":{"AWS:SourceOwner":"111"}}}]}'
+                        },
+                    }
+                ],
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_fail_when_alert_topic_allows_wildcard_publish_no_condition(self):
+        r = check_alrt_011(
+            {
+                "cloudwatch-alarms": [
+                    {"AlarmActions": ["arn:aws:sns:us-east-1:111:sec-alerts"]}
+                ],
+                "sns-topics": [
+                    {
+                        "TopicArn": "arn:aws:sns:us-east-1:111:sec-alerts",
+                        "Attributes": {
+                            "Policy": '{"Statement":[{"Effect":"Allow","Principal":"*","Action":"sns:Publish"}]}'
+                        },
+                    }
+                ],
+            }
+        )
+        assert r.status == "FAIL"
+
+    def test_skip_when_no_alert_topics(self):
+        # No alarms reference SNS ARNs -> no critical topics -> SKIP
+        r = check_alrt_011(
+            {
+                "cloudwatch-alarms": [],
+                "sns-topics": [
+                    {"TopicArn": "arn:aws:sns:us-east-1:111:some-topic", "Attributes": {}}
+                ],
+            }
+        )
+        assert r.status == "SKIP"
+
+
+class TestALRT013:
+    def test_pass_when_all_trails_have_validation(self):
+        r = check_alrt_013(
+            {
+                "cloudtrail-trails": [
+                    {
+                        "Name": "main",
+                        "IsOrganizationTrail": False,
+                        "LogFileValidationEnabled": True,
+                        "Status": {"IsLogging": True},
+                    }
+                ]
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_fail_when_trail_missing_validation(self):
+        r = check_alrt_013(
+            {
+                "cloudtrail-trails": [
+                    {
+                        "Name": "main",
+                        "IsOrganizationTrail": False,
+                        "LogFileValidationEnabled": False,
+                        "Status": {"IsLogging": True},
+                    }
+                ]
+            }
+        )
+        assert r.status == "FAIL"
+        assert "main" in r.affected_resources
+
+    def test_skip_org_trail_with_no_status(self):
+        # Organization trail with no Status -> not locally owned, skip
+        r = check_alrt_013(
+            {
+                "cloudtrail-trails": [
+                    {
+                        "Name": "org-trail",
+                        "IsOrganizationTrail": True,
+                        "LogFileValidationEnabled": False,
+                        "Status": {},
+                    }
+                ]
+            }
+        )
+        assert r.status == "SKIP"
+
+    def test_skip_when_no_evidence(self):
+        r = check_alrt_013({})
+        assert r.status == "SKIP"
+
+
+class TestALRT014:
+    def test_pass_when_all_trails_encrypted(self):
+        r = check_alrt_014(
+            {
+                "cloudtrail-trails": [
+                    {
+                        "Name": "main",
+                        "IsOrganizationTrail": False,
+                        "KMSKeyId": "arn:aws:kms:us-east-1:111:key/abc",
+                        "Status": {"IsLogging": True},
+                    }
+                ]
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_fail_when_trail_not_encrypted(self):
+        r = check_alrt_014(
+            {
+                "cloudtrail-trails": [
+                    {
+                        "Name": "main",
+                        "IsOrganizationTrail": False,
+                        "KMSKeyId": None,
+                        "Status": {"IsLogging": True},
+                    }
+                ]
+            }
+        )
+        assert r.status == "FAIL"
+        assert "main" in r.affected_resources
+
+    def test_skip_org_trail_with_no_status(self):
+        r = check_alrt_014(
+            {
+                "cloudtrail-trails": [
+                    {
+                        "Name": "org-trail",
+                        "IsOrganizationTrail": True,
+                        "KMSKeyId": None,
+                        "Status": {},
+                    }
+                ]
+            }
+        )
+        assert r.status == "SKIP"
+
+    def test_skip_when_no_evidence(self):
+        r = check_alrt_014({})
+        assert r.status == "SKIP"
+
+
+class TestALRT015:
+    def test_pass_when_iam_change_filter_exists(self):
+        r = check_alrt_015(
+            {
+                "cloudwatch-metric-filters": [
+                    {
+                        "filterName": "IAMChanges",
+                        "filterPattern": "{ ($.eventName = PutUserPolicy) || ($.eventName = AttachUserPolicy) }",
+                        "metricTransformations": [{"metricName": "IAMChanges"}],
+                    }
+                ]
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_fail_when_no_iam_change_filters(self):
+        r = check_alrt_015(
+            {
+                "cloudwatch-metric-filters": [
+                    {
+                        "filterName": "ConsoleLogin",
+                        "filterPattern": '{ $.eventName = "ConsoleLogin" }',
+                        "metricTransformations": [],
+                    }
+                ]
+            }
+        )
+        assert r.status == "FAIL"
+
+    def test_fail_when_no_metric_filters_at_all(self):
+        r = check_alrt_015({"cloudwatch-metric-filters": []})
+        assert r.status == "FAIL"
+
+    def test_skip_when_no_evidence(self):
+        r = check_alrt_015({})
+        assert r.status == "SKIP"
+
+
+class TestALRT016:
+    def test_pass_when_sg_change_filter_exists(self):
+        r = check_alrt_016(
+            {
+                "cloudwatch-metric-filters": [
+                    {
+                        "filterName": "SGChanges",
+                        "filterPattern": "{ ($.eventName = AuthorizeSecurityGroupIngress) || ($.eventName = RevokeSecurityGroupIngress) }",
+                        "metricTransformations": [{"metricName": "SGChanges"}],
+                    }
+                ]
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_fail_when_no_sg_change_filters(self):
+        r = check_alrt_016(
+            {
+                "cloudwatch-metric-filters": [
+                    {
+                        "filterName": "ConsoleLogin",
+                        "filterPattern": '{ $.eventName = "ConsoleLogin" }',
+                        "metricTransformations": [],
+                    }
+                ]
+            }
+        )
+        assert r.status == "FAIL"
+
+    def test_fail_when_no_metric_filters_at_all(self):
+        r = check_alrt_016({"cloudwatch-metric-filters": []})
+        assert r.status == "FAIL"
+
+    def test_skip_when_no_evidence(self):
+        r = check_alrt_016({})
+        assert r.status == "SKIP"
+
+
+class TestALR022WithSameAccountPass:
+    def test_pass_when_principal_wildcard_with_source_owner_condition(self):
+        """AWS default SNS policy: Principal:* + SourceOwner condition = PASS."""
+        r = check_alr_022(
+            {
+                "cloudwatch-alarms": [
+                    {"AlarmActions": ["arn:aws:sns:us-east-1:111:alerts"]}
+                ],
+                "sns-topics": [
+                    {
+                        "TopicArn": "arn:aws:sns:us-east-1:111:alerts",
+                        "Attributes": {
+                            "Policy": '{"Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"sns:Publish","Condition":{"StringEquals":{"AWS:SourceOwner":"111"}}}]}'
+                        },
+                    }
+                ],
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_skip_when_no_sns_topics(self):
+        # Empty sns-topics list -> SKIP (no topics to evaluate)
+        r = check_alr_022({"cloudwatch-alarms": [], "sns-topics": []})
+        assert r.status == "SKIP"
+
+
+class TestALR023WithSameAccountPass:
+    def test_pass_when_principal_wildcard_with_source_account_condition(self):
+        r = check_alr_023(
+            {
+                "cloudwatch-alarms": [
+                    {"AlarmActions": ["arn:aws:sns:us-east-1:111:alerts"]}
+                ],
+                "sns-topics": [
+                    {
+                        "TopicArn": "arn:aws:sns:us-east-1:111:alerts",
+                        "Attributes": {
+                            "Policy": '{"Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"sns:Subscribe","Condition":{"StringEquals":{"aws:SourceAccount":"111"}}}]}'
+                        },
+                    }
+                ],
+            }
+        )
+        assert r.status == "PASS"
+
+
+class TestALR024WithPass:
+    def test_pass_when_no_http_subscriptions_on_alert_topic(self):
+        r = check_alr_024(
+            {
+                "eventbridge-rules": [
+                    {
+                        "Targets": [{"Arn": "arn:aws:sns:us-east-1:111:alerts"}],
+                    }
+                ],
+                "sns-topics": [
+                    {
+                        "TopicArn": "arn:aws:sns:us-east-1:111:alerts",
+                        "Subscriptions": [{"Protocol": "email"}],
+                    }
+                ],
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_skip_when_no_sns_evidence(self):
+        r = check_alr_024({})
+        assert r.status == "SKIP"
+
+
+class TestALR025WithPass:
+    def test_pass_when_security_rule_has_sns_target(self):
+        r = check_alr_025(
+            {
+                "eventbridge-rules": [
+                    {
+                        "Name": "ct-stoplogging",
+                        "EventPattern": '{"source":["aws.cloudtrail"],"detail":{"eventName":["StopLogging"]}}',
+                        "Targets": [
+                            {"Arn": "arn:aws:sns:us-east-1:111:alerts"}
+                        ],
+                    }
+                ]
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_skip_when_no_eventbridge_evidence(self):
+        r = check_alr_025({})
+        assert r.status == "SKIP"
+
+    def test_pass_when_only_aws_managed_rules(self):
+        # Inspector managed rules should be skipped entirely
+        r = check_alr_025(
+            {
+                "eventbridge-rules": [
+                    {
+                        "Name": "DO-NOT-DELETE-AmazonInspectorManagedRule",
+                        "EventPattern": '{"source":["aws.cloudtrail"]}',
+                        "Targets": [],
+                    }
+                ]
+            }
+        )
+        # No user security rules found -> PASS (nothing to fail)
+        assert r.status == "PASS"
 
 
 # ============================================================================
