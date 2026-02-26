@@ -1676,6 +1676,200 @@ def check_alrt_002(evidence: Dict[str, Any]) -> PreCheckResult:
     )
 
 
+@_register("alerting")
+def check_alrt_003(evidence: Dict[str, Any]) -> PreCheckResult:
+    """ALRT-003: Metric filters should have associated CloudWatch alarms."""
+    metric_filters = evidence.get("cloudwatch-metric-filters")
+    if not isinstance(metric_filters, list) or not metric_filters:
+        return PreCheckResult("ALRT-003", "SKIP", "no cloudwatch-metric-filters evidence", [])
+
+    alarms = evidence.get("cloudwatch-alarms")
+    if not isinstance(alarms, list):
+        alarms = []
+
+    # Build set of metric names that have at least one alarm
+    alarm_metric_names = {
+        str(a.get("MetricName") or "")
+        for a in alarms
+        if isinstance(a, dict) and a.get("MetricName")
+    }
+
+    filters_without_alarm: List[str] = []
+    for mf in metric_filters:
+        if not isinstance(mf, dict):
+            continue
+        for mt in mf.get("metricTransformations") or []:
+            if not isinstance(mt, dict):
+                continue
+            metric_name = str(mt.get("metricName") or "")
+            if metric_name and metric_name not in alarm_metric_names:
+                filters_without_alarm.append(str(mf.get("filterName") or "unknown"))
+                break
+
+    if filters_without_alarm:
+        return PreCheckResult(
+            "ALRT-003",
+            "FAIL",
+            f"{len(filters_without_alarm)} metric filter(s) without associated CloudWatch alarm",
+            filters_without_alarm[:10],
+        )
+    return PreCheckResult(
+        "ALRT-003", "PASS", "all metric filters have associated CloudWatch alarms", []
+    )
+
+
+@_register("alerting")
+def check_alrt_004(evidence: Dict[str, Any]) -> PreCheckResult:
+    """ALRT-004: Security EventBridge rules should have SNS notification targets."""
+    rules = evidence.get("eventbridge-rules")
+    if not isinstance(rules, list):
+        return PreCheckResult("ALRT-004", "SKIP", "no eventbridge-rules evidence", [])
+
+    security_rules_without_sns: List[str] = []
+    has_security_rules = False
+    for r in rules:
+        if not isinstance(r, dict):
+            continue
+        name = str(r.get("Name") or "")
+        if name.startswith("DO-NOT-DELETE-Amazon"):
+            continue
+        if str(r.get("State") or "").upper() != "ENABLED":
+            continue
+        pattern = str(r.get("EventPattern") or "").lower()
+        if not ("aws.cloudtrail" in pattern or "cloudtrail" in pattern):
+            continue
+        has_security_rules = True
+        targets = r.get("Targets") if isinstance(r.get("Targets"), list) else []
+        has_sns = any(
+            isinstance(t, dict) and str(t.get("Arn") or "").startswith("arn:aws:sns:")
+            for t in targets
+        )
+        if not has_sns:
+            security_rules_without_sns.append(name)
+
+    if not has_security_rules:
+        return PreCheckResult("ALRT-004", "SKIP", "no security-relevant EventBridge rules found", [])
+    if security_rules_without_sns:
+        return PreCheckResult(
+            "ALRT-004",
+            "FAIL",
+            f"{len(security_rules_without_sns)} security EventBridge rule(s) without SNS target",
+            security_rules_without_sns[:5],
+        )
+    return PreCheckResult(
+        "ALRT-004", "PASS", "all security EventBridge rules have SNS targets", []
+    )
+
+
+@_register("alerting")
+def check_alrt_007(evidence: Dict[str, Any]) -> PreCheckResult:
+    """ALRT-007: Critical security events should be covered by metric filters."""
+    metric_filters = evidence.get("cloudwatch-metric-filters")
+    if not isinstance(metric_filters, list) or not metric_filters:
+        return PreCheckResult("ALRT-007", "SKIP", "no cloudwatch-metric-filters evidence", [])
+
+    # Critical events that must be covered by at least one metric filter
+    critical_events = {
+        "StopLogging": False,
+        "DeleteTrail": False,
+        "CreateUser": False,
+        "ConsoleLogin": False,
+    }
+
+    for mf in metric_filters:
+        if not isinstance(mf, dict):
+            continue
+        pattern = str(mf.get("filterPattern") or "").lower()
+        for event in list(critical_events.keys()):
+            if event.lower() in pattern:
+                critical_events[event] = True
+
+    missing = [e for e, covered in critical_events.items() if not covered]
+    if missing:
+        return PreCheckResult(
+            "ALRT-007",
+            "FAIL",
+            f"critical events not covered by metric filters: {', '.join(missing)}",
+            missing,
+        )
+    return PreCheckResult(
+        "ALRT-007", "PASS", "all critical security events covered by metric filters", []
+    )
+
+
+@_register("alerting")
+def check_alrt_009(evidence: Dict[str, Any]) -> PreCheckResult:
+    """ALRT-009: CloudTrail log group should have metric filters for security events."""
+    trails = evidence.get("cloudtrail-trails", [])
+    if not isinstance(trails, list) or not trails:
+        return PreCheckResult("ALRT-009", "SKIP", "no cloudtrail-trails evidence", [])
+
+    metric_filters = evidence.get("cloudwatch-metric-filters")
+    if not isinstance(metric_filters, list):
+        return PreCheckResult("ALRT-009", "SKIP", "no cloudwatch-metric-filters evidence", [])
+
+    # Find the CloudTrail-integrated log group name from the trail's ARN
+    ct_log_group: str = ""
+    for trail in trails:
+        if isinstance(trail, dict) and trail.get("CloudWatchLogsLogGroupArn"):
+            arn = str(trail["CloudWatchLogsLogGroupArn"])
+            # ARN format: arn:aws:logs:region:account:log-group:NAME:*
+            parts = arn.split(":")
+            if len(parts) >= 7:
+                ct_log_group = parts[6]
+                break
+
+    if not ct_log_group:
+        return PreCheckResult("ALRT-009", "SKIP", "no CloudTrail log group configured", [])
+
+    filters_for_ct = [
+        mf for mf in metric_filters
+        if isinstance(mf, dict) and mf.get("logGroupName") == ct_log_group
+    ]
+
+    if filters_for_ct:
+        return PreCheckResult(
+            "ALRT-009",
+            "PASS",
+            f"{len(filters_for_ct)} metric filter(s) on CloudTrail log group '{ct_log_group}'",
+            [],
+        )
+    return PreCheckResult(
+        "ALRT-009",
+        "FAIL",
+        f"no metric filters on CloudTrail log group '{ct_log_group}'",
+        [ct_log_group],
+    )
+
+
+@_register("alerting")
+def check_alrt_017(evidence: Dict[str, Any]) -> PreCheckResult:
+    """ALRT-017: CloudWatch log groups should have adequate retention (>=90 days)."""
+    log_groups = evidence.get("cloudwatch-log-groups")
+    if not isinstance(log_groups, list) or not log_groups:
+        return PreCheckResult("ALRT-017", "SKIP", "no cloudwatch-log-groups evidence", [])
+
+    short_retention: List[str] = []
+    for lg in log_groups:
+        if not isinstance(lg, dict):
+            continue
+        retention = lg.get("RetentionInDays")
+        # None means "never expire" — acceptable
+        if retention is not None and int(retention) < 90:
+            short_retention.append(str(lg.get("LogGroupName") or "unknown"))
+
+    if short_retention:
+        return PreCheckResult(
+            "ALRT-017",
+            "FAIL",
+            f"{len(short_retention)} log group(s) with retention < 90 days",
+            short_retention[:10],
+        )
+    return PreCheckResult(
+        "ALRT-017", "PASS", "all log groups have retention >= 90 days or unlimited", []
+    )
+
+
 # ============================================================================
 # EXPOSURE PRE-CHECKS
 # ============================================================================

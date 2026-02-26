@@ -38,6 +38,11 @@ from drystone.validation.pre_checks import (
     check_hrd_014,
     check_alr_003,
     check_alrt_002,
+    check_alrt_003,
+    check_alrt_004,
+    check_alrt_007,
+    check_alrt_009,
+    check_alrt_017,
     check_alr_022,
     check_alr_023,
     check_alr_024,
@@ -840,6 +845,177 @@ class TestALRT002:
         )
         # Managed rule skipped → no matching rules → FAIL
         assert r.status == "FAIL"
+
+
+class TestALRT003:
+    def test_pass_when_all_filters_have_alarms(self):
+        r = check_alrt_003(
+            {
+                "cloudwatch-metric-filters": [
+                    {
+                        "filterName": "RootUsage",
+                        "filterPattern": '{ $.userIdentity.type = "Root" }',
+                        "logGroupName": "CloudtrailLogGroup",
+                        "metricTransformations": [{"metricName": "RootAccountUsage"}],
+                    }
+                ],
+                "cloudwatch-alarms": [{"MetricName": "RootAccountUsage", "AlarmName": "root-alarm"}],
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_fail_when_filter_has_no_alarm(self):
+        r = check_alrt_003(
+            {
+                "cloudwatch-metric-filters": [
+                    {
+                        "filterName": "RootUsage",
+                        "metricTransformations": [{"metricName": "RootAccountUsage"}],
+                    }
+                ],
+                "cloudwatch-alarms": [],
+            }
+        )
+        assert r.status == "FAIL"
+
+    def test_skip_when_no_metric_filters(self):
+        r = check_alrt_003({"cloudwatch-alarms": []})
+        assert r.status == "SKIP"
+
+
+class TestALRT004:
+    def test_skip_when_no_security_rules(self):
+        r = check_alrt_004(
+            {
+                "eventbridge-rules": [
+                    {"Name": "aws-health-rule", "EventPattern": '{"source":["aws.health"]}', "State": "ENABLED", "Targets": []}
+                ]
+            }
+        )
+        assert r.status == "SKIP"
+
+    def test_fail_when_ct_rule_has_no_sns(self):
+        r = check_alrt_004(
+            {
+                "eventbridge-rules": [
+                    {
+                        "Name": "ct-security",
+                        "EventPattern": '{"source":["aws.cloudtrail"]}',
+                        "State": "ENABLED",
+                        "Targets": [{"Arn": "arn:aws:lambda:us-east-1:111:function:handler"}],
+                    }
+                ]
+            }
+        )
+        assert r.status == "FAIL"
+
+    def test_pass_when_ct_rule_has_sns(self):
+        r = check_alrt_004(
+            {
+                "eventbridge-rules": [
+                    {
+                        "Name": "ct-security",
+                        "EventPattern": '{"source":["aws.cloudtrail"]}',
+                        "State": "ENABLED",
+                        "Targets": [{"Arn": "arn:aws:sns:us-east-1:111:security-alerts"}],
+                    }
+                ]
+            }
+        )
+        assert r.status == "PASS"
+
+
+class TestALRT007:
+    def test_pass_when_all_critical_events_covered(self):
+        r = check_alrt_007(
+            {
+                "cloudwatch-metric-filters": [
+                    {"filterPattern": '{ $.eventName = "ConsoleLogin" }', "metricTransformations": []},
+                    {"filterPattern": '{ $.eventName = "StopLogging" }', "metricTransformations": []},
+                    {"filterPattern": '{ $.eventName = "DeleteTrail" }', "metricTransformations": []},
+                    {"filterPattern": '{ $.eventName = "CreateUser" }', "metricTransformations": []},
+                ]
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_fail_when_events_missing(self):
+        r = check_alrt_007(
+            {
+                "cloudwatch-metric-filters": [
+                    {"filterPattern": '{ $.eventName = "ConsoleLogin" }', "metricTransformations": []},
+                ]
+            }
+        )
+        assert r.status == "FAIL"
+        assert "StopLogging" in r.evidence_summary
+
+    def test_skip_when_no_filters(self):
+        r = check_alrt_007({})
+        assert r.status == "SKIP"
+
+
+class TestALRT009:
+    def test_pass_when_ct_log_group_has_filters(self):
+        r = check_alrt_009(
+            {
+                "cloudtrail-trails": [
+                    {"CloudWatchLogsLogGroupArn": "arn:aws:logs:us-east-1:111:log-group:CloudtrailLG:*"}
+                ],
+                "cloudwatch-metric-filters": [
+                    {"filterName": "RootUsage", "logGroupName": "CloudtrailLG", "metricTransformations": []},
+                ],
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_fail_when_ct_log_group_has_no_filters(self):
+        r = check_alrt_009(
+            {
+                "cloudtrail-trails": [
+                    {"CloudWatchLogsLogGroupArn": "arn:aws:logs:us-east-1:111:log-group:CloudtrailLG:*"}
+                ],
+                "cloudwatch-metric-filters": [],
+            }
+        )
+        assert r.status == "FAIL"
+
+    def test_skip_when_no_trail_cw_integration(self):
+        r = check_alrt_009(
+            {
+                "cloudtrail-trails": [{"Name": "main"}],
+                "cloudwatch-metric-filters": [],
+            }
+        )
+        assert r.status == "SKIP"
+
+
+class TestALRT017:
+    def test_pass_when_all_groups_adequate(self):
+        r = check_alrt_017(
+            {
+                "cloudwatch-log-groups": [
+                    {"LogGroupName": "/app/logs", "RetentionInDays": 365},
+                    {"LogGroupName": "/app/audit", "RetentionInDays": None},  # never expire
+                ]
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_fail_when_group_below_90_days(self):
+        r = check_alrt_017(
+            {
+                "cloudwatch-log-groups": [
+                    {"LogGroupName": "/aws/lambda/waf_lambda", "RetentionInDays": 7},
+                ]
+            }
+        )
+        assert r.status == "FAIL"
+        assert "/aws/lambda/waf_lambda" in r.affected_resources
+
+    def test_skip_when_no_evidence(self):
+        r = check_alrt_017({})
+        assert r.status == "SKIP"
 
 
 # ============================================================================

@@ -127,6 +127,28 @@ class AlertingSkill(BaseSkill):
         except Exception as e:
             print(f"    Warning: Could not collect CloudWatch log groups: {e}")
 
+        # === CLOUDWATCH METRIC FILTERS ===
+        print("  Collecting CloudWatch metric filters...")
+        try:
+            logs_client = boto3.client("logs", **client_kwargs)
+            metric_filters_list = []
+
+            paginator = logs_client.get_paginator("describe_metric_filters")
+            for page in paginator.paginate():
+                for mf in page.get("metricFilters", []):
+                    mf_detail = {
+                        "filterName": mf.get("filterName"),
+                        "filterPattern": mf.get("filterPattern"),
+                        "logGroupName": mf.get("logGroupName"),
+                        "metricTransformations": mf.get("metricTransformations", []),
+                        "creationTime": mf.get("creationTime"),
+                    }
+                    metric_filters_list.append(mf_detail)
+
+            self._save_json(evidence_path / "cloudwatch-metric-filters.json", metric_filters_list)
+        except Exception as e:
+            print(f"    Warning: Could not collect CloudWatch metric filters: {e}")
+
         # === CLOUDWATCH ALARMS ===
         print("  Collecting CloudWatch alarms...")
         try:
