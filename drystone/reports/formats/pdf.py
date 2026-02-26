@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from drystone.reports.formats.base import BaseFormatter
+from drystone.reports.pentest_inventory_summary import build_environment_narrative
 from drystone.reports.validation_commands import suggest_aws_cli_commands
 
 
@@ -89,6 +90,8 @@ class PDFFormatter(BaseFormatter):
             "TOTAL_FINDINGS": str(summary.get("total_findings", len(findings))),
             "RISK_SCORE": f"{float(summary.get('overall_risk_score', 0.0)):.1f}",
             "SCOPE_DEFINITION": self._scope_definition_html(summary, findings),
+            "INVENTORY_SECTION": self._inventory_section_html(),
+            "INVENTORY_ENV_SECTION": self._inventory_environment_section_html(),
             "EXECUTIVE_NARRATIVE": self._executive_narrative_html(summary),
             "METHODOLOGY_SECTION": self._methodology_section_html(),
             "SEVERITY_CHART": self._severity_distribution_chart_html(summary),
@@ -122,6 +125,7 @@ class PDFFormatter(BaseFormatter):
         return (
             "<ol class='index-list'>"
             "<li>Scope Definition</li>"
+            "<li>Inventory</li>"
             "<li>Executive Summary</li>"
             "<li>Risk Analysis</li>"
             "<li>Architecture Overview (if available)</li>"
@@ -425,6 +429,208 @@ class PDFFormatter(BaseFormatter):
 
         return "".join(item(label, value) for label, value in fields)
 
+    # Mapping of evidence filenames → human-readable labels (mirrors MarkdownFormatter)
+    _EVIDENCE_FILE_LABELS: Dict[str, str] = {
+        # IAM
+        "users.json": "IAM Users",
+        "roles.json": "IAM Roles",
+        "policies.json": "IAM Policies",
+        "groups.json": "IAM Groups",
+        "account-summary.json": "Account Summary",
+        "mfa-devices.json": "MFA Devices",
+        "access-keys.json": "Access Keys",
+        # Alerting / Monitoring
+        "cloudtrail-trails.json": "CloudTrail Trails",
+        "cloudwatch-alarms.json": "CloudWatch Alarms",
+        "cloudwatch-log-groups.json": "CloudWatch Log Groups",
+        "cloudwatch-metric-filters.json": "CloudWatch Metric Filters",
+        "eventbridge-rules.json": "EventBridge Rules",
+        "sns-topics.json": "SNS Topics",
+        "sns-subscriptions.json": "SNS Subscriptions",
+        "vpc-flow-logs.json": "VPC Flow Logs",
+        # Network
+        "vpcs.json": "VPCs",
+        "security-groups.json": "Security Groups",
+        "nacls.json": "Network ACLs",
+        "subnets.json": "Subnets",
+        "route-tables.json": "Route Tables",
+        "internet-gateways.json": "Internet Gateways",
+        "nat-gateways.json": "NAT Gateways",
+        "vpc-endpoints.json": "VPC Endpoints",
+        "transit-gateways.json": "Transit Gateways",
+        # Load Balancing / Compute
+        "load-balancers.json": "Load Balancers",
+        "ec2-instances.json": "EC2 Instances",
+        "lambda-functions.json": "Lambda Functions",
+        "auto-scaling-groups.json": "Auto Scaling Groups",
+        # Exposure / Storage / API
+        "s3-buckets.json": "S3 Buckets",
+        "rds-instances.json": "RDS Instances",
+        "api-gateways.json": "API Gateways",
+        "cloudfront-distributions.json": "CloudFront Distributions",
+        "elasticache-clusters.json": "ElastiCache Clusters",
+        "opensearch-domains.json": "OpenSearch Domains",
+        # Vulns
+        "inspector-findings.json": "Inspector Findings",
+        # Hardening
+        "config-rules.json": "AWS Config Rules",
+        "security-hub-findings.json": "Security Hub Findings",
+        "security-hub-standards.json": "Security Hub Standards",
+        "guardduty-detectors.json": "GuardDuty Detectors",
+        "guardduty-findings.json": "GuardDuty Findings",
+        # Secrets Manager
+        "secrets.json": "Secrets",
+        # WAF
+        "web-acls.json": "Web ACLs",
+        "waf-rules.json": "WAF Rules",
+        "ip-sets.json": "IP Sets",
+        # ECR
+        "repositories.json": "ECR Repositories",
+        "scanning-config.json": "ECR Scanning Config",
+        "lifecycle-policies.json": "ECR Lifecycle Policies",
+        # KMS
+        "kms-keys.json": "KMS Keys",
+    }
+
+    def _skill_resources_audited_html(self) -> str:
+        """Build an HTML table of audited resources from skill evidence files.
+
+        Used for non-pentest report types where pentest inventory-summary.json
+        is not available. Reads evidence/<skill>/ directory directly.
+        """
+        skill = self.findings.get("skill", "")
+        if not skill:
+            return "<p>No evidence directory available.</p>"
+
+        evidence_dir = self.session.base_path / "evidence" / skill
+        if not evidence_dir.exists() or not evidence_dir.is_dir():
+            return "<p>No evidence directory available.</p>"
+
+        rows = []
+        for json_file in sorted(evidence_dir.glob("*.json")):
+            if json_file.stem.startswith("_"):
+                continue
+            try:
+                with open(json_file, "r") as f:
+                    data = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                continue
+            if not isinstance(data, list):
+                continue
+            label = self._EVIDENCE_FILE_LABELS.get(
+                json_file.name,
+                json_file.stem.replace("-", " ").replace("_", " ").title(),
+            )
+            rows.append((label, len(data)))
+
+        if not rows:
+            return "<p>No countable evidence items found.</p>"
+
+        out = [
+            "<table style='width:100%;border-collapse:collapse;margin-top:8px'>",
+            "<thead><tr>",
+            "<th style='text-align:left;padding:6px 12px;border-bottom:2px solid #ccc'>Resource Type</th>",
+            "<th style='text-align:right;padding:6px 12px;border-bottom:2px solid #ccc'>Count</th>",
+            "</tr></thead><tbody>",
+        ]
+        for i, (label, count) in enumerate(rows):
+            bg = " style='background:#f9f9f9'" if i % 2 == 1 else ""
+            out.append(
+                f"<tr{bg}>"
+                f"<td style='padding:5px 12px'>{html.escape(label)}</td>"
+                f"<td style='padding:5px 12px;text-align:right'>{count}</td>"
+                "</tr>"
+            )
+        out.append("</tbody></table>")
+        return "".join(out)
+
+    def _inventory_section_html(self) -> str:
+        if str(getattr(self.config, "report_type", "general")).lower() != "pentest":
+            return self._skill_resources_audited_html()
+
+        inventory = self._load_pentest_inventory()
+        if not inventory:
+            return "<p>No inventory data available.</p>"
+
+        region = str(inventory.get("region") or getattr(self.config, "aws_region", "unknown"))
+        regional = inventory.get("regional_resources") or {}
+        global_res = inventory.get("global_resources") or {}
+        errors = inventory.get("errors") or {}
+
+        regional_services = [
+            ("EC2 instances", int(regional.get("ec2_instances", 0))),
+            ("RDS instances", int(regional.get("rds_instances", 0))),
+            ("Load balancers", int(regional.get("load_balancers", 0))),
+            ("Lambda functions", int(regional.get("lambda_functions", 0))),
+            ("VPCs", int(regional.get("vpcs", 0))),
+            ("DynamoDB tables", int(regional.get("dynamodb_tables", 0))),
+            ("ECS clusters", int(regional.get("ecs_clusters", 0))),
+            ("EKS clusters", int(regional.get("eks_clusters", 0))),
+            ("DocumentDB clusters", int(regional.get("documentdb_clusters", 0))),
+        ]
+
+        global_services = [
+            ("S3 buckets", int(global_res.get("s3_buckets", 0))),
+            ("IAM users", int(global_res.get("iam_users", 0))),
+            ("IAM roles", int(global_res.get("iam_roles", 0))),
+            ("IAM customer policies", int(global_res.get("iam_policies", 0))),
+            ("Route53 hosted zones", int(global_res.get("route53_hosted_zones", 0))),
+            ("CloudFront distributions", int(global_res.get("cloudfront_distributions", 0))),
+        ]
+
+        def li(text: str) -> str:
+            return f"<li>{html.escape(text)}</li>"
+
+        out = [
+            f"<p><strong>Audit region:</strong> {html.escape(region)}</p>",
+            "<h3>Regional Resources</h3>",
+            "<ul>",
+        ]
+        out.extend(li(f"{name}: {count}") for name, count in regional_services)
+        out.append("</ul>")
+        out.append("<h3>Global Resources</h3>")
+        out.append("<ul>")
+        out.extend(li(f"{name}: {count}") for name, count in global_services)
+        out.append("</ul>")
+
+        if isinstance(errors, dict) and errors:
+            out.append("<h3>Collection Warnings</h3>")
+            out.append("<ul>")
+            out.extend(li(f"{k}: {v}") for k, v in sorted(errors.items()))
+            out.append("</ul>")
+
+        return "".join(out)
+
+    def _inventory_environment_section_html(self) -> str:
+        if str(getattr(self.config, "report_type", "general")).lower() != "pentest":
+            return ""
+
+        inventory = self._load_pentest_inventory()
+        if not inventory:
+            return ""
+
+        narrative = build_environment_narrative(self.session.base_path, inventory)
+        if not narrative:
+            return ""
+
+        return (
+            "<div class='card'>"
+            "<h3>Environment Description (Inferred)</h3>"
+            f"<p>{html.escape(narrative)}</p>"
+            "</div>"
+        )
+
+    def _load_pentest_inventory(self) -> Dict[str, Any]:
+        inventory_path = self.session.base_path / "evidence" / "pentest" / "inventory-summary.json"
+        if not inventory_path.exists():
+            return {}
+        try:
+            with open(inventory_path) as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
     def _resolved_account_id(self, findings: List[Dict[str, Any]]) -> str:
         account_id = str(getattr(self.session, "account_id", "") or "").strip()
         if account_id and account_id.lower() != "unknown":
@@ -534,6 +740,7 @@ class PDFFormatter(BaseFormatter):
         architecture = self.findings.get("architecture")
         if not architecture:
             return ""
+
         flow = html.escape(str(architecture.get("flow_diagram", "")))
         if not flow.strip():
             return ""
