@@ -348,7 +348,7 @@
       ]
     },
     {
-      "id": "NET-022",
+      "id": "NET-032",
       "title": "Route tables with multiple default routes",
       "severity": "Medium",
       "description": "A route table contains multiple default routes (0.0.0.0/0) pointing to different targets, leading to unpredictable routing behavior and potential security bypasses.",

@@ -73,7 +73,9 @@ from drystone.validation.pre_checks import (
     check_net_002,
     check_net_003,
     check_net_004,
+    check_net_005,
     check_net_006,
+    check_net_007,
     check_net_008,
     check_net_009,
     check_net_010,
@@ -2423,6 +2425,83 @@ class TestNET006:
         r = check_net_006({"security-groups": {"by_id": {"sg-1": sg}}})
         # sg-1 references 111111111111 which is the inferred account — PASS
         assert r.status == "PASS"
+
+
+class TestNET005:
+    def _rt(self, rt_id, routes):
+        return {"RouteTableId": rt_id, "Routes": routes, "Associations": []}
+
+    def test_skip_no_evidence(self):
+        r = check_net_005({})
+        assert r.status == "SKIP"
+        assert r.check_id == "NET-005"
+
+    def test_pass_no_peering_routes(self):
+        rt = self._rt("rt-1", [{"GatewayId": "igw-abc", "DestinationCidrBlock": "0.0.0.0/0"}])
+        r = check_net_005({"route-tables": {"items": [rt]}})
+        assert r.status == "PASS"
+
+    def test_skip_when_peering_route_found(self):
+        rt = self._rt("rt-1", [{"GatewayId": "pcx-0123456789abcdef", "DestinationCidrBlock": "10.1.0.0/16"}])
+        r = check_net_005({"route-tables": {"items": [rt]}})
+        assert r.status == "SKIP"
+        assert "peering" in r.evidence_summary.lower()
+
+    def test_pass_non_peering_gateways(self):
+        rt = self._rt("rt-1", [
+            {"GatewayId": "igw-abc", "DestinationCidrBlock": "0.0.0.0/0"},
+            {"GatewayId": "nat-0abc123", "DestinationCidrBlock": "10.0.0.0/8"},
+        ])
+        r = check_net_005({"route-tables": {"items": [rt]}})
+        assert r.status == "PASS"
+
+
+class TestNET007:
+    def _rt_with_igw(self):
+        return {
+            "RouteTableId": "rt-1",
+            "Routes": [{"GatewayId": "igw-abc", "DestinationCidrBlock": "0.0.0.0/0", "State": "active"}],
+            "Associations": [],
+        }
+
+    def _rt_no_igw(self):
+        return {
+            "RouteTableId": "rt-1",
+            "Routes": [{"GatewayId": "nat-abc", "DestinationCidrBlock": "0.0.0.0/0"}],
+            "Associations": [],
+        }
+
+    def test_skip_no_evidence(self):
+        r = check_net_007({})
+        assert r.status == "SKIP"
+        assert r.check_id == "NET-007"
+
+    def test_pass_no_igw_routes(self):
+        r = check_net_007({"route-tables": {"items": [self._rt_no_igw()]}})
+        assert r.status == "PASS"
+
+    def test_fail_igw_no_nfw(self):
+        vpces = [{"VpcEndpointId": "vpce-1", "ServiceName": "com.amazonaws.us-east-1.s3", "VpcEndpointType": "Gateway"}]
+        r = check_net_007({
+            "route-tables": {"items": [self._rt_with_igw()]},
+            "vpc-endpoints": {"items": vpces},
+        })
+        assert r.status == "FAIL"
+
+    def test_pass_igw_with_nfw_endpoint(self):
+        vpces = [{"VpcEndpointId": "vpce-nfw", "ServiceName": "com.amazonaws.us-east-1.network-firewall", "VpcEndpointType": "Interface"}]
+        r = check_net_007({
+            "route-tables": {"items": [self._rt_with_igw()]},
+            "vpc-endpoints": {"items": vpces},
+        })
+        assert r.status == "PASS"
+
+    def test_fail_igw_empty_vpce_list(self):
+        r = check_net_007({
+            "route-tables": {"items": [self._rt_with_igw()]},
+            "vpc-endpoints": {"items": []},
+        })
+        assert r.status == "FAIL"
 
 
 class TestNET008:

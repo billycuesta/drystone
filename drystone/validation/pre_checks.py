@@ -3397,6 +3397,69 @@ def check_net_029(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("network")
+def check_net_005(evidence: Dict[str, Any]) -> PreCheckResult:
+    """NET-005: VPC peering with broad bidirectional routing without filtering."""
+    rt_doc = evidence.get("route-tables")
+    rts = _items_from_doc(rt_doc)
+
+    if not rts:
+        return PreCheckResult("NET-005", "SKIP", "no route-tables evidence", [])
+
+    # VPC peering connections appear as routes with GatewayId starting with 'pcx-'
+    peering_routes: list = []
+    for rt in rts:
+        if not isinstance(rt, dict):
+            continue
+        for route in (rt.get("Routes") or []):
+            if isinstance(route, dict) and str(route.get("GatewayId", "")).startswith("pcx-"):
+                rt_id = rt.get("RouteTableId", "unknown")
+                dst = route.get("DestinationCidrBlock", route.get("DestinationIpv6CidrBlock", "unknown"))
+                peering_routes.append(f"{rt_id}:{dst}")
+
+    if not peering_routes:
+        return PreCheckResult("NET-005", "PASS", "no VPC peering routes detected", [])
+    # Peering found — cannot determine filtering adequacy without SG analysis
+    return PreCheckResult("NET-005", "SKIP", f"{len(peering_routes)} peering route(s) — review SG filtering", [])
+
+
+@_register("network")
+def check_net_007(evidence: Dict[str, Any]) -> PreCheckResult:
+    """NET-007: Network Firewall not deployed for internet-facing VPCs."""
+    rt_doc = evidence.get("route-tables")
+    rts = _items_from_doc(rt_doc)
+    vpce_doc = evidence.get("vpc-endpoints")
+    vpces = _items_from_doc(vpce_doc)
+
+    if not rts:
+        return PreCheckResult("NET-007", "SKIP", "no route-tables evidence", [])
+
+    # Check if any VPC has a route to an Internet Gateway (north-south traffic)
+    has_igw = any(
+        isinstance(r, dict) and str(r.get("GatewayId", "")).startswith("igw-")
+        for rt in rts if isinstance(rt, dict)
+        for r in (rt.get("Routes") or [])
+    )
+
+    if not has_igw:
+        return PreCheckResult("NET-007", "PASS", "no Internet Gateway routes — north-south traffic absent", [])
+
+    # Check VPC endpoints for AWS Network Firewall service
+    nfw_vpce = [
+        e for e in vpces
+        if isinstance(e, dict) and "network-firewall" in (e.get("ServiceName") or "").lower()
+    ]
+    if nfw_vpce:
+        return PreCheckResult("NET-007", "PASS", "Network Firewall VPC endpoint detected", [])
+
+    # VPC has IGW but no Network Firewall endpoint visible in collected evidence
+    return PreCheckResult(
+        "NET-007", "FAIL",
+        "VPC has Internet Gateway but no AWS Network Firewall endpoint detected in vpc-endpoints",
+        [],
+    )
+
+
+@_register("network")
 def check_net_015(evidence: Dict[str, Any]) -> PreCheckResult:
     """NET-015: Redundant SG references — SG ref and 0.0.0.0/0 in the same rule."""
     sg_doc = evidence.get("security-groups")
