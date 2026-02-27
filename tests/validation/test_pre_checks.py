@@ -72,10 +72,20 @@ from drystone.validation.pre_checks import (
     check_net_001,
     check_net_002,
     check_net_003,
+    check_net_004,
+    check_net_006,
+    check_net_008,
     check_net_009,
+    check_net_010,
+    check_net_012,
+    check_net_014,
     check_net_016,
+    check_net_017,
     check_net_018,
+    check_net_019,
+    check_net_021,
     check_net_027,
+    check_net_029,
     check_sm_001,
     check_sm_003,
     check_sm_013,
@@ -2325,6 +2335,323 @@ class TestNET027:
         sg = self._sg("sg-5", [{"Key": "Name", "Value": "ok"}])
         r = check_net_027({"security-groups": [sg]})
         assert r.status == "PASS"
+
+
+class TestNET004:
+    def _rt(self, rt_id, has_igw, subnet_ids):
+        routes = [{"GatewayId": "igw-abc", "DestinationCidrBlock": "0.0.0.0/0", "State": "active"}] if has_igw else []
+        assocs = [{"SubnetId": sid} for sid in subnet_ids]
+        return {"RouteTableId": rt_id, "Routes": routes, "Associations": assocs}
+
+    def _subnet(self, sid, name):
+        return {"SubnetId": sid, "Tags": [{"Key": "Name", "Value": name}]}
+
+    def test_skip_no_route_tables(self):
+        r = check_net_004({"subnets": {"items": [self._subnet("s-1", "private")]}})
+        assert r.status == "SKIP"
+        assert r.check_id == "NET-004"
+
+    def test_skip_no_subnets(self):
+        r = check_net_004({"route-tables": {"items": [self._rt("rt-1", True, ["s-1"])]}})
+        assert r.status == "SKIP"
+
+    def test_pass_private_subnet_no_igw(self):
+        rt = self._rt("rt-1", False, ["s-1"])
+        s = self._subnet("s-1", "vpc-private-us-east-1a")
+        r = check_net_004({
+            "route-tables": {"items": [rt]},
+            "subnets": {"items": [s]},
+        })
+        assert r.status == "PASS"
+
+    def test_fail_db_subnet_with_igw(self):
+        rt = self._rt("rt-1", True, ["s-db"])
+        s = self._subnet("s-db", "vpc-db-us-east-1a")
+        r = check_net_004({
+            "route-tables": {"items": [rt]},
+            "subnets": {"items": [s]},
+        })
+        assert r.status == "FAIL"
+        assert "s-db" in r.affected_resources
+
+    def test_pass_public_subnet_with_igw(self):
+        rt = self._rt("rt-1", True, ["s-pub"])
+        s = self._subnet("s-pub", "vpc-public-us-east-1a")
+        r = check_net_004({
+            "route-tables": {"items": [rt]},
+            "subnets": {"items": [s]},
+        })
+        # public subnet with IGW = expected, not flagged as DB/private
+        assert r.status == "PASS"
+
+
+class TestNET006:
+    def _sg_with_ingress(self, sg_id, user_id, ref_sg_id):
+        return {
+            "GroupId": sg_id,
+            "IngressRules": [{"UserIdGroupPairs": [{"UserId": user_id, "GroupId": ref_sg_id}]}],
+            "EgressRules": [],
+        }
+
+    def test_skip_no_evidence(self):
+        r = check_net_006({})
+        assert r.status == "SKIP"
+        assert r.check_id == "NET-006"
+
+    def test_pass_same_account(self):
+        sg = self._sg_with_ingress("sg-1", "123456789012", "sg-other")
+        r = check_net_006({
+            "_audit_metadata": {"_account_id": "123456789012"},
+            "security-groups": {"by_id": {"sg-1": sg}},
+        })
+        assert r.status == "PASS"
+
+    def test_fail_cross_account_ref(self):
+        sg = self._sg_with_ingress("sg-1", "999999999999", "sg-foreign")
+        r = check_net_006({
+            "_audit_metadata": {"_account_id": "123456789012"},
+            "security-groups": {"by_id": {"sg-1": sg}},
+        })
+        assert r.status == "FAIL"
+        assert len(r.affected_resources) == 1
+
+    def test_infers_account_from_pairs(self):
+        # No metadata — infer account_id from first UserIdGroupPairs seen
+        sg = self._sg_with_ingress("sg-1", "111111111111", "sg-same")
+        r = check_net_006({"security-groups": {"by_id": {"sg-1": sg}}})
+        # sg-1 references 111111111111 which is the inferred account — PASS
+        assert r.status == "PASS"
+
+
+class TestNET008:
+    def _rt_public(self, subnet_id):
+        return {
+            "RouteTableId": "rt-pub",
+            "Routes": [{"GatewayId": "igw-abc", "DestinationCidrBlock": "0.0.0.0/0", "State": "active"}],
+            "Associations": [{"SubnetId": subnet_id}],
+        }
+
+    def test_skip_no_evidence(self):
+        r = check_net_008({})
+        assert r.status == "SKIP"
+        assert r.check_id == "NET-008"
+
+    def test_pass_no_public_subnets(self):
+        rt = {"RouteTableId": "rt-1", "Routes": [], "Associations": [{"SubnetId": "s-priv"}]}
+        subnet = {"SubnetId": "s-priv"}
+        r = check_net_008({
+            "route-tables": {"items": [rt]},
+            "subnets": {"items": [subnet]},
+        })
+        assert r.status == "PASS"
+
+    def test_fail_lambda_in_public_subnet(self):
+        rt = self._rt_public("s-pub")
+        fn = {"FunctionName": "my-func", "VpcConfig": {"SubnetIds": ["s-pub"]}}
+        r = check_net_008({
+            "route-tables": {"items": [rt]},
+            "subnets": {"items": [{"SubnetId": "s-pub"}]},
+            "lambda-functions": {"items": [fn]},
+        })
+        assert r.status == "FAIL"
+        assert any("my-func" in res for res in r.affected_resources)
+
+    def test_pass_lambda_in_private_subnet(self):
+        rt = self._rt_public("s-pub")
+        fn = {"FunctionName": "my-func", "VpcConfig": {"SubnetIds": ["s-priv"]}}
+        r = check_net_008({
+            "route-tables": {"items": [rt]},
+            "subnets": {"items": [{"SubnetId": "s-pub"}, {"SubnetId": "s-priv"}]},
+            "lambda-functions": {"items": [fn]},
+        })
+        assert r.status == "PASS"
+
+
+class TestNET010:
+    def _nacl(self, nacl_id, is_default, cidr, protocol="-1", action="allow"):
+        return {
+            "NetworkAclId": nacl_id,
+            "IsDefault": is_default,
+            "Entries": [{"Protocol": protocol, "RuleAction": action, "CidrBlock": cidr, "Egress": False}],
+        }
+
+    def test_skip_no_evidence(self):
+        r = check_net_010({})
+        assert r.status == "SKIP"
+        assert r.check_id == "NET-010"
+
+    def test_fail_default_nacl_allow_all_internet(self):
+        nacl = self._nacl("acl-default", True, "0.0.0.0/0")
+        r = check_net_010({"network-acls": {"items": [nacl]}})
+        assert r.status == "FAIL"
+        assert "acl-default" in r.affected_resources
+
+    def test_pass_default_nacl_allows_vpc_cidr_only(self):
+        nacl = self._nacl("acl-default", True, "10.70.0.0/16")
+        r = check_net_010({"network-acls": {"items": [nacl]}})
+        assert r.status == "PASS"
+
+    def test_pass_custom_nacl_even_with_broad_rule(self):
+        nacl = self._nacl("acl-custom", False, "0.0.0.0/0")
+        r = check_net_010({"network-acls": {"items": [nacl]}})
+        assert r.status == "PASS"
+
+    def test_pass_default_nacl_deny_rule(self):
+        nacl = self._nacl("acl-default", True, "0.0.0.0/0", action="deny")
+        r = check_net_010({"network-acls": {"items": [nacl]}})
+        assert r.status == "PASS"
+
+
+class TestNET012:
+    def test_skip_no_topology_evidence(self):
+        r = check_net_012({})
+        assert r.status == "SKIP"
+        assert r.check_id == "NET-012"
+
+    def test_skip_empty_tgw_list(self):
+        r = check_net_012({"transit-gateway-topology": {"transit_gateways": []}})
+        assert r.status == "SKIP"
+
+    def test_skip_when_tgw_present(self):
+        r = check_net_012({"transit-gateway-topology": {"transit_gateways": [{"TransitGatewayId": "tgw-abc"}]}})
+        assert r.status == "SKIP"
+        assert "manual" in r.evidence_summary.lower() or "present" in r.evidence_summary.lower()
+
+
+class TestNET014:
+    def test_skip_no_evidence(self):
+        r = check_net_014({})
+        assert r.status == "SKIP"
+        assert r.check_id == "NET-014"
+
+    def test_pass_no_blackhole_routes(self):
+        rt = {
+            "RouteTableId": "rt-1",
+            "Routes": [{"DestinationCidrBlock": "0.0.0.0/0", "GatewayId": "igw-1", "State": "active"}],
+            "Associations": [],
+        }
+        r = check_net_014({"route-tables": {"items": [rt]}})
+        assert r.status == "PASS"
+
+    def test_fail_blackhole_route(self):
+        rt = {
+            "RouteTableId": "rt-1",
+            "Routes": [{"DestinationCidrBlock": "10.0.0.0/8", "State": "blackhole"}],
+            "Associations": [],
+        }
+        r = check_net_014({"route-tables": {"items": [rt]}})
+        assert r.status == "FAIL"
+        assert "rt-1" in r.affected_resources
+
+
+class TestNET017:
+    def _rt(self, rt_id, has_igw, subnet_ids):
+        routes = [{"GatewayId": "igw-abc", "DestinationCidrBlock": "0.0.0.0/0"}] if has_igw else []
+        assocs = [{"SubnetId": sid} for sid in subnet_ids]
+        return {"RouteTableId": rt_id, "Routes": routes, "Associations": assocs}
+
+    def _subnet(self, sid, name):
+        return {"SubnetId": sid, "Tags": [{"Key": "Name", "Value": name}]}
+
+    def test_skip_no_route_tables(self):
+        r = check_net_017({})
+        assert r.status == "SKIP"
+        assert r.check_id == "NET-017"
+
+    def test_pass_public_subnet_with_igw(self):
+        rt = self._rt("rt-1", True, ["s-pub"])
+        s = self._subnet("s-pub", "vpc-public-us-east-1a")
+        r = check_net_017({
+            "route-tables": {"items": [rt]},
+            "subnets": {"items": [s]},
+        })
+        assert r.status == "PASS"
+
+    def test_fail_non_public_subnet_with_igw(self):
+        rt = self._rt("rt-1", True, ["s-priv"])
+        s = self._subnet("s-priv", "vpc-private-us-east-1a")
+        r = check_net_017({
+            "route-tables": {"items": [rt]},
+            "subnets": {"items": [s]},
+        })
+        assert r.status == "FAIL"
+        assert "s-priv" in r.affected_resources
+
+    def test_pass_no_igw_routes(self):
+        rt = self._rt("rt-1", False, ["s-priv"])
+        s = self._subnet("s-priv", "vpc-private-us-east-1a")
+        r = check_net_017({
+            "route-tables": {"items": [rt]},
+            "subnets": {"items": [s]},
+        })
+        assert r.status == "PASS"
+
+
+class TestNET019:
+    def _sg(self, sg_id, n_ingress, n_egress):
+        return {
+            "GroupId": sg_id,
+            "IngressRules": [{}] * n_ingress,
+            "EgressRules": [{}] * n_egress,
+        }
+
+    def test_skip_no_evidence(self):
+        r = check_net_019({})
+        assert r.status == "SKIP"
+        assert r.check_id == "NET-019"
+
+    def test_pass_small_sg(self):
+        sg = self._sg("sg-1", 10, 5)
+        r = check_net_019({"security-groups": {"by_id": {"sg-1": sg}}})
+        assert r.status == "PASS"
+
+    def test_fail_oversized_sg(self):
+        sg = self._sg("sg-1", 30, 25)  # 55 total
+        r = check_net_019({"security-groups": {"by_id": {"sg-1": sg}}})
+        assert r.status == "FAIL"
+        assert "sg-1" in r.affected_resources
+
+    def test_boundary_exactly_50_rules(self):
+        sg = self._sg("sg-1", 25, 25)  # exactly 50 → PASS (> 50 required)
+        r = check_net_019({"security-groups": {"by_id": {"sg-1": sg}}})
+        assert r.status == "PASS"
+
+
+class TestNET021:
+    def test_skip_no_evidence(self):
+        r = check_net_021({})
+        assert r.status == "SKIP"
+        assert r.check_id == "NET-021"
+
+    def test_skip_always_even_with_sgs(self):
+        sg = {"GroupId": "sg-1", "IngressRules": [], "EgressRules": []}
+        r = check_net_021({"security-groups": {"by_id": {"sg-1": sg}}})
+        assert r.status == "SKIP"
+        assert "ENI" in r.evidence_summary or "manual" in r.evidence_summary.lower()
+
+
+class TestNET029:
+    def _vpc(self, vpc_id, cidr):
+        return {"VpcId": vpc_id, "CidrBlock": cidr}
+
+    def test_skip_no_evidence(self):
+        r = check_net_029({})
+        assert r.status == "SKIP"
+        assert r.check_id == "NET-029"
+
+    def test_pass_single_vpc(self):
+        r = check_net_029({"vpcs": {"items": [self._vpc("vpc-1", "10.0.0.0/16")]}})
+        assert r.status == "PASS"
+
+    def test_pass_multiple_vpcs_no_overlap(self):
+        vpcs = [self._vpc("vpc-1", "10.0.0.0/16"), self._vpc("vpc-2", "10.1.0.0/16")]
+        r = check_net_029({"vpcs": {"items": vpcs}})
+        assert r.status == "PASS"
+
+    def test_fail_duplicate_cidr(self):
+        vpcs = [self._vpc("vpc-1", "10.0.0.0/16"), self._vpc("vpc-2", "10.0.0.0/16")]
+        r = check_net_029({"vpcs": {"items": vpcs}})
+        assert r.status == "FAIL"
 
 
 # ============================================================================

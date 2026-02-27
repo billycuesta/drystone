@@ -3031,6 +3031,371 @@ def check_net_027(evidence: Dict[str, Any]) -> PreCheckResult:
     )
 
 
+@_register("network")
+def check_net_004(evidence: Dict[str, Any]) -> PreCheckResult:
+    """NET-004: DB/private subnets have a default route to an Internet Gateway."""
+    rt_doc = evidence.get("route-tables")
+    rts = _items_from_doc(rt_doc)
+    subnet_doc = evidence.get("subnets")
+    subnets = _items_from_doc(subnet_doc)
+
+    if not rts:
+        return PreCheckResult("NET-004", "SKIP", "no route-tables evidence", [])
+    if not subnets:
+        return PreCheckResult("NET-004", "SKIP", "no subnets evidence", [])
+
+    # Build map: subnet_id → name tag
+    subnet_name: Dict[str, str] = {}
+    for s in subnets:
+        if not isinstance(s, dict):
+            continue
+        sid = s.get("SubnetId", "")
+        tags = {t.get("Key", ""): t.get("Value", "") for t in (s.get("Tags") or []) if isinstance(t, dict)}
+        subnet_name[sid] = tags.get("Name", "").lower()
+
+    # Private / DB keywords in subnet names
+    private_keywords = ("private", "db", "database", "internal", "app", "cache", "elasticache")
+
+    sensitive: list = []
+    for rt in rts:
+        if not isinstance(rt, dict):
+            continue
+        igw_routes = [
+            r for r in (rt.get("Routes") or [])
+            if isinstance(r, dict) and str(r.get("GatewayId", "")).startswith("igw-")
+        ]
+        if not igw_routes:
+            continue
+        for assoc in rt.get("Associations") or []:
+            if not isinstance(assoc, dict):
+                continue
+            sid = assoc.get("SubnetId")
+            if not sid:
+                continue
+            name = subnet_name.get(sid, "")
+            if any(kw in name for kw in private_keywords):
+                sensitive.append(sid)
+
+    if not sensitive:
+        return PreCheckResult("NET-004", "PASS", "no DB/private subnets with IGW routes", [])
+    return PreCheckResult(
+        "NET-004", "FAIL", f"{len(sensitive)} private/DB subnet(s) with IGW route", sensitive[:5]
+    )
+
+
+@_register("network")
+def check_net_006(evidence: Dict[str, Any]) -> PreCheckResult:
+    """NET-006: Security groups referencing Security Groups from other AWS accounts."""
+    sg_doc = evidence.get("security-groups")
+    sgs = _items_from_doc(sg_doc)
+    if isinstance(sg_doc, dict) and isinstance(sg_doc.get("by_id"), dict):
+        sgs = list(sg_doc["by_id"].values())
+
+    if not sgs:
+        return PreCheckResult("NET-006", "SKIP", "no security-groups evidence", [])
+
+    # Get account_id from metadata or infer from first local SG reference
+    meta = evidence.get("_audit_metadata") or {}
+    account_id = meta.get("_account_id", "") if isinstance(meta, dict) else ""
+
+    if not account_id:
+        # Infer from first UserIdGroupPairs entry seen
+        for sg in sgs:
+            if not isinstance(sg, dict):
+                continue
+            for rule in (sg.get("IngressRules") or []) + (sg.get("EgressRules") or []):
+                for pair in (rule.get("UserIdGroupPairs") or []):
+                    if isinstance(pair, dict) and pair.get("UserId"):
+                        account_id = pair["UserId"]
+                        break
+                if account_id:
+                    break
+            if account_id:
+                break
+
+    if not account_id:
+        return PreCheckResult("NET-006", "SKIP", "cannot determine account_id", [])
+
+    cross_account: list = []
+    for sg in sgs:
+        if not isinstance(sg, dict):
+            continue
+        sg_id = sg.get("GroupId", "unknown")
+        for rule in (sg.get("IngressRules") or []):
+            for pair in (rule.get("UserIdGroupPairs") or []):
+                if isinstance(pair, dict) and pair.get("UserId") and pair["UserId"] != account_id:
+                    cross_account.append(f"{sg_id}→{pair.get('GroupId', 'unknown')}@{pair['UserId']}")
+
+    if not cross_account:
+        return PreCheckResult("NET-006", "PASS", "no cross-account SG references", [])
+    return PreCheckResult(
+        "NET-006", "FAIL", f"{len(cross_account)} cross-account SG reference(s)", cross_account[:5]
+    )
+
+
+@_register("network")
+def check_net_008(evidence: Dict[str, Any]) -> PreCheckResult:
+    """NET-008: Critical workloads (RDS, Lambda) deployed in public subnets."""
+    rt_doc = evidence.get("route-tables")
+    rts = _items_from_doc(rt_doc)
+    subnet_doc = evidence.get("subnets")
+    subnets = _items_from_doc(subnet_doc)
+
+    if not rts or not subnets:
+        return PreCheckResult("NET-008", "SKIP", "insufficient evidence to determine public subnets", [])
+
+    # Find public subnet IDs (route tables with IGW routes)
+    public_subnet_ids: set = set()
+    for rt in rts:
+        if not isinstance(rt, dict):
+            continue
+        igw = any(
+            isinstance(r, dict) and str(r.get("GatewayId", "")).startswith("igw-")
+            for r in (rt.get("Routes") or [])
+        )
+        if not igw:
+            continue
+        for assoc in (rt.get("Associations") or []):
+            if isinstance(assoc, dict) and assoc.get("SubnetId"):
+                public_subnet_ids.add(assoc["SubnetId"])
+
+    if not public_subnet_ids:
+        return PreCheckResult("NET-008", "PASS", "no public subnets detected", [])
+
+    critical_in_public: list = []
+
+    # Check Lambda functions with VPC config
+    lambda_doc = evidence.get("lambda-functions")
+    lambdas = _items_from_doc(lambda_doc)
+    for fn in lambdas:
+        if not isinstance(fn, dict):
+            continue
+        vpc_config = fn.get("VpcConfig") or {}
+        fn_subnets = vpc_config.get("SubnetIds") or []
+        for sid in fn_subnets:
+            if sid in public_subnet_ids:
+                critical_in_public.append(f"lambda:{fn.get('FunctionName', 'unknown')}")
+                break
+
+    # Check RDS instances (SubnetGroup subnets may be empty but try)
+    rds_doc = evidence.get("rds-instances")
+    rds_items = _items_from_doc(rds_doc)
+    for db in rds_items:
+        if not isinstance(db, dict):
+            continue
+        sg_subnets = db.get("DBSubnetGroup", {}).get("Subnets") or []
+        for s in sg_subnets:
+            sid = s.get("SubnetIdentifier") if isinstance(s, dict) else s
+            if sid and sid in public_subnet_ids:
+                critical_in_public.append(f"rds:{db.get('DBInstanceIdentifier', 'unknown')}")
+                break
+
+    if not critical_in_public:
+        return PreCheckResult("NET-008", "PASS", "no critical workloads in public subnets", [])
+    return PreCheckResult(
+        "NET-008", "FAIL", f"{len(critical_in_public)} critical workload(s) in public subnets",
+        critical_in_public[:5],
+    )
+
+
+@_register("network")
+def check_net_010(evidence: Dict[str, Any]) -> PreCheckResult:
+    """NET-010: Default NACLs are overly permissive (protocol -1 ALLOW from 0.0.0.0/0)."""
+    nacl_doc = evidence.get("network-acls")
+    nacls = _items_from_doc(nacl_doc)
+
+    if not nacls:
+        return PreCheckResult("NET-010", "SKIP", "no network-acls evidence", [])
+
+    permissive: list = []
+    for nacl in nacls:
+        if not isinstance(nacl, dict) or not nacl.get("IsDefault", False):
+            continue
+        nacl_id = nacl.get("NetworkAclId", "unknown")
+        for entry in (nacl.get("Entries") or []):
+            if not isinstance(entry, dict):
+                continue
+            if (
+                entry.get("Protocol") == "-1"
+                and entry.get("RuleAction") == "allow"
+                and entry.get("CidrBlock") == "0.0.0.0/0"
+            ):
+                permissive.append(nacl_id)
+                break
+
+    if not permissive:
+        return PreCheckResult("NET-010", "PASS", "no default NACLs with ALLOW ALL from internet", [])
+    return PreCheckResult(
+        "NET-010", "FAIL", f"{len(permissive)} default NACL(s) with ALLOW ALL from 0.0.0.0/0", permissive[:5]
+    )
+
+
+@_register("network")
+def check_net_012(evidence: Dict[str, Any]) -> PreCheckResult:
+    """NET-012: Transit Gateway attachments not inspected by Network Firewall."""
+    tgw_doc = evidence.get("transit-gateway-topology")
+    if not isinstance(tgw_doc, dict):
+        return PreCheckResult("NET-012", "SKIP", "no transit-gateway-topology evidence", [])
+
+    tgws = tgw_doc.get("transit_gateways") or []
+    if not tgws:
+        return PreCheckResult("NET-012", "SKIP", "no Transit Gateways deployed", [])
+
+    # TGWs exist but we cannot verify Network Firewall inspection from this evidence
+    return PreCheckResult("NET-012", "SKIP", f"{len(tgws)} TGW(s) present — manual inspection required", [])
+
+
+@_register("network")
+def check_net_014(evidence: Dict[str, Any]) -> PreCheckResult:
+    """NET-014: Route tables with active blackhole routes."""
+    rt_doc = evidence.get("route-tables")
+    rts = _items_from_doc(rt_doc)
+
+    if not rts:
+        return PreCheckResult("NET-014", "SKIP", "no route-tables evidence", [])
+
+    blackholes: list = []
+    for rt in rts:
+        if not isinstance(rt, dict):
+            continue
+        for route in (rt.get("Routes") or []):
+            if isinstance(route, dict) and route.get("State") == "blackhole":
+                rt_id = rt.get("RouteTableId", "unknown")
+                dst = route.get("DestinationCidrBlock", route.get("DestinationIpv6CidrBlock", "unknown"))
+                blackholes.append(f"{rt_id}:{dst}")
+                break
+
+    if not blackholes:
+        return PreCheckResult("NET-014", "PASS", "no blackhole routes", [])
+    rt_ids = [b.split(":")[0] for b in blackholes]
+    return PreCheckResult(
+        "NET-014", "FAIL", f"{len(blackholes)} route table(s) with blackhole route", rt_ids[:5]
+    )
+
+
+@_register("network")
+def check_net_017(evidence: Dict[str, Any]) -> PreCheckResult:
+    """NET-017: Private subnets (no 'public' in name) with a default route to an IGW."""
+    rt_doc = evidence.get("route-tables")
+    rts = _items_from_doc(rt_doc)
+    subnet_doc = evidence.get("subnets")
+    subnets = _items_from_doc(subnet_doc)
+
+    if not rts:
+        return PreCheckResult("NET-017", "SKIP", "no route-tables evidence", [])
+    if not subnets:
+        return PreCheckResult("NET-017", "SKIP", "no subnets evidence", [])
+
+    # Build subnet name map
+    subnet_name: Dict[str, str] = {}
+    for s in subnets:
+        if not isinstance(s, dict):
+            continue
+        sid = s.get("SubnetId", "")
+        tags = {t.get("Key", ""): t.get("Value", "") for t in (s.get("Tags") or []) if isinstance(t, dict)}
+        subnet_name[sid] = tags.get("Name", "").lower()
+
+    flagged: list = []
+    for rt in rts:
+        if not isinstance(rt, dict):
+            continue
+        igw_routes = [
+            r for r in (rt.get("Routes") or [])
+            if isinstance(r, dict) and str(r.get("GatewayId", "")).startswith("igw-")
+        ]
+        if not igw_routes:
+            continue
+        for assoc in (rt.get("Associations") or []):
+            if not isinstance(assoc, dict):
+                continue
+            sid = assoc.get("SubnetId")
+            if not sid:
+                continue
+            name = subnet_name.get(sid, "")
+            # Only flag if the subnet name does NOT contain 'public'
+            if "public" not in name:
+                flagged.append(sid)
+
+    if not flagged:
+        return PreCheckResult("NET-017", "PASS", "no private subnets with IGW routes", [])
+    return PreCheckResult(
+        "NET-017", "FAIL", f"{len(flagged)} private subnet(s) with IGW route", flagged[:5]
+    )
+
+
+@_register("network")
+def check_net_019(evidence: Dict[str, Any]) -> PreCheckResult:
+    """NET-019: Security groups with more than 50 rules (hard to audit)."""
+    sg_doc = evidence.get("security-groups")
+    sgs = _items_from_doc(sg_doc)
+    if isinstance(sg_doc, dict) and isinstance(sg_doc.get("by_id"), dict):
+        sgs = list(sg_doc["by_id"].values())
+
+    if not sgs:
+        return PreCheckResult("NET-019", "SKIP", "no security-groups evidence", [])
+
+    oversized: list = []
+    for sg in sgs:
+        if not isinstance(sg, dict):
+            continue
+        total_rules = len(sg.get("IngressRules") or []) + len(sg.get("EgressRules") or [])
+        if total_rules > 50:
+            oversized.append(sg.get("GroupId", "unknown"))
+
+    if not oversized:
+        return PreCheckResult("NET-019", "PASS", "no SGs with more than 50 rules", [])
+    return PreCheckResult(
+        "NET-019", "FAIL", f"{len(oversized)} SG(s) with more than 50 rules", oversized[:10]
+    )
+
+
+@_register("network")
+def check_net_021(evidence: Dict[str, Any]) -> PreCheckResult:
+    """NET-021: Orphaned security groups (no attached resources — requires ENI data)."""
+    sg_doc = evidence.get("security-groups")
+    sgs = _items_from_doc(sg_doc)
+    if isinstance(sg_doc, dict) and isinstance(sg_doc.get("by_id"), dict):
+        sgs = list(sg_doc["by_id"].values())
+
+    if not sgs:
+        return PreCheckResult("NET-021", "SKIP", "no security-groups evidence", [])
+
+    # ENI attachment counts are not collected — cannot determine orphan status
+    return PreCheckResult("NET-021", "SKIP", "ENI attachment data not collected; manual review needed", [])
+
+
+@_register("network")
+def check_net_029(evidence: Dict[str, Any]) -> PreCheckResult:
+    """NET-029: VPC CIDR blocks overlap across VPCs."""
+    vpc_doc = evidence.get("vpcs")
+    vpcs = _items_from_doc(vpc_doc)
+    if isinstance(vpc_doc, dict) and isinstance(vpc_doc.get("by_id"), dict):
+        vpcs = list(vpc_doc["by_id"].values())
+
+    if not vpcs:
+        return PreCheckResult("NET-029", "SKIP", "no vpcs evidence", [])
+    if len(vpcs) < 2:
+        return PreCheckResult("NET-029", "PASS", "single VPC — no overlap possible", [])
+
+    # Simple CIDR prefix overlap check (no full IP math — flag same prefixes)
+    cidrs: list = []
+    overlaps: list = []
+    for vpc in vpcs:
+        if not isinstance(vpc, dict):
+            continue
+        cidr = vpc.get("CidrBlock", "")
+        vpc_id = vpc.get("VpcId", "unknown")
+        if cidr in cidrs:
+            overlaps.append(f"{vpc_id}:{cidr}")
+        cidrs.append(cidr)
+
+    if not overlaps:
+        return PreCheckResult("NET-029", "PASS", f"{len(vpcs)} VPCs with no exact CIDR duplicates", [])
+    return PreCheckResult(
+        "NET-029", "FAIL", f"CIDR overlap detected: {overlaps[:3]}", overlaps[:5]
+    )
+
+
 # ============================================================================
 # WAF PRE-CHECKS
 # ============================================================================
