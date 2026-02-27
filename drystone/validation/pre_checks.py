@@ -1206,17 +1206,23 @@ def check_hrd_012(evidence: Dict[str, Any]) -> PreCheckResult:
 @_register("hardening")
 def check_hrd_013(evidence: Dict[str, Any]) -> PreCheckResult:
     """Outdated Security Hub standards should be updated."""
-    enabled_standards = evidence.get("security-hub-enabled-standards", [])
-    if not isinstance(enabled_standards, list):
+    # SKIP when evidence key is entirely missing (cannot evaluate)
+    if "security-hub-enabled-standards" not in evidence:
         return PreCheckResult("HRD-013", "SKIP", "no standards evidence", [])
 
-    outdated_keywords = ["v1.2.0", "v1.3.0", "2016", "2017"]
+    enabled_standards = evidence["security-hub-enabled-standards"]
+    if not isinstance(enabled_standards, list):
+        return PreCheckResult("HRD-013", "SKIP", "unexpected standards format", [])
+
+    # ARNs use slash-separated versions: ".../benchmark/v/1.2.0"
+    # Use path fragments (with leading slash) — "v1.2.0" would NOT match "v/1.2.0".
+    outdated_fragments = ["/1.2.0", "/1.3.0", "/2016", "/2017"]
     for std in enabled_standards:
         if not isinstance(std, dict):
             continue
         arn = str(std.get("StandardsArn") or std.get("StandardsSubscriptionArn") or "")
-        for kw in outdated_keywords:
-            if kw in arn:
+        for fragment in outdated_fragments:
+            if fragment in arn:
                 return PreCheckResult("HRD-013", "FAIL", f"outdated standard: {arn}", [])
 
     return PreCheckResult("HRD-013", "PASS", "no outdated standards", [])
@@ -1244,6 +1250,92 @@ def check_hrd_016(evidence: Dict[str, Any]) -> PreCheckResult:
     if low <= 0:
         return PreCheckResult("HRD-016", "PASS", f"LOW count={low}", [])
     return PreCheckResult("HRD-016", "FAIL", f"LOW count={low} (>0)", [])
+
+
+@_register("hardening")
+def check_hrd_007(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Security Hub PCI DSS standard should be enabled."""
+    hub_status = evidence.get("security-hub-status", {})
+    if not isinstance(hub_status, dict) or not hub_status.get("HubArn"):
+        return PreCheckResult("HRD-007", "SKIP", "Security Hub not enabled", [])
+
+    enabled_standards = evidence.get("security-hub-enabled-standards", [])
+    if not isinstance(enabled_standards, list):
+        return PreCheckResult("HRD-007", "SKIP", "no standards evidence", [])
+
+    for std in enabled_standards:
+        if not isinstance(std, dict):
+            continue
+        arn = str(std.get("StandardsArn") or std.get("StandardsSubscriptionArn") or "")
+        status = str(std.get("Status") or "").upper()
+        if "pci-dss" in arn.lower() and status in {"READY", "ENABLED"}:
+            return PreCheckResult("HRD-007", "PASS", f"PCI DSS standard enabled: {arn}", [])
+
+    return PreCheckResult("HRD-007", "FAIL", "no PCI DSS standard enabled", [])
+
+
+@_register("hardening")
+def check_hrd_008(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Compliance score should be in 50-70% range (medium risk)."""
+    sev_counts, comp_counts = _get_hardening_counts(evidence)
+    passed = int(comp_counts.get("PASSED", 0))
+    failed = int(comp_counts.get("FAILED", 0))
+    warning = int(comp_counts.get("WARNING", 0))
+    denom = passed + failed + warning
+    if denom == 0:
+        return PreCheckResult("HRD-008", "SKIP", "no compliance data", [])
+
+    score = (passed / denom) * 100.0
+    if 50.0 <= score < 70.0:
+        return PreCheckResult("HRD-008", "FAIL", f"compliance_score={score:.1f}% (50-70%)", [])
+    return PreCheckResult("HRD-008", "PASS", f"compliance_score={score:.1f}% (not in 50-70% band)", [])
+
+
+@_register("hardening")
+def check_hrd_010(evidence: Dict[str, Any]) -> PreCheckResult:
+    """No conformance packs configured."""
+    packs = evidence.get("config-conformance-packs", None)
+    if packs is None:
+        return PreCheckResult("HRD-010", "SKIP", "no conformance-packs evidence", [])
+    if not isinstance(packs, list):
+        return PreCheckResult("HRD-010", "SKIP", "unexpected conformance-packs format", [])
+    if len(packs) == 0:
+        return PreCheckResult("HRD-010", "FAIL", "0 conformance packs configured", [])
+    return PreCheckResult("HRD-010", "PASS", f"{len(packs)} conformance pack(s) configured", [])
+
+
+@_register("hardening")
+def check_hrd_011(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Compliance score should be in 70-85% range (acceptable risk)."""
+    sev_counts, comp_counts = _get_hardening_counts(evidence)
+    passed = int(comp_counts.get("PASSED", 0))
+    failed = int(comp_counts.get("FAILED", 0))
+    warning = int(comp_counts.get("WARNING", 0))
+    denom = passed + failed + warning
+    if denom == 0:
+        return PreCheckResult("HRD-011", "SKIP", "no compliance data", [])
+
+    score = (passed / denom) * 100.0
+    if 70.0 <= score < 85.0:
+        return PreCheckResult("HRD-011", "FAIL", f"compliance_score={score:.1f}% (70-85%)", [])
+    return PreCheckResult("HRD-011", "PASS", f"compliance_score={score:.1f}% (not in 70-85% band)", [])
+
+
+@_register("hardening")
+def check_hrd_015(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Compliance score should be in 85-95% range (low risk)."""
+    sev_counts, comp_counts = _get_hardening_counts(evidence)
+    passed = int(comp_counts.get("PASSED", 0))
+    failed = int(comp_counts.get("FAILED", 0))
+    warning = int(comp_counts.get("WARNING", 0))
+    denom = passed + failed + warning
+    if denom == 0:
+        return PreCheckResult("HRD-015", "SKIP", "no compliance data", [])
+
+    score = (passed / denom) * 100.0
+    if 85.0 <= score < 95.0:
+        return PreCheckResult("HRD-015", "FAIL", f"compliance_score={score:.1f}% (85-95%)", [])
+    return PreCheckResult("HRD-015", "PASS", f"compliance_score={score:.1f}% (not in 85-95% band)", [])
 
 
 def _get_hardening_counts(evidence: Dict[str, Any]):

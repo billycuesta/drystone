@@ -35,7 +35,13 @@ from drystone.validation.pre_checks import (
     check_hrd_003,
     check_hrd_005,
     check_hrd_006,
+    check_hrd_007,
+    check_hrd_008,
+    check_hrd_010,
+    check_hrd_011,
+    check_hrd_013,
     check_hrd_014,
+    check_hrd_015,
     check_alr_003,
     check_alrt_002,
     check_alrt_003,
@@ -675,6 +681,241 @@ class TestHRD003:
             }
         )
         assert r.status == "FAIL"
+
+
+class TestHRD007:
+    def test_skip_when_hub_not_enabled(self):
+        r = check_hrd_007({"security-hub-status": {}})
+        assert r.status == "SKIP"
+
+    def test_pass_when_pci_dss_standard_enabled(self):
+        r = check_hrd_007(
+            {
+                "security-hub-status": {"HubArn": "arn:aws:securityhub:us-east-1:123:hub/default"},
+                "security-hub-enabled-standards": [
+                    {
+                        "StandardsArn": "arn:aws:securityhub:us-east-1::standards/pci-dss/v/3.2.1",
+                        "Status": "READY",
+                    }
+                ],
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_fail_when_no_pci_dss_standard(self):
+        r = check_hrd_007(
+            {
+                "security-hub-status": {"HubArn": "arn:aws:securityhub:us-east-1:123:hub/default"},
+                "security-hub-enabled-standards": [
+                    {
+                        "StandardsArn": "arn:aws:securityhub:::ruleset/cis-aws-foundations-benchmark/v/1.4.0",
+                        "Status": "READY",
+                    }
+                ],
+            }
+        )
+        assert r.status == "FAIL"
+
+    def test_pass_uses_subscription_arn_fallback(self):
+        r = check_hrd_007(
+            {
+                "security-hub-status": {"HubArn": "arn:aws:securityhub:us-east-1:123:hub/default"},
+                "security-hub-enabled-standards": [
+                    {
+                        "StandardsArn": None,
+                        "StandardsSubscriptionArn": "arn:aws:securityhub:us-east-1:123:subscription/pci-dss/v/3.2.1",
+                        "Status": "READY",
+                    }
+                ],
+            }
+        )
+        assert r.status == "PASS"
+
+
+class TestHRD008:
+    _summary_50pct = {
+        "severity_counts": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "OTHER": 0},
+        "compliance_status_counts": {"PASSED": 60, "FAILED": 40, "WARNING": 0},
+    }
+    _summary_30pct = {
+        "severity_counts": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "OTHER": 0},
+        "compliance_status_counts": {"PASSED": 30, "FAILED": 70, "WARNING": 0},
+    }
+    _summary_65pct = {
+        "severity_counts": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "OTHER": 0},
+        "compliance_status_counts": {"PASSED": 65, "FAILED": 35, "WARNING": 0},
+    }
+
+    def test_fail_when_score_in_50_70_band(self):
+        r = check_hrd_008({"security-hub-findings-summary": self._summary_65pct})
+        assert r.status == "FAIL"
+        assert "65.0%" in r.evidence_summary
+
+    def test_pass_when_score_below_50(self):
+        r = check_hrd_008({"security-hub-findings-summary": self._summary_30pct})
+        assert r.status == "PASS"
+
+    def test_pass_when_score_at_or_above_70(self):
+        # 60 PASS / 40 FAIL = exactly 60%... wait that's in 50-70 band
+        # Use 80%
+        summary_80 = {
+            "severity_counts": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "OTHER": 0},
+            "compliance_status_counts": {"PASSED": 80, "FAILED": 20, "WARNING": 0},
+        }
+        r = check_hrd_008({"security-hub-findings-summary": summary_80})
+        assert r.status == "PASS"
+
+    def test_skip_when_no_compliance_data(self):
+        r = check_hrd_008({})
+        assert r.status == "SKIP"
+
+
+class TestHRD010:
+    def test_fail_when_no_conformance_packs(self):
+        r = check_hrd_010({"config-conformance-packs": []})
+        assert r.status == "FAIL"
+        assert "0 conformance packs" in r.evidence_summary
+
+    def test_pass_when_packs_configured(self):
+        r = check_hrd_010(
+            {"config-conformance-packs": [{"ConformancePackName": "OperationalBestPractices-IAM"}]}
+        )
+        assert r.status == "PASS"
+        assert "1 conformance pack" in r.evidence_summary
+
+    def test_skip_when_evidence_missing(self):
+        r = check_hrd_010({})
+        assert r.status == "SKIP"
+
+
+class TestHRD011:
+    def test_fail_when_score_in_70_85_band(self):
+        summary = {
+            "severity_counts": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "OTHER": 0},
+            "compliance_status_counts": {"PASSED": 75, "FAILED": 25, "WARNING": 0},
+        }
+        r = check_hrd_011({"security-hub-findings-summary": summary})
+        assert r.status == "FAIL"
+        assert "75.0%" in r.evidence_summary
+
+    def test_pass_when_score_below_70(self):
+        summary = {
+            "severity_counts": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "OTHER": 0},
+            "compliance_status_counts": {"PASSED": 0, "FAILED": 100, "WARNING": 0},
+        }
+        r = check_hrd_011({"security-hub-findings-summary": summary})
+        assert r.status == "PASS"
+
+    def test_pass_when_score_at_or_above_85(self):
+        summary = {
+            "severity_counts": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "OTHER": 0},
+            "compliance_status_counts": {"PASSED": 90, "FAILED": 10, "WARNING": 0},
+        }
+        r = check_hrd_011({"security-hub-findings-summary": summary})
+        assert r.status == "PASS"
+
+
+class TestHRD013:
+    """HRD-013: Outdated Security Hub standards should be detected."""
+
+    def test_fail_when_cis_v120_present(self):
+        """Regression test: CIS v1.2.0 in StandardsArn must trigger FAIL."""
+        r = check_hrd_013(
+            {
+                "security-hub-enabled-standards": [
+                    {
+                        "StandardsArn": "arn:aws:securityhub:::ruleset/cis-aws-foundations-benchmark/v/1.2.0",
+                        "StandardsSubscriptionArn": "arn:aws:securityhub:us-east-1:032014372957:subscription/cis-aws-foundations-benchmark/v/1.2.0",
+                        "Status": "READY",
+                        "ControlsSummary": {"total": 42, "enabled": 42, "disabled": 0},
+                    }
+                ]
+            }
+        )
+        assert r.status == "FAIL", f"Expected FAIL but got {r.status}: {r.evidence_summary}"
+
+    def test_fail_when_cis_v130_present(self):
+        r = check_hrd_013(
+            {
+                "security-hub-enabled-standards": [
+                    {
+                        "StandardsArn": "arn:aws:securityhub:::ruleset/cis-aws-foundations-benchmark/v/1.3.0",
+                        "Status": "READY",
+                    }
+                ]
+            }
+        )
+        assert r.status == "FAIL"
+
+    def test_pass_when_only_current_standards(self):
+        r = check_hrd_013(
+            {
+                "security-hub-enabled-standards": [
+                    {
+                        "StandardsArn": "arn:aws:securityhub:us-east-1::standards/cis-aws-foundations-benchmark/v/1.4.0",
+                        "Status": "READY",
+                    },
+                    {
+                        "StandardsArn": "arn:aws:securityhub:us-east-1::standards/pci-dss/v/3.2.1",
+                        "Status": "READY",
+                    },
+                ]
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_fail_when_v120_and_v140_both_present(self):
+        """Having v1.4.0 does not excuse keeping v1.2.0 enabled."""
+        r = check_hrd_013(
+            {
+                "security-hub-enabled-standards": [
+                    {
+                        "StandardsArn": "arn:aws:securityhub:::ruleset/cis-aws-foundations-benchmark/v/1.2.0",
+                        "Status": "READY",
+                    },
+                    {
+                        "StandardsArn": "arn:aws:securityhub:us-east-1::standards/cis-aws-foundations-benchmark/v/1.4.0",
+                        "Status": "READY",
+                    },
+                ]
+            }
+        )
+        assert r.status == "FAIL"
+
+    def test_skip_when_no_standards_evidence(self):
+        r = check_hrd_013({})
+        assert r.status == "SKIP"
+
+
+class TestHRD015:
+    def test_fail_when_score_in_85_95_band(self):
+        summary = {
+            "severity_counts": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "OTHER": 0},
+            "compliance_status_counts": {"PASSED": 90, "FAILED": 10, "WARNING": 0},
+        }
+        r = check_hrd_015({"security-hub-findings-summary": summary})
+        assert r.status == "FAIL"
+        assert "90.0%" in r.evidence_summary
+
+    def test_pass_when_score_below_85(self):
+        summary = {
+            "severity_counts": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "OTHER": 0},
+            "compliance_status_counts": {"PASSED": 0, "FAILED": 100, "WARNING": 0},
+        }
+        r = check_hrd_015({"security-hub-findings-summary": summary})
+        assert r.status == "PASS"
+
+    def test_pass_when_score_at_or_above_95(self):
+        summary = {
+            "severity_counts": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "OTHER": 0},
+            "compliance_status_counts": {"PASSED": 97, "FAILED": 3, "WARNING": 0},
+        }
+        r = check_hrd_015({"security-hub-findings-summary": summary})
+        assert r.status == "PASS"
+
+    def test_skip_when_no_compliance_data(self):
+        r = check_hrd_015({})
+        assert r.status == "SKIP"
 
 
 class TestHRD014:
