@@ -198,12 +198,15 @@ class MarkdownFormatter(BaseFormatter):
         "vpcs.json": "VPCs",
         "security-groups.json": "Security Groups",
         "nacls.json": "Network ACLs",
+        "network-acls.json": "Network ACLs",  # actual network skill filename
         "subnets.json": "Subnets",
         "route-tables.json": "Route Tables",
         "internet-gateways.json": "Internet Gateways",
         "nat-gateways.json": "NAT Gateways",
+        "nat-gateway-routes.json": "NAT Gateways",  # actual network skill filename
         "vpc-endpoints.json": "VPC Endpoints",
         "transit-gateways.json": "Transit Gateways",
+        "vpn-connections.json": "VPN Connections",  # actual network skill filename
         # Load Balancing / Compute
         "load-balancers.json": "Load Balancers",
         "ec2-instances.json": "EC2 Instances",
@@ -503,15 +506,21 @@ This report presents security findings from the {skill.upper()} security assessm
             except (json.JSONDecodeError, OSError):
                 continue
 
-            # Only count list-type evidence (skip scalar dicts like password-policy)
-            if not isinstance(data, list):
+            # Count items: handle raw list evidence and dict evidence with 'items' key
+            # (network/waf/ecr skills store evidence as {"_meta": ..., "items": [...], "by_id": {...}})
+            if isinstance(data, list):
+                count = len(data)
+            elif isinstance(data, dict) and isinstance(data.get("items"), list):
+                count = len(data["items"])
+            else:
+                # Skip scalar dicts (password-policy) or unrecognized structures
                 continue
 
             label = self._EVIDENCE_FILE_LABELS.get(
                 json_file.name,
                 json_file.stem.replace("-", " ").replace("_", " ").title(),
             )
-            rows.append((label, len(data)))
+            rows.append((label, count))
 
         if not rows:
             return ""

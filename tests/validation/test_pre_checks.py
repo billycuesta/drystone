@@ -70,7 +70,12 @@ from drystone.validation.pre_checks import (
     check_exp_021,
     check_exp_022,
     check_net_001,
+    check_net_002,
+    check_net_003,
+    check_net_009,
+    check_net_016,
     check_net_018,
+    check_net_027,
     check_sm_001,
     check_sm_003,
     check_sm_013,
@@ -2088,6 +2093,238 @@ class TestNET018:
         evidence = {"vpcs": [{"VpcId": "vpc-1", "FlowLogs": []}]}
         r = check_net_018(evidence)
         assert r.status == "FAIL"
+
+
+class TestNET002:
+    def _sg(self, sg_id, inbound_protocol, cidr="0.0.0.0/0"):
+        return {
+            "GroupId": sg_id,
+            "GroupName": "test",
+            "IngressRules": [
+                {
+                    "IpProtocol": inbound_protocol,
+                    "IpRanges": [{"CidrIp": cidr}],
+                    "Ipv6Ranges": [],
+                    "UserIdGroupPairs": [],
+                }
+            ],
+            "EgressRules": [],
+        }
+
+    def test_skip_no_evidence(self):
+        r = check_net_002({})
+        assert r.status == "SKIP"
+
+    def test_pass_no_all_traffic(self):
+        sg = self._sg("sg-1", "tcp", "0.0.0.0/0")
+        r = check_net_002({"security-groups": {"by_id": {"sg-1": sg}}})
+        assert r.status == "PASS"
+
+    def test_fail_all_traffic_ipv4(self):
+        sg = self._sg("sg-1", "-1", "0.0.0.0/0")
+        r = check_net_002({"security-groups": {"by_id": {"sg-1": sg}}})
+        assert r.status == "FAIL"
+        assert "sg-1" in r.affected_resources
+
+    def test_fail_all_traffic_ipv6(self):
+        sg = {
+            "GroupId": "sg-2",
+            "GroupName": "test",
+            "IngressRules": [
+                {
+                    "IpProtocol": "-1",
+                    "IpRanges": [],
+                    "Ipv6Ranges": [{"CidrIpv6": "::/0"}],
+                    "UserIdGroupPairs": [],
+                }
+            ],
+            "EgressRules": [],
+        }
+        r = check_net_002({"security-groups": {"by_id": {"sg-2": sg}}})
+        assert r.status == "FAIL"
+
+    def test_pass_all_traffic_private_only(self):
+        """ALL traffic from RFC1918 /16 is NOT internet exposure."""
+        sg = self._sg("sg-3", "-1", "10.0.0.0/8")
+        r = check_net_002({"security-groups": {"by_id": {"sg-3": sg}}})
+        assert r.status == "PASS"
+
+    def test_handles_list_format(self):
+        """List format evidence also works."""
+        sg = self._sg("sg-4", "tcp", "0.0.0.0/0")
+        r = check_net_002({"security-groups": [sg]})
+        assert r.status == "PASS"
+
+
+class TestNET003:
+    def _nacl(self, nacl_id, protocol, action, cidr, egress=False):
+        return {
+            "NetworkAclId": nacl_id,
+            "IsDefault": False,
+            "Entries": [
+                {
+                    "Protocol": protocol,
+                    "RuleAction": action,
+                    "CidrBlock": cidr,
+                    "Egress": egress,
+                    "RuleNumber": 100,
+                }
+            ],
+            "Associations": [],
+        }
+
+    def test_skip_no_evidence(self):
+        r = check_net_003({})
+        assert r.status == "SKIP"
+
+    def test_pass_specific_ports(self):
+        nacl = self._nacl("acl-1", "6", "allow", "0.0.0.0/0")
+        r = check_net_003({"network-acls": {"items": [nacl]}})
+        assert r.status == "PASS"  # protocol 6 (TCP) not -1
+
+    def test_fail_allow_all_inbound(self):
+        nacl = self._nacl("acl-1", "-1", "allow", "0.0.0.0/0", egress=False)
+        r = check_net_003({"network-acls": {"items": [nacl]}})
+        assert r.status == "FAIL"
+        assert "acl-1" in r.affected_resources
+
+    def test_pass_deny_all_outbound(self):
+        """Deny rule on egress with -1 is the standard last rule, not a finding."""
+        nacl = self._nacl("acl-1", "-1", "deny", "0.0.0.0/0", egress=True)
+        r = check_net_003({"network-acls": {"items": [nacl]}})
+        assert r.status == "PASS"
+
+    def test_pass_allow_all_egress(self):
+        """Allow all egress is not what this check targets (inbound only)."""
+        nacl = self._nacl("acl-1", "-1", "allow", "0.0.0.0/0", egress=True)
+        r = check_net_003({"network-acls": {"items": [nacl]}})
+        assert r.status == "PASS"
+
+
+class TestNET009:
+    def _sg(self, sg_id, proto, from_port, to_port, cidr):
+        return {
+            "GroupId": sg_id,
+            "GroupName": "test",
+            "IngressRules": [
+                {
+                    "IpProtocol": proto,
+                    "FromPort": from_port,
+                    "ToPort": to_port,
+                    "IpRanges": [{"CidrIp": cidr}],
+                    "Ipv6Ranges": [],
+                    "UserIdGroupPairs": [],
+                }
+            ],
+            "EgressRules": [],
+        }
+
+    def test_skip_no_evidence(self):
+        r = check_net_009({})
+        assert r.status == "SKIP"
+
+    def test_fail_broad_cidr_non_web_port(self):
+        """Port 8080 with /16 CIDR should trigger FAIL."""
+        sg = self._sg("sg-1", "tcp", 8080, 8080, "10.70.0.0/16")
+        r = check_net_009({"security-groups": {"by_id": {"sg-1": sg}}})
+        assert r.status == "FAIL"
+        assert "sg-1" in r.affected_resources
+
+    def test_pass_broad_cidr_web_port_80(self):
+        """Port 80 with /16 CIDR should NOT trigger (web port)."""
+        sg = self._sg("sg-1", "tcp", 80, 80, "10.70.0.0/16")
+        r = check_net_009({"security-groups": {"by_id": {"sg-1": sg}}})
+        assert r.status == "PASS"
+
+    def test_pass_broad_cidr_web_port_443(self):
+        """Port 443 with /16 CIDR should NOT trigger."""
+        sg = self._sg("sg-1", "tcp", 443, 443, "10.70.0.0/16")
+        r = check_net_009({"security-groups": {"by_id": {"sg-1": sg}}})
+        assert r.status == "PASS"
+
+    def test_pass_narrow_cidr_any_port(self):
+        """/24 CIDR is not broad enough to trigger."""
+        sg = self._sg("sg-1", "tcp", 5432, 5432, "10.70.21.0/24")
+        r = check_net_009({"security-groups": {"by_id": {"sg-1": sg}}})
+        assert r.status == "PASS"
+
+    def test_fail_slash8_cidr(self):
+        """/8 CIDR is broader than /16 and should trigger."""
+        sg = self._sg("sg-1", "tcp", 5432, 5432, "10.0.0.0/8")
+        r = check_net_009({"security-groups": {"by_id": {"sg-1": sg}}})
+        assert r.status == "FAIL"
+
+
+class TestNET016:
+    def _nacl(self, nacl_id, is_default, subnet_ids):
+        return {
+            "NetworkAclId": nacl_id,
+            "IsDefault": is_default,
+            "Entries": [],
+            "Associations": [
+                {"NetworkAclAssociationId": f"a-{i}", "NetworkAclId": nacl_id, "SubnetId": sid}
+                for i, sid in enumerate(subnet_ids)
+            ],
+        }
+
+    def test_skip_no_evidence(self):
+        r = check_net_016({})
+        assert r.status == "SKIP"
+
+    def test_pass_custom_nacls_only(self):
+        nacl = self._nacl("acl-custom", False, ["subnet-1", "subnet-2"])
+        r = check_net_016({"network-acls": {"items": [nacl]}})
+        assert r.status == "PASS"
+
+    def test_fail_subnets_on_default_nacl(self):
+        default = self._nacl("acl-default", True, ["subnet-3", "subnet-4", "subnet-5"])
+        custom = self._nacl("acl-custom", False, ["subnet-1", "subnet-2"])
+        r = check_net_016({"network-acls": {"items": [default, custom]}})
+        assert r.status == "FAIL"
+        assert len(r.affected_resources) == 3
+        assert "subnet-3" in r.affected_resources
+
+    def test_pass_default_nacl_no_subnets(self):
+        """Default NACL exists but has no subnet associations → PASS."""
+        default = self._nacl("acl-default", True, [])
+        r = check_net_016({"network-acls": {"items": [default]}})
+        assert r.status == "PASS"
+
+
+class TestNET027:
+    def _sg(self, sg_id, tags):
+        return {"GroupId": sg_id, "GroupName": "test", "Tags": tags, "IngressRules": [], "EgressRules": []}
+
+    def test_skip_no_evidence(self):
+        r = check_net_027({})
+        assert r.status == "SKIP"
+
+    def test_pass_all_tagged(self):
+        sg = self._sg("sg-1", [{"Key": "Name", "Value": "mysg"}])
+        r = check_net_027({"security-groups": {"by_id": {"sg-1": sg}}})
+        assert r.status == "PASS"
+
+    def test_fail_missing_tags(self):
+        sg = self._sg("sg-1", [])
+        r = check_net_027({"security-groups": {"by_id": {"sg-1": sg}}})
+        assert r.status == "FAIL"
+        assert "sg-1" in r.affected_resources
+
+    def test_fail_multiple_untagged(self):
+        sgs = {
+            "sg-1": self._sg("sg-1", [{"Key": "Name", "Value": "ok"}]),
+            "sg-2": self._sg("sg-2", []),
+            "sg-3": self._sg("sg-3", []),
+        }
+        r = check_net_027({"security-groups": {"by_id": sgs}})
+        assert r.status == "FAIL"
+        assert "sg-2" in r.affected_resources
+        assert "sg-3" in r.affected_resources
+
+    def test_handles_list_format(self):
+        sg = self._sg("sg-5", [{"Key": "Name", "Value": "ok"}])
+        r = check_net_027({"security-groups": [sg]})
+        assert r.status == "PASS"
 
 
 # ============================================================================

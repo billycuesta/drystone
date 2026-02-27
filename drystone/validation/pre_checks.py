@@ -2843,6 +2843,194 @@ def check_net_018(evidence: Dict[str, Any]) -> PreCheckResult:
     return PreCheckResult("NET-018", "FAIL", f"{len(missing)} VPCs without Flow Logs", missing[:5])
 
 
+@_register("network")
+def check_net_002(evidence: Dict[str, Any]) -> PreCheckResult:
+    """NET-002: Security groups allowing ALL traffic (protocol -1) from 0.0.0.0/0."""
+    sg_doc = evidence.get("security-groups")
+    sgs = _items_from_doc(sg_doc)
+    if isinstance(sg_doc, dict) and isinstance(sg_doc.get("by_id"), dict):
+        sgs = list(sg_doc["by_id"].values())
+
+    if not sgs:
+        return PreCheckResult("NET-002", "SKIP", "no security-groups evidence", [])
+
+    exposed = []
+    for sg in sgs:
+        if not isinstance(sg, dict):
+            continue
+        sg_id = sg.get("GroupId", "unknown")
+        for perm in sg.get("IngressRules", []) or []:
+            if not isinstance(perm, dict) or perm.get("IpProtocol") != "-1":
+                continue
+            for r in perm.get("IpRanges", []) or []:
+                if isinstance(r, dict) and r.get("CidrIp") == "0.0.0.0/0":
+                    if sg_id not in exposed:
+                        exposed.append(sg_id)
+            for r in perm.get("Ipv6Ranges", []) or []:
+                if isinstance(r, dict) and r.get("CidrIpv6") == "::/0":
+                    if sg_id not in exposed:
+                        exposed.append(sg_id)
+
+    if not exposed:
+        return PreCheckResult("NET-002", "PASS", "no SGs with ALL traffic from internet", [])
+    return PreCheckResult(
+        "NET-002", "FAIL", f"{len(exposed)} SGs allow ALL traffic from 0.0.0.0/0", exposed[:10]
+    )
+
+
+@_register("network")
+def check_net_003(evidence: Dict[str, Any]) -> PreCheckResult:
+    """NET-003: NACLs with ALLOW ALL rules (protocol -1, allow, 0.0.0.0/0 inbound)."""
+    nacl_doc = evidence.get("network-acls")
+    nacls = _items_from_doc(nacl_doc)
+
+    if not nacls:
+        return PreCheckResult("NET-003", "SKIP", "no network-acls evidence", [])
+
+    flagged = []
+    for nacl in nacls:
+        if not isinstance(nacl, dict):
+            continue
+        nacl_id = nacl.get("NetworkAclId", "unknown")
+        for entry in nacl.get("Entries", []) or []:
+            if not isinstance(entry, dict):
+                continue
+            if (
+                entry.get("Protocol") == "-1"
+                and entry.get("RuleAction") == "allow"
+                and entry.get("CidrBlock") == "0.0.0.0/0"
+                and not entry.get("Egress", True)  # inbound only
+            ):
+                if nacl_id not in flagged:
+                    flagged.append(nacl_id)
+                break
+
+    if not flagged:
+        return PreCheckResult("NET-003", "PASS", "no NACLs with ALLOW ALL from 0.0.0.0/0", [])
+    return PreCheckResult(
+        "NET-003", "FAIL", f"{len(flagged)} NACLs with ALLOW ALL from internet", flagged[:5]
+    )
+
+
+@_register("network")
+def check_net_009(evidence: Dict[str, Any]) -> PreCheckResult:
+    """NET-009: Security groups allowing overly broad CIDRs (prefix /16 or larger) to non-web ports."""
+    sg_doc = evidence.get("security-groups")
+    sgs = _items_from_doc(sg_doc)
+    if isinstance(sg_doc, dict) and isinstance(sg_doc.get("by_id"), dict):
+        sgs = list(sg_doc["by_id"].values())
+
+    if not sgs:
+        return PreCheckResult("NET-009", "SKIP", "no security-groups evidence", [])
+
+    # Standard web ports excluded from check (these are expected to have broad access)
+    web_ports = {80, 443}
+    flagged = []
+
+    for sg in sgs:
+        if not isinstance(sg, dict):
+            continue
+        sg_id = sg.get("GroupId", "unknown")
+        found = False
+        for perm in sg.get("IngressRules", []) or []:
+            if not isinstance(perm, dict):
+                continue
+            proto = perm.get("IpProtocol")
+            # Skip ALL-traffic rules (covered by NET-002) and non-TCP/UDP
+            if proto == "-1" or proto not in ("tcp", "udp", "6", "17"):
+                continue
+            fp = perm.get("FromPort")
+            tp = perm.get("ToPort")
+            for r in perm.get("IpRanges", []) or []:
+                if not isinstance(r, dict):
+                    continue
+                cidr = r.get("CidrIp", "")
+                if not cidr or "/" not in cidr:
+                    continue
+                try:
+                    prefix_len = int(cidr.split("/")[1])
+                except (ValueError, IndexError):
+                    continue
+                if prefix_len > 16:  # /17 or more specific = not broadly permissive
+                    continue
+                # Broad CIDR — check if it covers only web ports
+                if isinstance(fp, int) and isinstance(tp, int):
+                    # If entire port range is within web_ports, skip
+                    if fp == tp and fp in web_ports:
+                        continue
+                    flagged.append(f"{sg_id}:{cidr}:{fp}-{tp}")
+                    found = True
+                    break
+            if found:
+                break
+
+    if not flagged:
+        return PreCheckResult("NET-009", "PASS", "no overly broad CIDRs to non-web ports", [])
+    sg_ids = list(dict.fromkeys(f.split(":")[0] for f in flagged))
+    return PreCheckResult(
+        "NET-009",
+        "FAIL",
+        f"{len(flagged)} SG rule(s) with broad CIDR (>=/16) to non-web port",
+        sg_ids[:10],
+    )
+
+
+@_register("network")
+def check_net_016(evidence: Dict[str, Any]) -> PreCheckResult:
+    """NET-016: Subnets using default VPC NACL instead of a dedicated custom NACL."""
+    nacl_doc = evidence.get("network-acls")
+    nacls = _items_from_doc(nacl_doc)
+
+    if not nacls:
+        return PreCheckResult("NET-016", "SKIP", "no network-acls evidence", [])
+
+    default_subnets: list = []
+    for nacl in nacls:
+        if not isinstance(nacl, dict) or not nacl.get("IsDefault", False):
+            continue
+        for assoc in nacl.get("Associations", []) or []:
+            if isinstance(assoc, dict) and assoc.get("SubnetId"):
+                default_subnets.append(assoc["SubnetId"])
+
+    if not default_subnets:
+        return PreCheckResult("NET-016", "PASS", "all subnets use custom NACLs", [])
+    return PreCheckResult(
+        "NET-016",
+        "FAIL",
+        f"{len(default_subnets)} subnet(s) using default NACL",
+        default_subnets[:10],
+    )
+
+
+@_register("network")
+def check_net_027(evidence: Dict[str, Any]) -> PreCheckResult:
+    """NET-027: Security groups missing tags."""
+    sg_doc = evidence.get("security-groups")
+    sgs = _items_from_doc(sg_doc)
+    if isinstance(sg_doc, dict) and isinstance(sg_doc.get("by_id"), dict):
+        sgs = list(sg_doc["by_id"].values())
+
+    if not sgs:
+        return PreCheckResult("NET-027", "SKIP", "no security-groups evidence", [])
+
+    untagged = []
+    for sg in sgs:
+        if not isinstance(sg, dict):
+            continue
+        tags = sg.get("Tags", []) or []
+        if not tags:
+            untagged.append(sg.get("GroupId", "unknown"))
+
+    if not untagged:
+        return PreCheckResult("NET-027", "PASS", "all security groups have tags", [])
+    return PreCheckResult(
+        "NET-027",
+        "FAIL",
+        f"{len(untagged)} SG(s) missing tags",
+        untagged[:10],
+    )
+
+
 # ============================================================================
 # WAF PRE-CHECKS
 # ============================================================================
