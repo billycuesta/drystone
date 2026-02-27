@@ -3396,6 +3396,68 @@ def check_net_029(evidence: Dict[str, Any]) -> PreCheckResult:
     )
 
 
+@_register("network")
+def check_net_015(evidence: Dict[str, Any]) -> PreCheckResult:
+    """NET-015: Redundant SG references — SG ref and 0.0.0.0/0 in the same rule."""
+    sg_doc = evidence.get("security-groups")
+    sgs = _items_from_doc(sg_doc)
+    if isinstance(sg_doc, dict) and isinstance(sg_doc.get("by_id"), dict):
+        sgs = list(sg_doc["by_id"].values())
+
+    if not sgs:
+        return PreCheckResult("NET-015", "SKIP", "no security-groups evidence", [])
+
+    affected: list = []
+    for sg in sgs:
+        if not isinstance(sg, dict):
+            continue
+        sg_id = sg.get("GroupId", "unknown")
+        for rule in (sg.get("EgressRules") or []) + (sg.get("IngressRules") or []):
+            ip_ranges = rule.get("IpRanges") or []
+            pairs = rule.get("UserIdGroupPairs") or []
+            if pairs and any(
+                isinstance(r, dict) and r.get("CidrIp") == "0.0.0.0/0"
+                for r in ip_ranges
+            ):
+                if sg_id not in affected:
+                    affected.append(sg_id)
+
+    if not affected:
+        return PreCheckResult("NET-015", "PASS", "no redundant SG references detected", [])
+    return PreCheckResult(
+        "NET-015", "FAIL",
+        f"{len(affected)} SG(s) with redundant SG ref + 0.0.0.0/0 in same rule",
+        affected[:5],
+    )
+
+
+@_register("network")
+def check_net_025(evidence: Dict[str, Any]) -> PreCheckResult:
+    """NET-025: Subnets missing classification tags (Tier/Layer/Classification)."""
+    subnet_doc = evidence.get("subnets")
+    subnets = _items_from_doc(subnet_doc)
+
+    if not subnets:
+        return PreCheckResult("NET-025", "SKIP", "no subnets evidence", [])
+
+    classification_keys = {"tier", "layer", "classification", "subnet-type", "subnettype"}
+    missing: list = []
+    for s in subnets:
+        if not isinstance(s, dict):
+            continue
+        tag_keys = {t.get("Key", "").lower() for t in (s.get("Tags") or []) if isinstance(t, dict)}
+        if not (tag_keys & classification_keys):
+            missing.append(s.get("SubnetId", "unknown"))
+
+    if not missing:
+        return PreCheckResult("NET-025", "PASS", "all subnets have classification tags", [])
+    return PreCheckResult(
+        "NET-025", "FAIL",
+        f"{len(missing)} subnet(s) missing classification tags (Tier/Layer)",
+        missing[:8],
+    )
+
+
 # ============================================================================
 # WAF PRE-CHECKS
 # ============================================================================

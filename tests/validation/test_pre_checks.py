@@ -79,11 +79,13 @@ from drystone.validation.pre_checks import (
     check_net_010,
     check_net_012,
     check_net_014,
+    check_net_015,
     check_net_016,
     check_net_017,
     check_net_018,
     check_net_019,
     check_net_021,
+    check_net_025,
     check_net_027,
     check_net_029,
     check_sm_001,
@@ -2652,6 +2654,117 @@ class TestNET029:
         vpcs = [self._vpc("vpc-1", "10.0.0.0/16"), self._vpc("vpc-2", "10.0.0.0/16")]
         r = check_net_029({"vpcs": {"items": vpcs}})
         assert r.status == "FAIL"
+
+
+class TestNET015:
+    def _sg(self, sg_id, egress_rules, ingress_rules=None):
+        return {
+            "GroupId": sg_id,
+            "EgressRules": egress_rules,
+            "IngressRules": ingress_rules or [],
+        }
+
+    def _rule_with_both(self, port, cidr="0.0.0.0/0", sg_ref="sg-other"):
+        return {
+            "IpProtocol": "tcp",
+            "FromPort": port,
+            "ToPort": port,
+            "IpRanges": [{"CidrIp": cidr}],
+            "UserIdGroupPairs": [{"GroupId": sg_ref, "UserId": "111"}],
+        }
+
+    def _rule_ip_only(self, port, cidr="0.0.0.0/0"):
+        return {"IpProtocol": "tcp", "FromPort": port, "ToPort": port,
+                "IpRanges": [{"CidrIp": cidr}], "UserIdGroupPairs": []}
+
+    def _rule_sg_only(self, port, sg_ref="sg-other"):
+        return {"IpProtocol": "tcp", "FromPort": port, "ToPort": port,
+                "IpRanges": [], "UserIdGroupPairs": [{"GroupId": sg_ref}]}
+
+    def test_skip_no_evidence(self):
+        r = check_net_015({})
+        assert r.status == "SKIP"
+        assert r.check_id == "NET-015"
+
+    def test_fail_egress_rule_with_both(self):
+        sg = self._sg("sg-1", [self._rule_with_both(443)])
+        r = check_net_015({"security-groups": {"by_id": {"sg-1": sg}}})
+        assert r.status == "FAIL"
+        assert "sg-1" in r.affected_resources
+
+    def test_fail_ingress_rule_with_both(self):
+        sg = self._sg("sg-1", [], [self._rule_with_both(80)])
+        r = check_net_015({"security-groups": {"by_id": {"sg-1": sg}}})
+        assert r.status == "FAIL"
+        assert "sg-1" in r.affected_resources
+
+    def test_pass_rule_ip_only(self):
+        sg = self._sg("sg-1", [self._rule_ip_only(443)])
+        r = check_net_015({"security-groups": {"by_id": {"sg-1": sg}}})
+        assert r.status == "PASS"
+
+    def test_pass_rule_sg_only(self):
+        sg = self._sg("sg-1", [self._rule_sg_only(443)])
+        r = check_net_015({"security-groups": {"by_id": {"sg-1": sg}}})
+        assert r.status == "PASS"
+
+    def test_pass_sg_ref_plus_non_internet_cidr(self):
+        # SG ref + private CIDR (not 0.0.0.0/0) should not be flagged
+        rule = {
+            "IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+            "IpRanges": [{"CidrIp": "10.0.0.0/8"}],
+            "UserIdGroupPairs": [{"GroupId": "sg-other"}],
+        }
+        sg = self._sg("sg-1", [rule])
+        r = check_net_015({"security-groups": {"by_id": {"sg-1": sg}}})
+        assert r.status == "PASS"
+
+    def test_fail_two_sgs_affected(self):
+        sg1 = self._sg("sg-1", [self._rule_with_both(443)])
+        sg2 = self._sg("sg-2", [self._rule_with_both(443)])
+        r = check_net_015({"security-groups": {"by_id": {"sg-1": sg1, "sg-2": sg2}}})
+        assert r.status == "FAIL"
+        assert "sg-1" in r.affected_resources
+        assert "sg-2" in r.affected_resources
+
+
+class TestNET025:
+    def _subnet(self, sid, tags):
+        return {"SubnetId": sid, "Tags": tags}
+
+    def test_skip_no_evidence(self):
+        r = check_net_025({})
+        assert r.status == "SKIP"
+        assert r.check_id == "NET-025"
+
+    def test_fail_all_subnets_missing_classification(self):
+        s = self._subnet("s-1", [{"Key": "Name", "Value": "vpc-public"}, {"Key": "Env", "Value": "prod"}])
+        r = check_net_025({"subnets": {"items": [s]}})
+        assert r.status == "FAIL"
+        assert "s-1" in r.affected_resources
+
+    def test_pass_subnet_has_tier_tag(self):
+        s = self._subnet("s-1", [{"Key": "Tier", "Value": "Public"}])
+        r = check_net_025({"subnets": {"items": [s]}})
+        assert r.status == "PASS"
+
+    def test_pass_subnet_has_layer_tag(self):
+        s = self._subnet("s-1", [{"Key": "Layer", "Value": "DB"}])
+        r = check_net_025({"subnets": {"items": [s]}})
+        assert r.status == "PASS"
+
+    def test_pass_subnet_has_classification_tag(self):
+        s = self._subnet("s-1", [{"Key": "Classification", "Value": "Private"}])
+        r = check_net_025({"subnets": {"items": [s]}})
+        assert r.status == "PASS"
+
+    def test_fail_mixed_subnets(self):
+        s1 = self._subnet("s-1", [{"Key": "Tier", "Value": "Public"}])   # has tag
+        s2 = self._subnet("s-2", [{"Key": "Name", "Value": "private"}])  # missing
+        r = check_net_025({"subnets": {"items": [s1, s2]}})
+        assert r.status == "FAIL"
+        assert "s-2" in r.affected_resources
+        assert "s-1" not in r.affected_resources
 
 
 # ============================================================================
