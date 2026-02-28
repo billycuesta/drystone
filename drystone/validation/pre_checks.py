@@ -7109,3 +7109,86 @@ def check_recon_018(evidence: Dict[str, Any]) -> PreCheckResult:
         "no Lambda Function URLs with wildcard CORS origins",
         [],
     )
+
+
+@_register("recon")
+def check_recon_004(evidence: Dict[str, Any]) -> PreCheckResult:
+    """RECON-004: Route53 public zones with records revealing internal architecture."""
+    r53 = evidence.get("route53-zones")
+    if not isinstance(r53, dict):
+        return PreCheckResult("RECON-004", "SKIP", "no route53-zones evidence", [])
+
+    public_zones = int(r53.get("public_zones", 0) or 0)
+    if public_zones == 0:
+        return PreCheckResult("RECON-004", "PASS", "no public Route53 zones", [])
+
+    # Count DNS records in public zones — any public zone with records reveals architecture
+    revealing_records = []
+    for zone in r53.get("zones", []):
+        if not isinstance(zone, dict) or zone.get("IsPrivate"):
+            continue
+        zone_name = zone.get("Name", "?")
+        for rec in zone.get("Records", []):
+            if not isinstance(rec, dict):
+                continue
+            rec_type = str(rec.get("Type", ""))
+            rec_name = str(rec.get("Name", ""))
+            # A, AAAA, CNAME, MX records in public zones reveal service endpoints
+            if rec_type in {"A", "AAAA", "CNAME", "MX"}:
+                revealing_records.append(f"{rec_name} ({rec_type}) in {zone_name}")
+
+    if revealing_records:
+        return PreCheckResult(
+            "RECON-004",
+            "FAIL",
+            f"{len(revealing_records)} DNS record(s) in public zones reveal service endpoints",
+            revealing_records[:10],
+        )
+
+    return PreCheckResult(
+        "RECON-004",
+        "PASS",
+        f"{public_zones} public zone(s) present but no revealing A/AAAA/CNAME/MX records found",
+        [],
+    )
+
+
+@_register("recon")
+def check_recon_020(evidence: Dict[str, Any]) -> PreCheckResult:
+    """RECON-020: No public entry points detected (minimal attack surface)."""
+    score_doc = evidence.get("attack-surface-score")
+    if not isinstance(score_doc, dict):
+        return PreCheckResult("RECON-020", "SKIP", "no attack-surface-score evidence", [])
+
+    score = float(score_doc.get("score", 0.0) or 0.0)
+    rating = str(score_doc.get("rating", ""))
+    total_apis = int(score_doc.get("total_public_apis", 0) or 0)
+    public_lbs = int(score_doc.get("public_load_balancers", 0) or 0)
+    public_lambdas = int(score_doc.get("public_lambda_urls", 0) or 0)
+    unauth_stages = int(score_doc.get("unauthenticated_api_stages", 0) or 0)
+
+    # LOW rating with no unauthenticated entry points = PASS (minimal external exposure)
+    if rating == "LOW" and unauth_stages == 0 and public_lbs == 0 and public_lambdas == 0:
+        return PreCheckResult(
+            "RECON-020",
+            "PASS",
+            f"attack surface score {score:.1f}/10 ({rating}) — minimal external exposure confirmed",
+            [],
+        )
+
+    # If score is HIGH/CRITICAL, this check does not apply (RECON-015 handles that)
+    if score >= 5.0:
+        return PreCheckResult(
+            "RECON-020",
+            "SKIP",
+            f"attack surface score {score:.1f}/10 ({rating}) — RECON-015 applies instead",
+            [],
+        )
+
+    # Medium exposure — not minimal but not high either
+    return PreCheckResult(
+        "RECON-020",
+        "PASS",
+        f"attack surface score {score:.1f}/10 ({rating}) — {total_apis} API(s), {public_lbs} public LB(s), {public_lambdas} public Lambda URL(s)",
+        [],
+    )

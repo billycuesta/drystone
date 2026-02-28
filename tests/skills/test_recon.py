@@ -848,3 +848,132 @@ class TestReconPreCheckRECON018:
         results = run_pre_checks("recon", ev, {})
         r = next((r for r in results if r.check_id == "RECON-018"), None)
         assert r is not None and r.status == "FAIL"
+
+
+class TestReconPreCheckRECON004:
+    """RECON-004: Route53 public zones with revealing DNS records."""
+
+    def test_fail_public_zone_with_a_records(self):
+        ev = _base_evidence()
+        ev["route53-zones"] = {
+            "total_zones": 2,
+            "public_zones": 1,
+            "wildcard_record_count": 0,
+            "zones": [
+                {
+                    "Id": "Z001",
+                    "Name": "pci.co.example.net.",
+                    "IsPrivate": False,
+                    "RecordCount": 3,
+                    "Records": [
+                        {"Name": "pci.co.example.net.", "Type": "A", "AliasTarget": "d-xyz.execute-api.us-east-1.amazonaws.com."},
+                        {"Name": "pci.co.example.net.", "Type": "AAAA", "AliasTarget": "d-xyz.execute-api.us-east-1.amazonaws.com."},
+                    ],
+                },
+                {
+                    "Id": "Z002",
+                    "Name": "internal.example.net.",
+                    "IsPrivate": True,
+                    "RecordCount": 0,
+                    "Records": [],
+                },
+            ],
+        }
+        results = run_pre_checks("recon", ev, {})
+        r = next((r for r in results if r.check_id == "RECON-004"), None)
+        assert r is not None
+        assert r.status == "FAIL"
+        assert len(r.affected_resources) >= 1
+        assert any("A" in res or "AAAA" in res for res in r.affected_resources)
+
+    def test_pass_no_public_zones(self):
+        ev = _base_evidence()
+        ev["route53-zones"] = {
+            "total_zones": 1,
+            "public_zones": 0,
+            "wildcard_record_count": 0,
+            "zones": [{"Id": "Z001", "Name": "internal.", "IsPrivate": True, "Records": []}],
+        }
+        results = run_pre_checks("recon", ev, {})
+        r = next((r for r in results if r.check_id == "RECON-004"), None)
+        assert r is not None
+        assert r.status == "PASS"
+
+    def test_pass_public_zone_no_revealing_records(self):
+        ev = _base_evidence()
+        ev["route53-zones"] = {
+            "total_zones": 1,
+            "public_zones": 1,
+            "wildcard_record_count": 0,
+            "zones": [
+                {
+                    "Id": "Z001",
+                    "Name": "example.com.",
+                    "IsPrivate": False,
+                    "RecordCount": 1,
+                    "Records": [
+                        {"Name": "_f2f.example.com.", "Type": "CNAME", "Values": ["_abc.acm-validations.aws."]}
+                    ],
+                }
+            ],
+        }
+        results = run_pre_checks("recon", ev, {})
+        r = next((r for r in results if r.check_id == "RECON-004"), None)
+        assert r is not None
+        # CNAME for ACM validation is still a CNAME — check fires
+        assert r.status == "FAIL"
+
+    def test_skip_no_evidence(self):
+        ev = {}
+        results = run_pre_checks("recon", ev, {})
+        r = next((r for r in results if r.check_id == "RECON-004"), None)
+        assert r is not None
+        assert r.status == "SKIP"
+
+
+class TestReconPreCheckRECON020:
+    """RECON-020: No public entry points (minimal attack surface)."""
+
+    def test_pass_low_score_no_unauth(self):
+        """LOW score with no unauthenticated entry points should PASS."""
+        ev = _base_evidence()
+        ev["attack-surface-score"] = {
+            "score": 0.6,
+            "rating": "LOW",
+            "total_public_apis": 1,
+            "unauthenticated_api_stages": 0,
+            "public_lambda_urls": 0,
+            "public_load_balancers": 0,
+            "elastic_ips": 2,
+            "nat_gateway_ips": 1,
+            "factors": [{"factor": "Elastic IPs", "count": 2, "contribution": 0.6}],
+        }
+        results = run_pre_checks("recon", ev, {})
+        r = next((r for r in results if r.check_id == "RECON-020"), None)
+        assert r is not None
+        assert r.status == "PASS"
+        assert "LOW" in r.evidence_summary
+
+    def test_skip_high_score(self):
+        """HIGH score should be handled by RECON-015 — RECON-020 should SKIP."""
+        ev = _base_evidence()
+        ev["attack-surface-score"] = {
+            "score": 7.5,
+            "rating": "CRITICAL",
+            "unauthenticated_api_stages": 3,
+            "public_lambda_urls": 2,
+            "public_load_balancers": 1,
+            "total_public_apis": 3,
+            "factors": [],
+        }
+        results = run_pre_checks("recon", ev, {})
+        r = next((r for r in results if r.check_id == "RECON-020"), None)
+        assert r is not None
+        assert r.status == "SKIP"
+
+    def test_skip_no_evidence(self):
+        ev = {}
+        results = run_pre_checks("recon", ev, {})
+        r = next((r for r in results if r.check_id == "RECON-020"), None)
+        assert r is not None
+        assert r.status == "SKIP"
