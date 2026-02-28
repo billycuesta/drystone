@@ -6824,3 +6824,288 @@ def check_recon_006(evidence: Dict[str, Any]) -> PreCheckResult:
         f"{no_log}/{total} CloudFront distributions without access logging",
         no_log_ids[:10],
     )
+
+
+@_register("recon")
+def check_recon_008(evidence: Dict[str, Any]) -> PreCheckResult:
+    """RECON-008: Large external attack surface (many entry points)."""
+    score_doc = evidence.get("attack-surface-score")
+    if not isinstance(score_doc, dict):
+        return PreCheckResult("RECON-008", "SKIP", "no attack-surface-score evidence", [])
+
+    total_apis = int(score_doc.get("total_public_apis", 0) or 0)
+    lbs = int(score_doc.get("public_load_balancers", 0) or 0)
+    lambdas = int(score_doc.get("public_lambda_urls", 0) or 0)
+    eips = int(score_doc.get("elastic_ips", 0) or 0)
+    cf = int(score_doc.get("cloudfront_distributions", 0) or 0)
+    total_entry_points = total_apis + lbs + lambdas + eips + cf
+
+    if total_entry_points > 10:
+        return PreCheckResult(
+            "RECON-008",
+            "FAIL",
+            f"{total_entry_points} internet-facing entry points detected (APIs={total_apis}, LBs={lbs}, Lambda={lambdas}, EIPs={eips}, CF={cf})",
+            [],
+        )
+    return PreCheckResult(
+        "RECON-008",
+        "PASS",
+        f"{total_entry_points} entry points — within acceptable threshold (≤10)",
+        [],
+    )
+
+
+@_register("recon")
+def check_recon_009(evidence: Dict[str, Any]) -> PreCheckResult:
+    """RECON-009: REST API Gateway stages without access logging."""
+    apigw = evidence.get("api-gateway-stages")
+    if not isinstance(apigw, dict):
+        return PreCheckResult("RECON-009", "SKIP", "no api-gateway-stages evidence", [])
+
+    total_apis = int(apigw.get("total_apis", 0) or 0)
+    if total_apis == 0:
+        return PreCheckResult("RECON-009", "SKIP", "no API Gateway APIs configured", [])
+
+    no_log_stages = []
+    for api in apigw.get("apis", []):
+        if not isinstance(api, dict):
+            continue
+        for stage in api.get("Stages", []):
+            if not isinstance(stage, dict):
+                continue
+            if not stage.get("AccessLogEnabled"):
+                url = stage.get("InvokeURL") or f"{api.get('Id','?')}:{stage.get('StageName','?')}"
+                no_log_stages.append(url)
+
+    if not no_log_stages:
+        return PreCheckResult(
+            "RECON-009", "PASS", "all API Gateway stages have access logging enabled", []
+        )
+
+    return PreCheckResult(
+        "RECON-009",
+        "FAIL",
+        f"{len(no_log_stages)} API Gateway stage(s) without access logging",
+        no_log_stages[:10],
+    )
+
+
+@_register("recon")
+def check_recon_010(evidence: Dict[str, Any]) -> PreCheckResult:
+    """RECON-010: NAT Gateway IPs add to public IP inventory."""
+    public_eps = evidence.get("public-endpoints")
+    if not isinstance(public_eps, dict):
+        return PreCheckResult("RECON-010", "SKIP", "no public-endpoints evidence", [])
+
+    nat_count = int(public_eps.get("nat_gateway_ip_count", 0) or 0)
+    if nat_count == 0:
+        return PreCheckResult("RECON-010", "PASS", "no NAT Gateway IPs detected", [])
+
+    nat_ips = [
+        str(gw.get("PublicIp", ""))
+        for gw in public_eps.get("nat_gateway_ips", [])
+        if isinstance(gw, dict)
+    ]
+
+    return PreCheckResult(
+        "RECON-010",
+        "FAIL",
+        f"{nat_count} NAT Gateway public IP(s) — document and whitelist at third-party vendors",
+        nat_ips[:10],
+    )
+
+
+@_register("recon")
+def check_recon_012(evidence: Dict[str, Any]) -> PreCheckResult:
+    """RECON-012: CloudFront distributions without WAF."""
+    cf = evidence.get("cloudfront-origins")
+    if not isinstance(cf, dict):
+        return PreCheckResult("RECON-012", "SKIP", "no cloudfront-origins evidence", [])
+
+    total = int(cf.get("total_distributions", 0) or 0)
+    if total == 0:
+        return PreCheckResult("RECON-012", "SKIP", "no CloudFront distributions", [])
+
+    no_waf = [
+        str(d.get("DomainName") or d.get("Id", "unknown"))
+        for d in cf.get("distributions", [])
+        if isinstance(d, dict) and not d.get("WebAclId")
+    ]
+
+    if not no_waf:
+        return PreCheckResult(
+            "RECON-012", "PASS", "all CloudFront distributions have WAF associated", []
+        )
+
+    return PreCheckResult(
+        "RECON-012",
+        "FAIL",
+        f"{len(no_waf)}/{total} CloudFront distributions without WAF",
+        no_waf[:10],
+    )
+
+
+@_register("recon")
+def check_recon_013(evidence: Dict[str, Any]) -> PreCheckResult:
+    """RECON-013: Public Route53 zone count exceeds threshold (broad DNS footprint)."""
+    r53 = evidence.get("route53-zones")
+    if not isinstance(r53, dict):
+        return PreCheckResult("RECON-013", "SKIP", "no route53-zones evidence", [])
+
+    public_zones = int(r53.get("public_zones", 0) or 0)
+    if public_zones > 5:
+        zone_names = [
+            z.get("Name", "unknown")
+            for z in r53.get("zones", [])
+            if isinstance(z, dict) and not z.get("IsPrivate")
+        ]
+        return PreCheckResult(
+            "RECON-013",
+            "FAIL",
+            f"{public_zones} public hosted zones — broad DNS footprint (threshold: 5)",
+            zone_names[:10],
+        )
+    return PreCheckResult(
+        "RECON-013",
+        "PASS",
+        f"{public_zones} public hosted zones — within acceptable threshold (≤5)",
+        [],
+    )
+
+
+@_register("recon")
+def check_recon_014(evidence: Dict[str, Any]) -> PreCheckResult:
+    """RECON-014: API Gateway has more than 5 unauthenticated endpoints."""
+    apigw = evidence.get("api-gateway-stages")
+    if not isinstance(apigw, dict):
+        return PreCheckResult("RECON-014", "SKIP", "no api-gateway-stages evidence", [])
+
+    unauth = int(apigw.get("unauthenticated_stages", 0) or 0)
+    if unauth > 5:
+        return PreCheckResult(
+            "RECON-014",
+            "FAIL",
+            f"{unauth} API Gateway stages without authentication (threshold: 5)",
+            [],
+        )
+    return PreCheckResult(
+        "RECON-014",
+        "PASS",
+        f"{unauth} unauthenticated API Gateway stages — within threshold (≤5)",
+        [],
+    )
+
+
+@_register("recon")
+def check_recon_016(evidence: Dict[str, Any]) -> PreCheckResult:
+    """RECON-016: Unassociated Elastic IPs (not attached to any instance or NAT Gateway)."""
+    public_eps = evidence.get("public-endpoints")
+    if not isinstance(public_eps, dict):
+        return PreCheckResult("RECON-016", "SKIP", "no public-endpoints evidence", [])
+
+    eips = public_eps.get("elastic_ips", [])
+    if not eips:
+        return PreCheckResult("RECON-016", "PASS", "no Elastic IPs allocated", [])
+
+    # Build set of NAT GW IPs — those are "associated" even if not attached to an EC2 instance
+    nat_gw_ips = {
+        str(gw.get("PublicIp", ""))
+        for gw in public_eps.get("nat_gateway_ips", [])
+        if isinstance(gw, dict)
+    }
+
+    # Truly unassociated: not attached to instance AND no ENI (NAT GW EIPs have an ENI)
+    truly_unused = [
+        str(eip.get("PublicIp", ""))
+        for eip in eips
+        if isinstance(eip, dict)
+        and not eip.get("AssociatedWithInstance")
+        and not eip.get("NetworkInterfaceId")  # NAT GW EIPs always have an ENI
+        and str(eip.get("PublicIp", "")) not in nat_gw_ips
+    ]
+
+    if not truly_unused:
+        return PreCheckResult(
+            "RECON-016",
+            "PASS",
+            f"{len(eips)} EIP(s) — all associated with EC2 instances or NAT Gateways",
+            [],
+        )
+
+    return PreCheckResult(
+        "RECON-016",
+        "FAIL",
+        f"{len(truly_unused)} Elastic IP(s) not attached to any instance or NAT Gateway",
+        truly_unused[:10],
+    )
+
+
+@_register("recon")
+def check_recon_017(evidence: Dict[str, Any]) -> PreCheckResult:
+    """RECON-017: Load Balancer exposes non-standard high-risk ports."""
+    lb_data = evidence.get("load-balancer-dns")
+    if not isinstance(lb_data, dict):
+        return PreCheckResult("RECON-017", "SKIP", "no load-balancer-dns evidence", [])
+
+    public_lbs = int(lb_data.get("public_load_balancers", 0) or 0)
+    if public_lbs == 0:
+        return PreCheckResult("RECON-017", "SKIP", "no internet-facing load balancers", [])
+
+    HIGH_RISK_PORTS = {3306, 5432, 27017, 1521, 8443, 8080}
+    risky = []
+    for lb in lb_data.get("load_balancers", []):
+        if not isinstance(lb, dict) or not lb.get("IsPublic"):
+            continue
+        for listener in lb.get("Listeners", []):
+            if not isinstance(listener, dict):
+                continue
+            port = int(listener.get("Port", 0) or 0)
+            if port in HIGH_RISK_PORTS:
+                risky.append(f"{lb.get('DNSName', '?')}:{port}")
+
+    if risky:
+        return PreCheckResult(
+            "RECON-017",
+            "FAIL",
+            f"{len(risky)} high-risk port(s) exposed on internet-facing LBs",
+            risky[:10],
+        )
+    return PreCheckResult(
+        "RECON-017",
+        "PASS",
+        "no high-risk ports exposed on internet-facing load balancers",
+        [],
+    )
+
+
+@_register("recon")
+def check_recon_018(evidence: Dict[str, Any]) -> PreCheckResult:
+    """RECON-018: Lambda Function URLs with CORS allowing all origins."""
+    lambda_urls = evidence.get("lambda-urls")
+    if not isinstance(lambda_urls, dict):
+        return PreCheckResult("RECON-018", "SKIP", "no lambda-urls evidence", [])
+
+    total = int(lambda_urls.get("total_function_urls", 0) or 0)
+    if total == 0:
+        return PreCheckResult("RECON-018", "SKIP", "no Lambda Function URLs configured", [])
+
+    wildcard_cors = [
+        str(u.get("FunctionUrl", u.get("FunctionName", "unknown")))
+        for u in lambda_urls.get("urls", [])
+        if isinstance(u, dict)
+        and "*" in (u.get("Cors") or {}).get("AllowOrigins", [])
+    ]
+
+    if wildcard_cors:
+        return PreCheckResult(
+            "RECON-018",
+            "FAIL",
+            f"{len(wildcard_cors)} Lambda Function URL(s) with CORS AllowOrigins=['*']",
+            wildcard_cors[:10],
+        )
+    return PreCheckResult(
+        "RECON-018",
+        "PASS",
+        "no Lambda Function URLs with wildcard CORS origins",
+        [],
+    )

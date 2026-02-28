@@ -259,11 +259,15 @@ class ReconSkill(BaseSkill):
             logger.warning(f"Could not list HTTP APIs: {e}")
 
         total_stages = sum(len(a.get("Stages", [])) for a in apis)
+        # REST API auth is method-level — DefaultRouteAuthorizationType is always None for REST.
+        # Only count HTTP API (v2) stages where DefaultRouteAuthorizationType is NONE/null
+        # as unauthenticated; REST APIs need method-level inspection beyond this collector.
         unauth_stages = sum(
             1
             for a in apis
             for s in a.get("Stages", [])
-            if s.get("DefaultRouteAuthorizationType") in {"NONE", None}
+            if a.get("Type") != "REST"
+            and s.get("DefaultRouteAuthorizationType") in {"NONE", None}
         )
         return {
             "total_apis": len(apis),

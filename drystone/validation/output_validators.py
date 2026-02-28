@@ -515,6 +515,59 @@ def validate_compute_findings(findings: SkillFindings) -> bool:
         return False
 
 
+def validate_recon_findings(findings: SkillFindings) -> bool:
+    """Validate recon (attack surface) findings and reconcile summary.
+
+    Notes:
+    - Valid finding IDs are RECON-001 through RECON-999.
+    - Count/summary mismatches are reconciled, not rejected.
+    """
+    import re as _re
+
+    _recon_id_pattern = _re.compile(r"^RECON-\d{3}$")
+
+    try:
+        if not findings.summary:
+            logger.error("Recon validation failed: missing summary")
+            return False
+
+        if findings.findings is None:
+            logger.error("Recon validation failed: findings array is missing")
+            return False
+
+        for finding in findings.findings:
+            if (
+                not finding.id
+                or not finding.severity
+                or not finding.title
+                or not finding.description
+            ):
+                logger.error("Recon finding missing required fields")
+                return False
+
+            if not _recon_id_pattern.match(finding.id):
+                logger.error(f"Recon finding has invalid ID format: {finding.id}")
+                return False
+
+            if finding.severity not in ["Critical", "High", "Medium", "Low"]:
+                logger.error(f"Recon finding {finding.id} invalid severity: {finding.severity}")
+                return False
+
+            if finding.risk_score is None or not (0.0 <= float(finding.risk_score) <= 10.0):
+                logger.error(
+                    f"Recon finding {finding.id} invalid risk_score: {finding.risk_score}"
+                )
+                return False
+
+        _reconcile_summary(findings, "Recon")
+        logger.info(f"Recon validation passed: {findings.summary.total_findings} findings")
+        return True
+
+    except Exception as e:
+        logger.error(f"Recon validation error: {e}", exc_info=True)
+        return False
+
+
 SKILL_VALIDATORS: dict[str, SkillValidator] = {
     "iam": validate_iam_findings,
     "hardening": validate_hardening_findings,
@@ -527,6 +580,7 @@ SKILL_VALIDATORS: dict[str, SkillValidator] = {
     "waf": validate_waf_findings,
     "cicd": validate_cicd_findings,
     "compute": validate_compute_findings,
+    "recon": validate_recon_findings,
 }
 
 

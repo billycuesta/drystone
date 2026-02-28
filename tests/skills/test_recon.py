@@ -642,3 +642,209 @@ class TestReconPreCheckRECON011:
         r011 = next((r for r in results if r.check_id == "RECON-011"), None)
         assert r011 is not None
         assert r011.status == "PASS"
+
+
+# ============================================================================
+# New pre-check tests (RECON-008 through RECON-018)
+# ============================================================================
+
+
+class TestReconPreCheckRECON008:
+    """RECON-008: Large external attack surface."""
+
+    def test_pass_few_entry_points(self):
+        ev = _base_evidence()
+        ev["attack-surface-score"].update({
+            "total_public_apis": 1, "public_load_balancers": 0,
+            "public_lambda_urls": 0, "elastic_ips": 2, "cloudfront_distributions": 0,
+        })
+        results = run_pre_checks("recon", ev, {})
+        r = next((r for r in results if r.check_id == "RECON-008"), None)
+        assert r is not None and r.status == "PASS"
+
+    def test_fail_many_entry_points(self):
+        ev = _base_evidence()
+        ev["attack-surface-score"].update({
+            "total_public_apis": 5, "public_load_balancers": 3,
+            "public_lambda_urls": 2, "elastic_ips": 2, "cloudfront_distributions": 1,
+        })
+        results = run_pre_checks("recon", ev, {})
+        r = next((r for r in results if r.check_id == "RECON-008"), None)
+        assert r is not None and r.status == "FAIL"
+
+
+class TestReconPreCheckRECON009:
+    """RECON-009: API stages without access logging."""
+
+    def test_pass_logging_enabled(self):
+        ev = _base_evidence()
+        ev["api-gateway-stages"]["apis"][0]["Stages"][0]["AccessLogEnabled"] = True
+        results = run_pre_checks("recon", ev, {})
+        r = next((r for r in results if r.check_id == "RECON-009"), None)
+        assert r is not None and r.status == "PASS"
+
+    def test_fail_logging_disabled(self):
+        ev = _base_evidence()
+        ev["api-gateway-stages"]["apis"][0]["Stages"][0]["AccessLogEnabled"] = False
+        results = run_pre_checks("recon", ev, {})
+        r = next((r for r in results if r.check_id == "RECON-009"), None)
+        assert r is not None and r.status == "FAIL"
+
+    def test_skip_no_apis(self):
+        ev = _base_evidence()
+        ev["api-gateway-stages"]["total_apis"] = 0
+        ev["api-gateway-stages"]["apis"] = []
+        results = run_pre_checks("recon", ev, {})
+        r = next((r for r in results if r.check_id == "RECON-009"), None)
+        assert r is not None and r.status == "SKIP"
+
+
+class TestReconPreCheckRECON010:
+    """RECON-010: NAT Gateway IP inventory."""
+
+    def test_pass_no_nat_gws(self):
+        ev = _base_evidence()
+        results = run_pre_checks("recon", ev, {})
+        r = next((r for r in results if r.check_id == "RECON-010"), None)
+        assert r is not None and r.status == "PASS"
+
+    def test_fail_nat_gw_present(self):
+        ev = _base_evidence()
+        ev["public-endpoints"]["nat_gateway_ip_count"] = 1
+        ev["public-endpoints"]["nat_gateway_ips"] = [{"NatGatewayId": "nat-1", "PublicIp": "1.2.3.4"}]
+        results = run_pre_checks("recon", ev, {})
+        r = next((r for r in results if r.check_id == "RECON-010"), None)
+        assert r is not None and r.status == "FAIL"
+        assert "1.2.3.4" in r.affected_resources
+
+
+class TestReconPreCheckRECON013:
+    """RECON-013: Public Route53 zone count threshold."""
+
+    def test_pass_few_zones(self):
+        ev = _base_evidence()
+        ev["route53-zones"]["public_zones"] = 2
+        results = run_pre_checks("recon", ev, {})
+        r = next((r for r in results if r.check_id == "RECON-013"), None)
+        assert r is not None and r.status == "PASS"
+
+    def test_fail_many_zones(self):
+        ev = _base_evidence()
+        ev["route53-zones"]["public_zones"] = 8
+        ev["route53-zones"]["zones"] = [
+            {"Name": f"zone{i}.com.", "IsPrivate": False} for i in range(8)
+        ]
+        results = run_pre_checks("recon", ev, {})
+        r = next((r for r in results if r.check_id == "RECON-013"), None)
+        assert r is not None and r.status == "FAIL"
+
+
+class TestReconPreCheckRECON014:
+    """RECON-014: API GW more than 5 unauthenticated stages."""
+
+    def test_pass_few_unauth(self):
+        ev = _base_evidence()
+        ev["api-gateway-stages"]["unauthenticated_stages"] = 1
+        results = run_pre_checks("recon", ev, {})
+        r = next((r for r in results if r.check_id == "RECON-014"), None)
+        assert r is not None and r.status == "PASS"
+
+    def test_fail_many_unauth(self):
+        ev = _base_evidence()
+        ev["api-gateway-stages"]["unauthenticated_stages"] = 7
+        results = run_pre_checks("recon", ev, {})
+        r = next((r for r in results if r.check_id == "RECON-014"), None)
+        assert r is not None and r.status == "FAIL"
+
+
+class TestReconPreCheckRECON016:
+    """RECON-016: Unassociated EIPs (excluding NAT GW IPs)."""
+
+    def test_pass_eip_is_nat_gw(self):
+        """EIP associated with NAT GW should NOT trigger RECON-016."""
+        ev = _base_evidence()
+        ev["public-endpoints"]["elastic_ip_count"] = 1
+        ev["public-endpoints"]["elastic_ips"] = [{
+            "PublicIp": "18.209.189.16",
+            "AllocationId": "eipalloc-aaa",
+            "AssociatedWithInstance": False,
+            "InstanceId": None,
+            "NetworkInterfaceId": "eni-0e7705c6af520c01e",  # NAT GW has ENI
+        }]
+        ev["public-endpoints"]["nat_gateway_ip_count"] = 1
+        ev["public-endpoints"]["nat_gateway_ips"] = [
+            {"NatGatewayId": "nat-1", "PublicIp": "18.209.189.16"}
+        ]
+        results = run_pre_checks("recon", ev, {})
+        r = next((r for r in results if r.check_id == "RECON-016"), None)
+        assert r is not None and r.status == "PASS"
+
+    def test_fail_truly_unassociated_eip(self):
+        """EIP with no NetworkInterfaceId and not a NAT GW IP should trigger."""
+        ev = _base_evidence()
+        ev["public-endpoints"]["elastic_ip_count"] = 1
+        ev["public-endpoints"]["elastic_ips"] = [{
+            "PublicIp": "5.6.7.8",
+            "AllocationId": "eipalloc-bbb",
+            "AssociatedWithInstance": False,
+            "InstanceId": None,
+            "NetworkInterfaceId": None,  # No ENI = truly unassociated
+        }]
+        results = run_pre_checks("recon", ev, {})
+        r = next((r for r in results if r.check_id == "RECON-016"), None)
+        assert r is not None and r.status == "FAIL"
+        assert "5.6.7.8" in r.affected_resources
+
+    def test_pass_no_eips(self):
+        ev = _base_evidence()
+        results = run_pre_checks("recon", ev, {})
+        r = next((r for r in results if r.check_id == "RECON-016"), None)
+        assert r is not None and r.status == "PASS"
+
+
+class TestReconPreCheckRECON017:
+    """RECON-017: LB exposes high-risk ports."""
+
+    def test_skip_no_public_lbs(self):
+        ev = _base_evidence()
+        results = run_pre_checks("recon", ev, {})
+        r = next((r for r in results if r.check_id == "RECON-017"), None)
+        assert r is not None and r.status == "SKIP"
+
+    def test_fail_db_port_exposed(self):
+        ev = _base_evidence()
+        ev["load-balancer-dns"] = {
+            "total_load_balancers": 1,
+            "public_load_balancers": 1,
+            "load_balancers": [{
+                "Name": "alb-bad",
+                "DNSName": "alb-bad.elb.amazonaws.com",
+                "IsPublic": True,
+                "Listeners": [{"Port": 3306, "Protocol": "TCP"}],
+            }]
+        }
+        results = run_pre_checks("recon", ev, {})
+        r = next((r for r in results if r.check_id == "RECON-017"), None)
+        assert r is not None and r.status == "FAIL"
+
+
+class TestReconPreCheckRECON018:
+    """RECON-018: Lambda URLs with wildcard CORS."""
+
+    def test_skip_no_urls(self):
+        ev = _base_evidence()
+        results = run_pre_checks("recon", ev, {})
+        r = next((r for r in results if r.check_id == "RECON-018"), None)
+        assert r is not None and r.status == "SKIP"
+
+    def test_fail_wildcard_cors(self):
+        ev = _base_evidence()
+        ev["lambda-urls"] = {
+            "total_function_urls": 1,
+            "public_function_urls": 1,
+            "urls": [{"FunctionName": "fn1", "FunctionUrl": "https://fn1.lambda-url.us-east-1.on.aws/",
+                      "AuthType": "NONE", "Cors": {"AllowOrigins": ["*"]}}],
+        }
+        results = run_pre_checks("recon", ev, {})
+        r = next((r for r in results if r.check_id == "RECON-018"), None)
+        assert r is not None and r.status == "FAIL"
