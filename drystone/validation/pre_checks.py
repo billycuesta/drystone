@@ -4489,8 +4489,10 @@ def check_vuln_005(evidence: Dict[str, Any]) -> PreCheckResult:
     if not isinstance(findings, list):
         return PreCheckResult("VULN-005", "SKIP", "no inspector-findings evidence", [])
 
-    # High-criticality resource keywords to detect database/VPN/AD assets
-    _CRIT_KEYWORDS = {"rds", "database", "db", "vpn", "directory", "ad", "ldap", "aurora"}
+    # High-criticality resource keywords to detect database/VPN/AD assets.
+    # NOTE: "ad" was removed — it matches "cards" and other service names as substring.
+    #       Active Directory resources use AWS Directory Service → detected by "directory".
+    _CRIT_KEYWORDS = {"rds", "database", "db", "vpn", "directory", "ldap", "aurora"}
 
     affected: List[str] = []
     for f in findings:
