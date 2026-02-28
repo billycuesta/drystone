@@ -387,7 +387,93 @@ class VulnsSkill(BaseSkill):
         except Exception as e:
             logger.error(f"Could not collect EBS snapshot sharing posture: {e}")
 
+        # === GUARDDUTY STATUS ===
+        print("  Collecting GuardDuty configuration...")
+        try:
+            gd_data = self._collect_guardduty_status(client_kwargs)
+            self._save_json(evidence_path / "guardduty-status.json", gd_data)
+        except Exception as e:
+            logger.error(f"Could not collect GuardDuty status: {e}")
+
         print("\n✅ Vulnerability collection complete")
+
+    def _collect_guardduty_status(
+        self, client_kwargs: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Collect GuardDuty detector status and configuration."""
+        gd = boto3.client("guardduty", **client_kwargs)
+        out: Dict[str, Any] = {
+            "detector_count": 0,
+            "detectors": [],
+            "enabled_count": 0,
+            "has_active_detector": False,
+        }
+        try:
+            detectors_resp = gd.list_detectors()
+            detector_ids = detectors_resp.get("DetectorIds", [])
+            out["detector_count"] = len(detector_ids)
+            for det_id in detector_ids:
+                try:
+                    det = gd.get_detector(DetectorId=det_id)
+                    status = det.get("Status", "DISABLED")
+                    finding_publishing_frequency = det.get("FindingPublishingFrequency")
+                    data_sources = det.get("DataSources", {})
+                    detector_entry: Dict[str, Any] = {
+                        "DetectorId": det_id,
+                        "Status": status,
+                        "FindingPublishingFrequency": finding_publishing_frequency,
+                        "S3LogsEnabled": data_sources.get("S3Logs", {}).get("Status") == "ENABLED",
+                        "MalwareProtectionEnabled": (
+                            data_sources.get("MalwareProtection", {})
+                            .get("ScanEc2InstanceWithFindings", {})
+                            .get("EbsVolumes", {})
+                            .get("Status") == "ENABLED"
+                        ),
+                        "KubernetesAuditLogsEnabled": (
+                            data_sources.get("Kubernetes", {})
+                            .get("AuditLogs", {})
+                            .get("Status") == "ENABLED"
+                        ),
+                    }
+                    # Check for auto-archive rules (suppression rules)
+                    try:
+                        filters = gd.list_filters(DetectorId=det_id)
+                        filter_names = filters.get("FilterNames", [])
+                        suppression_rules = []
+                        for fname in filter_names:
+                            try:
+                                f = gd.get_filter(DetectorId=det_id, FilterName=fname)
+                                if f.get("Action") == "ARCHIVE":
+                                    suppression_rules.append(
+                                        {
+                                            "FilterName": fname,
+                                            "Action": "ARCHIVE",
+                                            "Description": f.get("Description", ""),
+                                        }
+                                    )
+                            except Exception:
+                                pass
+                        detector_entry["AutoArchiveRuleCount"] = len(suppression_rules)
+                        detector_entry["SuppressionRules"] = suppression_rules[:5]
+                    except Exception as e:
+                        logger.debug(f"Could not list GuardDuty filters for {det_id}: {e}")
+                        detector_entry["AutoArchiveRuleCount"] = None
+
+                    out["detectors"].append(detector_entry)
+                    if status == "ENABLED":
+                        out["enabled_count"] += 1
+                        out["has_active_detector"] = True
+                except Exception as e:
+                    logger.warning(f"Could not get GuardDuty detector {det_id}: {e}")
+        except Exception as e:
+            err = str(e)
+            if "AccessDeniedException" in err or "BadRequestException" in err:
+                logger.info("GuardDuty not accessible (AccessDenied or not enabled in region)")
+                out["access_error"] = err
+            else:
+                logger.warning(f"Could not list GuardDuty detectors: {e}")
+                out["list_error"] = str(e)
+        return out
 
     def _scan_for_secrets(self, text: str) -> Dict[str, bool]:
         """Scan text for common secret patterns."""

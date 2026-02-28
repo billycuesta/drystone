@@ -3695,6 +3695,54 @@ def check_net_025(evidence: Dict[str, Any]) -> PreCheckResult:
     )
 
 
+@_register("network")
+def check_net_unrestricted_egress(evidence: Dict[str, Any]) -> PreCheckResult:
+    """NET-EGR-001: Security groups with unrestricted egress (0.0.0.0/0 protocol -1)."""
+    sg_doc = evidence.get("security-groups")
+    sgs = _items_from_doc(sg_doc)
+
+    if not sgs:
+        return PreCheckResult("NET-EGR-001", "SKIP", "no security-groups evidence", [])
+
+    # Find SGs with unrestricted egress: protocol=-1, cidr=0.0.0.0/0 or ::/0
+    unrestricted = []
+    for sg in sgs:
+        if not isinstance(sg, dict):
+            continue
+        egress_rules = sg.get("IpPermissionsEgress", [])
+        for rule in egress_rules:
+            if not isinstance(rule, dict):
+                continue
+            # protocol -1 = all traffic
+            if str(rule.get("IpProtocol", "")) != "-1":
+                continue
+            # Check for open CIDR
+            ip_ranges = rule.get("IpRanges", [])
+            ipv6_ranges = rule.get("Ipv6Ranges", [])
+            has_open_ipv4 = any(
+                isinstance(r, dict) and r.get("CidrIp") in {"0.0.0.0/0", "0.0.0.0"} for r in ip_ranges
+            )
+            has_open_ipv6 = any(
+                isinstance(r, dict) and r.get("CidrIpv6") in {"::/0"} for r in ipv6_ranges
+            )
+            if has_open_ipv4 or has_open_ipv6:
+                unrestricted.append(
+                    str(sg.get("GroupId") or sg.get("GroupName", "unknown"))
+                )
+                break  # One open rule is enough to flag this SG
+
+    if not unrestricted:
+        return PreCheckResult(
+            "NET-EGR-001", "PASS", "no security groups with unrestricted egress (all traffic)", []
+        )
+    return PreCheckResult(
+        "NET-EGR-001",
+        "FAIL",
+        f"{len(unrestricted)} security group(s) with unrestricted egress (protocol=-1, 0.0.0.0/0)",
+        unrestricted[:10],
+    )
+
+
 # ============================================================================
 # WAF PRE-CHECKS
 # ============================================================================
@@ -4589,6 +4637,94 @@ def check_vuln_011(evidence: Dict[str, Any]) -> PreCheckResult:
         "FAIL",
         "no ECR container image findings from Inspector — scanning may be disabled or no images present",
         [],
+    )
+
+
+@_register("vulns")
+def check_vuln_guardduty_disabled(evidence: Dict[str, Any]) -> PreCheckResult:
+    """VULN-GD-001: GuardDuty not enabled in account — no threat detection active."""
+    gd = evidence.get("guardduty-status")
+    if not isinstance(gd, dict):
+        return PreCheckResult("VULN-GD-001", "SKIP", "no guardduty-status evidence", [])
+
+    # If we got an access_error, GuardDuty is likely not set up at all
+    if gd.get("access_error"):
+        return PreCheckResult(
+            "VULN-GD-001",
+            "FAIL",
+            "GuardDuty API not accessible — likely not enabled in this region",
+            [],
+        )
+
+    detector_count = int(gd.get("detector_count", 0) or 0)
+    if detector_count == 0:
+        return PreCheckResult(
+            "VULN-GD-001",
+            "FAIL",
+            "GuardDuty has no detectors configured (not enabled)",
+            [],
+        )
+
+    enabled_count = int(gd.get("enabled_count", 0) or 0)
+    if enabled_count == 0:
+        disabled = [
+            d.get("DetectorId", "unknown")
+            for d in gd.get("detectors", [])
+            if isinstance(d, dict) and d.get("Status") != "ENABLED"
+        ]
+        return PreCheckResult(
+            "VULN-GD-001",
+            "FAIL",
+            f"GuardDuty has {detector_count} detector(s) but none are ENABLED",
+            disabled[:5],
+        )
+
+    return PreCheckResult(
+        "VULN-GD-001",
+        "PASS",
+        f"GuardDuty is active ({enabled_count} ENABLED detector(s))",
+        [],
+    )
+
+
+@_register("vulns")
+def check_vuln_guardduty_suppressed(evidence: Dict[str, Any]) -> PreCheckResult:
+    """VULN-GD-002: GuardDuty findings auto-archived without review (suppression rules)."""
+    gd = evidence.get("guardduty-status")
+    if not isinstance(gd, dict):
+        return PreCheckResult("VULN-GD-002", "SKIP", "no guardduty-status evidence", [])
+
+    if not gd.get("has_active_detector"):
+        # If GuardDuty is not active, VULN-GD-001 handles it
+        return PreCheckResult("VULN-GD-002", "SKIP", "GuardDuty not active (covered by VULN-GD-001)", [])
+
+    total_suppression_rules = sum(
+        int(d.get("AutoArchiveRuleCount") or 0)
+        for d in gd.get("detectors", [])
+        if isinstance(d, dict) and d.get("AutoArchiveRuleCount") is not None
+    )
+
+    if total_suppression_rules == 0:
+        return PreCheckResult(
+            "VULN-GD-002",
+            "PASS",
+            "no GuardDuty auto-archive suppression rules configured",
+            [],
+        )
+
+    rules = [
+        r.get("FilterName", "unknown")
+        for d in gd.get("detectors", [])
+        if isinstance(d, dict)
+        for r in (d.get("SuppressionRules") or [])
+        if isinstance(r, dict)
+    ]
+
+    return PreCheckResult(
+        "VULN-GD-002",
+        "FAIL",
+        f"{total_suppression_rules} GuardDuty auto-archive rule(s) may suppress threat findings",
+        rules[:10],
     )
 
 
@@ -6411,4 +6547,280 @@ def check_comp_lmb_002(evidence: Dict[str, Any]) -> PreCheckResult:
         "FAIL",
         f"{len(affected)} Lambda functions with over-privileged execution roles",
         affected[:10],
+    )
+
+
+# ============================================================================
+# RECON PRE-CHECKS
+# ============================================================================
+
+
+@_register("recon")
+def check_recon_001(evidence: Dict[str, Any]) -> PreCheckResult:
+    """RECON-001: DNS wildcard records exposing internal services."""
+    route53 = evidence.get("route53-zones")
+    if not isinstance(route53, dict):
+        return PreCheckResult("RECON-001", "SKIP", "no route53-zones evidence", [])
+
+    wildcard_count = int(route53.get("wildcard_record_count", 0) or 0)
+    if wildcard_count == 0:
+        return PreCheckResult("RECON-001", "PASS", "no DNS wildcard records found", [])
+
+    # Collect wildcard record names
+    wildcards = []
+    for zone in route53.get("zones", []):
+        if not isinstance(zone, dict):
+            continue
+        for rec in zone.get("Records", []):
+            if not isinstance(rec, dict):
+                continue
+            name = str(rec.get("Name", ""))
+            if name.startswith("*."):
+                wildcards.append(f"{name} ({rec.get('Type', '?')}) in {zone.get('Name', '?')}")
+
+    return PreCheckResult(
+        "RECON-001",
+        "FAIL",
+        f"{wildcard_count} DNS wildcard records expose internal service naming",
+        wildcards[:10],
+    )
+
+
+@_register("recon")
+def check_recon_002(evidence: Dict[str, Any]) -> PreCheckResult:
+    """RECON-002: API Gateway stages without authentication in production."""
+    apigw = evidence.get("api-gateway-stages")
+    if not isinstance(apigw, dict):
+        return PreCheckResult("RECON-002", "SKIP", "no api-gateway-stages evidence", [])
+
+    total_apis = int(apigw.get("total_apis", 0) or 0)
+    if total_apis == 0:
+        return PreCheckResult("RECON-002", "SKIP", "no API Gateway APIs configured", [])
+
+    unauth_stages = int(apigw.get("unauthenticated_stages", 0) or 0)
+    if unauth_stages == 0:
+        return PreCheckResult("RECON-002", "PASS", "all API Gateway stages have authentication", [])
+
+    # Collect unauthenticated stage URLs
+    unauth_urls = []
+    for api in apigw.get("apis", []):
+        if not isinstance(api, dict):
+            continue
+        for stage in api.get("Stages", []):
+            if not isinstance(stage, dict):
+                continue
+            auth = stage.get("DefaultRouteAuthorizationType")
+            if auth in {"NONE", None}:
+                url = stage.get("InvokeURL") or f"{api.get('Id', '?')}:{stage.get('StageName', '?')}"
+                unauth_urls.append(url)
+
+    return PreCheckResult(
+        "RECON-002",
+        "FAIL",
+        f"{unauth_stages} API Gateway stage(s) without authentication",
+        unauth_urls[:10],
+    )
+
+
+@_register("recon")
+def check_recon_003(evidence: Dict[str, Any]) -> PreCheckResult:
+    """RECON-003: Elastic IPs assigned to instances (public IP inventory)."""
+    public_eps = evidence.get("public-endpoints")
+    if not isinstance(public_eps, dict):
+        return PreCheckResult("RECON-003", "SKIP", "no public-endpoints evidence", [])
+
+    eip_count = int(public_eps.get("elastic_ip_count", 0) or 0)
+    if eip_count == 0:
+        return PreCheckResult("RECON-003", "PASS", "no Elastic IPs allocated", [])
+
+    # Collect EIPs attached to instances (those are the risky ones)
+    instance_eips = [
+        str(eip.get("PublicIp", ""))
+        for eip in public_eps.get("elastic_ips", [])
+        if isinstance(eip, dict) and eip.get("AssociatedWithInstance")
+    ]
+
+    if not instance_eips:
+        return PreCheckResult(
+            "RECON-003", "PASS", f"{eip_count} EIP(s) allocated but none attached to instances", []
+        )
+
+    return PreCheckResult(
+        "RECON-003",
+        "FAIL",
+        f"{len(instance_eips)}/{eip_count} Elastic IPs attached to EC2 instances (public IPs)",
+        instance_eips[:10],
+    )
+
+
+@_register("recon")
+def check_recon_005(evidence: Dict[str, Any]) -> PreCheckResult:
+    """RECON-005: Lambda Function URLs publicly accessible without authentication."""
+    lambda_urls = evidence.get("lambda-urls")
+    if not isinstance(lambda_urls, dict):
+        return PreCheckResult("RECON-005", "SKIP", "no lambda-urls evidence", [])
+
+    total = int(lambda_urls.get("total_function_urls", 0) or 0)
+    if total == 0:
+        return PreCheckResult("RECON-005", "SKIP", "no Lambda Function URLs configured", [])
+
+    public = int(lambda_urls.get("public_function_urls", 0) or 0)
+    if public == 0:
+        return PreCheckResult(
+            "RECON-005", "PASS", f"all {total} Lambda Function URLs require authentication", []
+        )
+
+    public_fn_urls = [
+        str(u.get("FunctionUrl") or u.get("FunctionName", "unknown"))
+        for u in lambda_urls.get("urls", [])
+        if isinstance(u, dict) and u.get("IsPublic")
+    ]
+
+    return PreCheckResult(
+        "RECON-005",
+        "FAIL",
+        f"{public}/{total} Lambda Function URLs are publicly accessible (AuthType=NONE)",
+        public_fn_urls[:10],
+    )
+
+
+@_register("recon")
+def check_recon_007(evidence: Dict[str, Any]) -> PreCheckResult:
+    """RECON-007: Internet-facing Load Balancers without WAF."""
+    lb_data = evidence.get("load-balancer-dns")
+    if not isinstance(lb_data, dict):
+        return PreCheckResult("RECON-007", "SKIP", "no load-balancer-dns evidence", [])
+
+    total_lbs = int(lb_data.get("total_load_balancers", 0) or 0)
+    if total_lbs == 0:
+        return PreCheckResult("RECON-007", "SKIP", "no load balancers configured", [])
+
+    public_lbs = int(lb_data.get("public_load_balancers", 0) or 0)
+    if public_lbs == 0:
+        return PreCheckResult("RECON-007", "PASS", "no internet-facing load balancers", [])
+
+    no_waf = int(lb_data.get("public_without_waf", 0) or 0)
+    if no_waf == 0:
+        return PreCheckResult(
+            "RECON-007", "PASS", "all internet-facing load balancers have WAF attached", []
+        )
+
+    no_waf_dns = [
+        str(lb.get("DNSName") or lb.get("Name", "unknown"))
+        for lb in lb_data.get("load_balancers", [])
+        if isinstance(lb, dict) and lb.get("IsPublic") and not lb.get("WafWebAclArn")
+    ]
+
+    return PreCheckResult(
+        "RECON-007",
+        "FAIL",
+        f"{no_waf}/{public_lbs} internet-facing load balancers without WAF",
+        no_waf_dns[:10],
+    )
+
+
+@_register("recon")
+def check_recon_011(evidence: Dict[str, Any]) -> PreCheckResult:
+    """RECON-011: HTTP (non-HTTPS) listeners on public Load Balancers."""
+    lb_data = evidence.get("load-balancer-dns")
+    if not isinstance(lb_data, dict):
+        return PreCheckResult("RECON-011", "SKIP", "no load-balancer-dns evidence", [])
+
+    if int(lb_data.get("public_load_balancers", 0) or 0) == 0:
+        return PreCheckResult("RECON-011", "SKIP", "no internet-facing load balancers", [])
+
+    http_only_lbs = []
+    for lb in lb_data.get("load_balancers", []):
+        if not isinstance(lb, dict) or not lb.get("IsPublic"):
+            continue
+        # Only ALBs have HTTP protocol (NLBs use TCP)
+        if lb.get("Type") != "application":
+            continue
+        has_https = False
+        has_http = False
+        for lst in lb.get("Listeners", []):
+            if not isinstance(lst, dict):
+                continue
+            proto = str(lst.get("Protocol", "")).upper()
+            if proto == "HTTPS":
+                has_https = True
+            elif proto == "HTTP":
+                has_http = True
+        # Flag if HTTP listener exists but no HTTPS (no redirect)
+        if has_http and not has_https:
+            http_only_lbs.append(str(lb.get("DNSName") or lb.get("Name", "unknown")))
+
+    if not http_only_lbs:
+        return PreCheckResult(
+            "RECON-011", "PASS", "no internet-facing ALBs with HTTP-only listeners", []
+        )
+    return PreCheckResult(
+        "RECON-011",
+        "FAIL",
+        f"{len(http_only_lbs)} internet-facing ALB(s) with HTTP listeners and no HTTPS",
+        http_only_lbs[:10],
+    )
+
+
+@_register("recon")
+def check_recon_015(evidence: Dict[str, Any]) -> PreCheckResult:
+    """RECON-015: Attack surface score is HIGH or CRITICAL."""
+    score_doc = evidence.get("attack-surface-score")
+    if not isinstance(score_doc, dict):
+        return PreCheckResult("RECON-015", "SKIP", "no attack-surface-score evidence", [])
+
+    score = float(score_doc.get("score", 0.0) or 0.0)
+    rating = str(score_doc.get("rating", "LOW"))
+
+    if score < 5.0:
+        return PreCheckResult(
+            "RECON-015",
+            "PASS",
+            f"attack surface score {score:.1f}/10 ({rating}) — within acceptable range",
+            [],
+        )
+
+    # Collect contributing factors as resources
+    factors = [
+        f"{f.get('factor', '?')}: {f.get('count', 0)} ({f.get('contribution', 0.0):.1f} pts)"
+        for f in score_doc.get("factors", [])
+        if isinstance(f, dict)
+    ]
+
+    return PreCheckResult(
+        "RECON-015",
+        "FAIL",
+        f"attack surface score {score:.1f}/10 ({rating}) — broad external exposure",
+        factors[:10],
+    )
+
+
+@_register("recon")
+def check_recon_006(evidence: Dict[str, Any]) -> PreCheckResult:
+    """RECON-006: CloudFront distributions without logging enabled."""
+    cf = evidence.get("cloudfront-origins")
+    if not isinstance(cf, dict):
+        return PreCheckResult("RECON-006", "SKIP", "no cloudfront-origins evidence", [])
+
+    total = int(cf.get("total_distributions", 0) or 0)
+    if total == 0:
+        return PreCheckResult("RECON-006", "SKIP", "no CloudFront distributions", [])
+
+    no_log = int(cf.get("distributions_without_logging", 0) or 0)
+    if no_log == 0:
+        return PreCheckResult(
+            "RECON-006", "PASS", "all CloudFront distributions have logging enabled", []
+        )
+
+    no_log_ids = [
+        str(d.get("DomainName") or d.get("Id", "unknown"))
+        for d in cf.get("distributions", [])
+        if isinstance(d, dict) and not d.get("LoggingEnabled")
+    ]
+
+    return PreCheckResult(
+        "RECON-006",
+        "FAIL",
+        f"{no_log}/{total} CloudFront distributions without access logging",
+        no_log_ids[:10],
     )

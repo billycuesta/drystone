@@ -42,6 +42,7 @@ def cli() -> None:
     type=click.Choice(
         [
             "pentest",
+            "recon",
             "iam",
             "exposure",
             "network",
@@ -139,7 +140,7 @@ def audit(
                 config.aws_region = region
             if skills:
                 if skills == "pentest":
-                    config.skills = ["iam", "exposure", "network", "vulns"]
+                    config.skills = ["recon", "iam", "exposure", "network", "vulns"]
                     config.report_type = "pentest"
                 else:
                     config.skills = [skills]
@@ -193,14 +194,13 @@ def audit(
     # Extract account ID from validation
     account_id: str
     try:
-        aws_access_key_id, aws_secret_access_key, aws_session_token = (
-            config.get_aws_credentials()
-        )
-        _, _, account_id = validate_aws_credentials(
+        aws_access_key_id, aws_secret_access_key, aws_session_token = config.get_aws_credentials()
+        _, _, validated_account_id = validate_aws_credentials(
             aws_access_key_id, aws_secret_access_key, config.aws_region, aws_session_token
         )
-        if not account_id:
+        if not validated_account_id:
             raise ValueError("Could not determine AWS account ID from credential validation")
+        account_id = validated_account_id
     except Exception as e:
         click.echo(f"\n❌ Error validating credentials: {e}")
         import traceback
@@ -236,8 +236,19 @@ def audit(
     # Create AWS client
     aws_client = AWSClient(config)
 
+    if str(getattr(config, "report_type", "")).lower() == "pentest":
+        try:
+            from drystone.pentest.inventory import collect_pentest_inventory
+
+            click.echo("🧭 Collecting high-level platform inventory for pentest scope...")
+            inventory_path = collect_pentest_inventory(aws_client, session)
+            click.echo(f"   ✅ Inventory saved: {inventory_path.name}\n")
+        except Exception as e:
+            click.echo(f"   ⚠️  Could not collect pentest inventory: {e}\n")
+
     # Dynamically load and execute skills
     skills_map = {
+        "recon": ("drystone.skills.recon", "ReconSkill"),
         "iam": ("drystone.skills.iam", "IAMSkill"),
         "exposure": ("drystone.skills.exposure", "ExposureSkill"),
         "network": ("drystone.skills.network", "NetworkSkill"),

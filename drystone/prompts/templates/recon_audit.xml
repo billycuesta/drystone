@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+RECON AUDIT TEMPLATE
+Extends base_audit.xml with Reconnaissance-specific considerations.
+Focus: External attack surface mapping — DNS, APIs, public endpoints, entry points.
+This skill runs FIRST in the pentest pipeline to map what an attacker sees from outside.
+-->
+<audit_task extends="base_audit.xml">
+  <skill_specific>
+    <skill_name>Recon</skill_name>
+    <skill_code>RECON</skill_code>
+
+    <focus_areas>
+      <area>DNS enumeration (Route53 public zones, wildcard records, A/CNAME exposure)</area>
+      <area>API Gateway stages (authentication posture, logging, WAF)</area>
+      <area>Lambda Function URLs (public vs. authenticated)</area>
+      <area>Internet-facing Load Balancers (WAF, TLS, non-standard ports)</area>
+      <area>Elastic IPs and NAT Gateway public IP inventory</area>
+      <area>CloudFront distributions (logging, WAF, origin exposure)</area>
+      <area>Attack surface score and overall external exposure rating</area>
+    </focus_areas>
+
+    <recon_specific_rules>
+      <rule id="recon_1">
+        <title>Unauthenticated API Endpoints</title>
+        <description>API Gateway stages or routes with AuthorizationType=NONE are Critical if they serve sensitive data or trigger side effects</description>
+        <action>Flag each unauthenticated stage. Check if stage name contains "prod", "production", or has no environment qualifier (assume prod).</action>
+      </rule>
+      <rule id="recon_2">
+        <title>Public Lambda Function URLs</title>
+        <description>AuthType=NONE on Lambda Function URLs is Critical — anyone on the internet can invoke the function</description>
+        <action>Flag each public Lambda URL. Cross-reference with vulns evidence (lambda-environment-variables.json) if available to check for secret exposure.</action>
+      </rule>
+      <rule id="recon_3">
+        <title>DNS Wildcards</title>
+        <description>Wildcard records (*.) expose the full internal service naming scheme to attackers</description>
+        <action>Flag all wildcard A/CNAME records. Assess what services they might expose based on target names.</action>
+      </rule>
+      <rule id="recon_4">
+        <title>Public Load Balancers Without WAF</title>
+        <description>Internet-facing ALBs without WAF are vulnerable to OWASP attacks. High risk.</description>
+        <action>Flag each internet-facing LB where WafWebAclArn is null or empty.</action>
+      </rule>
+      <rule id="recon_5">
+        <title>Attack Surface Score</title>
+        <description>Score ≥7.0 = Critical, 5.0-6.9 = High, 3.0-4.9 = Medium, &lt;3.0 = Low</description>
+        <action>Generate a finding for RECON-015 if score ≥5.0. Use the score and rating from attack-surface-score.json.</action>
+      </rule>
+    </recon_specific_rules>
+
+    <evidence_focus>
+      <note>
+        Output must be written in English.
+
+        This skill produces external attack surface intelligence, NOT internal configuration findings.
+        Think like an external attacker with no credentials:
+        - What can they see and invoke from the internet?
+        - Which entry points have no authentication?
+        - Which DNS records reveal architecture?
+
+        Gating rules for this skill:
+        - If route53-zones.json has no public zones, SKIP RECON-001, RECON-004, RECON-013.
+        - If api-gateway-stages.json has total_apis=0, SKIP RECON-002, RECON-009, RECON-014.
+        - If lambda-urls.json has total_function_urls=0, SKIP RECON-005, RECON-018.
+        - If load-balancer-dns.json has total_load_balancers=0, SKIP RECON-007, RECON-011, RECON-017.
+        - If public-endpoints.json has elastic_ip_count=0, SKIP RECON-003, RECON-016.
+        - If cloudfront-origins.json has total_distributions=0, SKIP RECON-006, RECON-012, RECON-019.
+        - If attack-surface-score.json has score &lt; 3.0, generate RECON-020 (minimal attack surface) instead.
+
+        DO NOT generate findings based on absence of evidence. Only report what is confirmed present.
+      </note>
+      <focus item="route53-zones.json">
+        <check>Wildcard records (Name starts with "*.")</check>
+        <check>Records exposing internal naming (dev, staging, internal, admin, bastion in Name)</check>
+        <check>Count of public zones vs. private zones</check>
+        <check>MX records revealing email infrastructure</check>
+      </focus>
+      <focus item="api-gateway-stages.json">
+        <check>Stages where AccessLogEnabled=false</check>
+        <check>HTTP APIs with UnauthenticatedRouteCount &gt; 0</check>
+        <check>Production stages (StageName contains "prod") without auth</check>
+        <check>Total unauthenticated_stages count</check>
+      </focus>
+      <focus item="lambda-urls.json">
+        <check>Entries where IsPublic=true (AuthType=NONE)</check>
+        <check>CORS configuration with AllowOrigins=['*']</check>
+      </focus>
+      <focus item="load-balancer-dns.json">
+        <check>Entries where IsPublic=true and WafWebAclArn is null</check>
+        <check>HTTP listeners (Protocol=HTTP, Port=80) on internet-facing LBs</check>
+        <check>Non-standard ports (3306, 5432, 27017, 8080, 8443) in Listeners</check>
+      </focus>
+      <focus item="public-endpoints.json">
+        <check>Total elastic_ip_count and nat_gateway_ip_count</check>
+        <check>Elastic IPs where AssociatedWithInstance=false (unattached)</check>
+      </focus>
+      <focus item="cloudfront-origins.json">
+        <check>Distributions where LoggingEnabled=false</check>
+        <check>Distributions where WebAclId is null or empty</check>
+        <check>Origins pointing to S3 buckets (may indicate direct S3 access)</check>
+      </focus>
+      <focus item="attack-surface-score.json">
+        <check>Overall score and rating</check>
+        <check>Individual factor contributions</check>
+        <check>Total entry point counts</check>
+      </focus>
+    </evidence_focus>
+
+  </skill_specific>
+
+  <remediation_templates>
+    <template id="require_api_auth">
+      <title>Require Authentication on API Gateway</title>
+      <steps>
+        <step>1. Go to API Gateway > [API Name] > Routes/Methods</step>
+        <step>2. Select the route/method > Edit Authorization</step>
+        <step>3. Choose: Cognito User Pool, IAM, or Lambda Authorizer</step>
+        <step>4. For REST APIs: Create Usage Plan + API Key for rate limiting</step>
+        <step>5. Test authentication with curl: expect 401 Unauthorized without credentials</step>
+      </steps>
+    </template>
+    <template id="secure_lambda_url">
+      <title>Secure Lambda Function URL</title>
+      <steps>
+        <step>1. Go to Lambda > [Function] > Configuration > Function URL</step>
+        <step>2. Change Auth type from NONE to AWS_IAM</step>
+        <step>3. Update callers to sign requests with SigV4</step>
+        <step>4. If public access is needed, implement auth within the function handler</step>
+        <step>5. Restrict CORS: set AllowOrigins to specific trusted domains</step>
+      </steps>
+    </template>
+    <template id="attach_waf_alb">
+      <title>Attach WAF to Load Balancer</title>
+      <steps>
+        <step>1. Go to WAF &amp; Shield > Web ACLs > Create Web ACL</step>
+        <step>2. Resource type: Regional (ALB)</step>
+        <step>3. Add managed rule groups: AWSManagedRulesCommonRuleSet, AWSManagedRulesKnownBadInputsRuleSet</step>
+        <step>4. Add rate-limiting rule (e.g. 2000 req/5min per IP)</step>
+        <step>5. Associate ACL with target ALBs</step>
+      </steps>
+    </template>
+  </remediation_templates>
+
+</audit_task>

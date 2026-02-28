@@ -3010,3 +3010,582 @@ PATTERN_REGISTRY.register(
 )
 
 
+# ============================================================================
+# NEW PATTERNS: Recon + GuardDuty + Egress + Cross-Account (8 patterns)
+# ============================================================================
+
+
+def _match_recon_apigw_unauth_to_data_exfil(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    """Recon detects unauthenticated API GW + Exposure detects sensitive data."""
+    recon_findings = findings_by_skill.get("recon", [])
+    exposure_findings = findings_by_skill.get("exposure", [])
+    has_unauth_api = any(
+        f.id in {"RECON-002", "RECON-014"} or "unauthenticated" in f.title.lower()
+        for f in recon_findings
+    )
+    has_sensitive_data = any(
+        f.id.startswith("EXP-") and f.severity in {"Critical", "High"}
+        for f in exposure_findings
+    )
+    return has_unauth_api and has_sensitive_data
+
+
+def _recon_apigw_unauth_exfil_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Recon phase identifies API Gateway endpoints without authentication",
+        "Attacker enumerates routes using standard API fuzzing tools (ffuf, dirsearch)",
+        "Unauthenticated routes invoke backend services accessing sensitive data",
+        "Attacker exfiltrates data via unauthenticated API calls without credentials",
+    ]
+
+
+def _recon_apigw_unauth_exfil_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Enforce authentication on all API Gateway stages (Cognito, IAM, Lambda authorizer)",
+        "Implement data-level authorization in backend services (never trust API layer alone)",
+        "Enable API Gateway access logging and WAF with rate limiting",
+        "Conduct periodic API endpoint inventory to detect unauthenticated routes",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="recon_apigw_unauth_to_data_exfil",
+        name="Unauthenticated API Gateway to Data Exfiltration",
+        description=(
+            "Reconnaissance identified unauthenticated API Gateway endpoints backed by "
+            "sensitive data stores. Attackers can invoke these endpoints without credentials "
+            "to exfiltrate data directly."
+        ),
+        severity="Critical",
+        skills_required=["recon", "exposure"],
+        matcher=_match_recon_apigw_unauth_to_data_exfil,
+        attack_path_generator=_recon_apigw_unauth_exfil_attack_path,
+        remediation_generator=_recon_apigw_unauth_exfil_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0001", "TA0009"],
+            mitre_attack_techniques=["T1190", "T1530"],
+            observed_in_wild=True,
+            exploit_maturity="Functional",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "Enumerate API endpoints from Recon evidence or public documentation",
+                "Test each endpoint without credentials (expect 401/403 vs 200/500)",
+                "Invoke unauthenticated routes that return sensitive records",
+                "Exfiltrate data via repeated API calls",
+            ],
+            tools_required=["curl", "ffuf", "aws-cli"],
+            exploitation_complexity="Low",
+            estimated_time_to_compromise="20 minutes",
+        ),
+        amplification_factor=1.9,
+    )
+)
+
+
+def _match_cross_account_admin_no_externalid(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    """IAM-033 (cross-account without ExternalId) + role has Admin/PowerUser policy."""
+    iam_findings = findings_by_skill.get("iam", [])
+    has_cross_account_no_ext = any(f.id == "IAM-033" for f in iam_findings)
+    has_admin_policy = any(
+        f.id in {"IAM-015", "IAM-016"} or "administrator" in f.title.lower()
+        for f in iam_findings
+    )
+    return has_cross_account_no_ext and has_admin_policy
+
+
+def _cross_account_admin_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Identify cross-account trust without ExternalId requirement (IAM-033)",
+        "Construct AssumeRole call from any AWS account (confused deputy attack)",
+        "Gain access to Administrator-level role in target account",
+        "Full account compromise: exfiltrate data, pivot to further accounts, persist access",
+    ]
+
+
+def _cross_account_admin_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Add ExternalId condition to all cross-account trust policies",
+        "Remove AdministratorAccess from cross-account roles; apply least privilege",
+        "Enable CloudTrail alerts for AssumeRole calls from unexpected accounts",
+        "Review all cross-account trusts in IAM > Roles > Trust relationships",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="cross_account_admin_no_externalid",
+        name="Cross-Account Admin Role Without ExternalId (Confused Deputy)",
+        description=(
+            "A cross-account IAM role with Administrator-level permissions lacks ExternalId "
+            "protection. Any AWS account can assume this role via confused-deputy attack, "
+            "gaining full administrative access to the account."
+        ),
+        severity="Critical",
+        skills_required=["iam"],
+        matcher=_match_cross_account_admin_no_externalid,
+        attack_path_generator=_cross_account_admin_attack_path,
+        remediation_generator=_cross_account_admin_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0001", "TA0004"],
+            mitre_attack_techniques=["T1078", "T1548"],
+            observed_in_wild=True,
+            exploit_maturity="Functional",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "Discover cross-account role ARN via public S3 buckets, code repos, or documentation",
+                "Call sts:AssumeRole without ExternalId from attacker-controlled AWS account",
+                "Receive temporary credentials with Administrator-level permissions",
+                "Perform any action in the compromised account",
+            ],
+            tools_required=["aws-cli"],
+            exploitation_complexity="Low",
+            estimated_time_to_compromise="5 minutes",
+        ),
+        amplification_factor=2.0,
+    )
+)
+
+
+def _match_lambda_secrets_public_url_chain(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    """Lambda with secrets in env vars + public Function URL."""
+    vulns_findings = findings_by_skill.get("vulns", [])
+    recon_findings = findings_by_skill.get("recon", [])
+    exposure_findings = findings_by_skill.get("exposure", [])
+    has_lambda_secrets = any(
+        f.id in {"VULN-024", "VULN-025"} or (
+            "lambda" in f.title.lower() and "secret" in f.title.lower()
+        )
+        for f in vulns_findings
+    )
+    has_public_lambda_url = any(
+        f.id == "RECON-005" or (
+            "lambda" in f.title.lower() and "public" in f.title.lower()
+        )
+        for f in recon_findings + exposure_findings
+    )
+    return has_lambda_secrets and has_public_lambda_url
+
+
+def _lambda_secrets_url_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Recon identifies Lambda Function URLs with AuthType=NONE (RECON-005)",
+        "Attacker invokes public Lambda function and triggers SSRF via event payload",
+        "Lambda reads AWS metadata or logs environment variables in error messages",
+        "Attacker extracts AWS credentials or API keys from Lambda environment",
+    ]
+
+
+def _lambda_secrets_url_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Set Lambda Function URLs to AuthType=AWS_IAM (require SigV4 signing)",
+        "Move secrets from environment variables to Secrets Manager with encrypted access",
+        "Validate all Lambda event payloads to prevent SSRF via input manipulation",
+        "Disable verbose error responses that expose environment details",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="lambda_secrets_public_url_chain",
+        name="Public Lambda URL + Secrets in Environment Variables",
+        description=(
+            "A Lambda function with sensitive credentials in environment variables is "
+            "publicly accessible via Function URL without authentication. Attackers can "
+            "invoke the function to trigger SSRF or extract secrets from error messages."
+        ),
+        severity="Critical",
+        skills_required=["vulns", "recon"],
+        matcher=_match_lambda_secrets_public_url_chain,
+        attack_path_generator=_lambda_secrets_url_attack_path,
+        remediation_generator=_lambda_secrets_url_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0001", "TA0006"],
+            mitre_attack_techniques=["T1190", "T1552"],
+            observed_in_wild=True,
+            exploit_maturity="Functional",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "Identify public Lambda URLs from recon evidence",
+                "Craft malicious event payload to trigger SSRF or verbose error",
+                "Extract AWS credentials or API keys from response or logs",
+                "Use credentials to escalate access or pivot to other services",
+            ],
+            tools_required=["curl"],
+            exploitation_complexity="Medium",
+            estimated_time_to_compromise="30 minutes",
+        ),
+        amplification_factor=1.85,
+    )
+)
+
+
+def _match_compute_unrestricted_egress_exfil(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    """NET-EGR-001 (unrestricted egress) + Exposure has sensitive data."""
+    network_findings = findings_by_skill.get("network", [])
+    exposure_findings = findings_by_skill.get("exposure", [])
+    has_unrestricted_egress = any(
+        f.id == "NET-EGR-001" or "egress" in f.title.lower()
+        for f in network_findings
+    )
+    has_sensitive_exposure = any(f.severity in {"Critical", "High"} for f in exposure_findings)
+    return has_unrestricted_egress and has_sensitive_exposure
+
+
+def _compute_unrestricted_egress_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker compromises compute instance (EC2, ECS, Lambda) via any vulnerability",
+        "Unrestricted egress SG allows direct HTTPS connection to external attacker infrastructure",
+        "Sensitive S3 data or database contents exfiltrated without triggering egress alerts",
+        "Exfiltration blends with normal HTTPS traffic — no Network Firewall to inspect/block",
+    ]
+
+
+def _compute_unrestricted_egress_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Restrict egress security group rules: allow only specific ports/destinations",
+        "Deploy AWS Network Firewall or DNS Firewall for outbound traffic inspection",
+        "Enable VPC Flow Logs and create alerts for anomalous egress volume",
+        "Use VPC endpoints to route AWS API calls privately without internet egress",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="compute_unrestricted_egress_exfil",
+        name="Unrestricted Egress Enables Silent Data Exfiltration",
+        description=(
+            "Security groups allow all outbound traffic (0.0.0.0/0, all protocols). "
+            "Combined with exposed sensitive data, a compromised compute instance can "
+            "exfiltrate data directly to attacker infrastructure without detection."
+        ),
+        severity="High",
+        skills_required=["network", "exposure"],
+        matcher=_match_compute_unrestricted_egress_exfil,
+        attack_path_generator=_compute_unrestricted_egress_attack_path,
+        remediation_generator=_compute_unrestricted_egress_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0010", "TA0011"],
+            mitre_attack_techniques=["T1048", "T1041"],
+            observed_in_wild=True,
+            exploit_maturity="Functional",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "Compromise any compute resource via vulnerability or stolen credentials",
+                "Establish outbound HTTPS channel to attacker-controlled server",
+                "Download S3 objects, database dumps, or secrets to external destination",
+            ],
+            tools_required=["aws-cli", "curl"],
+            exploitation_complexity="Low",
+            estimated_time_to_compromise="15 minutes post-compromise",
+        ),
+        amplification_factor=1.6,
+    )
+)
+
+
+def _match_guardduty_disabled_cover(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    """GuardDuty disabled (VULN-GD-001) and there are other high/critical findings."""
+    vulns_findings = findings_by_skill.get("vulns", [])
+    has_gd_disabled = any(f.id == "VULN-GD-001" for f in vulns_findings)
+    if not has_gd_disabled:
+        return False
+    all_findings = [f for findings in findings_by_skill.values() for f in findings]
+    other_high = sum(
+        1 for f in all_findings
+        if f.severity in {"Critical", "High"} and f.id != "VULN-GD-001"
+    )
+    return other_high >= 2
+
+
+def _guardduty_disabled_attack_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "GuardDuty is disabled — no behavioral threat detection active in account",
+        "All other attack chains proceed silently without automated detection",
+        "Attacker can operate for extended periods without triggering security alerts",
+        "Standard AWS detection and response playbooks cannot activate without GuardDuty findings",
+    ]
+
+
+def _guardduty_disabled_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Enable GuardDuty in all regions immediately",
+        "Enable enhanced data sources: S3 data events, EKS audit logs, Malware Protection",
+        "Configure GuardDuty findings to EventBridge → SNS → PagerDuty/Slack",
+        "Review historical CloudTrail logs for indicators of compromise during GuardDuty outage",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="guardduty_disabled_amplifies_all_attacks",
+        name="GuardDuty Disabled — All Attacks Proceed Without Detection",
+        description=(
+            "GuardDuty is not enabled, removing the primary threat detection layer. "
+            "All other vulnerabilities are amplified because attacks cannot be detected "
+            "or attributed after the fact."
+        ),
+        severity="Critical",
+        skills_required=["vulns"],
+        matcher=_match_guardduty_disabled_cover,
+        attack_path_generator=_guardduty_disabled_attack_path,
+        remediation_generator=_guardduty_disabled_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0005", "TA0040"],
+            mitre_attack_techniques=["T1562", "T1562.008"],
+            observed_in_wild=True,
+            exploit_maturity="Functional",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "Verify GuardDuty is disabled (confirmed by VULN-GD-001 pre-check)",
+                "Proceed with any attack chain — no behavioral detection will trigger",
+                "Maintain access for extended periods without automated eviction",
+            ],
+            tools_required=["aws-cli"],
+            exploitation_complexity="Low",
+            estimated_time_to_compromise="0 minutes (detection gap only)",
+        ),
+        amplification_factor=2.2,
+    )
+)
+
+
+def _match_iam_no_mfa_cross_account_pivot(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    """IAM user without MFA + cross-account role without ExternalId."""
+    iam_findings = findings_by_skill.get("iam", [])
+    has_no_mfa = any(_is_no_mfa_finding(f) for f in iam_findings)
+    has_cross_account = any(f.id == "IAM-033" for f in iam_findings)
+    return has_no_mfa and has_cross_account
+
+
+def _iam_no_mfa_cross_account_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "IAM user credentials stolen or brute-forced (no MFA protection)",
+        "Attacker uses console access or API keys to enumerate IAM roles",
+        "Discovers cross-account role without ExternalId requirement",
+        "Assumes cross-account role → gains access to target account resources",
+    ]
+
+
+def _iam_no_mfa_cross_account_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Enable MFA for all IAM users with console access or active access keys",
+        "Add ExternalId condition to all cross-account trust policies",
+        "Enforce MFA with IAM condition: aws:MultiFactorAuthPresent=true on sensitive actions",
+        "Implement AWS Organizations SCPs to block cross-account assumptions without MFA",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="iam_no_mfa_cross_account_pivot",
+        name="IAM User Without MFA Enables Cross-Account Privilege Escalation",
+        description=(
+            "An IAM user lacks MFA protection and a cross-account role lacks ExternalId. "
+            "Stolen credentials grant initial access, then the cross-account role enables "
+            "pivot to additional AWS accounts."
+        ),
+        severity="Critical",
+        skills_required=["iam"],
+        matcher=_match_iam_no_mfa_cross_account_pivot,
+        attack_path_generator=_iam_no_mfa_cross_account_path,
+        remediation_generator=_iam_no_mfa_cross_account_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0001", "TA0008"],
+            mitre_attack_techniques=["T1078", "T1548"],
+            observed_in_wild=True,
+            exploit_maturity="Functional",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "Obtain IAM user credentials (phishing, leaked .env, S3 bucket exposure)",
+                "Authenticate without MFA challenge to AWS console or CLI",
+                "Call sts:AssumeRole on cross-account role without ExternalId",
+                "Operate in target account with assumed role permissions",
+            ],
+            tools_required=["aws-cli"],
+            exploitation_complexity="Low",
+            estimated_time_to_compromise="15 minutes",
+        ),
+        amplification_factor=1.95,
+    )
+)
+
+
+def _match_recon_public_ip_no_firewall_lateral(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    """RECON-003 (Elastic IP with instance) + NET-007 (no Network Firewall)."""
+    recon_findings = findings_by_skill.get("recon", [])
+    network_findings = findings_by_skill.get("network", [])
+    has_public_instance_ip = any(
+        f.id == "RECON-003" or (
+            "elastic" in f.title.lower() and "ip" in f.title.lower()
+        )
+        for f in recon_findings
+    )
+    has_no_firewall = any(
+        f.id in {"NET-007", "NET-EGR-001"} or "firewall" in f.title.lower()
+        for f in network_findings
+    )
+    return has_public_instance_ip and has_no_firewall
+
+
+def _recon_public_ip_no_firewall_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Recon identifies EC2 instances with fixed public IPs (Elastic IPs)",
+        "Internet traffic reaches instances directly without Network Firewall inspection",
+        "Attacker exploits service vulnerability on public IP → initial access",
+        "No east-west inspection: lateral movement to internal subnets proceeds undetected",
+    ]
+
+
+def _recon_public_ip_no_firewall_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Deploy AWS Network Firewall for north-south traffic inspection",
+        "Replace Elastic IPs with ALB/NLB + Security Groups to restrict direct instance access",
+        "Route internet traffic through inspection VPC before reaching application tier",
+        "Enable VPC Flow Logs and Network Firewall logs for traffic visibility",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="recon_public_ip_no_firewall_lateral",
+        name="Public EC2 IP Without Network Firewall Enables Lateral Movement",
+        description=(
+            "EC2 instances have Elastic IPs making them directly reachable from the internet, "
+            "with no Network Firewall inspecting inbound traffic. Compromise leads to lateral "
+            "movement through the internal network without inspection or blocking."
+        ),
+        severity="High",
+        skills_required=["recon", "network"],
+        matcher=_match_recon_public_ip_no_firewall_lateral,
+        attack_path_generator=_recon_public_ip_no_firewall_path,
+        remediation_generator=_recon_public_ip_no_firewall_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0001", "TA0008"],
+            mitre_attack_techniques=["T1190", "T1021"],
+            observed_in_wild=True,
+            exploit_maturity="Functional",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "Enumerate public IPs from Recon evidence or internet scanning",
+                "Port-scan public IPs to identify exposed services",
+                "Exploit vulnerable service to gain shell on EC2 instance",
+                "Pivot to internal VPC resources using instance as jump host",
+            ],
+            tools_required=["nmap", "metasploit", "aws-cli"],
+            exploitation_complexity="Medium",
+            estimated_time_to_compromise="45 minutes",
+        ),
+        amplification_factor=1.7,
+    )
+)
+
+
+def _match_snapshot_persistence_exfil(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> bool:
+    """EBS/RDS public snapshots + CVEs on instances."""
+    exposure_findings = findings_by_skill.get("exposure", [])
+    vulns_findings = findings_by_skill.get("vulns", [])
+    has_public_snapshot = any(
+        f.id in {"EXP-028", "EXP-029"} or "snapshot" in f.title.lower()
+        for f in exposure_findings
+    )
+    has_public_ebs = any(f.id == "VULN-028" for f in vulns_findings)
+    has_cves = any(
+        f.id.startswith("VULN-") and "cve" in f.description.lower()
+        for f in vulns_findings
+    )
+    return (has_public_snapshot or has_public_ebs) and has_cves
+
+
+def _snapshot_persistence_exfil_path(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Attacker discovers public EBS snapshot ID via AWS SDK enumeration",
+        "Creates volume from snapshot in attacker-controlled AWS account",
+        "Mounts volume to extract application data, database files, and credentials",
+        "Uses extracted credentials to authenticate to live environment — persistent access",
+    ]
+
+
+def _snapshot_persistence_exfil_remediation(_: Dict[str, Any]) -> List[str]:
+    return [
+        "Remove createVolumePermission Group=all from all EBS snapshots immediately",
+        "Enable AWS Config rule: ec2-snapshot-public-restorable-check",
+        "Rotate all credentials that may have been accessible from compromised snapshots",
+        "Encrypt all EBS snapshots with customer-managed KMS keys",
+    ]
+
+
+PATTERN_REGISTRY.register(
+    DynamicCorrelationPattern(
+        id="snapshot_persistence_exfil_chain",
+        name="Public Snapshot + Active CVEs Enables Disk-Level Credential Theft",
+        description=(
+            "Publicly shared EBS snapshots expose full disk-level data to any AWS account. "
+            "Combined with active CVEs on compute resources, attackers can extract credentials "
+            "from snapshots and use them to authenticate to the live environment persistently."
+        ),
+        severity="Critical",
+        skills_required=["exposure", "vulns"],
+        matcher=_match_snapshot_persistence_exfil,
+        attack_path_generator=_snapshot_persistence_exfil_path,
+        remediation_generator=_snapshot_persistence_exfil_remediation,
+        threat_context=ThreatContext(
+            mitre_attack_tactics=["TA0009", "TA0006"],
+            mitre_attack_techniques=["T1537", "T1552"],
+            observed_in_wild=True,
+            exploit_maturity="Functional",
+        ),
+        exploitability=ExploitabilityInfo(
+            exploitation_steps=[
+                "Search for public snapshots with Group=all permission",
+                "Copy snapshot to attacker account and create volume",
+                "Mount volume, extract credentials and application data",
+                "Use credentials for persistent authenticated access to live environment",
+            ],
+            tools_required=["aws-cli"],
+            exploitation_complexity="Low",
+            estimated_time_to_compromise="30 minutes",
+        ),
+        amplification_factor=1.9,
+    )
+)
+
