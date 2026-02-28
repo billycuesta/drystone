@@ -515,13 +515,20 @@ class PDFFormatter(BaseFormatter):
                     data = json.load(f)
             except (json.JSONDecodeError, OSError):
                 continue
-            if not isinstance(data, list):
+            # Count items: handle raw list evidence and dict evidence with 'items' key
+            # (network/waf/ecr skills store evidence as {"_meta": ..., "items": [...], "by_id": {...}})
+            if isinstance(data, list):
+                count = len(data)
+            elif isinstance(data, dict) and isinstance(data.get("items"), list):
+                count = len(data["items"])
+            else:
+                # Skip scalar dicts (password-policy) or unrecognized structures
                 continue
             label = self._EVIDENCE_FILE_LABELS.get(
                 json_file.name,
                 json_file.stem.replace("-", " ").replace("_", " ").title(),
             )
-            rows.append((label, len(data)))
+            rows.append((label, count))
 
         if not rows:
             return "<p>No countable evidence items found.</p>"
