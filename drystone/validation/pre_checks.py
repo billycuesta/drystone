@@ -786,6 +786,19 @@ def check_iam_033(evidence: Dict[str, Any]) -> PreCheckResult:
 
             cond_text = json.dumps(st.get("Condition", {}), default=str)
             if "sts:ExternalId" not in cond_text:
+                # Check for alternative strong-scoping conditions that mitigate
+                # confused-deputy without sts:ExternalId (e.g. PrincipalArn scope,
+                # SourceAccount, PrincipalOrgID).
+                _STRONG_CONDS = {
+                    "aws:principalarn",
+                    "aws:sourceaccount",
+                    "aws:principalorgid",
+                    "aws:principalorgpaths",
+                    "aws:sourceorgid",
+                }
+                cond_lower = cond_text.lower()
+                if any(c in cond_lower for c in _STRONG_CONDS):
+                    continue  # alternative confused-deputy protection present
                 affected.append(role_arn or f"role/{role_name or 'unknown'}")
                 break  # one violation per role is enough; move to next role
 
@@ -1054,6 +1067,102 @@ def check_iam_039(evidence: Dict[str, Any]) -> PreCheckResult:
                 )
 
     return PreCheckResult("IAM-039", "PASS", "no broad policy-detach/deletion actions", [])
+
+
+@_register("iam")
+def check_iam_005(evidence: Dict[str, Any]) -> PreCheckResult:
+    """IAM-005: Password policy minimum length should be 14+ characters."""
+    pp_doc = evidence.get("password-policy")
+    if not isinstance(pp_doc, dict):
+        return PreCheckResult("IAM-005", "SKIP", "no password-policy evidence", [])
+
+    policy = pp_doc.get("PasswordPolicy")
+    if not isinstance(policy, dict):
+        return PreCheckResult("IAM-005", "SKIP", "password-policy missing PasswordPolicy key", [])
+
+    min_len = policy.get("MinimumPasswordLength")
+    if min_len is None:
+        return PreCheckResult("IAM-005", "SKIP", "MinimumPasswordLength not set", [])
+
+    if int(min_len) >= 14:
+        return PreCheckResult("IAM-005", "PASS", f"MinimumPasswordLength={min_len} (≥14)", [])
+    return PreCheckResult(
+        "IAM-005",
+        "FAIL",
+        f"MinimumPasswordLength={min_len} (required ≥14)",
+        ["arn:aws:iam::*:account-password-policy"],
+    )
+
+
+@_register("iam")
+def check_iam_015(evidence: Dict[str, Any]) -> PreCheckResult:
+    """IAM-015: IAM users should not have direct policy attachments — use groups instead."""
+    users = evidence.get("users")
+    if not isinstance(users, list) or not users:
+        return PreCheckResult("IAM-015", "SKIP", "no users evidence", [])
+
+    affected: List[str] = []
+    for u in users:
+        if not isinstance(u, dict):
+            continue
+        # Flag users that have attached/inline policies but belong to no groups
+        has_attached = bool(u.get("AttachedPolicies"))
+        has_inline = bool(u.get("InlinePolicies"))
+        in_groups = bool(u.get("Groups"))
+        if (has_attached or has_inline) and not in_groups:
+            arn = str(u.get("Arn") or f"arn:aws:iam::*:user/{u.get('UserName', 'unknown')}")
+            affected.append(arn)
+
+    if not affected:
+        return PreCheckResult(
+            "IAM-015", "PASS", "no users with direct permissions outside group", []
+        )
+    return PreCheckResult(
+        "IAM-015",
+        "FAIL",
+        f"{len(affected)} user(s) with direct policy attachments and no group membership",
+        affected[:5],
+    )
+
+
+@_register("iam")
+def check_iam_016(evidence: Dict[str, Any]) -> PreCheckResult:
+    """IAM-016: Service accounts should use IAM roles, not IAM users."""
+    users = evidence.get("users")
+    if not isinstance(users, list) or not users:
+        return PreCheckResult("IAM-016", "SKIP", "no users evidence", [])
+
+    cred = evidence.get("credential-report", {})
+    by_user: Dict[str, Any] = cred.get("by_user", {}) if isinstance(cred, dict) else {}
+
+    affected: List[str] = []
+    for u in users:
+        if not isinstance(u, dict):
+            continue
+        uname = str(u.get("UserName") or "")
+        row = by_user.get(uname, {})
+
+        # Service account pattern: no console password + active access key
+        password_enabled = str(row.get("password_enabled", "false")).lower()
+        has_active_key = any(
+            str(k.get("Status") or "").lower() == "active"
+            for k in (u.get("AccessKeys") or [])
+            if isinstance(k, dict)
+        )
+        if password_enabled == "false" and has_active_key:
+            arn = str(u.get("Arn") or f"arn:aws:iam::*:user/{uname}")
+            affected.append(arn)
+
+    if not affected:
+        return PreCheckResult(
+            "IAM-016", "PASS", "no service-account-pattern IAM users found", []
+        )
+    return PreCheckResult(
+        "IAM-016",
+        "FAIL",
+        f"{len(affected)} IAM user(s) matching service-account pattern (no password, active access key)",
+        affected[:5],
+    )
 
 
 # ============================================================================
@@ -2707,6 +2816,71 @@ def check_exp_022(evidence: Dict[str, Any]) -> PreCheckResult:
     )
 
 
+@_register("exposure")
+def check_exp_005(evidence: Dict[str, Any]) -> PreCheckResult:
+    """EXP-005: Lambda function URLs without authentication (AuthType=NONE)."""
+    urls_doc = evidence.get("lambda-function-urls")
+    urls = _items_from_doc(urls_doc)
+    if urls_doc is None:
+        return PreCheckResult("EXP-005", "SKIP", "no lambda-function-urls evidence", [])
+
+    risky: List[str] = []
+    for u in urls:
+        if not isinstance(u, dict):
+            continue
+        auth = str(u.get("AuthType") or u.get("auth_type") or "").upper()
+        if auth in {"NONE", ""}:
+            fn = str(u.get("FunctionArn") or u.get("function_arn") or u.get("FunctionName", "unknown"))
+            risky.append(fn)
+
+    if not risky:
+        return PreCheckResult(
+            "EXP-005", "PASS", "no unauthenticated Lambda function URLs found", []
+        )
+    return PreCheckResult(
+        "EXP-005",
+        "FAIL",
+        f"{len(risky)} Lambda function URL(s) without authentication (AuthType=NONE)",
+        risky[:5],
+    )
+
+
+@_register("exposure")
+def check_exp_006(evidence: Dict[str, Any]) -> PreCheckResult:
+    """EXP-006: API Gateway routes without authentication or rate limiting."""
+    routes_doc = evidence.get("api-gateway-routes")
+    routes = _items_from_doc(routes_doc)
+    if not routes:
+        return PreCheckResult("EXP-006", "SKIP", "no api-gateway-routes evidence", [])
+
+    _NON_DATA_METHODS = {"OPTIONS", "HEAD"}
+    risky: List[str] = []
+    for r in routes:
+        if not isinstance(r, dict):
+            continue
+        method = str(r.get("Method") or "").upper()
+        if method in _NON_DATA_METHODS:
+            continue  # skip preflight/head-only routes
+        auth = str(r.get("AuthorizationType") or "").upper()
+        if auth in {"NONE", ""}:
+            api_id = str(r.get("ApiId") or "unknown")
+            path = str(r.get("Path") or "")
+            key = f"{api_id}/{method}{path}"
+            if key not in risky:
+                risky.append(key)
+
+    if not risky:
+        return PreCheckResult(
+            "EXP-006", "PASS", "all API Gateway data routes have authentication", []
+        )
+    return PreCheckResult(
+        "EXP-006",
+        "FAIL",
+        f"{len(risky)} API Gateway route(s) without authentication",
+        risky[:10],
+    )
+
+
 def _sg_allows_world(perm: Dict[str, Any], *, port: int) -> bool:
     """Check if a security group permission allows traffic from 0.0.0.0/0 or ::/0 on given port."""
     proto = perm.get("IpProtocol")
@@ -4273,6 +4447,146 @@ def check_vuln_008(evidence: Dict[str, Any]) -> PreCheckResult:
         "FAIL",
         f"{len(high_active)} ACTIVE HIGH Inspector finding(s) across {len(unique_resources)} resource(s) — no remediation plan evident",
         unique_resources[:10],
+    )
+
+
+@_register("vulns")
+def check_vuln_003(evidence: Dict[str, Any]) -> PreCheckResult:
+    """VULN-003: Active vulnerabilities on publicly accessible EC2 resources."""
+    findings = evidence.get("inspector-findings")
+    if not isinstance(findings, list):
+        return PreCheckResult("VULN-003", "SKIP", "no inspector-findings evidence", [])
+
+    # Look for ACTIVE findings targeting EC2 instances
+    active_ec2: List[str] = []
+    for f in findings:
+        if not isinstance(f, dict):
+            continue
+        if str(f.get("status", "")).upper() != "ACTIVE":
+            continue
+        for res in f.get("resources") or []:
+            if isinstance(res, dict) and res.get("type") == "AWS_EC2_INSTANCE":
+                rid = str(res.get("id") or "unknown")
+                if rid not in active_ec2:
+                    active_ec2.append(rid)
+
+    if not active_ec2:
+        return PreCheckResult(
+            "VULN-003", "PASS", "no ACTIVE Inspector findings on EC2 instances", []
+        )
+    return PreCheckResult(
+        "VULN-003",
+        "FAIL",
+        f"{len(active_ec2)} EC2 instance(s) with ACTIVE Inspector findings (potentially publicly accessible)",
+        active_ec2[:5],
+    )
+
+
+@_register("vulns")
+def check_vuln_005(evidence: Dict[str, Any]) -> PreCheckResult:
+    """VULN-005: Active vulnerabilities on high-criticality resources (databases, VPN, AD)."""
+    findings = evidence.get("inspector-findings")
+    if not isinstance(findings, list):
+        return PreCheckResult("VULN-005", "SKIP", "no inspector-findings evidence", [])
+
+    # High-criticality resource keywords to detect database/VPN/AD assets
+    _CRIT_KEYWORDS = {"rds", "database", "db", "vpn", "directory", "ad", "ldap", "aurora"}
+
+    affected: List[str] = []
+    for f in findings:
+        if not isinstance(f, dict):
+            continue
+        if str(f.get("status", "")).upper() != "ACTIVE":
+            continue
+        for res in f.get("resources") or []:
+            if not isinstance(res, dict):
+                continue
+            rid = str(res.get("id") or "").lower()
+            tags = res.get("tags") or {}
+            service_tag = str(tags.get("Service") or tags.get("service") or "").lower()
+            # Check resource ID and tags for high-criticality keywords
+            if any(k in rid or k in service_tag for k in _CRIT_KEYWORDS):
+                resource_id = str(res.get("id") or "unknown")
+                if resource_id not in affected:
+                    affected.append(resource_id)
+
+    if not affected:
+        return PreCheckResult(
+            "VULN-005", "PASS", "no ACTIVE Inspector findings on high-criticality resources", []
+        )
+    return PreCheckResult(
+        "VULN-005",
+        "FAIL",
+        f"{len(affected)} high-criticality resource(s) with ACTIVE Inspector findings",
+        affected[:5],
+    )
+
+
+@_register("vulns")
+def check_vuln_010(evidence: Dict[str, Any]) -> PreCheckResult:
+    """VULN-010: Active HIGH/CRITICAL vulnerabilities on critical EC2 service components."""
+    findings = evidence.get("inspector-findings")
+    if not isinstance(findings, list):
+        return PreCheckResult("VULN-010", "SKIP", "no inspector-findings evidence", [])
+
+    affected: List[str] = []
+    for f in findings:
+        if not isinstance(f, dict):
+            continue
+        if str(f.get("status", "")).upper() != "ACTIVE":
+            continue
+        sev = str(f.get("severity", "")).upper()
+        if sev not in {"HIGH", "CRITICAL"}:
+            continue
+        for res in f.get("resources") or []:
+            if isinstance(res, dict) and res.get("type") == "AWS_EC2_INSTANCE":
+                rid = str(res.get("id") or "unknown")
+                if rid not in affected:
+                    affected.append(rid)
+
+    if not affected:
+        return PreCheckResult(
+            "VULN-010",
+            "PASS",
+            "no ACTIVE HIGH/CRITICAL Inspector findings on EC2 instances",
+            [],
+        )
+    return PreCheckResult(
+        "VULN-010",
+        "FAIL",
+        f"{len(affected)} EC2 instance(s) with ACTIVE HIGH/CRITICAL Inspector findings",
+        affected[:5],
+    )
+
+
+@_register("vulns")
+def check_vuln_011(evidence: Dict[str, Any]) -> PreCheckResult:
+    """VULN-011: ECR scanning not active — no container image findings from Inspector."""
+    findings = evidence.get("inspector-findings")
+    if not isinstance(findings, list):
+        return PreCheckResult("VULN-011", "SKIP", "no inspector-findings evidence", [])
+
+    ecr_findings = [
+        f for f in findings
+        if isinstance(f, dict)
+        and any(
+            isinstance(r, dict) and r.get("type") == "AWS_ECR_CONTAINER_IMAGE"
+            for r in (f.get("resources") or [])
+        )
+    ]
+
+    if ecr_findings:
+        return PreCheckResult(
+            "VULN-011",
+            "PASS",
+            f"ECR scanning is active ({len(ecr_findings)} container image finding(s) present)",
+            [],
+        )
+    return PreCheckResult(
+        "VULN-011",
+        "FAIL",
+        "no ECR container image findings from Inspector — scanning may be disabled or no images present",
+        [],
     )
 
 

@@ -3,7 +3,7 @@
   "framework": "AWS Security Best Practices + PCI DSS v4.0 Mapping",
   "description": "Checklist for identifying and assessing AWS resources exposed to the internet, with mappings to relevant PCI DSS controls.",
   "version": "1.5",
-  "total_checks": 22,
+  "total_checks": 21,
   "last_updated": "2026-02-19",
   "items": [
     {
@@ -151,27 +151,6 @@
         {
           "control": "6.4.2",
           "reason": "This control requires an automated technical solution (like a WAF) to be installed in front of public-facing web applications to detect and prevent web-based attacks. This finding is a direct violation."
-        }
-      ]
-    },
-    {
-      "id": "EXP-008",
-      "title": "Hardcoded secrets/credentials in Lambda",
-      "severity": "Critical",
-      "description": "Sensitive information like database passwords, API keys, or other secrets are stored in plaintext within Lambda environment variables or source code.",
-      "remediation": "Remove secrets from environment variables and code. Store them securely in AWS Secrets Manager or AWS Systems Manager Parameter Store (SecureString type) and grant the Lambda function's execution role permission to retrieve them at runtime.",
-      "pci_dss": [
-        {
-          "control": "3.6.1.a",
-          "reason": "This control demands processes to protect cryptographic keys and secrets against disclosure. Storing secrets in plaintext environment variables is a direct failure to protect them."
-        },
-        {
-          "control": "6.2.4",
-          "reason": "Hardcoding credentials is a common software vulnerability. Secure development practices require separating code from secrets."
-        },
-        {
-          "control": "8.3.1",
-          "reason": "This control requires that passwords/passphrases are not stored in a readable format. Hardcoded credentials in environment variables or code are considered readable."
         }
       ]
     },
