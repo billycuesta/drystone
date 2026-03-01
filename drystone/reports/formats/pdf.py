@@ -66,7 +66,12 @@ class PDFFormatter(BaseFormatter):
 
         architecture_html = self._architecture_section_html()
         correlation_html = self._correlation_section_html()
-        findings_html = self._findings_by_severity_html(findings)
+        is_pentest = str(getattr(self.config, "report_type", "general")) == "pentest"
+        findings_html = (
+            self._findings_by_phase_html(findings)
+            if is_pentest
+            else self._findings_by_severity_html(findings)
+        )
 
         pagebreak_arch_corr = (
             "<div class='page-break'></div>" if (architecture_html or correlation_html) else ""
@@ -109,6 +114,7 @@ class PDFFormatter(BaseFormatter):
         }
 
     def _index_section_html(self, findings: List[Dict[str, Any]]) -> str:
+        is_pentest = str(getattr(self.config, "report_type", "general")) == "pentest"
         ordered = sorted(findings, key=self._finding_sort_key)
         finding_items = []
         for finding in ordered:
@@ -122,6 +128,10 @@ class PDFFormatter(BaseFormatter):
             else "<ol class='index-sublist'><li>No findings</li></ol>"
         )
 
+        findings_label = (
+            "Detailed Findings by Phase" if is_pentest else "Detailed Findings by Severity"
+        )
+
         return (
             "<ol class='index-list'>"
             "<li>Scope Definition</li>"
@@ -130,7 +140,7 @@ class PDFFormatter(BaseFormatter):
             "<li>Risk Analysis</li>"
             "<li>Architecture Overview (if available)</li>"
             "<li>Cross-Skill Correlations (if available)</li>"
-            "<li>Detailed Findings by Severity" + nested_findings + "</li>"
+            f"<li>{findings_label}" + nested_findings + "</li>"
             "<li>Observations</li>"
             "<li>Remediation Timeline</li>"
             "<li>References</li>"
@@ -793,6 +803,130 @@ class PDFFormatter(BaseFormatter):
             )
 
         return "<h2>Cross-Skill Correlations</h2>" + "".join(blocks)
+
+    # Phase sections mirroring PentestFormatter._PHASE_SECTIONS (markdown)
+    _PENTEST_PHASE_SECTIONS = [
+        {
+            "phase": "Phase 1 — Reconnaissance",
+            "skill": "recon",
+            "prefixes": ("RECON-",),
+            "description": "External attack surface mapping: public entry points, DNS, API exposure.",
+        },
+        {
+            "phase": "Phase 2 — Identity &amp; Access Management",
+            "skill": "iam",
+            "prefixes": ("IAM-",),
+            "description": "Privilege escalation paths, cross-account trust, credential hygiene.",
+        },
+        {
+            "phase": "Phase 2 — External Exposure",
+            "skill": "exposure",
+            "prefixes": ("EXP-",),
+            "description": "Public-facing resources, open S3 buckets, public snapshots.",
+        },
+        {
+            "phase": "Phase 2 — Network Security",
+            "skill": "network",
+            "prefixes": ("NET-",),
+            "description": "Lateral movement paths, missing firewalls, unrestricted egress.",
+        },
+        {
+            "phase": "Phase 2 — Vulnerabilities",
+            "skill": "vulns",
+            "prefixes": ("VULN-",),
+            "description": "CVEs, missing patches, insecure runtime configurations.",
+        },
+    ]
+
+    def _skill_for_finding_pdf(self, finding: Dict[str, Any]) -> str:
+        fid = str(finding.get("id", ""))
+        for section in self._PENTEST_PHASE_SECTIONS:
+            if any(fid.startswith(p) for p in section["prefixes"]):
+                return section["skill"]
+        return "other"
+
+    def _findings_by_phase_html(self, findings: List[Dict[str, Any]]) -> str:
+        """Pentest-only: render findings grouped by methodology phase/skill."""
+        if not findings:
+            return "<p>No findings detected.</p>"
+
+        # Exclude N/A observations (same logic as PentestFormatter._is_non_applicable)
+        reportable = [
+            f for f in findings
+            if not (
+                any(k in str(f.get("description", "")).lower()
+                    for k in ["does not apply", "no action required", "no aplica"])
+                or any(k in str(f.get("remediation", "")).lower()
+                       for k in ["no action required", "no se requiere acción"])
+                or (isinstance(f.get("affected_resources"), list)
+                    and len(f.get("affected_resources", [])) == 0
+                    and not f.get("evidence_snippet"))
+            )
+        ]
+
+        # Group by skill
+        grouped: Dict[str, List[Dict[str, Any]]] = {}
+        other: List[Dict[str, Any]] = []
+        for f in reportable:
+            sk = self._skill_for_finding_pdf(f)
+            if sk == "other":
+                other.append(f)
+            else:
+                grouped.setdefault(sk, []).append(f)
+
+        # Summary table
+        table_rows = []
+        total_c = total_h = total_m = total_l = 0
+        for section in self._PENTEST_PHASE_SECTIONS:
+            items = grouped.get(section["skill"], [])
+            if not items:
+                continue
+            c = sum(1 for f in items if f.get("severity") == "Critical")
+            h = sum(1 for f in items if f.get("severity") == "High")
+            m = sum(1 for f in items if f.get("severity") == "Medium")
+            lo = sum(1 for f in items if f.get("severity") == "Low")
+            total_c += c; total_h += h; total_m += m; total_l += lo
+            table_rows.append(
+                f"<tr><td>{section['phase']}</td><td>{len(items)}</td>"
+                f"<td>{c}</td><td>{h}</td><td>{m}</td><td>{lo}</td></tr>"
+            )
+
+        if table_rows:
+            summary_table = (
+                "<table class='findings-summary-table'>"
+                "<thead><tr><th>Phase</th><th>Total</th>"
+                "<th>Critical</th><th>High</th><th>Medium</th><th>Low</th></tr></thead>"
+                "<tbody>" + "".join(table_rows)
+                + f"<tr class='totals-row'><td><strong>TOTAL</strong></td>"
+                f"<td><strong>{total_c+total_h+total_m+total_l}</strong></td>"
+                f"<td><strong>{total_c}</strong></td><td><strong>{total_h}</strong></td>"
+                f"<td><strong>{total_m}</strong></td><td><strong>{total_l}</strong></td></tr>"
+                "</tbody></table>"
+            )
+        else:
+            summary_table = ""
+
+        sections_html = [summary_table]
+
+        for section in self._PENTEST_PHASE_SECTIONS:
+            items = grouped.get(section["skill"], [])
+            if not items:
+                continue
+            items_sorted = sorted(items, key=lambda f: float(f.get("risk_score", 0.0)), reverse=True)
+            phase_header = (
+                f"<h2>{section['phase']}</h2>"
+                f"<p class='phase-description'><em>{section['description']}</em></p>"
+            )
+            sections_html.append(phase_header)
+            for finding in items_sorted:
+                sections_html.append(self._finding_card_html(finding))
+
+        if other:
+            sections_html.append("<h2>Other Findings</h2>")
+            for finding in other:
+                sections_html.append(self._finding_card_html(finding))
+
+        return "".join(sections_html)
 
     def _findings_by_severity_html(self, findings: List[Dict[str, Any]]) -> str:
         if not findings:

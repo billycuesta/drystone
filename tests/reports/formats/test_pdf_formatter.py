@@ -157,3 +157,151 @@ def test_pdf_formatter_includes_pentest_inventory_scope(tmp_path, monkeypatch):
     assert "EC2 instances: 2" in captured["html"]
     assert "Global Resources" in captured["html"]
     assert "Environment Description (Inferred)" in captured["html"]
+
+
+# ---------------------------------------------------------------------------
+# PDF Findings — Phase-based grouping for pentest reports
+# ---------------------------------------------------------------------------
+
+def _pentest_findings_multi_skill():
+    """Aggregated pentest findings with RECON, IAM, EXP, NET, VULN findings."""
+    return {
+        "skill": "aggregated",
+        "analyzed_at": "2026-03-01T00:00:00",
+        "summary": {"total_findings": 5, "overall_risk_score": 8.0},
+        "findings": [
+            {
+                "id": "RECON-002",
+                "title": "API GW unauthenticated",
+                "severity": "Critical",
+                "risk_score": 9.0,
+                "description": "Unauthenticated API stage.",
+                "affected_resources": ["arn:aws:apigateway:us-east-1::/restapis/abc"],
+                "remediation": "Enable auth.",
+            },
+            {
+                "id": "IAM-004",
+                "title": "Root no MFA",
+                "severity": "Critical",
+                "risk_score": 9.0,
+                "description": "Root lacks MFA.",
+                "affected_resources": ["arn:aws:iam::123456789012:root"],
+                "remediation": "Enable MFA.",
+            },
+            {
+                "id": "EXP-021",
+                "title": "Public S3 bucket",
+                "severity": "Critical",
+                "risk_score": 9.0,
+                "description": "Bucket is publicly readable.",
+                "affected_resources": ["arn:aws:s3:::my-bucket"],
+                "remediation": "Remove public ACL.",
+            },
+            {
+                "id": "NET-007",
+                "title": "No Network Firewall",
+                "severity": "Critical",
+                "risk_score": 9.0,
+                "description": "VPC has no ANFW.",
+                "affected_resources": ["arn:aws:ec2:us-east-1:123456789012:vpc/vpc-1"],
+                "remediation": "Deploy ANFW.",
+            },
+            {
+                "id": "VULN-005",
+                "title": "Critical CVE unpatched",
+                "severity": "Critical",
+                "risk_score": 9.0,
+                "description": "EC2 instance has exploitable CVE.",
+                "affected_resources": ["arn:aws:ec2:us-east-1:123456789012:instance/i-1"],
+                "remediation": "Apply patch.",
+            },
+        ],
+    }
+
+
+def test_pdf_pentest_uses_phase_grouping(tmp_path):
+    """Pentest PDF uses phase-based grouping instead of severity grouping."""
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.report_type = "pentest"
+    config.aws_region = "us-east-1"
+    config.min_severity = "low"
+
+    formatter = PDFFormatter(_pentest_findings_multi_skill(), session, config)
+    html_content = formatter._findings_by_phase_html(
+        _pentest_findings_multi_skill()["findings"]
+    )
+
+    assert "Phase 1 — Reconnaissance" in html_content
+    assert "Phase 2 — Identity" in html_content
+    assert "Phase 2 — External Exposure" in html_content
+    assert "Phase 2 — Network Security" in html_content
+    assert "Phase 2 — Vulnerabilities" in html_content
+    # Should NOT use severity headers
+    assert "Critical Severity" not in html_content
+    assert "High Severity" not in html_content
+
+
+def test_pdf_pentest_summary_table_rendered(tmp_path):
+    """Phase summary table is rendered with correct columns."""
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.report_type = "pentest"
+    config.aws_region = "us-east-1"
+    config.min_severity = "low"
+
+    formatter = PDFFormatter(_pentest_findings_multi_skill(), session, config)
+    html_content = formatter._findings_by_phase_html(
+        _pentest_findings_multi_skill()["findings"]
+    )
+
+    assert "findings-summary-table" in html_content
+    assert "TOTAL" in html_content
+    assert "<th>Critical</th>" in html_content
+
+
+def test_pdf_non_pentest_still_uses_severity_grouping(tmp_path):
+    """Non-pentest PDF still groups by severity."""
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.report_type = "general"
+    config.aws_region = "us-east-1"
+    config.min_severity = "low"
+
+    formatter = PDFFormatter(_sample_findings(), session, config)
+    html_content = formatter._findings_by_severity_html(
+        _sample_findings()["findings"]
+    )
+
+    assert "Critical Severity" in html_content
+    assert "Phase 1" not in html_content
+
+
+def test_pdf_index_labels_by_phase_for_pentest(tmp_path):
+    """Index section says 'by Phase' for pentest reports."""
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.report_type = "pentest"
+    config.aws_region = "us-east-1"
+    config.min_severity = "low"
+
+    formatter = PDFFormatter(_pentest_findings_multi_skill(), session, config)
+    index = formatter._index_section_html(_pentest_findings_multi_skill()["findings"])
+
+    assert "Detailed Findings by Phase" in index
+    assert "Detailed Findings by Severity" not in index
+
+
+def test_pdf_index_labels_by_severity_for_general(tmp_path):
+    """Index section says 'by Severity' for general reports."""
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.report_type = "general"
+    config.aws_region = "us-east-1"
+    config.min_severity = "low"
+
+    formatter = PDFFormatter(_sample_findings(), session, config)
+    index = formatter._index_section_html(_sample_findings()["findings"])
+
+    assert "Detailed Findings by Severity" in index
+    assert "Detailed Findings by Phase" not in index
