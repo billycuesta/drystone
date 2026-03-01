@@ -197,6 +197,25 @@ class ReconSkill(BaseSkill):
                             api_entry["Stages"].append(stage_entry)
                     except ClientError as e:
                         logger.warning(f"Could not get stages for REST API {api_id}: {e}")
+                    # Collect REST API resource/method-level auth to detect unauth routes.
+                    # OPTIONS methods are excluded (CORS preflight — not a real auth gap).
+                    try:
+                        resources_resp = apigw.get_resources(restApiId=api_id, embed=["methods"])
+                        unauth_rest_routes: List[Dict[str, Any]] = []
+                        for resource in resources_resp.get("items", []):
+                            path = resource.get("path", "")
+                            for method, method_cfg in (resource.get("resourceMethods") or {}).items():
+                                if method.upper() == "OPTIONS":
+                                    continue
+                                auth_type = method_cfg.get("authorizationType", "NONE")
+                                if auth_type in {"NONE", None}:
+                                    unauth_rest_routes.append(
+                                        f"{api_id}/{method}/{path.lstrip('/')}"
+                                    )
+                        api_entry["UnauthenticatedRouteCount"] = len(unauth_rest_routes)
+                        api_entry["UnauthenticatedRoutes"] = unauth_rest_routes[:20]
+                    except ClientError as e:
+                        logger.warning(f"Could not get resources for REST API {api_id}: {e}")
                     apis.append(api_entry)
         except ClientError as e:
             logger.warning(f"Could not list REST APIs: {e}")
@@ -259,9 +278,9 @@ class ReconSkill(BaseSkill):
             logger.warning(f"Could not list HTTP APIs: {e}")
 
         total_stages = sum(len(a.get("Stages", [])) for a in apis)
-        # REST API auth is method-level — DefaultRouteAuthorizationType is always None for REST.
-        # Only count HTTP API (v2) stages where DefaultRouteAuthorizationType is NONE/null
-        # as unauthenticated; REST APIs need method-level inspection beyond this collector.
+        # For HTTP APIs (v2): count stages where DefaultRouteAuthorizationType is NONE/null.
+        # For REST APIs (v1): auth is method-level; count REST APIs with ≥1 unauth non-OPTIONS
+        # route as "unauthenticated" (one entry per API, not per stage, to avoid double-counting).
         unauth_stages = sum(
             1
             for a in apis
@@ -269,6 +288,13 @@ class ReconSkill(BaseSkill):
             if a.get("Type") != "REST"
             and s.get("DefaultRouteAuthorizationType") in {"NONE", None}
         )
+        # Add REST APIs that have at least one unauthenticated non-OPTIONS route
+        rest_unauth_apis = sum(
+            1
+            for a in apis
+            if a.get("Type") == "REST" and int(a.get("UnauthenticatedRouteCount", 0) or 0) > 0
+        )
+        unauth_stages += rest_unauth_apis
         return {
             "total_apis": len(apis),
             "total_stages": total_stages,

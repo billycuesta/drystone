@@ -6601,23 +6601,48 @@ def check_recon_002(evidence: Dict[str, Any]) -> PreCheckResult:
     if unauth_stages == 0:
         return PreCheckResult("RECON-002", "PASS", "all API Gateway stages have authentication", [])
 
-    # Collect unauthenticated stage URLs
+    # Collect unauthenticated stage/route identifiers for the finding
     unauth_urls = []
     for api in apigw.get("apis", []):
         if not isinstance(api, dict):
             continue
-        for stage in api.get("Stages", []):
-            if not isinstance(stage, dict):
-                continue
-            auth = stage.get("DefaultRouteAuthorizationType")
-            if auth in {"NONE", None}:
-                url = stage.get("InvokeURL") or f"{api.get('Id', '?')}:{stage.get('StageName', '?')}"
-                unauth_urls.append(url)
+        api_type = api.get("Type", "")
+        if api_type == "REST":
+            # REST APIs: use pre-collected UnauthenticatedRoutes (non-OPTIONS methods)
+            for route in api.get("UnauthenticatedRoutes", []):
+                unauth_urls.append(str(route))
+        else:
+            # HTTP APIs (v2): auth is at stage/route level
+            for stage in api.get("Stages", []):
+                if not isinstance(stage, dict):
+                    continue
+                auth = stage.get("DefaultRouteAuthorizationType")
+                if auth in {"NONE", None}:
+                    url = stage.get("InvokeURL") or f"{api.get('Id', '?')}:{stage.get('StageName', '?')}"
+                    unauth_urls.append(url)
+
+    # Build human-readable summary
+    rest_unauth = sum(
+        int(a.get("UnauthenticatedRouteCount", 0) or 0)
+        for a in apigw.get("apis", [])
+        if isinstance(a, dict) and a.get("Type") == "REST"
+    )
+    http_unauth = unauth_stages - sum(
+        1
+        for a in apigw.get("apis", [])
+        if isinstance(a, dict) and a.get("Type") == "REST" and int(a.get("UnauthenticatedRouteCount", 0) or 0) > 0
+    )
+    parts = []
+    if rest_unauth > 0:
+        parts.append(f"{rest_unauth} REST API route(s) without auth")
+    if http_unauth > 0:
+        parts.append(f"{http_unauth} HTTP API stage(s) without auth")
+    summary = "; ".join(parts) if parts else f"{unauth_stages} API Gateway stage(s) without authentication"
 
     return PreCheckResult(
         "RECON-002",
         "FAIL",
-        f"{unauth_stages} API Gateway stage(s) without authentication",
+        summary,
         unauth_urls[:10],
     )
 

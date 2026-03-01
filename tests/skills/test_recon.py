@@ -99,6 +99,10 @@ class _DummyAPIGWClient:
             "item": [{"stageName": "prod", "cacheClusterEnabled": False, "webAclArn": None}]
         }
 
+    def get_resources(self, **_kwargs):
+        # Return empty resources by default — REST API has no unauth routes in tests
+        return {"items": []}
+
 
 class _DummyAPIGW2Client:
     def get_paginator(self, op):
@@ -379,6 +383,34 @@ class TestReconPreCheckRECON002:
         r002 = next((r for r in results if r.check_id == "RECON-002"), None)
         assert r002 is not None
         assert r002.status == "FAIL"
+
+    def test_fail_rest_api_unauth_routes(self):
+        """RECON-002 must detect REST APIs with non-OPTIONS unauthenticated routes."""
+        ev = _base_evidence()
+        ev["api-gateway-stages"]["unauthenticated_stages"] = 1
+        ev["api-gateway-stages"]["apis"][0]["Type"] = "REST"
+        ev["api-gateway-stages"]["apis"][0]["UnauthenticatedRouteCount"] = 3
+        ev["api-gateway-stages"]["apis"][0]["UnauthenticatedRoutes"] = [
+            "abc123/POST/credit",
+            "abc123/POST/creditcard",
+            "abc123/ANY/",
+        ]
+        results = run_pre_checks("recon", ev, {})
+        r002 = next((r for r in results if r.check_id == "RECON-002"), None)
+        assert r002 is not None
+        assert r002.status == "FAIL"
+        assert "abc123/POST/credit" in r002.affected_resources
+
+    def test_pass_rest_api_all_routes_authenticated(self):
+        """RECON-002 must PASS if REST API routes all have auth (UnauthenticatedRouteCount=0)."""
+        ev = _base_evidence()
+        ev["api-gateway-stages"]["apis"][0]["Type"] = "REST"
+        ev["api-gateway-stages"]["apis"][0]["UnauthenticatedRouteCount"] = 0
+        ev["api-gateway-stages"]["apis"][0]["UnauthenticatedRoutes"] = []
+        results = run_pre_checks("recon", ev, {})
+        r002 = next((r for r in results if r.check_id == "RECON-002"), None)
+        assert r002 is not None
+        assert r002.status == "PASS"
 
     def test_skip_no_apis(self):
         ev = _base_evidence()
