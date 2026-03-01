@@ -240,6 +240,8 @@ class NetworkPostProcessor:
             if not isinstance(vpc_id, str):
                 continue
 
+            vpc_name = _tag_name(v.get("Tags")) or vpc_id
+
             cidr = v.get("CidrBlock")
             flow_logs = v.get("FlowLogs", []) or []
             flow_active = any(
@@ -262,16 +264,36 @@ class NetworkPostProcessor:
             priv = [s for s in subs_summ if not s.get("is_public")]
 
             vpce_count = len([e for e in vpc_endpoints if e.get("VpcId") == vpc_id])
+            total_named_resources = 0
+            for s in subs_summ:
+                rn = s.get("resource_names") or {}
+                if isinstance(rn, dict):
+                    total_named_resources += len(rn.get("EC2") or [])
+                    total_named_resources += len(rn.get("Lambda") or [])
+                    total_named_resources += len(rn.get("RDS") or [])
+
+            for s in subs_summ:
+                sid = s.get("subnet_id")
+                subnet_name = sid
+                source_subnet = next(
+                    (x for x in subs if isinstance(x, dict) and x.get("SubnetId") == sid),
+                    None,
+                )
+                if isinstance(source_subnet, dict):
+                    subnet_name = _tag_name(source_subnet.get("Tags")) or sid
+                s["subnet_name"] = subnet_name
 
             vpc_summaries.append(
                 {
                     "vpc_id": vpc_id,
+                    "vpc_name": vpc_name,
                     "cidr": cidr,
                     "igw_ids": sorted(set(igw_by_vpc.get(vpc_id, []))),
                     "flow_logs_active": flow_active,
                     "subnets_public": sorted(pub, key=lambda x: str(x.get("subnet_id") or "")),
                     "subnets_private": sorted(priv, key=lambda x: str(x.get("subnet_id") or "")),
                     "vpc_endpoints_total": vpce_count,
+                    "resources_total": total_named_resources,
                 }
             )
 
@@ -315,15 +337,49 @@ class NetworkPostProcessor:
             lines.append("No VPCs detected in evidence.")
             return "\n".join(lines)
 
-        # Keep diagram readable: show up to 3 VPCs.
-        for v in vpcs[:3]:
+        def _is_empty_vpc(v: Dict[str, Any]) -> bool:
+            subs = (v.get("subnets_public") or []) + (v.get("subnets_private") or [])
+            if v.get("vpc_endpoints_total", 0):
+                return False
+            for s in subs:
+                eni_total = int(s.get("eni_total") or 0)
+                rn = s.get("resource_names") or {}
+                if eni_total > 0:
+                    return False
+                if isinstance(rn, dict) and any(
+                    (rn.get(k) or []) for k in ["EC2", "Lambda", "RDS"]
+                ):
+                    return False
+            return True
+
+        non_empty_vpcs = [v for v in vpcs if not _is_empty_vpc(v)]
+        hidden_empty = len(vpcs) - len(non_empty_vpcs)
+
+        if not non_empty_vpcs:
+            lines.append(
+                "All detected VPCs are empty from workload perspective (no resources/ENIs)."
+            )
+            lines.append(
+                "Tip: run without hide-empty mode only when troubleshooting inventory completeness."
+            )
+            return "\n".join(lines)
+
+        # Keep diagram readable: show up to 5 non-empty VPCs.
+        for v in non_empty_vpcs[:5]:
             vpc_id = v.get("vpc_id")
+            vpc_name = v.get("vpc_name") or vpc_id
             cidr = v.get("cidr")
             igws = v.get("igw_ids") or []
             flow = "yes" if v.get("flow_logs_active") else "no"
             vpce_total = v.get("vpc_endpoints_total") or 0
+            resources_total = int(v.get("resources_total") or 0)
+            subnets_total = len(v.get("subnets_public") or []) + len(v.get("subnets_private") or [])
 
-            lines.append(f"VPC {vpc_id} ({cidr})")
+            lines.append(f"{vpc_name}")
+            lines.append(f"  VPC {vpc_id}")
+            lines.append(
+                f"  {region} | {vpc_id} | {cidr} | {subnets_total} subnets | {resources_total} resources"
+            )
             lines.append(
                 f"  IGW: {', '.join(igws) if igws else 'none'} | FlowLogs: {flow} | VPCE: {vpce_total}"
             )
@@ -333,16 +389,9 @@ class NetworkPostProcessor:
 
             def fmt_sub(s: Dict[str, Any]) -> str:
                 sid = s.get("subnet_id")
+                sname = s.get("subnet_name") or sid
                 cidr = s.get("cidr")
-                az = s.get("az")
-                eni_total = s.get("eni_total")
-                types = s.get("eni_types") or {}
-                typ_str = ", ".join(
-                    [f"{k}:{types[k]}" for k in sorted(types.keys()) if types.get(k)]
-                )
-                pub_ip = s.get("eni_public_ip_total") or 0
-                pub_ip_s = f" public_ip:{pub_ip}" if pub_ip else ""
-                return f"    - {sid} {cidr} {az} enis:{eni_total}{pub_ip_s} [{typ_str}]"
+                return f"    - {sname} ({sid}) {cidr}"
 
             def fmt_names(s: Dict[str, Any]) -> List[str]:
                 rn = s.get("resource_names") or {}
@@ -369,7 +418,11 @@ class NetworkPostProcessor:
             if pubs:
                 for s in pubs[:5]:
                     lines.append(fmt_sub(s))
-                    lines.extend(fmt_names(s))
+                    names = fmt_names(s)
+                    if names:
+                        lines.extend(names)
+                    else:
+                        lines.append("      No resources")
             else:
                 lines.append("    - none")
 
@@ -377,13 +430,23 @@ class NetworkPostProcessor:
             if privs:
                 for s in privs[:5]:
                     lines.append(fmt_sub(s))
-                    lines.extend(fmt_names(s))
+                    names = fmt_names(s)
+                    if names:
+                        lines.extend(names)
+                    else:
+                        lines.append("      No resources")
             else:
                 lines.append("    - none")
 
             lines.append("")
 
-        if len(vpcs) > 3:
-            lines.append(f"(Diagram truncated: {len(vpcs) - 3} additional VPC(s) not shown)")
+        if hidden_empty > 0:
+            lines.append("")
+            lines.append(f"(Hide empty VPCs enabled: {hidden_empty} empty VPC(s) omitted)")
+
+        if len(non_empty_vpcs) > 5:
+            lines.append(
+                f"(Diagram truncated: {len(non_empty_vpcs) - 5} additional non-empty VPC(s) not shown)"
+            )
 
         return "\n".join(lines).rstrip()

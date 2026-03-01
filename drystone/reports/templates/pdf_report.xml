@@ -516,6 +516,12 @@
     {{SCOPE_DEFINITION}}
   </div>
 
+  <h2>Inventory</h2>
+  <div class="card">
+    {{INVENTORY_SECTION}}
+  </div>
+  {{INVENTORY_ENV_SECTION}}
+
   <h2>Executive Summary</h2>
   <div class="card executive-narrative">
     {{EXECUTIVE_NARRATIVE}}

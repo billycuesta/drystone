@@ -1,5 +1,6 @@
 """Tests for PDF formatter."""
 
+import json
 import sys
 import types
 from unittest.mock import Mock
@@ -96,3 +97,63 @@ def test_pdf_formatter_raises_when_weasyprint_missing(tmp_path, monkeypatch):
         assert False, "Expected RuntimeError for missing weasyprint"
     except RuntimeError as exc:
         assert "weasyprint" in str(exc)
+
+
+def test_pdf_formatter_includes_pentest_inventory_scope(tmp_path, monkeypatch):
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.aws_region = "us-east-1"
+    config.min_severity = "low"
+    config.report_type = "pentest"
+
+    inventory_dir = tmp_path / "evidence" / "pentest"
+    inventory_dir.mkdir(parents=True, exist_ok=True)
+    with open(inventory_dir / "inventory-summary.json", "w") as f:
+        json.dump(
+            {
+                "region": "us-east-1",
+                "regional_resources": {
+                    "ec2_instances": 2,
+                    "rds_instances": 1,
+                    "lambda_functions": 3,
+                    "vpcs": 1,
+                },
+                "global_resources": {
+                    "s3_buckets": 5,
+                    "iam_roles": 12,
+                },
+            },
+            f,
+        )
+
+    network_dir = tmp_path / "evidence" / "network"
+    network_dir.mkdir(parents=True, exist_ok=True)
+    with open(network_dir / "subnets.json", "w") as f:
+        json.dump({"Subnets": [{"SubnetId": "subnet-1"}]}, f)
+
+    exposure_dir = tmp_path / "evidence" / "exposure"
+    exposure_dir.mkdir(parents=True, exist_ok=True)
+    with open(exposure_dir / "api-gateway-stages.json", "w") as f:
+        json.dump({"items": [{"ApiId": "a1"}]}, f)
+
+    captured = {}
+
+    class FakeHTML:
+        def __init__(self, string):
+            captured["html"] = string
+
+        def write_pdf(self, output_path):
+            with open(output_path, "wb") as f:
+                f.write(b"%PDF-1.4 test")
+
+    fake_module = types.SimpleNamespace(HTML=FakeHTML)
+    monkeypatch.setitem(sys.modules, "weasyprint", fake_module)
+
+    formatter = PDFFormatter(_sample_findings(), session, config)
+    formatter.generate()
+
+    assert "<h2>Inventory</h2>" in captured["html"]
+    assert "Regional Resources" in captured["html"]
+    assert "EC2 instances: 2" in captured["html"]
+    assert "Global Resources" in captured["html"]
+    assert "Environment Description (Inferred)" in captured["html"]

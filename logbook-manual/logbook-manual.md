@@ -20,12 +20,12 @@
 - [x] vulns
 	- [x] Preguntar si podemos añadir pre-checks
 	- [x] Iteración hasta robusto
-- [ ] alerting
-	- [ ] Preguntar si podemos añadir pre-checks
-	- [ ] Iteración hasta robusto
-- [ ] hardening
-	- [ ] Preguntar si podemos añadir pre-checks
-	- [ ] Iteración hasta robusto
+- [x] alerting
+	- [x] Preguntar si podemos añadir pre-checks
+	- [x] Iteración hasta robusto
+- [x] hardening
+	- [x] Preguntar si podemos añadir pre-checks
+	- [x] Iteración hasta robusto
 - [x] ecr
 	- [x] Preguntar si podemos añadir pre-checks
 	- [x] Iteración hasta robusto

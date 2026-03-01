@@ -162,7 +162,6 @@ class WAFPostProcessor:
 
     def _generate_diagram(self, a: Dict[str, Any]) -> str:
         region = a.get("region") or "unknown"
-
         coll_status = a.get("collection_status") or {}
 
         cf_total = int(a.get("cloudfront_distributions_total") or 0)
@@ -170,138 +169,75 @@ class WAFPostProcessor:
         alb_total = int(a.get("alb_internet_facing_total") or 0)
         alb_prot = int(a.get("alb_internet_facing_protected") or 0)
         alb_errors = int(a.get("alb_association_errors") or 0)
-
         api_total = int(a.get("api_entrypoints_total") or 0)
         api_prot = int(a.get("api_entrypoints_protected") or 0)
         api_errors = int(a.get("api_entrypoints_errors") or 0)
-
         waf_acl_total = int(a.get("wafv2_web_acls_total") or 0)
         waf_log_on = int(a.get("wafv2_web_acls_logging_enabled") or 0)
         destinations = a.get("waf_log_destinations") or []
 
-        # Match the style used by alerting: clear boxes + status icons.
-        def ok_icon() -> str:
-            return "✅"
-
-        def warn_icon() -> str:
-            return "⚠️"
-
-        def bad_icon() -> str:
-            return "❌"
-
-        def na_icon() -> str:
-            return "➖"
+        svc_counts = a.get("api_entrypoints_by_service") or {}
+        api_service_parts = []
+        for svc, counts in sorted(svc_counts.items()):
+            total = int((counts or {}).get("total") or 0)
+            if total > 0:
+                api_service_parts.append(f"{svc}={total}")
+        api_services_line = ", ".join(api_service_parts) if api_service_parts else "none"
 
         def coverage_icon(total: int, protected: int) -> str:
             if total <= 0:
-                return na_icon()
+                return "➖"
             if protected <= 0:
-                return bad_icon()
+                return "❌"
             if protected < total:
-                return warn_icon()
-            return ok_icon()
-
-        def logging_icon(total: int, enabled: int) -> str:
-            if total <= 0:
-                return na_icon()
-            if enabled <= 0:
-                return bad_icon()
-            if enabled < total:
-                return warn_icon()
-            return ok_icon()
+                return "⚠️"
+            return "✅"
 
         cf_icon = coverage_icon(cf_total, cf_prot)
         alb_icon = coverage_icon(alb_total, alb_prot)
         api_icon = coverage_icon(api_total, api_prot)
-        log_icon = logging_icon(waf_acl_total, waf_log_on)
-
-        in_scope_entry_points = (cf_total > 0) or (alb_total > 0) or (api_total > 0)
+        log_icon = coverage_icon(waf_acl_total, waf_log_on)
 
         lines: List[str] = []
-        lines.append("┌─────────────────────────────────────────────────────────────────────┐")
-        lines.append("│                 AWS WAF PROTECTION FLOW ARCHITECTURE                 │")
-        lines.append("└─────────────────────────────────────────────────────────────────────┘")
+        lines.append("WAF TRAFFIC FLOW (STEP-BY-STEP)")
+        lines.append("────────────────────────────────────────────────────────────────")
+        lines.append(f"Region in scope: {region}")
         lines.append("")
-        lines.append("ENTRY POINTS")
-        lines.append("  - CloudFront scope: Global (WAFv2 control plane in us-east-1)")
-        lines.append(f"  - Regional scope: {region}")
+        lines.append("1) Client traffic arrives from the Internet")
+        lines.append("           │")
+        lines.append("           v")
+        lines.append("2) Entry point receives traffic WITH WAF attached at that entry point")
+        lines.append("   (CloudFront distribution, internet-facing ALB, or API endpoint)")
+        lines.append(f"   - CloudFront distributions: {cf_total}")
+        lines.append(f"   - Internet-facing ALBs:    {alb_total}")
+        lines.append(f"   - Public API entrypoints:  {api_total} ({api_services_line})")
+        lines.append("           │")
+        lines.append("           v")
+        lines.append("3) AWS WAF evaluates the request before backend access")
+        lines.append("   - Result: BLOCKED or ALLOWED")
+        lines.append("           │")
+        lines.append("           v")
+        lines.append("4) If ALLOWED, traffic is forwarded to platform services")
+        lines.append("   - CloudFront -> configured origins (ALB/API/static) [if used]")
+        lines.append("   - ALB -> target groups -> backend services [if used]")
+        lines.append("   - API Gateway/AppSync/Cognito -> backend integrations [if used]")
+        lines.append("           │")
+        lines.append("           v")
+        lines.append("5) Backend processes request and returns response")
+        lines.append("           │")
+        lines.append("           v")
+        lines.append("6) WAF metrics/logs are recorded (CloudWatch / Firehose / S3)")
         lines.append("")
-        lines.append("INTERNET")
-        lines.append("   │")
+        lines.append("OBSERVED COVERAGE")
+        lines.append(f"  {cf_icon} CloudFront protected: {cf_prot}/{cf_total}")
         lines.append(
-            "   ├───────────────────────────┬───────────────────────────┬───────────────────────────┐"
+            f"  {alb_icon} ALB protected:        {alb_prot}/{alb_total} (assoc errors: {alb_errors})"
         )
         lines.append(
-            "   │                           │                           │                           │"
+            f"  {api_icon} API protected:        {api_prot}/{api_total} (assoc errors: {api_errors})"
         )
-        lines.append(
-            "   v                           v                           v                           │"
-        )
-        lines.append(
-            "┌──────────────────┐  ┌──────────────────────┐  ┌──────────────────────────┐          │"
-        )
-        lines.append(
-            f"│ {cf_icon} CloudFront       │  │ {alb_icon} ALB (internet)     │  │ {api_icon} APIs (regional)      │          │"
-        )
-        lines.append(
-            f"│   protected: {cf_prot}/{cf_total:<3}   │  │   protected: {alb_prot}/{alb_total:<3}        │  │   protected: {api_prot}/{api_total:<3}        │          │"
-        )
-        lines.append(
-            f"│                  │  │   assoc errors: {alb_errors:<5}     │  │   assoc errors: {api_errors:<5}     │          │"
-        )
-        lines.append(
-            "└─────────┬────────┘  └───────────┬───────────┘  └───────────┬────────────┘          │"
-        )
-        lines.append(
-            "          │                       │                         │                           │"
-        )
-        lines.append(
-            "          v                       v                         v                           │"
-        )
-        lines.append(
-            "   ┌──────────────────┐     ┌──────────────────┐      ┌──────────────────┐            │"
-        )
-        lines.append(
-            "   │ AWS WAFv2 Web ACL │     │ AWS WAFv2 Web ACL │      │ AWS WAFv2 Web ACL │            │"
-        )
-        lines.append(
-            "   │ Scope=CLOUDFRONT  │     │ Scope=REGIONAL    │      │ Scope=REGIONAL    │            │"
-        )
-        lines.append(
-            "   └─────────┬────────┘     └─────────┬────────┘      └─────────┬────────┘            │"
-        )
-        lines.append(
-            "             │                       │                         │                        │"
-        )
-        lines.append(
-            "             v                       v                         v                        │"
-        )
-        lines.append(
-            "        [ Origins ]             [ Target Groups ]     [ API Gateway / AppSync / Cognito ]│"
-        )
-        lines.append("                                                                         │")
-        lines.append("                                                                         v")
-        lines.append("                     ┌───────────────────────────────────────────┐")
-        lines.append(
-            f"                     │ {log_icon} WAF Logging (per Web ACL)                 │"
-        )
-        lines.append(
-            f"                     │   logging enabled: {waf_log_on}/{waf_acl_total:<3}                    │"
-        )
-        lines.append("                     │   destinations: Firehose / S3 / CW Logs      │")
-        lines.append("                     └───────────────────────────────────────────┘")
+        lines.append(f"  {log_icon} WAF logging enabled:  {waf_log_on}/{waf_acl_total}")
 
-        if not in_scope_entry_points:
-            lines.append("")
-            lines.append("NOTES")
-            lines.append(
-                "  - No in-scope entry points detected (0 CloudFront, 0 internet-facing ALBs, 0 API entrypoints)."
-            )
-            lines.append(
-                "  - In this situation, many WAF checks are N/A and it is valid to report 0 findings."
-            )
-
-        # Evidence-quality warning (helps interpret empty inventories safely).
         if isinstance(coll_status, dict):
             try:
                 has_failure = False
@@ -321,7 +257,7 @@ class WAFPostProcessor:
                     lines.append("")
                     lines.append("EVIDENCE WARNING")
                     lines.append(
-                        "  - Evidence collection had API errors; treat missing resources as UNVERIFIED until re-run."
+                        "  - Some API calls failed during collection; missing resources may be UNVERIFIED."
                     )
             except Exception:
                 pass
@@ -335,10 +271,6 @@ class WAFPostProcessor:
                 lines.append(f"  - ... ({len(destinations) - 5} more)")
 
         lines.append("")
-        lines.append("LEGEND")
-        lines.append("  ✅ = Fully configured / protected")
-        lines.append("  ⚠️ = Partially protected or needs review")
-        lines.append("  ❌ = Missing protection")
-        lines.append("  ➖ = N/A (no in-scope resources detected)")
+        lines.append("LEGEND: ✅ full | ⚠️ partial | ❌ missing | ➖ n/a")
 
         return "\n".join(lines).strip()
