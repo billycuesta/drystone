@@ -1165,6 +1165,64 @@ def check_iam_016(evidence: Dict[str, Any]) -> PreCheckResult:
     )
 
 
+@_register("iam")
+def check_iam_040(evidence: Dict[str, Any]) -> PreCheckResult:
+    """IAM-040: Organization SCPs should impose Deny restrictions on all accounts."""
+    scps_doc = evidence.get("effective-scps")
+    if not isinstance(scps_doc, dict):
+        return PreCheckResult("IAM-040", "SKIP", "effective-scps evidence not available", [])
+
+    error = scps_doc.get("error")
+    scps = scps_doc.get("service_control_policies", [])
+
+    # If error and no SCPs: not in org or no permissions → SKIP
+    if error and not scps:
+        return PreCheckResult(
+            "IAM-040",
+            "SKIP",
+            f"Account not in Organization or no org permissions: {str(error)[:100]}",
+            [],
+        )
+
+    if not isinstance(scps, list) or not scps:
+        return PreCheckResult("IAM-040", "SKIP", "No SCPs found (not in Organization)", [])
+
+    # Check if any SCP has Deny statements (not just the AWS-managed FullAWSAccess)
+    has_deny_scp = False
+    non_managed_scps = [s for s in scps if isinstance(s, dict) and not s.get("AwsManaged", False)]
+
+    for scp in non_managed_scps:
+        doc = scp.get("PolicyDocument")
+        if not isinstance(doc, dict):
+            continue
+        for stmt in doc.get("Statement", []) or []:
+            if not isinstance(stmt, dict):
+                continue
+            if str(stmt.get("Effect", "")).upper() == "DENY":
+                has_deny_scp = True
+                break
+        if has_deny_scp:
+            break
+
+    if has_deny_scp:
+        return PreCheckResult(
+            "IAM-040",
+            "PASS",
+            f"{len(non_managed_scps)} custom SCP(s) found; at least one has Deny statements",
+            [],
+        )
+
+    # In org, SCPs exist, but no Deny-based SCPs — only Allow (FullAWSAccess default)
+    scp_names = [str(s.get("Name", "unknown")) for s in scps if isinstance(s, dict)]
+    return PreCheckResult(
+        "IAM-040",
+        "FAIL",
+        f"Account in Organization with {len(scps)} SCP(s) but no Deny-based custom SCPs: "
+        + ", ".join(scp_names[:5]),
+        [],
+    )
+
+
 # ============================================================================
 # HARDENING PRE-CHECKS
 # ============================================================================

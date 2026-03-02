@@ -929,6 +929,34 @@
       ]
     },
     {
+      "id": "IAM-040",
+      "cis_id": "N/A",
+      "title": "Organization SCPs should impose Deny restrictions to limit blast radius of compromised IAM principals",
+      "severity": "Medium",
+      "description": "When an account is part of an AWS Organization, Service Control Policies (SCPs) provide a critical org-level guardrail that limits what even administrators can do. Without any Deny-based SCP, a compromised IAM admin has no org-level containment and can perform any action the account's IAM policies permit. Accounts with only the default FullAWSAccess SCP (Allow *:*) rely solely on IAM policies for access control, increasing blast radius.",
+      "evidence_files": [
+        "effective-scps.json"
+      ],
+      "check_keywords": [
+        "SCP",
+        "ServiceControlPolicy",
+        "Organizations",
+        "Deny",
+        "FullAWSAccess"
+      ],
+      "remediation": "Implement at least one Deny-based SCP at the account or OU level to restrict sensitive actions (e.g., restrict IAM root usage, prevent disabling CloudTrail, limit to approved regions). Use AWS Organizations console → Policies → Service Control Policies.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "SCPs enforce org-level least-privilege boundaries preventing principals from exceeding approved access even if IAM policies are misconfigured."
+        },
+        {
+          "control": "6.5.1",
+          "reason": "Org-level change controls via SCPs prevent unauthorized changes to security controls across all accounts in the OU."
+        }
+      ]
+    },
+    {
       "id": "IAM-039",
       "cis_id": "N/A",
       "title": "IAM policies should not allow broad detachment/deletion of authorization controls",
@@ -952,8 +980,8 @@
       ]
     }
   ],
-  "version": "2.3",
-  "total_checks": 39,
-  "last_updated": "2026-02-18",
+  "version": "2.4",
+  "total_checks": 40,
+  "last_updated": "2026-03-02",
   "notes": "Expanded checklist covers CIS AWS Foundations v1.5.0 + AWS Security Best Practices. Includes critical, high, medium, and low severity items. Mapped to PCI DSS v4.0 controls."
 }

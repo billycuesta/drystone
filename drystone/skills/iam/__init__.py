@@ -369,12 +369,24 @@ class IAMSkill(BaseSkill):
             },
         )
 
+        # === SCP / ORGANIZATIONS ===
+        print("  Collecting Organizations SCPs (best-effort)...")
+        scps, scps_error = self._collect_org_scps(client_kwargs)
+        self._save_json(
+            evidence_path / "effective-scps.json",
+            {
+                "service_control_policies": scps,
+                "error": scps_error,
+            },
+        )
+
         # === SUMMARY ===
         print("\n✅ IAM collection complete:")
         print(f"   - {len(users_detailed)} users")
         print(f"   - {len(groups_detailed)} groups")
         print(f"   - {len(roles_detailed)} roles")
         print(f"   - {len(policies_detailed)} custom policies")
+        print(f"   - {len(scps)} SCPs")
 
     def _extract_trust_principals(self, trust_policy: Dict[str, Any]) -> List[str]:
         """Extract principal values from trust policy document."""
@@ -561,6 +573,82 @@ class IAMSkill(BaseSkill):
             return out, None
         except ClientError as e:
             return out, str(e)
+
+    def _collect_org_scps(
+        self, client_kwargs: Dict[str, Any]
+    ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+        """Collect Service Control Policies from AWS Organizations (best-effort).
+
+        Returns list of SCPs with their policy documents and targets, or
+        empty list + error string if the account is not in an Organization or
+        lacks organizations:List* permissions.
+
+        Each SCP entry includes:
+            - PolicyId, Name, Description, AwsManaged
+            - PolicyDocument (the actual JSON SCP)
+            - Targets: accounts/OUs this SCP applies to
+        """
+        out: List[Dict[str, Any]] = []
+        try:
+            org_client = boto3.client("organizations", **client_kwargs)
+
+            paginator = org_client.get_paginator("list_policies")
+            for page in paginator.paginate(Filter="SERVICE_CONTROL_POLICY"):
+                for policy_summary in page.get("Policies", []) or []:
+                    policy_id = policy_summary.get("Id")
+                    if not policy_id:
+                        continue
+
+                    entry: Dict[str, Any] = {
+                        "PolicyId": policy_id,
+                        "Name": policy_summary.get("Name"),
+                        "Description": policy_summary.get("Description"),
+                        "AwsManaged": policy_summary.get("AwsManaged", False),
+                        "PolicyDocument": None,
+                        "Targets": [],
+                    }
+
+                    # Get policy document
+                    try:
+                        detail = org_client.describe_policy(PolicyId=policy_id)
+                        doc_raw = (
+                            detail.get("Policy", {})
+                            .get("Content", "{}")
+                        )
+                        try:
+                            entry["PolicyDocument"] = json.loads(doc_raw)
+                        except (json.JSONDecodeError, TypeError):
+                            entry["PolicyDocument"] = doc_raw
+                    except ClientError:
+                        pass
+
+                    # Get targets (accounts/OUs this SCP applies to)
+                    try:
+                        target_paginator = org_client.get_paginator(
+                            "list_targets_for_policy"
+                        )
+                        for t_page in target_paginator.paginate(PolicyId=policy_id):
+                            for target in t_page.get("Targets", []) or []:
+                                entry["Targets"].append(
+                                    {
+                                        "TargetId": target.get("TargetId"),
+                                        "Name": target.get("Name"),
+                                        "Type": target.get("Type"),
+                                    }
+                                )
+                    except ClientError:
+                        pass
+
+                    out.append(entry)
+
+            return out, None
+
+        except ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            # AWSOrganizationsNotInUseException or AccessDenied are expected
+            return [], str(e.response.get("Error", {}).get("Message", str(e)))
+        except Exception as e:
+            return [], str(e)
 
     def _save_json(self, filepath: Path, data):
         """Save data to JSON file with proper datetime serialization.

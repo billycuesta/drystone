@@ -1030,20 +1030,47 @@ class PDFFormatter(BaseFormatter):
             self._exploitation_block_html(finding, commands) if is_pentest_report else ""
         )
 
-        return (
-            '<div class="individual-finding">'
-            f"<h3>[{finding_id}] {title}</h3>"
+        exploit_status = finding.get("exploitability_status")
+        _exploit_styles = {
+            "validated": "background:#fee2e2;color:#991b1b;border:1px solid #fca5a5",
+            "probable": "background:#fef9c3;color:#854d0e;border:1px solid #fde047",
+            "theoretical": "background:#f3f4f6;color:#374151;border:1px solid #d1d5db",
+        }
+        _default_style = _exploit_styles["theoretical"]
+        if exploit_status:
+            _style = _exploit_styles.get(exploit_status, _default_style)
+            exploit_badge_html = (
+                "<span style='padding:2px 8px;border-radius:12px;font-size:0.8em;"
+                + _style + "'>"
+                + exploit_status.title() + "</span>"
+            )
+        else:
+            exploit_badge_html = ""
+
+        exploit_suffix = (
+            f" | <strong>Exploitability:</strong> {exploit_badge_html}"
+            if exploit_badge_html
+            else ""
+        )
+        severity_line = (
             f"<p><strong>Risk Score:</strong> {risk:.1f}/10 | <strong>Severity:</strong> "
-            f"<span class='severity-pill severity-{severity.lower()}'>{severity}</span></p>"
-            f"<div class='finding-description'><p>{description}</p></div>"
-            "<div class='finding-resources finding-affected'><h4>Affected Resources</h4>"
-            f"<ul class='resource-list'>{res_items}</ul></div>"
-            f"{commands_block}"
-            f"{evidence_block}"
-            f"{exploitation_block}"
-            f"<div class='finding-remediation'><h4>Remediation</h4><p>{remediation}</p></div>"
-            f"<p><strong>CIS Reference:</strong> {cis_ref}</p>"
-            "</div>"
+            f"<span class='severity-pill severity-{severity.lower()}'>{severity}</span>"
+            f"{exploit_suffix}</p>"
+        )
+
+        return (
+            "<div class='individual-finding'>"
+            + f"<h3>[{finding_id}] {title}</h3>"
+            + severity_line
+            + f"<div class='finding-description'><p>{description}</p></div>"
+            + "<div class='finding-resources finding-affected'><h4>Affected Resources</h4>"
+            + f"<ul class='resource-list'>{res_items}</ul></div>"
+            + commands_block
+            + evidence_block
+            + exploitation_block
+            + f"<div class='finding-remediation'><h4>Remediation</h4><p>{remediation}</p></div>"
+            + f"<p><strong>CIS Reference:</strong> {cis_ref}</p>"
+            + "</div>"
         )
 
     def _collect_validation_commands(self, finding: Dict[str, Any]) -> tuple[List[str], bool]:

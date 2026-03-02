@@ -3825,3 +3825,206 @@ class TestFormatPreChecksForPrompt:
         xml = format_pre_checks_for_prompt(checks)
         assert 'id="ALRT-025"' in xml
         assert 'status="SKIP"' in xml
+
+
+class TestIAM040SCPs:
+    """Tests for IAM-040 SCP/Organizations pre-check."""
+
+    def _run(self, evidence):
+        from drystone.validation.pre_checks import check_iam_040
+        return check_iam_040(evidence)
+
+    def test_skip_no_evidence(self):
+        result = self._run({})
+        assert result.check_id == "IAM-040"
+        assert result.status == "SKIP"
+
+    def test_skip_with_api_error(self):
+        result = self._run({
+            "effective-scps": {
+                "service_control_policies": [],
+                "error": "AWSOrganizationsNotInUseException: Account is not a member of an organization.",
+            }
+        })
+        assert result.status == "SKIP"
+
+    def test_skip_empty_scps_no_error(self):
+        result = self._run({
+            "effective-scps": {
+                "service_control_policies": [],
+                "error": None,
+            }
+        })
+        assert result.status == "SKIP"
+
+    def test_fail_only_fullawsaccess(self):
+        """Only AWS-managed FullAWSAccess SCP — no Deny statements."""
+        result = self._run({
+            "effective-scps": {
+                "service_control_policies": [
+                    {
+                        "PolicyId": "p-FullAWSAccess",
+                        "Name": "FullAWSAccess",
+                        "AwsManaged": True,
+                        "PolicyDocument": {
+                            "Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]
+                        },
+                        "Targets": [],
+                    }
+                ],
+                "error": None,
+            }
+        })
+        assert result.status == "FAIL"
+        assert "FullAWSAccess" in result.evidence_summary
+
+    def test_fail_custom_scp_allow_only(self):
+        """Custom SCP with only Allow statements — still no Deny guardrails."""
+        result = self._run({
+            "effective-scps": {
+                "service_control_policies": [
+                    {
+                        "PolicyId": "p-custom",
+                        "Name": "AllowAll",
+                        "AwsManaged": False,
+                        "PolicyDocument": {
+                            "Statement": [{"Effect": "Allow", "Action": "s3:*", "Resource": "*"}]
+                        },
+                        "Targets": [],
+                    }
+                ],
+                "error": None,
+            }
+        })
+        assert result.status == "FAIL"
+
+    def test_pass_custom_scp_with_deny(self):
+        """Custom SCP with a Deny statement — org-level guardrail present."""
+        result = self._run({
+            "effective-scps": {
+                "service_control_policies": [
+                    {
+                        "PolicyId": "p-deny-root",
+                        "Name": "DenyRootUsage",
+                        "AwsManaged": False,
+                        "PolicyDocument": {
+                            "Statement": [
+                                {
+                                    "Effect": "Deny",
+                                    "Action": "*",
+                                    "Resource": "*",
+                                    "Condition": {
+                                        "StringLike": {"aws:PrincipalArn": "arn:aws:iam::*:root"}
+                                    },
+                                }
+                            ]
+                        },
+                        "Targets": [{"TargetId": "123456789012", "Type": "ACCOUNT"}],
+                    }
+                ],
+                "error": None,
+            }
+        })
+        assert result.status == "PASS"
+        assert "custom SCP" in result.evidence_summary.lower() or "deny" in result.evidence_summary.lower()
+
+    def test_pass_mixed_scps_one_has_deny(self):
+        """Mixed SCPs: AWS-managed Allow + custom Deny → PASS."""
+        result = self._run({
+            "effective-scps": {
+                "service_control_policies": [
+                    {
+                        "PolicyId": "p-aws",
+                        "Name": "FullAWSAccess",
+                        "AwsManaged": True,
+                        "PolicyDocument": {
+                            "Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]
+                        },
+                        "Targets": [],
+                    },
+                    {
+                        "PolicyId": "p-deny-ct",
+                        "Name": "DenyCloudTrailDisable",
+                        "AwsManaged": False,
+                        "PolicyDocument": {
+                            "Statement": [
+                                {"Effect": "Deny", "Action": ["cloudtrail:StopLogging"], "Resource": "*"}
+                            ]
+                        },
+                        "Targets": [],
+                    },
+                ],
+                "error": None,
+            }
+        })
+        assert result.status == "PASS"
+
+
+class TestExploitabilityStatus:
+    """Tests for exploitability_status field on Finding model."""
+
+    def test_finding_accepts_validated(self):
+        from drystone.models.findings import Finding
+        f = Finding(
+            id="IAM-001",
+            severity="Critical",
+            risk_score=9.0,
+            title="Root without MFA",
+            description="Root account has no MFA.",
+            remediation="Enable MFA.",
+            exploitability_status="validated",
+        )
+        assert f.exploitability_status == "validated"
+
+    def test_finding_accepts_probable(self):
+        from drystone.models.findings import Finding
+        f = Finding(
+            id="IAM-002",
+            severity="High",
+            risk_score=7.0,
+            title="No MFA on user",
+            description="User has no MFA.",
+            remediation="Enable MFA.",
+            exploitability_status="probable",
+        )
+        assert f.exploitability_status == "probable"
+
+    def test_finding_defaults_to_none(self):
+        from drystone.models.findings import Finding
+        f = Finding(
+            id="IAM-003",
+            severity="Medium",
+            risk_score=4.5,
+            title="Weak password policy",
+            description="Policy too weak.",
+            remediation="Strengthen policy.",
+        )
+        assert f.exploitability_status is None
+
+    def test_finding_rejects_invalid_status(self):
+        import pytest
+        from drystone.models.findings import Finding
+        with pytest.raises(Exception):
+            Finding(
+                id="IAM-001",
+                severity="Critical",
+                risk_score=9.0,
+                title="t",
+                description="d",
+                remediation="r",
+                exploitability_status="unknown_value",
+            )
+
+    def test_model_dump_includes_status(self):
+        from drystone.models.findings import Finding
+        f = Finding(
+            id="IAM-001",
+            severity="Critical",
+            risk_score=9.0,
+            title="t",
+            description="d",
+            remediation="r",
+            exploitability_status="theoretical",
+        )
+        dumped = f.model_dump(mode="json")
+        assert dumped["exploitability_status"] == "theoretical"

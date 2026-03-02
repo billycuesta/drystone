@@ -247,6 +247,11 @@ class BaseSkill(ABC):
                     checklist_version=str(checklist.get("version", "1.0")),
                 )
 
+        # 3b. Tag LLM findings with exploitability_status before reconciliation
+        for f in findings.findings:
+            if f.exploitability_status is None:
+                f.exploitability_status = "probable" if f.evidence_snippet else "theoretical"
+
         # 4. Tier 3: Reconcile AI findings against pre-checks
         if pre_check_results:
             findings = self._reconcile_with_pre_checks(
@@ -439,6 +444,7 @@ class BaseSkill(ABC):
                         evidence_refs=evidence_refs,
                         evidence_snippet=evidence_snippet,
                         cis_reference=item.get("cis_reference") or item.get("cis_id"),
+                        exploitability_status="validated",
                     )
                     findings.findings.append(finding)
                     injected += 1
