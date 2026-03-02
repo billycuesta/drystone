@@ -304,6 +304,39 @@
       border-top: 2px solid #6366f1;
     }
 
+    .phase-summary-table th:nth-child(1),
+    .phase-summary-table td:nth-child(1) {
+      text-align: left;
+    }
+
+    .severity-summary-table th:nth-child(1),
+    .severity-summary-table td:nth-child(1) {
+      text-align: left;
+    }
+
+    .phase-pill {
+      display: inline-block;
+      padding: 2px 9px;
+      border-radius: 999px;
+      font-size: 9px;
+      font-weight: 700;
+      border: 1px solid transparent;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+
+    .phase-pill-1 {
+      color: #374151;
+      background: transparent;
+      border-color: #d1d5db;
+    }
+
+    .phase-pill-2 {
+      color: #374151;
+      background: transparent;
+      border-color: #d1d5db;
+    }
+
     .individual-finding {
       background: var(--surface);
       margin: 12px 0;
@@ -544,10 +577,11 @@
   <h2>Risk Analysis</h2>
   <div class="card">
     <h3>Severity Distribution</h3>
-    <table class="findings-summary-table">
+    <table class="findings-summary-table severity-summary-table">
       <thead><tr><th>Severity</th><th>Distribution</th><th>Count</th></tr></thead>
       <tbody>{{SEVERITY_CHART}}</tbody>
     </table>
+    {{PHASE_FINDINGS_TABLE}}
     <h3>Top 5 Affected Resources</h3>
     <ul>{{TOP_RESOURCES}}</ul>
     <h3>Findings Summary</h3>

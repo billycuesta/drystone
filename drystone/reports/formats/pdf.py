@@ -100,6 +100,7 @@ class PDFFormatter(BaseFormatter):
             "EXECUTIVE_NARRATIVE": self._executive_narrative_html(summary),
             "METHODOLOGY_SECTION": self._methodology_section_html(),
             "SEVERITY_CHART": self._severity_distribution_chart_html(summary),
+            "PHASE_FINDINGS_TABLE": self._phase_findings_table_html(findings) if is_pentest else "",
             "TOP_RESOURCES": self._top_resources_html(findings),
             "TOP_FINDINGS_ROWS": self._top_findings_rows_html(findings),
             "ARCHITECTURE_SECTION": architecture_html,
@@ -115,12 +116,34 @@ class PDFFormatter(BaseFormatter):
 
     def _index_section_html(self, findings: List[Dict[str, Any]]) -> str:
         is_pentest = str(getattr(self.config, "report_type", "general")) == "pentest"
-        ordered = sorted(findings, key=self._finding_sort_key)
         finding_items = []
-        for finding in ordered:
-            fid = html.escape(str(finding.get("id", "N/A")))
-            title = html.escape(str(finding.get("title", "Untitled")))
-            finding_items.append(f"<li><span class='index-code'>{fid}</span> {title}</li>")
+        if is_pentest:
+            grouped = self._group_reportable_pentest_findings(findings)
+            for section in self._PENTEST_PHASE_SECTIONS:
+                items = grouped.get(section["skill"], [])
+                if not items:
+                    continue
+                per_phase_items = []
+                for finding in sorted(
+                    items, key=lambda f: float(f.get("risk_score", 0.0)), reverse=True
+                ):
+                    fid = html.escape(str(finding.get("id", "N/A")))
+                    title = html.escape(str(finding.get("title", "Untitled")))
+                    per_phase_items.append(
+                        f"<li><span class='index-code'>{fid}</span> {title}</li>"
+                    )
+                finding_items.append(
+                    "<li>"
+                    f"<strong>{section['phase']}</strong>"
+                    "<ol class='index-sublist'>" + "".join(per_phase_items) + "</ol>"
+                    "</li>"
+                )
+        else:
+            ordered = sorted(findings, key=self._finding_sort_key)
+            for finding in ordered:
+                fid = html.escape(str(finding.get("id", "N/A")))
+                title = html.escape(str(finding.get("title", "Untitled")))
+                finding_items.append(f"<li><span class='index-code'>{fid}</span> {title}</li>")
 
         nested_findings = (
             "<ol class='index-sublist'>" + "".join(finding_items) + "</ol>"
@@ -850,69 +873,22 @@ class PDFFormatter(BaseFormatter):
         if not findings:
             return "<p>No findings detected.</p>"
 
-        # Exclude N/A observations (same logic as PentestFormatter._is_non_applicable)
-        reportable = [
-            f for f in findings
-            if not (
-                any(k in str(f.get("description", "")).lower()
-                    for k in ["does not apply", "no action required", "no aplica"])
-                or any(k in str(f.get("remediation", "")).lower()
-                       for k in ["no action required", "no se requiere acción"])
-                or (isinstance(f.get("affected_resources"), list)
-                    and len(f.get("affected_resources", [])) == 0
-                    and not f.get("evidence_snippet"))
-            )
-        ]
-
-        # Group by skill
-        grouped: Dict[str, List[Dict[str, Any]]] = {}
+        grouped = self._group_reportable_pentest_findings(findings)
         other: List[Dict[str, Any]] = []
-        for f in reportable:
+        for f in findings:
             sk = self._skill_for_finding_pdf(f)
             if sk == "other":
                 other.append(f)
-            else:
-                grouped.setdefault(sk, []).append(f)
 
-        # Summary table
-        table_rows = []
-        total_c = total_h = total_m = total_l = 0
-        for section in self._PENTEST_PHASE_SECTIONS:
-            items = grouped.get(section["skill"], [])
-            if not items:
-                continue
-            c = sum(1 for f in items if f.get("severity") == "Critical")
-            h = sum(1 for f in items if f.get("severity") == "High")
-            m = sum(1 for f in items if f.get("severity") == "Medium")
-            lo = sum(1 for f in items if f.get("severity") == "Low")
-            total_c += c; total_h += h; total_m += m; total_l += lo
-            table_rows.append(
-                f"<tr><td>{section['phase']}</td><td>{len(items)}</td>"
-                f"<td>{c}</td><td>{h}</td><td>{m}</td><td>{lo}</td></tr>"
-            )
-
-        if table_rows:
-            summary_table = (
-                "<table class='findings-summary-table'>"
-                "<thead><tr><th>Phase</th><th>Total</th>"
-                "<th>Critical</th><th>High</th><th>Medium</th><th>Low</th></tr></thead>"
-                "<tbody>" + "".join(table_rows)
-                + f"<tr class='totals-row'><td><strong>TOTAL</strong></td>"
-                f"<td><strong>{total_c+total_h+total_m+total_l}</strong></td>"
-                f"<td><strong>{total_c}</strong></td><td><strong>{total_h}</strong></td>"
-                f"<td><strong>{total_m}</strong></td><td><strong>{total_l}</strong></td></tr>"
-                "</tbody></table>"
-            )
-        else:
-            summary_table = ""
-
-        sections_html = [summary_table]
+        sections_html = []
 
         for section in self._PENTEST_PHASE_SECTIONS:
             items = grouped.get(section["skill"], [])
             if not items:
                 continue
-            items_sorted = sorted(items, key=lambda f: float(f.get("risk_score", 0.0)), reverse=True)
+            items_sorted = sorted(
+                items, key=lambda f: float(f.get("risk_score", 0.0)), reverse=True
+            )
             phase_header = (
                 f"<h2>{section['phase']}</h2>"
                 f"<p class='phase-description'><em>{section['description']}</em></p>"
@@ -927,6 +903,79 @@ class PDFFormatter(BaseFormatter):
                 sections_html.append(self._finding_card_html(finding))
 
         return "".join(sections_html)
+
+    def _phase_findings_table_html(self, findings: List[Dict[str, Any]]) -> str:
+        """Pentest-only: compact phase/skill counts table for Risk Analysis."""
+        if not findings:
+            return ""
+
+        grouped = self._group_reportable_pentest_findings(findings)
+
+        table_rows = []
+        total_c = total_h = total_m = total_l = 0
+        for section in self._PENTEST_PHASE_SECTIONS:
+            items = grouped.get(section["skill"], [])
+            if not items:
+                continue
+            c = sum(1 for f in items if f.get("severity") == "Critical")
+            h = sum(1 for f in items if f.get("severity") == "High")
+            m = sum(1 for f in items if f.get("severity") == "Medium")
+            lo = sum(1 for f in items if f.get("severity") == "Low")
+            total_c += c
+            total_h += h
+            total_m += m
+            total_l += lo
+            phase_label = section["phase"]
+            phase_class = "phase-pill-2"
+            if phase_label.startswith("Phase 1"):
+                phase_class = "phase-pill-1"
+            table_rows.append(
+                f"<tr><td><span class='phase-pill {phase_class}'>{phase_label}</span></td><td>{len(items)}</td>"
+                f"<td>{c}</td><td>{h}</td><td>{m}</td><td>{lo}</td></tr>"
+            )
+
+        if not table_rows:
+            return ""
+
+        return (
+            "<h3>Findings by Phase</h3>"
+            "<table class='findings-summary-table phase-summary-table'>"
+            "<thead><tr><th>Phase</th><th>Total</th>"
+            "<th>Critical</th><th>High</th><th>Medium</th><th>Low</th></tr></thead>"
+            "<tbody>"
+            + "".join(table_rows)
+            + f"<tr class='totals-row'><td><strong>TOTAL</strong></td>"
+            f"<td><strong>{total_c + total_h + total_m + total_l}</strong></td>"
+            f"<td><strong>{total_c}</strong></td><td><strong>{total_h}</strong></td>"
+            f"<td><strong>{total_m}</strong></td><td><strong>{total_l}</strong></td></tr>"
+            "</tbody></table>"
+        )
+
+    def _group_reportable_pentest_findings(
+        self, findings: List[Dict[str, Any]]
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Group pentest findings by phase skill excluding informational-only observations."""
+        grouped: Dict[str, List[Dict[str, Any]]] = {}
+        for finding in findings:
+            if self._is_non_applicable_pentest_finding(finding):
+                continue
+            sk = self._skill_for_finding_pdf(finding)
+            if sk != "other":
+                grouped.setdefault(sk, []).append(finding)
+        return grouped
+
+    def _is_non_applicable_pentest_finding(self, finding: Dict[str, Any]) -> bool:
+        desc = str(finding.get("description", "")).lower()
+        rem = str(finding.get("remediation", "")).lower()
+        if any(k in desc for k in ["does not apply", "no action required", "no aplica"]):
+            return True
+        if any(k in rem for k in ["no action required", "no se requiere acción"]):
+            return True
+        return (
+            isinstance(finding.get("affected_resources"), list)
+            and len(finding.get("affected_resources", [])) == 0
+            and not finding.get("evidence_snippet")
+        )
 
     def _findings_by_severity_html(self, findings: List[Dict[str, Any]]) -> str:
         if not findings:
@@ -1120,15 +1169,18 @@ class PDFFormatter(BaseFormatter):
             "<h2>Methodology</h2>"
             "<div class='card'>"
             "<p>This engagement follows a PTES-oriented methodology (Penetration Testing Execution Standard), adapted for AWS control-plane assessments and evidence-driven analysis.</p>"
-            "<h3>Pentest Phases Applied</h3>"
+            "<h3>Reporting Phases Used in This Report</h3>"
             "<ol>"
-            "<li><strong>Pre-Engagement:</strong> scope definition, account boundaries, legal and operational constraints.</li>"
-            "<li><strong>Intelligence Gathering:</strong> AWS evidence collection across IAM, Exposure, Network, and Vulnerability domains.</li>"
-            "<li><strong>Threat Modeling & Analysis:</strong> deterministic checks + AI-assisted analysis + normalization/reconciliation.</li>"
-            "<li><strong>Exploitation (Theoretical):</strong> attack-path simulation through cross-skill chain correlation.</li>"
-            "<li><strong>Post-Exploitation (Simulated Impact):</strong> blast radius and privilege propagation analysis.</li>"
-            "<li><strong>Reporting & Retest:</strong> prioritized remediation with validation commands and retest criteria.</li>"
+            "<li><strong>Phase 1 - Reconnaissance:</strong> external attack surface mapping (DNS, public endpoints, APIs).</li>"
+            "<li><strong>Phase 2 - Analysis:</strong> findings grouped by skill domain (IAM, Exposure, Network, Vulnerabilities).</li>"
+            "<li><strong>Phase 3 - Correlation + Reporting:</strong> attack-chain correlation, risk synthesis, and remediation plan.</li>"
             "</ol>"
+            "<h3>PTES Mapping (Execution Backbone)</h3>"
+            "<ul>"
+            "<li><strong>Pre-Engagement + Intelligence Gathering</strong> -> <strong>Report Phase 1</strong></li>"
+            "<li><strong>Threat Modeling + Vulnerability Analysis + Theoretical Exploitation + Post-Exploitation</strong> -> <strong>Report Phase 2</strong></li>"
+            "<li><strong>Reporting</strong> -> <strong>Report Phase 3</strong></li>"
+            "</ul>"
             "<p><strong>Reference frameworks:</strong> PTES (execution flow), OWASP Testing principles (verification mindset), and cloud security best practices for AWS.</p>"
             "</div>"
         )

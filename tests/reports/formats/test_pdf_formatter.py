@@ -163,6 +163,7 @@ def test_pdf_formatter_includes_pentest_inventory_scope(tmp_path, monkeypatch):
 # PDF Findings — Phase-based grouping for pentest reports
 # ---------------------------------------------------------------------------
 
+
 def _pentest_findings_multi_skill():
     """Aggregated pentest findings with RECON, IAM, EXP, NET, VULN findings."""
     return {
@@ -228,9 +229,7 @@ def test_pdf_pentest_uses_phase_grouping(tmp_path):
     config.min_severity = "low"
 
     formatter = PDFFormatter(_pentest_findings_multi_skill(), session, config)
-    html_content = formatter._findings_by_phase_html(
-        _pentest_findings_multi_skill()["findings"]
-    )
+    html_content = formatter._findings_by_phase_html(_pentest_findings_multi_skill()["findings"])
 
     assert "Phase 1 — Reconnaissance" in html_content
     assert "Phase 2 — Identity" in html_content
@@ -243,7 +242,7 @@ def test_pdf_pentest_uses_phase_grouping(tmp_path):
 
 
 def test_pdf_pentest_summary_table_rendered(tmp_path):
-    """Phase summary table is rendered with correct columns."""
+    """Phase summary table is generated for Risk Analysis."""
     session = _mock_session(tmp_path)
     config = Mock()
     config.report_type = "pentest"
@@ -251,9 +250,7 @@ def test_pdf_pentest_summary_table_rendered(tmp_path):
     config.min_severity = "low"
 
     formatter = PDFFormatter(_pentest_findings_multi_skill(), session, config)
-    html_content = formatter._findings_by_phase_html(
-        _pentest_findings_multi_skill()["findings"]
-    )
+    html_content = formatter._phase_findings_table_html(_pentest_findings_multi_skill()["findings"])
 
     assert "findings-summary-table" in html_content
     assert "TOTAL" in html_content
@@ -269,9 +266,7 @@ def test_pdf_non_pentest_still_uses_severity_grouping(tmp_path):
     config.min_severity = "low"
 
     formatter = PDFFormatter(_sample_findings(), session, config)
-    html_content = formatter._findings_by_severity_html(
-        _sample_findings()["findings"]
-    )
+    html_content = formatter._findings_by_severity_html(_sample_findings()["findings"])
 
     assert "Critical Severity" in html_content
     assert "Phase 1" not in html_content
@@ -305,3 +300,32 @@ def test_pdf_index_labels_by_severity_for_general(tmp_path):
 
     assert "Detailed Findings by Severity" in index
     assert "Detailed Findings by Phase" not in index
+
+
+def test_pdf_pentest_index_and_findings_follow_phase_order(tmp_path):
+    """Pentest index and detailed findings follow the same phase order."""
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.report_type = "pentest"
+    config.aws_region = "us-east-1"
+    config.min_severity = "low"
+
+    findings = _pentest_findings_multi_skill()["findings"]
+    formatter = PDFFormatter(_pentest_findings_multi_skill(), session, config)
+
+    index = formatter._index_section_html(findings)
+    details = formatter._findings_by_phase_html(findings)
+
+    index_phase1 = index.index("Phase 1 — Reconnaissance")
+    index_iam = index.index("Phase 2 — Identity")
+    index_exp = index.index("Phase 2 — External Exposure")
+    index_net = index.index("Phase 2 — Network Security")
+    index_vuln = index.index("Phase 2 — Vulnerabilities")
+    assert index_phase1 < index_iam < index_exp < index_net < index_vuln
+
+    details_phase1 = details.index("Phase 1 — Reconnaissance")
+    details_iam = details.index("Phase 2 — Identity")
+    details_exp = details.index("Phase 2 — External Exposure")
+    details_net = details.index("Phase 2 — Network Security")
+    details_vuln = details.index("Phase 2 — Vulnerabilities")
+    assert details_phase1 < details_iam < details_exp < details_net < details_vuln
