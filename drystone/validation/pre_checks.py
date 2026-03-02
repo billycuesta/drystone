@@ -4591,6 +4591,8 @@ def check_vuln_003(evidence: Dict[str, Any]) -> PreCheckResult:
 @_register("vulns")
 def check_vuln_005(evidence: Dict[str, Any]) -> PreCheckResult:
     """VULN-005: Active vulnerabilities on high-criticality resources (databases, VPN, AD)."""
+    import re
+
     findings = evidence.get("inspector-findings")
     if not isinstance(findings, list):
         return PreCheckResult("VULN-005", "SKIP", "no inspector-findings evidence", [])
@@ -4598,7 +4600,16 @@ def check_vuln_005(evidence: Dict[str, Any]) -> PreCheckResult:
     # High-criticality resource keywords to detect database/VPN/AD assets.
     # NOTE: "ad" was removed — it matches "cards" and other service names as substring.
     #       Active Directory resources use AWS Directory Service → detected by "directory".
+    # IMPORTANT: Use word-boundary matching to avoid false positives like "cards" matching "rds"
+    # or "sandbox" matching "db". ECR image ARNs (ecr:.../sha256:...) are explicitly excluded.
     _CRIT_KEYWORDS = {"rds", "database", "db", "vpn", "directory", "ldap", "aurora"}
+    _CRIT_PATTERN = re.compile(
+        r"(?<![a-z])(" + "|".join(re.escape(k) for k in sorted(_CRIT_KEYWORDS)) + r")(?![a-z])"
+    )
+
+    def _is_ecr_image(resource_id: str) -> bool:
+        """ECR image ARNs (ecr:.../repository/.../sha256:...) are app containers, not databases."""
+        return "ecr:" in resource_id.lower() and "sha256:" in resource_id.lower()
 
     affected: List[str] = []
     for f in findings:
@@ -4609,12 +4620,15 @@ def check_vuln_005(evidence: Dict[str, Any]) -> PreCheckResult:
         for res in f.get("resources") or []:
             if not isinstance(res, dict):
                 continue
-            rid = str(res.get("id") or "").lower()
+            resource_id = str(res.get("id") or "unknown")
+            # Skip ECR image digests — they are application containers, not DB/VPN infrastructure
+            if _is_ecr_image(resource_id):
+                continue
+            rid = resource_id.lower()
             tags = res.get("tags") or {}
             service_tag = str(tags.get("Service") or tags.get("service") or "").lower()
-            # Check resource ID and tags for high-criticality keywords
-            if any(k in rid or k in service_tag for k in _CRIT_KEYWORDS):
-                resource_id = str(res.get("id") or "unknown")
+            # Use word-boundary regex to avoid substring false positives (e.g. "cards" ≠ "rds")
+            if _CRIT_PATTERN.search(rid) or _CRIT_PATTERN.search(service_tag):
                 if resource_id not in affected:
                     affected.append(resource_id)
 

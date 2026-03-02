@@ -25,6 +25,7 @@ from drystone.validation.pre_checks import (
     check_iam_037,
     check_iam_038,
     check_iam_039,
+    check_vuln_005,
     check_vuln_022,
     check_vuln_023,
     check_vuln_024,
@@ -649,6 +650,105 @@ class TestVULN028:
             }
         )
         assert r.status == "FAIL"
+
+
+class TestVULN005:
+    """Regression tests for VULN-005 high-criticality resource detection.
+
+    Key invariant: substring keyword matching must NOT produce false positives.
+    E.g. 'cards' contains 'rds' but is NOT an RDS database resource.
+    """
+
+    def _ecr_finding(self, repo_name: str, sha: str) -> dict:
+        return {
+            "findingArn": f"arn:aws:inspector2:us-east-1:111111111111:finding/abc{sha[:8]}",
+            "status": "ACTIVE",
+            "severity": "HIGH",
+            "resources": [
+                {
+                    "id": f"arn:aws:ecr:us-east-1:111111111111:repository/{repo_name}/sha256:{sha}",
+                    "type": "AWS_ECR_CONTAINER_IMAGE",
+                    "tags": {},
+                }
+            ],
+        }
+
+    def _rds_finding(self, db_id: str) -> dict:
+        return {
+            "findingArn": f"arn:aws:inspector2:us-east-1:111111111111:finding/rds{db_id[:8]}",
+            "status": "ACTIVE",
+            "severity": "HIGH",
+            "resources": [
+                {
+                    "id": f"arn:aws:rds:us-east-1:111111111111:db:{db_id}",
+                    "type": "AWS_RDS_DB_INSTANCE",
+                    "tags": {},
+                }
+            ],
+        }
+
+    def test_ecr_cards_repo_is_not_rds_false_positive(self):
+        """ECR repository named 'cards' must NOT trigger VULN-005 due to 'rds' substring."""
+        evidence = {
+            "inspector-findings": [
+                self._ecr_finding("cards", "a" * 64),
+                self._ecr_finding("cards", "b" * 64),
+                self._ecr_finding("cards", "c" * 64),
+            ]
+        }
+        r = check_vuln_005(evidence)
+        # 'cards' contains 'rds' as substring but is an ECR image, not an RDS database
+        assert r.status in ("PASS", "SKIP"), (
+            f"VULN-005 triggered on ECR 'cards' repository (false positive): {r.evidence_summary}"
+        )
+
+    def test_actual_rds_resource_is_detected(self):
+        """An actual RDS database with ACTIVE findings must trigger VULN-005."""
+        evidence = {
+            "inspector-findings": [
+                self._rds_finding("prod-mysql-db"),
+            ]
+        }
+        r = check_vuln_005(evidence)
+        assert r.status == "FAIL", f"VULN-005 missed actual RDS finding: {r.evidence_summary}"
+
+    def test_pass_when_no_high_criticality_resources(self):
+        """Only non-critical ECR images → PASS."""
+        evidence = {
+            "inspector-findings": [
+                self._ecr_finding("myapp", "d" * 64),
+            ]
+        }
+        r = check_vuln_005(evidence)
+        assert r.status in ("PASS", "SKIP")
+
+    def test_skip_when_no_inspector_findings(self):
+        """Missing evidence → SKIP."""
+        r = check_vuln_005({})
+        assert r.status == "SKIP"
+
+    def test_ec2_non_critical_is_not_flagged(self):
+        """A plain EC2 instance without RDS/DB/VPN keywords → not flagged."""
+        evidence = {
+            "inspector-findings": [
+                {
+                    "findingArn": "arn:aws:inspector2:us-east-1:111111111111:finding/ec2abc",
+                    "status": "ACTIVE",
+                    "severity": "HIGH",
+                    "resources": [
+                        {
+                            "id": "i-0b8773f8bf56a7939",
+                            "type": "AWS_EC2_INSTANCE",
+                            "tags": {},
+                        }
+                    ],
+                }
+            ]
+        }
+        r = check_vuln_005(evidence)
+        assert r.status in ("PASS", "SKIP"), (
+            f"Generic EC2 instance should not be high-criticality: {r.evidence_summary}"
+        )
 
 
 # ============================================================================

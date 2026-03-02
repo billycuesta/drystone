@@ -871,6 +871,7 @@ class ExposureSkill(BaseSkill):
                         affected_resources=[f"arn:aws:s3:::{bn}" for bn in buckets],
                         cis_reference=None,
                         pci_dss=_pci("EXP-013"),
+                        exploitability_status="probable",
                     )
                 )
 
@@ -908,6 +909,7 @@ class ExposureSkill(BaseSkill):
                         affected_resources=[f"arn:aws:s3:::{bn}" for bn in buckets],
                         cis_reference=None,
                         pci_dss=_pci("EXP-014"),
+                        exploitability_status="probable",
                     )
                 )
 
@@ -982,6 +984,7 @@ class ExposureSkill(BaseSkill):
                         ],
                         cis_reference=None,
                         pci_dss=_pci("EXP-015"),
+                        exploitability_status="probable",
                     )
                 )
 
