@@ -12,10 +12,13 @@ from drystone.validation.pre_checks import (
     run_pre_checks,
     check_iam_001,
     check_iam_004,
+    check_iam_007,
     check_iam_008,
     check_iam_009,
     check_iam_011,
     check_iam_014,
+    check_iam_018,
+    check_iam_019,
     check_iam_020,
     check_iam_032,
     check_iam_033,
@@ -554,6 +557,99 @@ class TestIAM039:
         }
         r = check_iam_039(evidence)
         assert r.status == "FAIL"
+
+
+class TestIAM007:
+    """Tests for IAM-007: No inline policies on roles."""
+
+    def test_fail_when_role_has_inline_policy(self):
+        r = check_iam_007(
+            {
+                "roles": [
+                    {
+                        "RoleName": "SomeRole",
+                        "Arn": "arn:aws:iam::111111111111:role/SomeRole",
+                        "InlinePolicies": ["SomeInlinePolicy"],
+                    }
+                ]
+            }
+        )
+        assert r.status == "FAIL"
+        assert "1 role(s)" in r.evidence_summary
+
+    def test_pass_when_no_inline_policies(self):
+        r = check_iam_007(
+            {
+                "roles": [
+                    {
+                        "RoleName": "CleanRole",
+                        "Arn": "arn:aws:iam::111111111111:role/CleanRole",
+                        "InlinePolicies": [],
+                    }
+                ]
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_skip_when_no_roles(self):
+        r = check_iam_007({})
+        assert r.status == "SKIP"
+
+
+class TestIAM018:
+    """Tests for IAM-018: Password policy must enforce max password age."""
+
+    def _policy(self, **overrides) -> dict:
+        base = {
+            "ExpirePasswords": True,
+            "MaxPasswordAge": 90,
+            "MinimumPasswordLength": 14,
+            "RequireSymbols": True,
+        }
+        base.update(overrides)
+        return {"PasswordPolicy": base}
+
+    def test_pass_when_max_age_90(self):
+        r = check_iam_018({"password-policy": self._policy(MaxPasswordAge=90)})
+        assert r.status == "PASS"
+
+    def test_pass_when_max_age_60(self):
+        r = check_iam_018({"password-policy": self._policy(MaxPasswordAge=60)})
+        assert r.status == "PASS"
+
+    def test_fail_when_expire_passwords_false(self):
+        r = check_iam_018({"password-policy": self._policy(ExpirePasswords=False)})
+        assert r.status == "FAIL"
+        assert "ExpirePasswords=false" in r.evidence_summary
+
+    def test_fail_when_max_age_exceeds_90(self):
+        r = check_iam_018({"password-policy": self._policy(MaxPasswordAge=180)})
+        assert r.status == "FAIL"
+
+    def test_skip_when_no_evidence(self):
+        r = check_iam_018({})
+        assert r.status == "SKIP"
+
+
+class TestIAM019:
+    """Tests for IAM-019: Password policy must require symbol characters."""
+
+    def _policy(self, **overrides) -> dict:
+        base = {"RequireSymbols": True, "MinimumPasswordLength": 14}
+        base.update(overrides)
+        return {"PasswordPolicy": base}
+
+    def test_pass_when_require_symbols_true(self):
+        r = check_iam_019({"password-policy": self._policy(RequireSymbols=True)})
+        assert r.status == "PASS"
+
+    def test_fail_when_require_symbols_false(self):
+        r = check_iam_019({"password-policy": self._policy(RequireSymbols=False)})
+        assert r.status == "FAIL"
+
+    def test_skip_when_no_evidence(self):
+        r = check_iam_019({})
+        assert r.status == "SKIP"
 
 
 class TestVULN022:

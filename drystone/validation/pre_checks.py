@@ -1223,6 +1223,99 @@ def check_iam_040(evidence: Dict[str, Any]) -> PreCheckResult:
     )
 
 
+@_register("iam")
+def check_iam_007(evidence: Dict[str, Any]) -> PreCheckResult:
+    """IAM-007: Inline policies must not be used on IAM roles — use managed policies instead."""
+    roles = evidence.get("roles")
+    if not isinstance(roles, list):
+        return PreCheckResult("IAM-007", "SKIP", "no roles evidence", [])
+
+    affected: List[str] = []
+    for r in roles:
+        if not isinstance(r, dict):
+            continue
+        inline = r.get("InlinePolicies") or []
+        if inline:
+            arn = str(r.get("Arn") or f"arn:aws:iam::*:role/{r.get('RoleName', 'unknown')}")
+            affected.append(arn)
+
+    if not affected:
+        return PreCheckResult("IAM-007", "PASS", "no roles with inline policies", [])
+    return PreCheckResult(
+        "IAM-007",
+        "FAIL",
+        f"{len(affected)} role(s) have inline policies",
+        affected[:5],
+    )
+
+
+@_register("iam")
+def check_iam_018(evidence: Dict[str, Any]) -> PreCheckResult:
+    """IAM-018: IAM password policy should enforce maximum password age (90 days or less)."""
+    pp_doc = evidence.get("password-policy")
+    if not isinstance(pp_doc, dict):
+        return PreCheckResult("IAM-018", "SKIP", "no password-policy evidence", [])
+
+    policy = pp_doc.get("PasswordPolicy")
+    if not isinstance(policy, dict):
+        return PreCheckResult("IAM-018", "SKIP", "password-policy missing PasswordPolicy key", [])
+
+    expire_passwords = policy.get("ExpirePasswords")
+    max_age = policy.get("MaxPasswordAge")
+
+    if not _truthy(expire_passwords):
+        return PreCheckResult(
+            "IAM-018",
+            "FAIL",
+            "ExpirePasswords=false — password expiry not enforced",
+            ["arn:aws:iam::*:account-password-policy"],
+        )
+
+    if max_age is None:
+        return PreCheckResult("IAM-018", "SKIP", "MaxPasswordAge not set", [])
+
+    try:
+        max_age_int = int(max_age)
+    except (TypeError, ValueError):
+        return PreCheckResult("IAM-018", "SKIP", f"MaxPasswordAge={max_age!r} is not an integer", [])
+
+    if max_age_int <= 90:
+        return PreCheckResult(
+            "IAM-018",
+            "PASS",
+            f"MaxPasswordAge={max_age_int} (≤90 days, ExpirePasswords=true)",
+            [],
+        )
+    return PreCheckResult(
+        "IAM-018",
+        "FAIL",
+        f"MaxPasswordAge={max_age_int} days (required ≤90)",
+        ["arn:aws:iam::*:account-password-policy"],
+    )
+
+
+@_register("iam")
+def check_iam_019(evidence: Dict[str, Any]) -> PreCheckResult:
+    """IAM-019: IAM password policy should require symbol characters."""
+    pp_doc = evidence.get("password-policy")
+    if not isinstance(pp_doc, dict):
+        return PreCheckResult("IAM-019", "SKIP", "no password-policy evidence", [])
+
+    policy = pp_doc.get("PasswordPolicy")
+    if not isinstance(policy, dict):
+        return PreCheckResult("IAM-019", "SKIP", "password-policy missing PasswordPolicy key", [])
+
+    require_symbols = policy.get("RequireSymbols")
+    if _truthy(require_symbols):
+        return PreCheckResult("IAM-019", "PASS", "RequireSymbols=true", [])
+    return PreCheckResult(
+        "IAM-019",
+        "FAIL",
+        f"RequireSymbols={require_symbols!r}",
+        ["arn:aws:iam::*:account-password-policy"],
+    )
+
+
 # ============================================================================
 # HARDENING PRE-CHECKS
 # ============================================================================
