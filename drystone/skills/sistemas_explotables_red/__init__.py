@@ -7,9 +7,11 @@ signals for compute assets (EC2/ECS/Lambda/RDS) without active scanning.
 from __future__ import annotations
 
 import json
+import urllib.request
+import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import boto3
 from botocore.exceptions import ClientError
@@ -332,7 +334,286 @@ class SistemasExplotablesRedSkill(BaseSkill):
         )
         _save("attack-path-candidates.json", {"paths": attack_paths})
 
+        # CVE Intelligence: enrich Inspector findings with NVD/GitHub data
+        cve_intel = self._collect_cve_intelligence(
+            inspector_doc=inspector_doc,
+            network_controls=network_controls,
+            compute_inventory=compute_inventory,
+        )
+        _save("cve-intelligence.json", cve_intel)
+
         _save("_audit_metadata.json", metadata)
+
+    # Port → service name mapping for attack path narrative
+    _PORT_SERVICE_MAP: Dict[int, str] = {
+        22: "SSH",
+        80: "HTTP",
+        443: "HTTPS",
+        3389: "RDP",
+        5432: "PostgreSQL",
+        3306: "MySQL",
+        1433: "MSSQL",
+        5601: "Kibana",
+        9200: "Elasticsearch",
+        6379: "Redis",
+        27017: "MongoDB",
+        8080: "HTTP-Alt",
+        8443: "HTTPS-Alt",
+    }
+
+    def _collect_cve_intelligence(
+        self,
+        inspector_doc: Dict[str, Any],
+        network_controls: Dict[str, Any],
+        compute_inventory: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Enrich Inspector CVE findings with NVD API data and open-port analysis.
+
+        Queries NVD API v2 for CVSS scores and vector strings.
+        Correlates open ports from security groups with CVE attack vectors.
+        Generates per-instance attack path narratives with MITRE ATT&CK techniques.
+        All network calls are best-effort: errors are logged but never fail the audit.
+        """
+        enrichment_errors: List[str] = []
+        instances_intel: Dict[str, Any] = {}
+
+        # 1. Build instance_id → list of {id, package, severity} from Inspector findings
+        instance_cves_raw: Dict[str, List[Dict[str, str]]] = {}
+        for finding in inspector_doc.get("findings", []) or []:
+            if not isinstance(finding, dict):
+                continue
+            title = str(finding.get("title") or "")
+            sev = str(finding.get("severity") or "").upper()
+            for r in finding.get("resources", []) or []:
+                if not isinstance(r, dict) or r.get("type") != "AWS_EC2_INSTANCE":
+                    continue
+                rid = str(r.get("id") or "")
+                if not rid:
+                    continue
+                iid = rid.split(":instance/")[-1] if ":instance/" in rid else rid
+                # Extract CVE/GHSA ID and package from title: "CVE-XXXX (pkg)"
+                cve_id = ""
+                package = ""
+                if title.upper().startswith("CVE-") or title.upper().startswith("GHSA-"):
+                    parts = title.split(" ", 1)
+                    cve_id = parts[0]
+                    if len(parts) > 1:
+                        # "CVE-XXX cryptography 41.0.4..." → package is second word
+                        pkg_parts = parts[1].strip().split()
+                        package = pkg_parts[0] if pkg_parts else ""
+                else:
+                    cve_id = title[:80]  # fallback: truncated title
+                instance_cves_raw.setdefault(iid, [])
+                if cve_id and not any(e["id"] == cve_id for e in instance_cves_raw[iid]):
+                    instance_cves_raw[iid].append(
+                        {"id": cve_id, "package": package, "severity": sev}
+                    )
+
+        # 2. Build SG → open internet-exposed ports mapping
+        sg_open_ports: Dict[str, List[int]] = {}
+        for sg in network_controls.get("security_groups", []) or []:
+            if not isinstance(sg, dict):
+                continue
+            sgid = str(sg.get("GroupId") or "")
+            if not sgid:
+                continue
+            ports: List[int] = []
+            for perm in sg.get("IpPermissions", []) or []:
+                if not isinstance(perm, dict):
+                    continue
+                ranges = perm.get("IpRanges", []) or []
+                ipv6_ranges = perm.get("Ipv6Ranges", []) or []
+                is_internet = any(
+                    str(r.get("CidrIp", "")).startswith("0.") for r in ranges
+                ) or any(
+                    str(r.get("CidrIpv6", "")).startswith("::/") for r in ipv6_ranges
+                )
+                if not is_internet:
+                    continue
+                from_port = int(perm.get("FromPort", 0) or 0)
+                to_port = int(perm.get("ToPort", 65535) or 65535)
+                proto = str(perm.get("IpProtocol", "") or "")
+                if proto == "-1":  # all traffic
+                    ports.extend([22, 80, 443, 3389])
+                elif proto in ("tcp", "udp"):
+                    for p in range(from_port, min(to_port + 1, from_port + 100)):
+                        if p in self._PORT_SERVICE_MAP or from_port == to_port:
+                            ports.append(from_port)
+                            break
+            if ports:
+                sg_open_ports[sgid] = sorted(set(ports))
+
+        # 3. Build instance_id → list of open internet-exposed ports
+        instance_open_ports: Dict[str, List[Dict[str, Any]]] = {}
+        for inst in compute_inventory.get("ec2_instances", []) or []:
+            if not isinstance(inst, dict) or not inst.get("PublicIpAddress"):
+                continue
+            iid = str(inst.get("InstanceId") or "")
+            if not iid:
+                continue
+            open_ports: List[Dict[str, Any]] = []
+            for sg_ref in inst.get("SecurityGroups", []) or []:
+                sgid = str(sg_ref.get("GroupId") or "") if isinstance(sg_ref, dict) else ""
+                for port in sg_open_ports.get(sgid, []):
+                    svc = self._PORT_SERVICE_MAP.get(port, "Unknown")
+                    open_ports.append(
+                        {"port": port, "protocol": "tcp", "service": svc, "internet_exposed": True}
+                    )
+            instance_open_ports[iid] = open_ports
+
+        # 4. Collect unique CVE IDs (cap at 20) and query NVD API
+        all_cve_ids: List[str] = []
+        for cves in instance_cves_raw.values():
+            for e in cves:
+                if e["id"] not in all_cve_ids and len(all_cve_ids) < 20:
+                    all_cve_ids.append(e["id"])
+
+        nvd_cache: Dict[str, Dict[str, Any]] = {}
+        for cve_id in all_cve_ids:
+            if not cve_id.upper().startswith("CVE-"):
+                continue
+            try:
+                url = f"https://services.nvd.nist.gov/rest/json/cves/2.0?cveId={cve_id}"
+                req = urllib.request.Request(
+                    url,
+                    headers={"User-Agent": "drystone-security-audit/1.0"},
+                )
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    body = json.loads(resp.read().decode())
+                vulns = body.get("vulnerabilities", [])
+                if not vulns:
+                    continue
+                cve_data = vulns[0].get("cve", {})
+                metrics = cve_data.get("metrics", {})
+                cvss_score: Optional[float] = None
+                cvss_vector = ""
+                # Prefer v3.1, fallback to v3.0, v2
+                for metric_key in ("cvssMetricV31", "cvssMetricV30", "cvssMetricV2"):
+                    metric_list = metrics.get(metric_key, [])
+                    if metric_list and isinstance(metric_list, list):
+                        cvss_data = metric_list[0].get("cvssData", {})
+                        cvss_score = cvss_data.get("baseScore")
+                        cvss_vector = str(cvss_data.get("vectorString", ""))
+                        break
+                nvd_cache[cve_id] = {
+                    "cvss_score": cvss_score,
+                    "cvss_vector": cvss_vector,
+                }
+            except Exception as e:
+                enrichment_errors.append(f"NVD lookup failed for {cve_id}: {e}")
+
+        # 5. Build per-instance intel with enriched CVEs and attack path
+        for iid, raw_cves in instance_cves_raw.items():
+            open_ports = instance_open_ports.get(iid, [])
+            open_port_nums = [p["port"] for p in open_ports]
+
+            enriched_cves: List[Dict[str, Any]] = []
+            for entry in raw_cves:
+                cve_id = entry["id"]
+                nvd = nvd_cache.get(cve_id, {})
+                vector = str(nvd.get("cvss_vector", "") or "")
+                attack_vector = "NETWORK" if "AV:N" in vector else (
+                    "LOCAL" if "AV:L" in vector else ""
+                )
+                exploitable = (
+                    attack_vector == "NETWORK" and len(open_port_nums) > 0
+                )
+                enriched_cves.append({
+                    "id": cve_id,
+                    "package": entry.get("package", ""),
+                    "inspector_severity": entry.get("severity", ""),
+                    "cvss_score": nvd.get("cvss_score"),
+                    "cvss_vector": vector or None,
+                    "attack_vector": attack_vector or "UNKNOWN",
+                    "exploitable_from_internet": exploitable,
+                    "relevant_open_ports": open_port_nums[:5],
+                })
+
+            attack_path = self._build_instance_attack_path(iid, enriched_cves, open_ports)
+
+            instances_intel[iid] = {
+                "open_ports": open_ports,
+                "cves": enriched_cves,
+                "attack_path": attack_path,
+            }
+
+        return {
+            "instances": instances_intel,
+            "enrichment_timestamp": datetime.now(timezone.utc).isoformat(),
+            "enrichment_errors": enrichment_errors,
+        }
+
+    def _build_instance_attack_path(
+        self,
+        iid: str,
+        cves: List[Dict[str, Any]],
+        open_ports: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Generate a MITRE ATT&CK-mapped attack path for an EC2 instance."""
+        if not open_ports and not cves:
+            return {}
+
+        steps: List[Dict[str, Any]] = []
+        step_num = 1
+
+        # Step 1: Initial access via open port
+        if open_ports:
+            port_info = open_ports[0]
+            port = port_info.get("port", "?")
+            svc = port_info.get("service", "Unknown")
+            steps.append({
+                "step": step_num,
+                "action": f"Reach port {port}/TCP from internet (SG allows 0.0.0.0/0) — {svc}",
+                "technique": "T1595.001",
+            })
+            step_num += 1
+
+        # Step 2: Exploit network-reachable CVE
+        network_cves = [c for c in cves if c.get("exploitable_from_internet")]
+        if network_cves:
+            top_cve = network_cves[0]
+            cve_id = top_cve.get("id", "CVE-unknown")
+            pkg = top_cve.get("package", "")
+            pkg_str = f" in {pkg}" if pkg else ""
+            steps.append({
+                "step": step_num,
+                "action": f"Exploit {cve_id}{pkg_str} via network-accessible service",
+                "technique": "T1190",
+            })
+            step_num += 1
+
+        # Step 3: Code execution
+        steps.append({
+            "step": step_num,
+            "action": "Achieve code execution or denial of service on target service",
+            "technique": "T1059",
+        })
+        step_num += 1
+
+        # Step 4: IMDS credential theft
+        steps.append({
+            "step": step_num,
+            "action": "Query EC2 Instance Metadata Service (IMDS) for IAM role credentials",
+            "technique": "T1552.005",
+        })
+        step_num += 1
+
+        # Step 5: Lateral movement
+        steps.append({
+            "step": step_num,
+            "action": "Use harvested role credentials for lateral movement or data exfiltration",
+            "technique": "T1078.004",
+        })
+
+        narrative = (
+            f"Instance {iid} is reachable from the internet"
+            + (f" on port {open_ports[0]['port']}/{open_ports[0]['service']}" if open_ports else "")
+            + (f" and has {len(network_cves)} network-exploitable CVE(s)" if network_cves else "")
+            + ". An attacker can exploit vulnerabilities to gain initial access, "
+            "then escalate via IMDS credential theft."
+        )
+
+        return {"narrative": narrative, "steps": steps}
 
     def _save_json(self, filepath: Path, data: Any) -> None:
         filepath.parent.mkdir(parents=True, exist_ok=True)

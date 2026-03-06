@@ -56,6 +56,7 @@ def cli() -> None:
             "messaging",
             "cicd",
             "compute",
+            "sistemas_explotables_red",
         ]
     ),
     help="Single skill to execute (use 'pentest' for multi-skill preset)",
@@ -262,6 +263,27 @@ def audit(
         "messaging": ("drystone.skills.messaging", "MessagingSkill"),
         "cicd": ("drystone.skills.cicd", "CICDSkill"),
         "compute": ("drystone.skills.compute", "ComputeSkill"),
+        "sistemas_explotables_red": (
+            "drystone.skills.sistemas_explotables_red",
+            "SistemasExplotablesRedSkill",
+        ),
+    }
+
+    skill_display_names = {
+        "sistemas_explotables_red": "Network-Exploitable Systems Detection",
+        "iam": "IAM",
+        "exposure": "Exposure",
+        "network": "Network",
+        "vulns": "Vulnerabilities",
+        "hardening": "Hardening",
+        "secretsmanager": "Secrets Manager",
+        "waf": "WAF",
+        "ecr": "ECR",
+        "alerting": "Alerting",
+        "recon": "Recon",
+        "kms": "KMS",
+        "cicd": "CI/CD",
+        "compute": "Compute",
     }
 
     skill_instances = {}
@@ -284,7 +306,8 @@ def audit(
             skill_instances[skill_name] = skill
 
             # Execute collector
-            click.echo(f"🔍 Executing {skill_name.capitalize()} Security Audit...")
+            skill_display = skill_display_names.get(skill_name, skill_name.capitalize())
+            click.echo(f"🔍 Executing {skill_display} Security Audit...")
             skill.collect(aws_client, session)
 
             # List generated files
@@ -551,6 +574,7 @@ def skill(skill_name: Optional[str] = None) -> None:
         "ecr",
         "secretsmanager",
         "waf",
+        "sistemas_explotables_red",
     ]
 
     if not skill_name:

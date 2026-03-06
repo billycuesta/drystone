@@ -312,6 +312,28 @@ class PDFFormatter(BaseFormatter):
                 out[key] = self._translate_to_english(val)
         return out
 
+    _SKILL_DISPLAY_NAMES: Dict[str, str] = {
+        "sistemas_explotables_red": "Network-Exploitable Systems Detection",
+        "iam": "IAM",
+        "exposure": "Exposure",
+        "network": "Network",
+        "vulns": "Vulnerabilities",
+        "hardening": "Hardening",
+        "secretsmanager": "Secrets Manager",
+        "waf": "WAF",
+        "ecr": "ECR",
+        "alerting": "Alerting",
+        "recon": "Recon",
+        "webpen": "Web Pentest",
+        "kms": "KMS",
+        "cicd": "CI/CD",
+        "compute": "Compute",
+    }
+
+    def _get_skill_display_name(self, skill: str) -> str:
+        """Return a human-friendly display name for a skill."""
+        return self._SKILL_DISPLAY_NAMES.get(skill.lower(), skill.upper())
+
     _SKILL_SCOPE_DESCRIPTIONS: Dict[str, str] = {
         "iam": "Identity and Access Management (IAM) controls, evaluating user privileges, password policies, MFA enforcement, access key rotation, root account usage, and IAM role trust relationships.",
         "exposure": "public internet exposure across S3 buckets, API Gateway endpoints, Lambda function URLs, EC2 security groups, and CloudFront distributions.",
@@ -387,7 +409,7 @@ class PDFFormatter(BaseFormatter):
 
         scope = html.escape(
             self._SKILL_SCOPE_DESCRIPTIONS.get(
-                skill, f"{skill.upper()} security controls and configurations"
+                skill, f"{self._get_skill_display_name(skill)} security controls and configurations"
             ).rstrip(".")
         )
 

@@ -160,6 +160,28 @@ class MarkdownFormatter(BaseFormatter):
 
         return out
 
+    _SKILL_DISPLAY_NAMES: Dict[str, str] = {
+        "sistemas_explotables_red": "Network-Exploitable Systems Detection",
+        "iam": "IAM",
+        "exposure": "Exposure",
+        "network": "Network",
+        "vulns": "Vulnerabilities",
+        "hardening": "Hardening",
+        "secretsmanager": "Secrets Manager",
+        "waf": "WAF",
+        "ecr": "ECR",
+        "alerting": "Alerting",
+        "recon": "Recon",
+        "webpen": "Web Pentest",
+        "kms": "KMS",
+        "cicd": "CI/CD",
+        "compute": "Compute",
+    }
+
+    def _get_skill_display_name(self, skill: str) -> str:
+        """Return a human-friendly display name for a skill."""
+        return self._SKILL_DISPLAY_NAMES.get(skill.lower(), skill.upper())
+
     _SKILL_SCOPE_DESCRIPTIONS: Dict[str, str] = {
         "iam": "Identity and Access Management (IAM) controls, evaluating user privileges, password policies, MFA enforcement, access key rotation, root account usage, and IAM role trust relationships.",
         "exposure": "public internet exposure across S3 buckets, API Gateway endpoints, Lambda function URLs, EC2 security groups, and CloudFront distributions.",
@@ -388,7 +410,7 @@ This security assessment evaluated the {scope} for **{client}**. {findings_text}
 # AWS Security Audit Report
 
 **Client:** {client_name}
-**Skill:** {skill.upper()}
+**Skill:** {self._get_skill_display_name(skill)}
  **AWS Account:** {account_id}
  **Generated:** {timestamp}
  **Version:** {self.findings.get("checklist_version", "1.0")}
@@ -399,7 +421,7 @@ This security assessment evaluated the {scope} for **{client}**. {findings_text}
 
 ## 📋 Quick Summary
 
-This report presents security findings from the {skill.upper()} security assessment.
+This report presents security findings from the {self._get_skill_display_name(skill)} security assessment.
 """
 
     def _executive_summary(self) -> str:
@@ -854,6 +876,57 @@ These correlations represent multi-stage attack scenarios where findings from di
 
         return section.strip()
 
+    def _ser_exploitability_section(self, finding: Dict[str, Any]) -> str:
+        """Render Exploitability Analysis section for SER findings with CVE intelligence."""
+        snippet = finding.get("evidence_snippet") or {}
+        cve_details = snippet.get("cve_details", [])
+        attack_paths = snippet.get("attack_paths", {})
+
+        if not cve_details and not attack_paths:
+            return ""
+
+        section = "\n#### Exploitability Analysis\n\n"
+
+        if cve_details:
+            section += "| CVE / Advisory | Package | CVSS | Attack Vector | Open Ports | Exploitability |\n"
+            section += "|----------------|---------|------|---------------|------------|----------------|\n"
+            for cve in cve_details[:15]:
+                cve_id = cve.get("id", "—")
+                package = cve.get("package", "—")
+                cvss = cve.get("cvss_score")
+                sev = cve.get("inspector_severity", "")
+                cvss_str = f"{cvss:.1f} ({sev})" if cvss is not None else "—"
+                av = cve.get("attack_vector", "—")
+                ports = cve.get("relevant_open_ports", [])
+                ports_str = ", ".join(str(p) for p in ports[:3]) if ports else "—"
+                exploitable = cve.get("exploitable_from_internet", False)
+                exploit_str = "Reachable" if exploitable else "Indirect risk"
+                section += f"| {cve_id} | {package} | {cvss_str} | {av} | {ports_str} | {exploit_str} |\n"
+            section += "\n"
+
+        if attack_paths:
+            for iid, path_data in list(attack_paths.items())[:3]:
+                steps = path_data.get("steps", []) if isinstance(path_data, dict) else []
+                narrative = path_data.get("narrative", "") if isinstance(path_data, dict) else ""
+                if not steps:
+                    continue
+                section += f"**Attack Path — `{iid}`:**\n\n"
+                if narrative:
+                    section += f"{narrative}\n\n"
+                step_icons = ["", "🌐", "🔓", "💥", "🔑", "🔄", "🚪", "📦"]
+                for step in steps:
+                    if not isinstance(step, dict):
+                        continue
+                    n = int(step.get("step", 0))
+                    icon = step_icons[n] if n < len(step_icons) else "▶"
+                    action = step.get("action", "")
+                    technique = step.get("technique", "")
+                    tech_str = f" **[{technique}]**" if technique else ""
+                    section += f"{n}.{icon}{tech_str} {action}\n"
+                section += "\n"
+
+        return section
+
     def _finding_detail(self, finding: Dict[str, Any]) -> str:
         """Format a single finding."""
         finding_id = finding.get("id", "N/A")
@@ -874,13 +947,30 @@ These correlations represent multi-stage attack scenarios where findings from di
 {description}
 """
 
+        # SER findings: render structured Exploitability Analysis section
+        skill = str(self.findings.get("skill", "")).lower()
+        is_ser = skill == "sistemas_explotables_red"
+        has_cve_intel = isinstance(evidence_snippet, dict) and (
+            "cve_details" in evidence_snippet or "attack_paths" in evidence_snippet
+        )
+
+        if is_ser and has_cve_intel:
+            detail += self._ser_exploitability_section(finding)
+            # Strip cve_details / attack_paths from the JSON blob shown below
+            snippet_for_json = {
+                k: v for k, v in (evidence_snippet or {}).items()
+                if k not in ("cve_details", "attack_paths")
+            }
+        else:
+            snippet_for_json = evidence_snippet
+
         # Render evidence snippet if present
-        if evidence_snippet or evidence_refs:
+        if snippet_for_json or evidence_refs:
             detail += "\n**Evidence:**\n"
 
-            if evidence_snippet:
+            if snippet_for_json:
                 detail += "```json\n"
-                detail += json.dumps(evidence_snippet, indent=2, ensure_ascii=False)
+                detail += json.dumps(snippet_for_json, indent=2, ensure_ascii=False)
                 detail += "\n```\n"
 
             if evidence_refs:

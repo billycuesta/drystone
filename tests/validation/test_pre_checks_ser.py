@@ -365,3 +365,92 @@ class TestSerLmb002:
         result = check_ser_lmb_002(evidence)
         assert result.status == "FAIL"
         assert len(result.affected_resources) == 1
+
+
+class TestSerEc2002Metadata:
+    """Tests for metadata propagation in check_ser_ec2_002."""
+
+    def _base_evidence(self) -> dict:
+        return {
+            "attack-path-candidates": {
+                "paths": [
+                    {
+                        "target_resource": "arn:aws:ec2:us-east-1:123:instance/i-abc",
+                        "reachability_score": 0.9,
+                        "inspector_signal": {
+                            "critical": 1,
+                            "high": 0,
+                            "medium": 0,
+                            "internet_reachability_findings": 1,
+                        },
+                    }
+                ]
+            },
+            "inspector-findings-normalized": {
+                "findings": [
+                    {
+                        "severity": "CRITICAL",
+                        "status": "ACTIVE",
+                        "title": "CVE-2024-26130 cryptography",
+                        "resources": [
+                            {"id": "i-abc", "type": "AWS_EC2_INSTANCE"}
+                        ],
+                    }
+                ]
+            },
+        }
+
+    def test_fail_result_has_metadata_with_cve_details(self) -> None:
+        result = check_ser_ec2_002(self._base_evidence())
+        assert result.status == "FAIL"
+        assert "cve_details" in result.metadata
+        assert len(result.metadata["cve_details"]) >= 1
+
+    def test_evidence_summary_is_clean_no_pipe_separator(self) -> None:
+        """evidence_summary must NOT contain '| Findings:' pipe-separated CVE list."""
+        result = check_ser_ec2_002(self._base_evidence())
+        assert result.status == "FAIL"
+        assert "| Findings:" not in result.evidence_summary
+        assert "Findings:" not in result.evidence_summary
+
+    def test_cve_details_contain_resource_field(self) -> None:
+        result = check_ser_ec2_002(self._base_evidence())
+        assert result.status == "FAIL"
+        cve_details = result.metadata.get("cve_details", [])
+        assert all("resource" in c for c in cve_details)
+
+    def test_enriched_cve_details_used_when_cve_intelligence_present(self) -> None:
+        """When cve-intelligence.json is in evidence, enriched data should be used."""
+        evidence = self._base_evidence()
+        evidence["cve-intelligence"] = {
+            "instances": {
+                "i-abc": {
+                    "cves": [
+                        {
+                            "id": "CVE-2024-26130",
+                            "package": "cryptography",
+                            "inspector_severity": "CRITICAL",
+                            "cvss_score": 7.5,
+                            "attack_vector": "NETWORK",
+                            "exploitable_from_internet": True,
+                            "relevant_open_ports": [22],
+                        }
+                    ],
+                    "attack_path": {
+                        "narrative": "Test narrative",
+                        "steps": [
+                            {"step": 1, "action": "Reach port 22", "technique": "T1595.001"}
+                        ],
+                    },
+                }
+            }
+        }
+        result = check_ser_ec2_002(evidence)
+        assert result.status == "FAIL"
+        cve_details = result.metadata.get("cve_details", [])
+        assert len(cve_details) >= 1
+        enriched = cve_details[0]
+        assert enriched.get("cvss_score") == 7.5
+        assert enriched.get("exploitable_from_internet") is True
+        # Attack paths should also be in metadata
+        assert "attack_paths" in result.metadata

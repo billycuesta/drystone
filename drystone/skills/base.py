@@ -419,6 +419,11 @@ class BaseSkill(ABC):
                         result=result,
                         evidence=evidence or {},
                     )
+                    # Merge structured metadata (e.g. cve_details, attack_path) into snippet
+                    if getattr(result, "metadata", None):
+                        if evidence_snippet is None:
+                            evidence_snippet = {}
+                        evidence_snippet.update(result.metadata)
                     # Build a rich description: combine the checklist context with
                     # the specific evidence observed by the deterministic pre-check.
                     checklist_desc = (item.get("description") or "").strip()

@@ -27,6 +27,7 @@ class PreCheckResult:
     evidence_summary: str  # e.g. "AccountMFAEnabled=0"
     affected_resources: List[str] = field(default_factory=list)
     confidence: float = 1.0
+    metadata: Dict[str, Any] = field(default_factory=dict)  # structured extras (cve_details, attack_path, etc.)
 
 
 # Type alias for check functions
@@ -7789,22 +7790,49 @@ def check_ser_ec2_002(evidence: Dict[str, Any]) -> PreCheckResult:
 
     unique = sorted(set(affected))
 
-    # Build evidence summary with specific CVE details per instance
-    cve_lines: List[str] = []
-    for arn in unique[:5]:
-        iid = arn.split(":instance/")[-1] if ":instance/" in arn else arn
-        cves = instance_cves.get(iid, [])
-        if cves:
-            # List up to 5 CVE titles per instance
-            cve_titles = "; ".join(cves[:5])
-            suffix = f" (+{len(cves)-5} more)" if len(cves) > 5 else ""
-            cve_lines.append(f"{iid}: {cve_titles}{suffix}")
+    # Clean evidence_summary — count only; CVE details go to metadata
+    summary = f"{len(unique)} internet-reachable EC2 instance(s) with active Inspector findings"
 
-    cve_detail = (" | Findings: " + " || ".join(cve_lines)) if cve_lines else ""
-    summary = (
-        f"{len(unique)} internet-reachable EC2 instance(s) with active Inspector findings"
-        f"{cve_detail}"
-    )
+    # Build structured cve_details for metadata
+    cve_details: List[Dict[str, Any]] = []
+    for arn in unique[:10]:
+        iid = arn.split(":instance/")[-1] if ":instance/" in arn else arn
+        for title in instance_cves.get(iid, [])[:10]:
+            cve_details.append({"id": title, "resource": iid})
+
+    # Read CVE intelligence file if available (enriched CVSS + attack path)
+    cve_intel_doc = evidence.get("cve-intelligence", {})
+    enriched_cve_details: List[Dict[str, Any]] = []
+    per_instance_attack_paths: Dict[str, Any] = {}
+    if isinstance(cve_intel_doc, dict):
+        instances_intel = cve_intel_doc.get("instances", {})
+        for arn in unique[:10]:
+            iid = arn.split(":instance/")[-1] if ":instance/" in arn else arn
+            inst_data = instances_intel.get(iid, {})
+            if not isinstance(inst_data, dict):
+                continue
+            for cve_entry in inst_data.get("cves", []):
+                if not isinstance(cve_entry, dict):
+                    continue
+                enriched_cve_details.append({
+                    "id": cve_entry.get("id", ""),
+                    "package": cve_entry.get("package", ""),
+                    "inspector_severity": cve_entry.get("inspector_severity", ""),
+                    "cvss_score": cve_entry.get("cvss_score"),
+                    "attack_vector": cve_entry.get("attack_vector", ""),
+                    "exploitable_from_internet": cve_entry.get("exploitable_from_internet", False),
+                    "relevant_open_ports": cve_entry.get("relevant_open_ports", []),
+                    "resource": iid,
+                })
+            attack_path = inst_data.get("attack_path")
+            if isinstance(attack_path, dict) and attack_path:
+                per_instance_attack_paths[iid] = attack_path
+
+    metadata: Dict[str, Any] = {
+        "cve_details": enriched_cve_details if enriched_cve_details else cve_details,
+    }
+    if per_instance_attack_paths:
+        metadata["attack_paths"] = per_instance_attack_paths
 
     return PreCheckResult(
         "SER-EC2-002",
@@ -7812,6 +7840,7 @@ def check_ser_ec2_002(evidence: Dict[str, Any]) -> PreCheckResult:
         summary,
         unique[:20],
         confidence=0.92,
+        metadata=metadata,
     )
 
 

@@ -179,7 +179,29 @@ def display_config_summary(project_config: dict, ai_config: dict) -> None:
         print("   AWS Credentials: Environment Variables")
 
     # Skills
-    skills_display = ", ".join(project_config["skills"]) if project_config["skills"] else "None"
+    _skill_display_names = {
+        "sistemas_explotables_red": "Network-Exploitable Systems Detection",
+        "iam": "IAM",
+        "exposure": "Exposure",
+        "network": "Network",
+        "vulns": "Vulnerabilities",
+        "hardening": "Hardening",
+        "secretsmanager": "Secrets Manager",
+        "waf": "WAF",
+        "ecr": "ECR",
+        "alerting": "Alerting",
+        "recon": "Recon",
+        "kms": "KMS",
+        "cicd": "CI/CD",
+        "compute": "Compute",
+    }
+    skills_display = (
+        ", ".join(
+            _skill_display_names.get(s, s.capitalize()) for s in project_config["skills"]
+        )
+        if project_config["skills"]
+        else "None"
+    )
     print(f"   Security Skills: {skills_display}")
     print(f"   Scan Depth: {project_config.get('scan_depth', 'normal')}")
 
@@ -308,6 +330,11 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
             questionary.Choice("CI/CD (CodeBuild) Audit", "cicd", checked=default_skill == "cicd"),
             questionary.Choice(
                 "Compute (ECS/EKS) Audit", "compute", checked=default_skill == "compute"
+            ),
+            questionary.Choice(
+                "Network Exploitable Systems",
+                "sistemas_explotables_red",
+                checked=default_skill == "sistemas_explotables_red",
             ),
             questionary.Separator("────────────"),
             questionary.Choice("Internal Pentest", "pentest", checked=default_skill == "pentest"),
@@ -721,9 +748,7 @@ def run_setup_wizard() -> WizardConfig:
         has_profile = project_config.get("aws_profile")
 
         if not (has_direct_creds or has_file or has_profile):
-            raise ValueError(
-                "No AWS credentials configured (expected direct, file, or profile)"
-            )
+            raise ValueError("No AWS credentials configured (expected direct, file, or profile)")
 
         config = WizardConfig(
             **project_config,

@@ -1,5 +1,8 @@
 """Unit tests for sistemas_explotables_red skill helper logic."""
 
+import json
+from unittest.mock import MagicMock, patch
+
 from drystone.skills.sistemas_explotables_red import SistemasExplotablesRedSkill
 
 
@@ -217,3 +220,140 @@ def test_build_attack_paths_matches_ec2_short_id_from_inspector() -> None:
     assert len(paths) == 1
     assert paths[0]["vulnerability_score"] >= 0.55
     assert paths[0]["inspector_signal"]["internet_reachability_findings"] == 1
+
+
+class TestCollectCveIntelligence:
+    """Tests for _collect_cve_intelligence() — mocks urllib to avoid real network calls."""
+
+    def _make_skill(self) -> SistemasExplotablesRedSkill:
+        return SistemasExplotablesRedSkill()
+
+    def _inspector_doc_with_ec2_cve(self) -> dict:
+        return {
+            "findings": [
+                {
+                    "severity": "HIGH",
+                    "status": "ACTIVE",
+                    "title": "CVE-2024-26130 cryptography 41.0.4",
+                    "resources": [{"id": "i-ec2abc", "type": "AWS_EC2_INSTANCE"}],
+                }
+            ]
+        }
+
+    def _network_controls_with_open_ssh(self) -> dict:
+        return {
+            "security_groups": [
+                {
+                    "GroupId": "sg-open",
+                    "IpPermissions": [
+                        {
+                            "IpProtocol": "tcp",
+                            "FromPort": 22,
+                            "ToPort": 22,
+                            "IpRanges": [{"CidrIp": "0.0.0.0/0"}],
+                        }
+                    ],
+                }
+            ]
+        }
+
+    def _compute_inventory_with_public_ec2(self) -> dict:
+        return {
+            "ec2_instances": [
+                {
+                    "InstanceId": "i-ec2abc",
+                    "PublicIpAddress": "1.2.3.4",
+                    "SecurityGroups": [{"GroupId": "sg-open"}],
+                }
+            ]
+        }
+
+    def test_returns_expected_structure(self) -> None:
+        skill = self._make_skill()
+        result = skill._collect_cve_intelligence({}, {}, {})
+        assert "instances" in result
+        assert "enrichment_timestamp" in result
+        assert "enrichment_errors" in result
+
+    def test_empty_inspector_produces_empty_instances(self) -> None:
+        skill = self._make_skill()
+        result = skill._collect_cve_intelligence({"findings": []}, {}, {})
+        assert result["instances"] == {}
+
+    @patch("urllib.request.urlopen")
+    def test_nvd_enrichment_populates_cvss(self, mock_urlopen: MagicMock) -> None:
+        """When NVD returns CVSS data, it should be stored in the CVE entry."""
+        nvd_response = {
+            "vulnerabilities": [
+                {
+                    "cve": {
+                        "metrics": {
+                            "cvssMetricV31": [
+                                {
+                                    "cvssData": {
+                                        "baseScore": 7.5,
+                                        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            ]
+        }
+        mock_cm = MagicMock()
+        mock_cm.__enter__ = MagicMock(return_value=mock_cm)
+        mock_cm.__exit__ = MagicMock(return_value=False)
+        mock_cm.read.return_value = json.dumps(nvd_response).encode()
+        mock_urlopen.return_value = mock_cm
+
+        skill = self._make_skill()
+        result = skill._collect_cve_intelligence(
+            inspector_doc=self._inspector_doc_with_ec2_cve(),
+            network_controls=self._network_controls_with_open_ssh(),
+            compute_inventory=self._compute_inventory_with_public_ec2(),
+        )
+        instances = result["instances"]
+        assert "i-ec2abc" in instances
+        cves = instances["i-ec2abc"]["cves"]
+        assert len(cves) >= 1
+        assert cves[0]["cvss_score"] == 7.5
+        assert cves[0]["attack_vector"] == "NETWORK"
+        assert cves[0]["exploitable_from_internet"] is True
+
+    @patch("urllib.request.urlopen", side_effect=Exception("NVD unreachable"))
+    def test_nvd_failure_is_graceful(self, _mock: MagicMock) -> None:
+        """NVD errors should be recorded in enrichment_errors, not raise."""
+        skill = self._make_skill()
+        result = skill._collect_cve_intelligence(
+            inspector_doc=self._inspector_doc_with_ec2_cve(),
+            network_controls={},
+            compute_inventory={},
+        )
+        assert len(result["enrichment_errors"]) >= 1
+        assert "NVD" in result["enrichment_errors"][0] or "unreachable" in result["enrichment_errors"][0]
+
+    def test_attack_path_generated_for_public_ec2(self) -> None:
+        skill = self._make_skill()
+        result = skill._collect_cve_intelligence(
+            inspector_doc=self._inspector_doc_with_ec2_cve(),
+            network_controls=self._network_controls_with_open_ssh(),
+            compute_inventory=self._compute_inventory_with_public_ec2(),
+        )
+        instances = result["instances"]
+        assert "i-ec2abc" in instances
+        attack_path = instances["i-ec2abc"]["attack_path"]
+        assert "steps" in attack_path
+        assert len(attack_path["steps"]) >= 3
+        # First step should reference internet reachability
+        assert attack_path["steps"][0]["technique"] in ("T1595.001", "T1190")
+
+    def test_open_ports_populated_for_public_ec2(self) -> None:
+        skill = self._make_skill()
+        result = skill._collect_cve_intelligence(
+            inspector_doc=self._inspector_doc_with_ec2_cve(),
+            network_controls=self._network_controls_with_open_ssh(),
+            compute_inventory=self._compute_inventory_with_public_ec2(),
+        )
+        open_ports = result["instances"]["i-ec2abc"]["open_ports"]
+        assert any(p["port"] == 22 for p in open_ports)
