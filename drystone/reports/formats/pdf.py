@@ -101,6 +101,9 @@ class PDFFormatter(BaseFormatter):
             "METHODOLOGY_SECTION": self._methodology_section_html(),
             "SEVERITY_CHART": self._severity_distribution_chart_html(summary),
             "PHASE_FINDINGS_TABLE": self._phase_findings_table_html(findings) if is_pentest else "",
+            "ATTACK_PATH_CANDIDATES_TABLE": (
+                self._attack_path_candidates_table_html() if is_pentest else ""
+            ),
             "TOP_RESOURCES": self._top_resources_html(findings),
             "TOP_FINDINGS_ROWS": self._top_findings_rows_html(findings),
             "ARCHITECTURE_SECTION": architecture_html,
@@ -323,6 +326,7 @@ class PDFFormatter(BaseFormatter):
         "kms": "KMS key management controls including rotation policies, key usage policies, and encryption coverage across AWS services.",
         "cicd": "CI/CD pipeline security covering CodePipeline, CodeBuild configurations, and artifact security controls.",
         "compute": "compute resource security including EC2 instance configurations, Launch Templates, and Auto Scaling group settings.",
+        "sistemas_explotables_red": "network-exploitable systems detection: correlation of internet reachability, active Inspector vulnerability findings, and IAM blast-radius signals across EC2, ECS, Lambda, and RDS resources.",
     }
 
     def _compute_assessment_rating_pdf(
@@ -951,6 +955,83 @@ class PDFFormatter(BaseFormatter):
             "</tbody></table>"
         )
 
+    def _attack_path_candidates_table_html(self) -> str:
+        """Pentest-only: render attack path candidates from evidence if present."""
+        docs = self._load_attack_path_candidate_docs()
+        if not docs:
+            return ""
+
+        rows: List[Dict[str, Any]] = []
+        for skill_name, payload in docs:
+            paths = payload.get("paths") if isinstance(payload, dict) else None
+            if not isinstance(paths, list):
+                continue
+            for p in paths:
+                if not isinstance(p, dict):
+                    continue
+                row = dict(p)
+                row["_skill"] = skill_name
+                rows.append(row)
+
+        if not rows:
+            return ""
+
+        rows = sorted(rows, key=lambda p: float(p.get("overall_score") or 0.0), reverse=True)[:10]
+        out = [
+            "<h3>Attack Path Candidates</h3>",
+            "<table class='findings-summary-table'>",
+            "<thead><tr><th>ID</th><th>Skill</th><th>Entry</th><th>Target</th><th>Overall</th></tr></thead>",
+            "<tbody>",
+        ]
+        for row in rows:
+            pid = html.escape(str(row.get("id") or "N/A"))
+            skill = html.escape(str(row.get("_skill") or "unknown"))
+            entry = html.escape(str(row.get("entry_point") or "internet"))
+            target = html.escape(str(row.get("target_resource") or "N/A"))
+            if len(target) > 90:
+                target = target[:45] + "..." + target[-42:]
+            overall = float(row.get("overall_score") or 0.0)
+            out.append(
+                f"<tr><td>{pid}</td><td>{skill}</td><td>{entry}</td><td><code>{target}</code></td><td><strong>{overall:.2f}</strong></td></tr>"
+            )
+        out.append("</tbody></table>")
+        return "".join(out)
+
+    def _load_attack_path_candidate_docs(self) -> List[tuple[str, Dict[str, Any]]]:
+        evidence_root = self.session.base_path / "evidence"
+        if not evidence_root.exists():
+            return []
+
+        docs: List[tuple[str, Dict[str, Any]]] = []
+        skill = str(self.findings.get("skill") or "")
+        if skill and skill != "aggregated":
+            p = evidence_root / skill / "attack-path-candidates.json"
+            if p.exists():
+                try:
+                    with open(p) as f:
+                        payload = json.load(f)
+                    if isinstance(payload, dict):
+                        docs.append((skill, payload))
+                except Exception:
+                    pass
+            return docs
+
+        for skill_dir in evidence_root.iterdir():
+            if not skill_dir.is_dir():
+                continue
+            p = skill_dir / "attack-path-candidates.json"
+            if not p.exists():
+                continue
+            try:
+                with open(p) as f:
+                    payload = json.load(f)
+                if isinstance(payload, dict):
+                    docs.append((skill_dir.name, payload))
+            except Exception:
+                continue
+
+        return docs
+
     def _group_reportable_pentest_findings(
         self, findings: List[Dict[str, Any]]
     ) -> Dict[str, List[Dict[str, Any]]]:
@@ -1041,8 +1122,10 @@ class PDFFormatter(BaseFormatter):
             _style = _exploit_styles.get(exploit_status, _default_style)
             exploit_badge_html = (
                 "<span style='padding:2px 8px;border-radius:12px;font-size:0.8em;"
-                + _style + "'>"
-                + exploit_status.title() + "</span>"
+                + _style
+                + "'>"
+                + exploit_status.title()
+                + "</span>"
             )
         else:
             exploit_badge_html = ""

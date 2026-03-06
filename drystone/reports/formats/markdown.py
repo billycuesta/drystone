@@ -174,6 +174,7 @@ class MarkdownFormatter(BaseFormatter):
         "kms": "KMS key management controls including rotation policies, key usage policies, and encryption coverage across AWS services.",
         "cicd": "CI/CD pipeline security covering CodePipeline, CodeBuild configurations, and artifact security controls.",
         "compute": "compute resource security including EC2 instance configurations, Launch Templates, and Auto Scaling group settings.",
+        "sistemas_explotables_red": "network-exploitable systems detection: correlation of internet reachability, active Inspector vulnerability findings, and IAM blast-radius signals across EC2, ECS, Lambda, and RDS resources.",
     }
 
     _EVIDENCE_FILE_LABELS: Dict[str, str] = {
@@ -239,6 +240,14 @@ class MarkdownFormatter(BaseFormatter):
         "lifecycle-policies.json": "ECR Lifecycle Policies",
         # KMS
         "kms-keys.json": "KMS Keys",
+        # Sistemas Explotables por Red (SER)
+        "compute-inventory.json": "Compute Inventory (EC2/ECS/Lambda/RDS)",
+        "network-controls.json": "Network Controls (SGs/Route Tables/NACLs)",
+        "front-doors.json": "Front Doors (LBs/Lambda URLs/API GW Routes)",
+        "reachability-graph.json": "Reachability Graph",
+        "attack-path-candidates.json": "Attack Path Candidates",
+        "inspector-findings-normalized.json": "Inspector Findings (normalized)",
+        "port-service-hypothesis.json": "Port/Service Hypothesis",
     }
 
     def _compute_assessment_rating(

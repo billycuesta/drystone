@@ -625,9 +625,7 @@ def check_iam_029(evidence: Dict[str, Any]) -> PreCheckResult:
             f"{len(affected)} admin role(s) trusted by other IAM role(s) — escalation path",
             affected,
         )
-    return PreCheckResult(
-        "IAM-029", "PASS", "no privilege escalation via role chain detected", []
-    )
+    return PreCheckResult("IAM-029", "PASS", "no privilege escalation via role chain detected", [])
 
 
 @_register("iam")
@@ -1154,9 +1152,7 @@ def check_iam_016(evidence: Dict[str, Any]) -> PreCheckResult:
             affected.append(arn)
 
     if not affected:
-        return PreCheckResult(
-            "IAM-016", "PASS", "no service-account-pattern IAM users found", []
-        )
+        return PreCheckResult("IAM-016", "PASS", "no service-account-pattern IAM users found", [])
     return PreCheckResult(
         "IAM-016",
         "FAIL",
@@ -1277,7 +1273,9 @@ def check_iam_018(evidence: Dict[str, Any]) -> PreCheckResult:
     try:
         max_age_int = int(max_age)
     except (TypeError, ValueError):
-        return PreCheckResult("IAM-018", "SKIP", f"MaxPasswordAge={max_age!r} is not an integer", [])
+        return PreCheckResult(
+            "IAM-018", "SKIP", f"MaxPasswordAge={max_age!r} is not an integer", []
+        )
 
     if max_age_int <= 90:
         return PreCheckResult(
@@ -1548,7 +1546,9 @@ def check_hrd_008(evidence: Dict[str, Any]) -> PreCheckResult:
     score = (passed / denom) * 100.0
     if 50.0 <= score < 70.0:
         return PreCheckResult("HRD-008", "FAIL", f"compliance_score={score:.1f}% (50-70%)", [])
-    return PreCheckResult("HRD-008", "PASS", f"compliance_score={score:.1f}% (not in 50-70% band)", [])
+    return PreCheckResult(
+        "HRD-008", "PASS", f"compliance_score={score:.1f}% (not in 50-70% band)", []
+    )
 
 
 @_register("hardening")
@@ -1578,7 +1578,9 @@ def check_hrd_011(evidence: Dict[str, Any]) -> PreCheckResult:
     score = (passed / denom) * 100.0
     if 70.0 <= score < 85.0:
         return PreCheckResult("HRD-011", "FAIL", f"compliance_score={score:.1f}% (70-85%)", [])
-    return PreCheckResult("HRD-011", "PASS", f"compliance_score={score:.1f}% (not in 70-85% band)", [])
+    return PreCheckResult(
+        "HRD-011", "PASS", f"compliance_score={score:.1f}% (not in 70-85% band)", []
+    )
 
 
 @_register("hardening")
@@ -1595,7 +1597,9 @@ def check_hrd_015(evidence: Dict[str, Any]) -> PreCheckResult:
     score = (passed / denom) * 100.0
     if 85.0 <= score < 95.0:
         return PreCheckResult("HRD-015", "FAIL", f"compliance_score={score:.1f}% (85-95%)", [])
-    return PreCheckResult("HRD-015", "PASS", f"compliance_score={score:.1f}% (not in 85-95% band)", [])
+    return PreCheckResult(
+        "HRD-015", "PASS", f"compliance_score={score:.1f}% (not in 85-95% band)", []
+    )
 
 
 def _get_hardening_counts(evidence: Dict[str, Any]):
@@ -1725,7 +1729,9 @@ def check_alr_022(evidence: Dict[str, Any]) -> PreCheckResult:
             actions_list = [str(a).lower() for a in actions_list]
             if not any(a in {"sns:publish", "sns:*", "*"} for a in actions_list):
                 continue
-            if _principal_is_wildcard_any(st.get("Principal")) and not _stmt_has_same_account_restriction(st):
+            if _principal_is_wildcard_any(
+                st.get("Principal")
+            ) and not _stmt_has_same_account_restriction(st):
                 return PreCheckResult(
                     "ALRT-022", "FAIL", "alert SNS topic allows broad Publish", [arn]
                 )
@@ -1763,7 +1769,9 @@ def check_alr_023(evidence: Dict[str, Any]) -> PreCheckResult:
             actions_list = [str(a).lower() for a in actions_list]
             if not any(a in {"sns:subscribe", "sns:*", "*"} for a in actions_list):
                 continue
-            if _principal_is_wildcard(st.get("Principal")) and not _stmt_has_same_account_restriction(st):
+            if _principal_is_wildcard(
+                st.get("Principal")
+            ) and not _stmt_has_same_account_restriction(st):
                 return PreCheckResult(
                     "ALRT-023", "FAIL", "alert SNS topic allows broad Subscribe", [arn]
                 )
@@ -1901,9 +1909,7 @@ def check_alrt_006(evidence: Dict[str, Any]) -> PreCheckResult:
             f"{len(pending_topics)} alert SNS topic(s) with pending subscriptions",
             pending_topics[:5],
         )
-    return PreCheckResult(
-        "ALRT-006", "PASS", "no pending subscriptions on alert SNS topics", []
-    )
+    return PreCheckResult("ALRT-006", "PASS", "no pending subscriptions on alert SNS topics", [])
 
 
 @_register("alerting")
@@ -1917,9 +1923,7 @@ def check_alrt_008(evidence: Dict[str, Any]) -> PreCheckResult:
         if isinstance(trail, dict) and trail.get("IsMultiRegionTrail"):
             return PreCheckResult("ALRT-008", "PASS", "multi-region trail present", [])
 
-    single_region_names = [
-        str(t.get("Name") or "") for t in trails if isinstance(t, dict)
-    ]
+    single_region_names = [str(t.get("Name") or "") for t in trails if isinstance(t, dict)]
     return PreCheckResult(
         "ALRT-008",
         "FAIL",
@@ -2109,7 +2113,9 @@ def check_alrt_004(evidence: Dict[str, Any]) -> PreCheckResult:
             security_rules_without_sns.append(name)
 
     if not has_security_rules:
-        return PreCheckResult("ALRT-004", "SKIP", "no security-relevant EventBridge rules found", [])
+        return PreCheckResult(
+            "ALRT-004", "SKIP", "no security-relevant EventBridge rules found", []
+        )
     if security_rules_without_sns:
         return PreCheckResult(
             "ALRT-004",
@@ -2117,9 +2123,7 @@ def check_alrt_004(evidence: Dict[str, Any]) -> PreCheckResult:
             f"{len(security_rules_without_sns)} security EventBridge rule(s) without SNS target",
             security_rules_without_sns[:5],
         )
-    return PreCheckResult(
-        "ALRT-004", "PASS", "all security EventBridge rules have SNS targets", []
-    )
+    return PreCheckResult("ALRT-004", "PASS", "all security EventBridge rules have SNS targets", [])
 
 
 @_register("alerting")
@@ -2192,7 +2196,8 @@ def check_alrt_009(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("ALRT-009", "SKIP", "no CloudTrail log group configured", [])
 
     filters_for_ct = [
-        mf for mf in metric_filters
+        mf
+        for mf in metric_filters
         if isinstance(mf, dict) and mf.get("logGroupName") == ct_log_group
     ]
 
@@ -2266,9 +2271,7 @@ def check_alrt_010(evidence: Dict[str, Any]) -> PreCheckResult:
             f"{len(insufficient)} alarm(s) in INSUFFICIENT_DATA state",
             insufficient[:10],
         )
-    return PreCheckResult(
-        "ALRT-010", "PASS", "no alarms in INSUFFICIENT_DATA state", []
-    )
+    return PreCheckResult("ALRT-010", "PASS", "no alarms in INSUFFICIENT_DATA state", [])
 
 
 @_register("alerting")
@@ -2316,7 +2319,11 @@ def check_alrt_011(evidence: Dict[str, Any]) -> PreCheckResult:
             # PASS: service principal (e.g. cloudwatch.amazonaws.com)
             if isinstance(principal, dict):
                 service = principal.get("Service")
-                services = [service] if isinstance(service, str) else (service if isinstance(service, list) else [])
+                services = (
+                    [service]
+                    if isinstance(service, str)
+                    else (service if isinstance(service, list) else [])
+                )
                 if all(str(s) in _AUTHORIZED_SERVICE_PRINCIPALS for s in services if s):
                     continue
             # PASS: same-account restriction (Principal:* + SourceOwner condition) is
@@ -2366,9 +2373,7 @@ def check_alrt_015(evidence: Dict[str, Any]) -> PreCheckResult:
             continue
         pattern = str(mf.get("filterPattern") or "").lower()
         if any(event in pattern for event in _IAM_EVENTS):
-            return PreCheckResult(
-                "ALRT-015", "PASS", "metric filter covers IAM change events", []
-            )
+            return PreCheckResult("ALRT-015", "PASS", "metric filter covers IAM change events", [])
 
     return PreCheckResult(
         "ALRT-015",
@@ -2804,16 +2809,12 @@ def check_exp_016(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("EXP-016", "SKIP", "no lambda-function-urls evidence", [])
 
     unauth = [
-        u for u in items
-        if isinstance(u, dict) and str(u.get("AuthType") or "").upper() == "NONE"
+        u for u in items if isinstance(u, dict) and str(u.get("AuthType") or "").upper() == "NONE"
     ]
     if not unauth:
         return PreCheckResult("EXP-016", "PASS", "all Lambda URLs have authorization", [])
 
-    resources = [
-        str(u.get("FunctionArn") or u.get("FunctionUrl") or "unknown")
-        for u in unauth[:5]
-    ]
+    resources = [str(u.get("FunctionArn") or u.get("FunctionUrl") or "unknown") for u in unauth[:5]]
     return PreCheckResult(
         "EXP-016",
         "FAIL",
@@ -2981,7 +2982,9 @@ def check_exp_005(evidence: Dict[str, Any]) -> PreCheckResult:
             continue
         auth = str(u.get("AuthType") or u.get("auth_type") or "").upper()
         if auth in {"NONE", ""}:
-            fn = str(u.get("FunctionArn") or u.get("function_arn") or u.get("FunctionName", "unknown"))
+            fn = str(
+                u.get("FunctionArn") or u.get("function_arn") or u.get("FunctionName", "unknown")
+            )
             risky.append(fn)
 
     if not risky:
@@ -3375,7 +3378,11 @@ def check_net_004(evidence: Dict[str, Any]) -> PreCheckResult:
         if not isinstance(s, dict):
             continue
         sid = s.get("SubnetId", "")
-        tags = {t.get("Key", ""): t.get("Value", "") for t in (s.get("Tags") or []) if isinstance(t, dict)}
+        tags = {
+            t.get("Key", ""): t.get("Value", "")
+            for t in (s.get("Tags") or [])
+            if isinstance(t, dict)
+        }
         subnet_name[sid] = tags.get("Name", "").lower()
 
     # Private / DB keywords in subnet names
@@ -3386,7 +3393,8 @@ def check_net_004(evidence: Dict[str, Any]) -> PreCheckResult:
         if not isinstance(rt, dict):
             continue
         igw_routes = [
-            r for r in (rt.get("Routes") or [])
+            r
+            for r in (rt.get("Routes") or [])
             if isinstance(r, dict) and str(r.get("GatewayId", "")).startswith("igw-")
         ]
         if not igw_routes:
@@ -3429,7 +3437,7 @@ def check_net_006(evidence: Dict[str, Any]) -> PreCheckResult:
             if not isinstance(sg, dict):
                 continue
             for rule in (sg.get("IngressRules") or []) + (sg.get("EgressRules") or []):
-                for pair in (rule.get("UserIdGroupPairs") or []):
+                for pair in rule.get("UserIdGroupPairs") or []:
                     if isinstance(pair, dict) and pair.get("UserId"):
                         account_id = pair["UserId"]
                         break
@@ -3446,10 +3454,12 @@ def check_net_006(evidence: Dict[str, Any]) -> PreCheckResult:
         if not isinstance(sg, dict):
             continue
         sg_id = sg.get("GroupId", "unknown")
-        for rule in (sg.get("IngressRules") or []):
-            for pair in (rule.get("UserIdGroupPairs") or []):
+        for rule in sg.get("IngressRules") or []:
+            for pair in rule.get("UserIdGroupPairs") or []:
                 if isinstance(pair, dict) and pair.get("UserId") and pair["UserId"] != account_id:
-                    cross_account.append(f"{sg_id}→{pair.get('GroupId', 'unknown')}@{pair['UserId']}")
+                    cross_account.append(
+                        f"{sg_id}→{pair.get('GroupId', 'unknown')}@{pair['UserId']}"
+                    )
 
     if not cross_account:
         return PreCheckResult("NET-006", "PASS", "no cross-account SG references", [])
@@ -3467,7 +3477,9 @@ def check_net_008(evidence: Dict[str, Any]) -> PreCheckResult:
     subnets = _items_from_doc(subnet_doc)
 
     if not rts or not subnets:
-        return PreCheckResult("NET-008", "SKIP", "insufficient evidence to determine public subnets", [])
+        return PreCheckResult(
+            "NET-008", "SKIP", "insufficient evidence to determine public subnets", []
+        )
 
     # Find public subnet IDs (route tables with IGW routes)
     public_subnet_ids: set = set()
@@ -3480,7 +3492,7 @@ def check_net_008(evidence: Dict[str, Any]) -> PreCheckResult:
         )
         if not igw:
             continue
-        for assoc in (rt.get("Associations") or []):
+        for assoc in rt.get("Associations") or []:
             if isinstance(assoc, dict) and assoc.get("SubnetId"):
                 public_subnet_ids.add(assoc["SubnetId"])
 
@@ -3518,7 +3530,9 @@ def check_net_008(evidence: Dict[str, Any]) -> PreCheckResult:
     if not critical_in_public:
         return PreCheckResult("NET-008", "PASS", "no critical workloads in public subnets", [])
     return PreCheckResult(
-        "NET-008", "FAIL", f"{len(critical_in_public)} critical workload(s) in public subnets",
+        "NET-008",
+        "FAIL",
+        f"{len(critical_in_public)} critical workload(s) in public subnets",
         critical_in_public[:5],
     )
 
@@ -3537,7 +3551,7 @@ def check_net_010(evidence: Dict[str, Any]) -> PreCheckResult:
         if not isinstance(nacl, dict) or not nacl.get("IsDefault", False):
             continue
         nacl_id = nacl.get("NetworkAclId", "unknown")
-        for entry in (nacl.get("Entries") or []):
+        for entry in nacl.get("Entries") or []:
             if not isinstance(entry, dict):
                 continue
             if (
@@ -3549,9 +3563,14 @@ def check_net_010(evidence: Dict[str, Any]) -> PreCheckResult:
                 break
 
     if not permissive:
-        return PreCheckResult("NET-010", "PASS", "no default NACLs with ALLOW ALL from internet", [])
+        return PreCheckResult(
+            "NET-010", "PASS", "no default NACLs with ALLOW ALL from internet", []
+        )
     return PreCheckResult(
-        "NET-010", "FAIL", f"{len(permissive)} default NACL(s) with ALLOW ALL from 0.0.0.0/0", permissive[:5]
+        "NET-010",
+        "FAIL",
+        f"{len(permissive)} default NACL(s) with ALLOW ALL from 0.0.0.0/0",
+        permissive[:5],
     )
 
 
@@ -3567,7 +3586,9 @@ def check_net_012(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("NET-012", "SKIP", "no Transit Gateways deployed", [])
 
     # TGWs exist but we cannot verify Network Firewall inspection from this evidence
-    return PreCheckResult("NET-012", "SKIP", f"{len(tgws)} TGW(s) present — manual inspection required", [])
+    return PreCheckResult(
+        "NET-012", "SKIP", f"{len(tgws)} TGW(s) present — manual inspection required", []
+    )
 
 
 @_register("network")
@@ -3583,10 +3604,12 @@ def check_net_014(evidence: Dict[str, Any]) -> PreCheckResult:
     for rt in rts:
         if not isinstance(rt, dict):
             continue
-        for route in (rt.get("Routes") or []):
+        for route in rt.get("Routes") or []:
             if isinstance(route, dict) and route.get("State") == "blackhole":
                 rt_id = rt.get("RouteTableId", "unknown")
-                dst = route.get("DestinationCidrBlock", route.get("DestinationIpv6CidrBlock", "unknown"))
+                dst = route.get(
+                    "DestinationCidrBlock", route.get("DestinationIpv6CidrBlock", "unknown")
+                )
                 blackholes.append(f"{rt_id}:{dst}")
                 break
 
@@ -3617,7 +3640,11 @@ def check_net_017(evidence: Dict[str, Any]) -> PreCheckResult:
         if not isinstance(s, dict):
             continue
         sid = s.get("SubnetId", "")
-        tags = {t.get("Key", ""): t.get("Value", "") for t in (s.get("Tags") or []) if isinstance(t, dict)}
+        tags = {
+            t.get("Key", ""): t.get("Value", "")
+            for t in (s.get("Tags") or [])
+            if isinstance(t, dict)
+        }
         subnet_name[sid] = tags.get("Name", "").lower()
 
     flagged: list = []
@@ -3625,12 +3652,13 @@ def check_net_017(evidence: Dict[str, Any]) -> PreCheckResult:
         if not isinstance(rt, dict):
             continue
         igw_routes = [
-            r for r in (rt.get("Routes") or [])
+            r
+            for r in (rt.get("Routes") or [])
             if isinstance(r, dict) and str(r.get("GatewayId", "")).startswith("igw-")
         ]
         if not igw_routes:
             continue
-        for assoc in (rt.get("Associations") or []):
+        for assoc in rt.get("Associations") or []:
             if not isinstance(assoc, dict):
                 continue
             sid = assoc.get("SubnetId")
@@ -3686,7 +3714,9 @@ def check_net_021(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("NET-021", "SKIP", "no security-groups evidence", [])
 
     # ENI attachment counts are not collected — cannot determine orphan status
-    return PreCheckResult("NET-021", "SKIP", "ENI attachment data not collected; manual review needed", [])
+    return PreCheckResult(
+        "NET-021", "SKIP", "ENI attachment data not collected; manual review needed", []
+    )
 
 
 @_register("network")
@@ -3715,10 +3745,10 @@ def check_net_029(evidence: Dict[str, Any]) -> PreCheckResult:
         cidrs.append(cidr)
 
     if not overlaps:
-        return PreCheckResult("NET-029", "PASS", f"{len(vpcs)} VPCs with no exact CIDR duplicates", [])
-    return PreCheckResult(
-        "NET-029", "FAIL", f"CIDR overlap detected: {overlaps[:3]}", overlaps[:5]
-    )
+        return PreCheckResult(
+            "NET-029", "PASS", f"{len(vpcs)} VPCs with no exact CIDR duplicates", []
+        )
+    return PreCheckResult("NET-029", "FAIL", f"CIDR overlap detected: {overlaps[:3]}", overlaps[:5])
 
 
 @_register("network")
@@ -3735,16 +3765,20 @@ def check_net_005(evidence: Dict[str, Any]) -> PreCheckResult:
     for rt in rts:
         if not isinstance(rt, dict):
             continue
-        for route in (rt.get("Routes") or []):
+        for route in rt.get("Routes") or []:
             if isinstance(route, dict) and str(route.get("GatewayId", "")).startswith("pcx-"):
                 rt_id = rt.get("RouteTableId", "unknown")
-                dst = route.get("DestinationCidrBlock", route.get("DestinationIpv6CidrBlock", "unknown"))
+                dst = route.get(
+                    "DestinationCidrBlock", route.get("DestinationIpv6CidrBlock", "unknown")
+                )
                 peering_routes.append(f"{rt_id}:{dst}")
 
     if not peering_routes:
         return PreCheckResult("NET-005", "PASS", "no VPC peering routes detected", [])
     # Peering found — cannot determine filtering adequacy without SG analysis
-    return PreCheckResult("NET-005", "SKIP", f"{len(peering_routes)} peering route(s) — review SG filtering", [])
+    return PreCheckResult(
+        "NET-005", "SKIP", f"{len(peering_routes)} peering route(s) — review SG filtering", []
+    )
 
 
 @_register("network")
@@ -3761,16 +3795,20 @@ def check_net_007(evidence: Dict[str, Any]) -> PreCheckResult:
     # Check if any VPC has a route to an Internet Gateway (north-south traffic)
     has_igw = any(
         isinstance(r, dict) and str(r.get("GatewayId", "")).startswith("igw-")
-        for rt in rts if isinstance(rt, dict)
+        for rt in rts
+        if isinstance(rt, dict)
         for r in (rt.get("Routes") or [])
     )
 
     if not has_igw:
-        return PreCheckResult("NET-007", "PASS", "no Internet Gateway routes — north-south traffic absent", [])
+        return PreCheckResult(
+            "NET-007", "PASS", "no Internet Gateway routes — north-south traffic absent", []
+        )
 
     # Check VPC endpoints for AWS Network Firewall service
     nfw_vpce = [
-        e for e in vpces
+        e
+        for e in vpces
         if isinstance(e, dict) and "network-firewall" in (e.get("ServiceName") or "").lower()
     ]
     if nfw_vpce:
@@ -3778,7 +3816,8 @@ def check_net_007(evidence: Dict[str, Any]) -> PreCheckResult:
 
     # VPC has IGW but no Network Firewall endpoint visible in collected evidence
     return PreCheckResult(
-        "NET-007", "FAIL",
+        "NET-007",
+        "FAIL",
         "VPC has Internet Gateway but no AWS Network Firewall endpoint detected in vpc-endpoints",
         [],
     )
@@ -3804,8 +3843,7 @@ def check_net_015(evidence: Dict[str, Any]) -> PreCheckResult:
             ip_ranges = rule.get("IpRanges") or []
             pairs = rule.get("UserIdGroupPairs") or []
             if pairs and any(
-                isinstance(r, dict) and r.get("CidrIp") == "0.0.0.0/0"
-                for r in ip_ranges
+                isinstance(r, dict) and r.get("CidrIp") == "0.0.0.0/0" for r in ip_ranges
             ):
                 if sg_id not in affected:
                     affected.append(sg_id)
@@ -3813,7 +3851,8 @@ def check_net_015(evidence: Dict[str, Any]) -> PreCheckResult:
     if not affected:
         return PreCheckResult("NET-015", "PASS", "no redundant SG references detected", [])
     return PreCheckResult(
-        "NET-015", "FAIL",
+        "NET-015",
+        "FAIL",
         f"{len(affected)} SG(s) with redundant SG ref + 0.0.0.0/0 in same rule",
         affected[:5],
     )
@@ -3840,7 +3879,8 @@ def check_net_025(evidence: Dict[str, Any]) -> PreCheckResult:
     if not missing:
         return PreCheckResult("NET-025", "PASS", "all subnets have classification tags", [])
     return PreCheckResult(
-        "NET-025", "FAIL",
+        "NET-025",
+        "FAIL",
         f"{len(missing)} subnet(s) missing classification tags (Tier/Layer)",
         missing[:8],
     )
@@ -3871,15 +3911,14 @@ def check_net_unrestricted_egress(evidence: Dict[str, Any]) -> PreCheckResult:
             ip_ranges = rule.get("IpRanges", [])
             ipv6_ranges = rule.get("Ipv6Ranges", [])
             has_open_ipv4 = any(
-                isinstance(r, dict) and r.get("CidrIp") in {"0.0.0.0/0", "0.0.0.0"} for r in ip_ranges
+                isinstance(r, dict) and r.get("CidrIp") in {"0.0.0.0/0", "0.0.0.0"}
+                for r in ip_ranges
             )
             has_open_ipv6 = any(
                 isinstance(r, dict) and r.get("CidrIpv6") in {"::/0"} for r in ipv6_ranges
             )
             if has_open_ipv4 or has_open_ipv6:
-                unrestricted.append(
-                    str(sg.get("GroupId") or sg.get("GroupName", "unknown"))
-                )
+                unrestricted.append(str(sg.get("GroupId") or sg.get("GroupName", "unknown")))
                 break  # One open rule is enough to flag this SG
 
     if not unrestricted:
@@ -3945,7 +3984,8 @@ def check_waf_001(evidence: Dict[str, Any]) -> PreCheckResult:
     ]
     if unprotected:
         return PreCheckResult(
-            "WAF-001", "FAIL",
+            "WAF-001",
+            "FAIL",
             f"{len(unprotected)} internet-facing ALB(s) without WAF protection",
             unprotected[:5],
         )
@@ -3962,13 +4002,12 @@ def check_waf_002(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("WAF-002", "PASS", "no CloudFront distributions detected", [])
     # Full deterministic check: WebACLId must be non-empty
     unprotected = [
-        d.get("DomainName") or d.get("Id", "unknown")
-        for d in dists
-        if not d.get("WebACLId")
+        d.get("DomainName") or d.get("Id", "unknown") for d in dists if not d.get("WebACLId")
     ]
     if unprotected:
         return PreCheckResult(
-            "WAF-002", "FAIL",
+            "WAF-002",
+            "FAIL",
             f"{len(unprotected)} CloudFront distribution(s) without WAF protection",
             unprotected[:5],
         )
@@ -3990,7 +4029,8 @@ def check_waf_003(evidence: Dict[str, Any]) -> PreCheckResult:
     ]
     if not_logging:
         return PreCheckResult(
-            "WAF-003", "FAIL",
+            "WAF-003",
+            "FAIL",
             f"{len(not_logging)} Web ACL(s) without logging enabled",
             not_logging[:5],
         )
@@ -4023,7 +4063,8 @@ def check_waf_004(evidence: Dict[str, Any]) -> PreCheckResult:
     if incomplete:
         missing_str = "/".join(sorted(all_missing))
         return PreCheckResult(
-            "WAF-004", "FAIL",
+            "WAF-004",
+            "FAIL",
             f"{len(incomplete)} Web ACL(s) with incomplete log redaction (missing: {missing_str})",
             incomplete[:5],
         )
@@ -4047,7 +4088,8 @@ def check_waf_005(evidence: Dict[str, Any]) -> PreCheckResult:
     ]
     if failing:
         return PreCheckResult(
-            "WAF-005", "FAIL",
+            "WAF-005",
+            "FAIL",
             f"{len(failing)} Web ACL(s) with SampledRequestsEnabled=false",
             failing[:5],
         )
@@ -4074,16 +4116,15 @@ def check_waf_006(evidence: Dict[str, Any]) -> PreCheckResult:
     for acl in web_acls:
         rules = (acl.get("WebACL") or {}).get("Rules", [])
         used_managed = {
-            (r.get("Statement") or {})
-            .get("ManagedRuleGroupStatement", {})
-            .get("Name", "")
+            (r.get("Statement") or {}).get("ManagedRuleGroupStatement", {}).get("Name", "")
             for r in rules
         }
         if not used_managed & _WAF_BASELINE_MANAGED_RULES:
             missing_baseline.append(acl.get("ARN") or acl.get("Name", "unknown"))
     if missing_baseline:
         return PreCheckResult(
-            "WAF-006", "FAIL",
+            "WAF-006",
+            "FAIL",
             f"{len(missing_baseline)} Web ACL(s) lack baseline AWS Managed Rules",
             missing_baseline[:5],
         )
@@ -4107,7 +4148,8 @@ def check_waf_007(evidence: Dict[str, Any]) -> PreCheckResult:
                 count_only.append(f"{acl.get('Name', 'unknown')}/{rule.get('Name', 'unknown')}")
     if count_only:
         return PreCheckResult(
-            "WAF-007", "FAIL",
+            "WAF-007",
+            "FAIL",
             f"{len(count_only)} managed rule group(s) in Count-only mode",
             count_only[:5],
         )
@@ -4132,7 +4174,8 @@ def check_waf_008(evidence: Dict[str, Any]) -> PreCheckResult:
     ]
     if no_rate_rules:
         return PreCheckResult(
-            "WAF-008", "FAIL",
+            "WAF-008",
+            "FAIL",
             f"{len(no_rate_rules)} Web ACL(s) without rate-based rules",
             no_rate_rules[:5],
         )
@@ -4155,7 +4198,8 @@ def check_waf_009(evidence: Dict[str, Any]) -> PreCheckResult:
     ]
     if broad:
         return PreCheckResult(
-            "WAF-009", "FAIL",
+            "WAF-009",
+            "FAIL",
             f"{len(broad)} IP set(s) with broad CIDRs (0.0.0.0/0 or ::/0)",
             broad[:5],
         )
@@ -4176,7 +4220,8 @@ def check_waf_010(evidence: Dict[str, Any]) -> PreCheckResult:
     if total > 0:
         names = [a.get("Name", "unknown") for a in global_acls + regional_acls]
         return PreCheckResult(
-            "WAF-010", "FAIL",
+            "WAF-010",
+            "FAIL",
             f"{total} WAF Classic Web ACL(s) detected; migrate to WAFv2",
             names[:5],
         )
@@ -4198,7 +4243,8 @@ def check_waf_011(evidence: Dict[str, Any]) -> PreCheckResult:
     ]
     if unassociated:
         return PreCheckResult(
-            "WAF-011", "FAIL",
+            "WAF-011",
+            "FAIL",
             f"{len(unassociated)} Web ACL(s) with no associated resources",
             unassociated[:5],
         )
@@ -4224,7 +4270,8 @@ def check_waf_013(evidence: Dict[str, Any]) -> PreCheckResult:
         ]
         if http_api_errors:
             return PreCheckResult(
-                "WAF-013", "FAIL",
+                "WAF-013",
+                "FAIL",
                 f"WAF status unverifiable for {len(http_api_errors)} HTTP API stage(s) "
                 f"(AWS GetWebACLForResource does not support HTTP API V2 ARN format): "
                 f"{', '.join(http_api_errors[:3])}",
@@ -4242,18 +4289,20 @@ def check_waf_014(evidence: Dict[str, Any]) -> PreCheckResult:
     if not isinstance(api_eps, list):
         return PreCheckResult("WAF-014", "SKIP", "no api-entrypoints evidence", [])
     # Only evaluate REST APIs (HTTP APIs return WAFInvalidParameterException — AWS limitation)
-    rest_entries = [e for e in api_eps if e.get("Service") == "apigateway" and e.get("ApiType") == "REST"]
+    rest_entries = [
+        e for e in api_eps if e.get("Service") == "apigateway" and e.get("ApiType") == "REST"
+    ]
     if not rest_entries:
         return PreCheckResult("WAF-014", "PASS", "no API Gateway REST stages detected", [])
     unprotected = [
         f"{e.get('Name', 'unknown')}/{e.get('Stage', '')}"
         for e in rest_entries
-        if not isinstance(e.get("WAFv2WebACL"), dict)
-        or "error" in (e.get("WAFv2WebACL") or {})
+        if not isinstance(e.get("WAFv2WebACL"), dict) or "error" in (e.get("WAFv2WebACL") or {})
     ]
     if unprotected:
         return PreCheckResult(
-            "WAF-014", "FAIL",
+            "WAF-014",
+            "FAIL",
             f"{len(unprotected)} API Gateway REST stage(s) without WAF protection",
             unprotected[:5],
         )
@@ -4274,12 +4323,12 @@ def check_waf_015(evidence: Dict[str, Any]) -> PreCheckResult:
     unprotected = [
         e.get("Name", e.get("ApiId", "unknown"))
         for e in appsync_entries
-        if not isinstance(e.get("WAFv2WebACL"), dict)
-        or "error" in (e.get("WAFv2WebACL") or {})
+        if not isinstance(e.get("WAFv2WebACL"), dict) or "error" in (e.get("WAFv2WebACL") or {})
     ]
     if unprotected:
         return PreCheckResult(
-            "WAF-015", "FAIL",
+            "WAF-015",
+            "FAIL",
             f"{len(unprotected)} AppSync API(s) without WAF protection",
             unprotected[:5],
         )
@@ -4300,12 +4349,12 @@ def check_waf_016(evidence: Dict[str, Any]) -> PreCheckResult:
     unprotected = [
         e.get("Name", e.get("ApiId", "unknown"))
         for e in cognito_entries
-        if not isinstance(e.get("WAFv2WebACL"), dict)
-        or "error" in (e.get("WAFv2WebACL") or {})
+        if not isinstance(e.get("WAFv2WebACL"), dict) or "error" in (e.get("WAFv2WebACL") or {})
     ]
     if unprotected:
         return PreCheckResult(
-            "WAF-016", "FAIL",
+            "WAF-016",
+            "FAIL",
             f"{len(unprotected)} Cognito User Pool(s) without WAF protection",
             unprotected[:5],
         )
@@ -4324,10 +4373,14 @@ def check_vuln_001(evidence: Dict[str, Any]) -> PreCheckResult:
     if isinstance(findings, list):
         # Collector successfully queried Inspector v2 → service is enabled
         return PreCheckResult(
-            "VULN-001", "PASS",
-            f"Inspector v2 is enabled ({len(findings)} finding(s) returned)", [],
+            "VULN-001",
+            "PASS",
+            f"Inspector v2 is enabled ({len(findings)} finding(s) returned)",
+            [],
         )
-    return PreCheckResult("VULN-001", "SKIP", "no inspector-findings evidence to determine status", [])
+    return PreCheckResult(
+        "VULN-001", "SKIP", "no inspector-findings evidence to determine status", []
+    )
 
 
 @_register("vulns")
@@ -4348,7 +4401,8 @@ def check_vuln_002(evidence: Dict[str, Any]) -> PreCheckResult:
     if not critical_active:
         return PreCheckResult("VULN-002", "PASS", "no CRITICAL active Inspector findings", [])
     return PreCheckResult(
-        "VULN-002", "FAIL",
+        "VULN-002",
+        "FAIL",
         f"{len(critical_active)} CRITICAL active Inspector finding(s)",
         critical_active[:10],
     )
@@ -4381,7 +4435,8 @@ def check_vuln_009(evidence: Dict[str, Any]) -> PreCheckResult:
     top = sorted(multi_vuln.items(), key=lambda x: x[1], reverse=True)
     resources = [f"{rid} ({cnt} CVEs)" for rid, cnt in top[:5]]
     return PreCheckResult(
-        "VULN-009", "FAIL",
+        "VULN-009",
+        "FAIL",
         f"{len(multi_vuln)} resource(s) with 3+ active CVEs",
         resources,
     )
@@ -4585,7 +4640,10 @@ def check_vuln_006(evidence: Dict[str, Any]) -> PreCheckResult:
             ec2_resources[:5],
         )
     return PreCheckResult(
-        "VULN-006", "SKIP", "no EC2 findings in inspector-findings — cannot confirm EC2 scanning status", []
+        "VULN-006",
+        "SKIP",
+        "no EC2 findings in inspector-findings — cannot confirm EC2 scanning status",
+        [],
     )
 
 
@@ -4601,7 +4659,10 @@ def check_vuln_007(evidence: Dict[str, Any]) -> PreCheckResult:
         if not isinstance(f, dict):
             continue
         for res in f.get("resources", []):
-            if isinstance(res, dict) and str(res.get("type", "")).upper() == "AWS_ECR_CONTAINER_IMAGE":
+            if (
+                isinstance(res, dict)
+                and str(res.get("type", "")).upper() == "AWS_ECR_CONTAINER_IMAGE"
+            ):
                 rid = res.get("id", "unknown")
                 if rid not in ecr_resources:
                     ecr_resources.append(rid)
@@ -4614,7 +4675,10 @@ def check_vuln_007(evidence: Dict[str, Any]) -> PreCheckResult:
             ecr_resources[:5],
         )
     return PreCheckResult(
-        "VULN-007", "SKIP", "no ECR findings in inspector-findings — cannot confirm ECR scanning status", []
+        "VULN-007",
+        "SKIP",
+        "no ECR findings in inspector-findings — cannot confirm ECR scanning status",
+        [],
     )
 
 
@@ -4782,7 +4846,8 @@ def check_vuln_011(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("VULN-011", "SKIP", "no inspector-findings evidence", [])
 
     ecr_findings = [
-        f for f in findings
+        f
+        for f in findings
         if isinstance(f, dict)
         and any(
             isinstance(r, dict) and r.get("type") == "AWS_ECR_CONTAINER_IMAGE"
@@ -4861,7 +4926,9 @@ def check_vuln_guardduty_suppressed(evidence: Dict[str, Any]) -> PreCheckResult:
 
     if not gd.get("has_active_detector"):
         # If GuardDuty is not active, VULN-GD-001 handles it
-        return PreCheckResult("VULN-GD-002", "SKIP", "GuardDuty not active (covered by VULN-GD-001)", [])
+        return PreCheckResult(
+            "VULN-GD-002", "SKIP", "GuardDuty not active (covered by VULN-GD-001)", []
+        )
 
     total_suppression_rules = sum(
         int(d.get("AutoArchiveRuleCount") or 0)
@@ -5320,7 +5387,9 @@ def check_sm_008(evidence: Dict[str, Any]) -> PreCheckResult:
             failed.append(s.get("ARN", s.get("Name", "unknown")))
 
     if not failed:
-        return PreCheckResult("SM-008", "PASS", "secrets have cross-region replication or are non-prod", [])
+        return PreCheckResult(
+            "SM-008", "PASS", "secrets have cross-region replication or are non-prod", []
+        )
     return PreCheckResult(
         "SM-008",
         "FAIL",
@@ -5343,7 +5412,7 @@ def check_sm_011(evidence: Dict[str, Any]) -> PreCheckResult:
             return False
         for st in policy.get("Statement", []) or []:
             cond = st.get("Condition", {}) if isinstance(st, dict) else {}
-            for _op, kv in (cond.items() if isinstance(cond, dict) else []):
+            for _op, kv in cond.items() if isinstance(cond, dict) else []:
                 if isinstance(kv, dict) and "aws:MultiFactorAuthPresent" in kv:
                     return True
         return False
@@ -5870,7 +5939,9 @@ def check_kms_005(evidence: Dict[str, Any]) -> PreCheckResult:
                         [key_arn],
                     )
 
-    return PreCheckResult("KMS-005", "PASS", "no destructive key actions to non-root principals", [])
+    return PreCheckResult(
+        "KMS-005", "PASS", "no destructive key actions to non-root principals", []
+    )
 
 
 @_register("kms")
@@ -6170,7 +6241,9 @@ def check_msg_007(evidence: Dict[str, Any]) -> PreCheckResult:
             actions = {str(a).lower() for a in _actions_from_stmt(st)}
             if not ({"sns:subscribe", "sns:*", "*"} & actions):
                 continue
-            if _principal_is_wildcard_any(st.get("Principal")) and not _stmt_has_same_account_restriction(st):
+            if _principal_is_wildcard_any(
+                st.get("Principal")
+            ) and not _stmt_has_same_account_restriction(st):
                 return PreCheckResult(
                     "MSG-007",
                     "FAIL",
@@ -6204,7 +6277,9 @@ def check_msg_008(evidence: Dict[str, Any]) -> PreCheckResult:
             actions = {str(a).lower() for a in _actions_from_stmt(st)}
             if not ({"sns:publish", "sns:*", "*"} & actions):
                 continue
-            if _principal_is_wildcard_any(st.get("Principal")) and not _stmt_has_same_account_restriction(st):
+            if _principal_is_wildcard_any(
+                st.get("Principal")
+            ) and not _stmt_has_same_account_restriction(st):
                 return PreCheckResult(
                     "MSG-008",
                     "FAIL",
@@ -6248,7 +6323,9 @@ def check_msg_009(evidence: Dict[str, Any]) -> PreCheckResult:
             matched = _ADMIN_ACTIONS & actions
             if not matched:
                 continue
-            if _principal_is_wildcard_any(st.get("Principal")) and not _stmt_has_same_account_restriction(st):
+            if _principal_is_wildcard_any(
+                st.get("Principal")
+            ) and not _stmt_has_same_account_restriction(st):
                 return PreCheckResult(
                     "MSG-009",
                     "FAIL",
@@ -6783,7 +6860,10 @@ def check_recon_002(evidence: Dict[str, Any]) -> PreCheckResult:
                     continue
                 auth = stage.get("DefaultRouteAuthorizationType")
                 if auth in {"NONE", None}:
-                    url = stage.get("InvokeURL") or f"{api.get('Id', '?')}:{stage.get('StageName', '?')}"
+                    url = (
+                        stage.get("InvokeURL")
+                        or f"{api.get('Id', '?')}:{stage.get('StageName', '?')}"
+                    )
                     unauth_urls.append(url)
 
     # Build human-readable summary
@@ -6795,14 +6875,20 @@ def check_recon_002(evidence: Dict[str, Any]) -> PreCheckResult:
     http_unauth = unauth_stages - sum(
         1
         for a in apigw.get("apis", [])
-        if isinstance(a, dict) and a.get("Type") == "REST" and int(a.get("UnauthenticatedRouteCount", 0) or 0) > 0
+        if isinstance(a, dict)
+        and a.get("Type") == "REST"
+        and int(a.get("UnauthenticatedRouteCount", 0) or 0) > 0
     )
     parts = []
     if rest_unauth > 0:
         parts.append(f"{rest_unauth} REST API route(s) without auth")
     if http_unauth > 0:
         parts.append(f"{http_unauth} HTTP API stage(s) without auth")
-    summary = "; ".join(parts) if parts else f"{unauth_stages} API Gateway stage(s) without authentication"
+    summary = (
+        "; ".join(parts)
+        if parts
+        else f"{unauth_stages} API Gateway stage(s) without authentication"
+    )
 
     return PreCheckResult(
         "RECON-002",
@@ -7064,7 +7150,9 @@ def check_recon_009(evidence: Dict[str, Any]) -> PreCheckResult:
             if not isinstance(stage, dict):
                 continue
             if not stage.get("AccessLogEnabled"):
-                url = stage.get("InvokeURL") or f"{api.get('Id','?')}:{stage.get('StageName','?')}"
+                url = (
+                    stage.get("InvokeURL") or f"{api.get('Id', '?')}:{stage.get('StageName', '?')}"
+                )
                 no_log_stages.append(url)
 
     if not no_log_stages:
@@ -7282,8 +7370,7 @@ def check_recon_018(evidence: Dict[str, Any]) -> PreCheckResult:
     wildcard_cors = [
         str(u.get("FunctionUrl", u.get("FunctionName", "unknown")))
         for u in lambda_urls.get("urls", [])
-        if isinstance(u, dict)
-        and "*" in (u.get("Cors") or {}).get("AllowOrigins", [])
+        if isinstance(u, dict) and "*" in (u.get("Cors") or {}).get("AllowOrigins", [])
     ]
 
     if wildcard_cors:
@@ -7381,4 +7468,425 @@ def check_recon_020(evidence: Dict[str, Any]) -> PreCheckResult:
         "PASS",
         f"attack surface score {score:.1f}/10 ({rating}) — {total_apis} API(s), {public_lbs} public LB(s), {public_lambdas} public Lambda URL(s)",
         [],
+    )
+
+
+# ============================================================================
+# SISTEMAS EXPLOTABLES POR RED PRE-CHECKS
+# ============================================================================
+
+
+def _ser_engine_port(engine: str) -> int:
+    eng = str(engine or "").lower()
+    if "postgres" in eng:
+        return 5432
+    if "mysql" in eng or "mariadb" in eng:
+        return 3306
+    if "sqlserver" in eng:
+        return 1433
+    if "oracle" in eng:
+        return 1521
+    return 0
+
+
+@_register("sistemas_explotables_red")
+def check_ser_ec2_001(evidence: Dict[str, Any]) -> PreCheckResult:
+    """EC2 with SSH/RDP world-open ingress."""
+    net_doc = evidence.get("network-controls", {})
+    inv_doc = evidence.get("compute-inventory", {})
+
+    if not isinstance(net_doc, dict) or not isinstance(inv_doc, dict):
+        return PreCheckResult(
+            "SER-EC2-001", "SKIP", "missing network-controls/compute-inventory", []
+        )
+
+    sgs = net_doc.get("security_groups", []) if isinstance(net_doc, dict) else []
+    instances = inv_doc.get("ec2_instances", []) if isinstance(inv_doc, dict) else []
+    if not isinstance(sgs, list) or not isinstance(instances, list):
+        return PreCheckResult("SER-EC2-001", "SKIP", "invalid SG or EC2 evidence shape", [])
+
+    risky_sg_ids = set()
+    for sg in sgs:
+        if not isinstance(sg, dict):
+            continue
+        sg_id = str(sg.get("GroupId") or "")
+        if not sg_id:
+            continue
+        for perm in sg.get("IpPermissions", []) or []:
+            if not isinstance(perm, dict):
+                continue
+            if _sg_allows_world(perm, port=22) or _sg_allows_world(perm, port=3389):
+                risky_sg_ids.add(sg_id)
+                break
+
+    if not risky_sg_ids:
+        return PreCheckResult("SER-EC2-001", "PASS", "no SSH/RDP world-open SG rules", [])
+
+    # D3: Build subnet→route-table and vpc→main-route-table maps for IGW route verification
+    route_tables = net_doc.get("route_tables", []) or []
+    has_rt_info = isinstance(route_tables, list) and len(route_tables) > 0
+    subnet_to_rt: Dict[str, Any] = {}
+    vpc_main_rt: Dict[str, Any] = {}
+    if has_rt_info:
+        for rt in route_tables:
+            if not isinstance(rt, dict):
+                continue
+            vpc_id_rt = str(rt.get("VpcId") or "")
+            for assoc in rt.get("Associations", []) or []:
+                if not isinstance(assoc, dict):
+                    continue
+                subnet_id_assoc = str(assoc.get("SubnetId") or "")
+                if subnet_id_assoc:
+                    subnet_to_rt[subnet_id_assoc] = rt
+                if bool(assoc.get("Main")) and vpc_id_rt:
+                    vpc_main_rt[vpc_id_rt] = rt
+
+    def _has_igw_route(rt: Any) -> bool:
+        if not isinstance(rt, dict):
+            return False
+        for route in rt.get("Routes", []) or []:
+            if not isinstance(route, dict):
+                continue
+            gw = str(route.get("GatewayId") or "")
+            state = str(route.get("State") or "").lower()
+            if gw.startswith("igw-") and state == "active":
+                return True
+        return False
+
+    def _instance_internet_routable(inst: Any) -> bool:
+        """Return True if routing is unknown (conservative) or IGW route exists."""
+        if not has_rt_info:
+            return True  # no route info: conservative, assume possible
+        subnet_id = str(inst.get("SubnetId") or "")
+        vpc_id = str(inst.get("VpcId") or "")
+        rt = subnet_to_rt.get(subnet_id) or vpc_main_rt.get(vpc_id)
+        if rt is None:
+            return True  # unknown routing: conservative
+        return _has_igw_route(rt)
+
+    affected: List[str] = []
+    for inst in instances:
+        if not isinstance(inst, dict):
+            continue
+        inst_sgs = inst.get("SecurityGroups", []) or []
+        if not isinstance(inst_sgs, list):
+            continue
+        if not any(
+            str(sg.get("GroupId") or "") in risky_sg_ids for sg in inst_sgs if isinstance(sg, dict)
+        ):
+            continue
+        if not _instance_internet_routable(inst):
+            continue
+        iid = str(inst.get("InstanceId") or "")
+        if iid:
+            affected.append(f"arn:aws:ec2:*:*:instance/{iid}")
+
+    if affected:
+        return PreCheckResult(
+            "SER-EC2-001",
+            "FAIL",
+            f"{len(affected)} EC2 instance(s) linked to SSH/RDP world-open SG with internet route",
+            affected[:20],
+        )
+
+    if has_rt_info:
+        return PreCheckResult(
+            "SER-EC2-001",
+            "PASS",
+            f"{len(risky_sg_ids)} world-open SG(s) found but all attached instances are in private subnets",
+            [],
+        )
+
+    return PreCheckResult(
+        "SER-EC2-001",
+        "FAIL",
+        f"{len(risky_sg_ids)} world-open SG(s) with SSH/RDP (no EC2 attachment resolved)",
+        sorted(risky_sg_ids)[:20],
+    )
+
+
+@_register("sistemas_explotables_red")
+def check_ser_lmb_001(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Lambda Function URL with AuthType NONE."""
+    front_doc = evidence.get("front-doors", {})
+    if not isinstance(front_doc, dict):
+        return PreCheckResult("SER-LMB-001", "SKIP", "missing front-doors evidence", [])
+
+    urls = front_doc.get("lambda_function_urls", [])
+    if not isinstance(urls, list):
+        return PreCheckResult("SER-LMB-001", "SKIP", "invalid lambda_function_urls shape", [])
+
+    unauth = [
+        u for u in urls if isinstance(u, dict) and str(u.get("AuthType") or "").upper() == "NONE"
+    ]
+    if not unauth:
+        return PreCheckResult("SER-LMB-001", "PASS", "no unauthenticated Lambda Function URLs", [])
+
+    affected = [
+        str(u.get("FunctionArn") or u.get("FunctionUrl") or "lambda-url-unknown")
+        for u in unauth[:20]
+    ]
+    return PreCheckResult(
+        "SER-LMB-001",
+        "FAIL",
+        f"{len(unauth)} Lambda Function URL(s) with AuthType=NONE",
+        affected,
+    )
+
+
+@_register("sistemas_explotables_red")
+def check_ser_rds_001(evidence: Dict[str, Any]) -> PreCheckResult:
+    """RDS publicly accessible and engine port world-open in SG."""
+    net_doc = evidence.get("network-controls", {})
+    inv_doc = evidence.get("compute-inventory", {})
+    if not isinstance(net_doc, dict) or not isinstance(inv_doc, dict):
+        return PreCheckResult(
+            "SER-RDS-001", "SKIP", "missing network-controls/compute-inventory", []
+        )
+
+    sgs = net_doc.get("security_groups", [])
+    rds_items = inv_doc.get("rds_instances", [])
+    if not isinstance(sgs, list) or not isinstance(rds_items, list):
+        return PreCheckResult("SER-RDS-001", "SKIP", "invalid SG or RDS evidence shape", [])
+
+    sg_by_id = {}
+    for sg in sgs:
+        if isinstance(sg, dict) and isinstance(sg.get("GroupId"), str):
+            sg_by_id[str(sg.get("GroupId"))] = sg
+
+    affected: List[str] = []
+    for db in rds_items:
+        if not isinstance(db, dict):
+            continue
+        if not bool(db.get("PubliclyAccessible")):
+            continue
+        engine_port = _ser_engine_port(str(db.get("Engine") or ""))
+        if engine_port <= 0:
+            continue
+
+        vpc_sgs = db.get("VpcSecurityGroups", []) or []
+        sg_ids = [str(sg.get("VpcSecurityGroupId") or "") for sg in vpc_sgs if isinstance(sg, dict)]
+        for sg_id in sg_ids:
+            sg_doc = sg_by_id.get(sg_id)
+            if not isinstance(sg_doc, dict):
+                continue
+            perms = sg_doc.get("IpPermissions", []) or []
+            if any(isinstance(p, dict) and _sg_allows_world(p, port=engine_port) for p in perms):
+                arn = str(db.get("DBInstanceArn") or f"rds:{db.get('DBInstanceIdentifier')}")
+                affected.append(arn)
+                break
+
+    if not affected:
+        return PreCheckResult(
+            "SER-RDS-001", "PASS", "no public RDS with world-open engine port", []
+        )
+
+    return PreCheckResult(
+        "SER-RDS-001",
+        "FAIL",
+        f"{len(affected)} RDS instance(s) publicly accessible with world-open DB port",
+        affected[:20],
+    )
+
+
+@_register("sistemas_explotables_red")
+def check_ser_cor_003(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Resource with combined high reachability + vulnerability + blast-radius signals."""
+    paths_doc = evidence.get("attack-path-candidates", {})
+    if not isinstance(paths_doc, dict):
+        return PreCheckResult("SER-COR-003", "SKIP", "missing attack-path-candidates evidence", [])
+
+    paths = paths_doc.get("paths", [])
+    if not isinstance(paths, list) or not paths:
+        return PreCheckResult("SER-COR-003", "SKIP", "no attack paths computed", [])
+
+    risky = []
+    for p in paths:
+        if not isinstance(p, dict):
+            continue
+        r = float(p.get("reachability_score") or 0.0)
+        v = float(p.get("vulnerability_score") or 0.0)
+        b = float(p.get("blast_radius_score") or 0.0)
+        o = float(p.get("overall_score") or 0.0)
+        if r >= 0.8 and v >= 0.7 and b >= 0.7 and o >= 0.75:
+            target = str(p.get("target_resource") or "")
+            if target:
+                risky.append(target)
+
+    if not risky:
+        return PreCheckResult(
+            "SER-COR-003", "PASS", "no high-confidence correlated attack paths", []
+        )
+
+    return PreCheckResult(
+        "SER-COR-003",
+        "FAIL",
+        f"{len(risky)} resource(s) with correlated exploitability signals",
+        sorted(set(risky))[:20],
+        confidence=0.9,
+    )
+
+
+@_register("sistemas_explotables_red")
+def check_ser_ec2_002(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Internet-reachable EC2 with active Inspector findings."""
+    paths_doc = evidence.get("attack-path-candidates", {})
+    if not isinstance(paths_doc, dict):
+        return PreCheckResult("SER-EC2-002", "SKIP", "missing attack-path-candidates evidence", [])
+
+    paths = paths_doc.get("paths", [])
+    if not isinstance(paths, list):
+        return PreCheckResult("SER-EC2-002", "SKIP", "invalid attack path shape", [])
+
+    # Build instance_id → CVE titles map from Inspector findings evidence
+    inspector_doc = evidence.get("inspector-findings-normalized", {})
+    instance_cves: Dict[str, List[str]] = {}
+    if isinstance(inspector_doc, dict):
+        for f in inspector_doc.get("findings", []) or []:
+            if not isinstance(f, dict):
+                continue
+            title = str(f.get("title") or "")
+            for r in f.get("resources", []) or []:
+                if not isinstance(r, dict):
+                    continue
+                rid = str(r.get("id") or "")
+                if not rid or r.get("type") != "AWS_EC2_INSTANCE":
+                    continue
+                # Normalize: strip ARN prefix if present
+                iid = rid.split(":instance/")[-1] if ":instance/" in rid else rid
+                instance_cves.setdefault(iid, [])
+                if title and title not in instance_cves[iid]:
+                    instance_cves[iid].append(title)
+
+    affected: List[str] = []
+    for path in paths:
+        if not isinstance(path, dict):
+            continue
+        target = str(path.get("target_resource") or "")
+        if ":instance/" not in target:
+            continue
+        signal = (
+            path.get("inspector_signal", {})
+            if isinstance(path.get("inspector_signal"), dict)
+            else {}
+        )
+        crit = int(signal.get("critical", 0) or 0)
+        high = int(signal.get("high", 0) or 0)
+        med = int(signal.get("medium", 0) or 0)
+        reach = int(signal.get("internet_reachability_findings", 0) or 0)
+        if (crit + high + med) > 0 and (
+            reach > 0 or float(path.get("reachability_score") or 0.0) >= 0.8
+        ):
+            affected.append(target)
+
+    if not affected:
+        return PreCheckResult(
+            "SER-EC2-002",
+            "PASS",
+            "no internet-reachable EC2 with active Inspector findings",
+            [],
+        )
+
+    unique = sorted(set(affected))
+
+    # Build evidence summary with specific CVE details per instance
+    cve_lines: List[str] = []
+    for arn in unique[:5]:
+        iid = arn.split(":instance/")[-1] if ":instance/" in arn else arn
+        cves = instance_cves.get(iid, [])
+        if cves:
+            # List up to 5 CVE titles per instance
+            cve_titles = "; ".join(cves[:5])
+            suffix = f" (+{len(cves)-5} more)" if len(cves) > 5 else ""
+            cve_lines.append(f"{iid}: {cve_titles}{suffix}")
+
+    cve_detail = (" | Findings: " + " || ".join(cve_lines)) if cve_lines else ""
+    summary = (
+        f"{len(unique)} internet-reachable EC2 instance(s) with active Inspector findings"
+        f"{cve_detail}"
+    )
+
+    return PreCheckResult(
+        "SER-EC2-002",
+        "FAIL",
+        summary,
+        unique[:20],
+        confidence=0.92,
+    )
+
+
+@_register("sistemas_explotables_red")
+def check_ser_ecs_001(evidence: Dict[str, Any]) -> PreCheckResult:
+    """ECS service reachable via internet-facing ALB."""
+    reach_doc = evidence.get("reachability-graph", {})
+    if not isinstance(reach_doc, dict):
+        return PreCheckResult("SER-ECS-001", "SKIP", "missing reachability-graph evidence", [])
+
+    edges = reach_doc.get("edges", [])
+    if not isinstance(edges, list):
+        return PreCheckResult("SER-ECS-001", "SKIP", "invalid edges shape", [])
+
+    affected: List[str] = []
+    for edge in edges:
+        if not isinstance(edge, dict):
+            continue
+        if str(edge.get("path_type") or "") == "alb->ecs-service":
+            target = str(edge.get("target") or "")
+            if target and target not in affected:
+                affected.append(target)
+
+    if not affected:
+        return PreCheckResult(
+            "SER-ECS-001", "PASS", "no ECS services reachable via internet-facing ALB", []
+        )
+
+    return PreCheckResult(
+        "SER-ECS-001",
+        "FAIL",
+        f"{len(affected)} ECS service(s) reachable via internet-facing ALB",
+        affected[:20],
+    )
+
+
+@_register("sistemas_explotables_red")
+def check_ser_lmb_002(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Lambda exposed via API Gateway without authorization."""
+    front_doc = evidence.get("front-doors", {})
+    if not isinstance(front_doc, dict):
+        return PreCheckResult("SER-LMB-002", "SKIP", "missing front-doors evidence", [])
+
+    routes = front_doc.get("api_gateway_routes", [])
+    if not isinstance(routes, list):
+        return PreCheckResult("SER-LMB-002", "SKIP", "invalid api_gateway_routes shape", [])
+
+    if not routes:
+        return PreCheckResult("SER-LMB-002", "PASS", "no API Gateway routes found", [])
+
+    unauth: List[str] = []
+    for route in routes:
+        if not isinstance(route, dict):
+            continue
+        method = str(route.get("Method") or "").upper()
+        # OPTIONS is a CORS preflight method — browsers send it automatically
+        # and API Gateway requires it to be unauthenticated by design.
+        if method == "OPTIONS":
+            continue
+        auth = str(route.get("AuthorizationType") or "").upper()
+        if auth in ("NONE", ""):
+            path = str(route.get("Path") or "")
+            api_id = str(route.get("ApiId") or "")
+            key = f"{api_id} {method} {path}".strip()
+            if key and key not in unauth:
+                unauth.append(key)
+
+    if not unauth:
+        return PreCheckResult(
+            "SER-LMB-002", "PASS", "all API Gateway routes have authorization (OPTIONS excluded)", []
+        )
+
+    return PreCheckResult(
+        "SER-LMB-002",
+        "FAIL",
+        f"{len(unauth)} API Gateway route(s) without authorization (OPTIONS CORS routes excluded)",
+        unauth[:20],
     )

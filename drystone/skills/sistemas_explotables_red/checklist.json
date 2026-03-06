@@ -1,0 +1,116 @@
+{
+  "skill": "sistemas_explotables_red",
+  "framework": "AWS Security Best Practices + Passive Pentest Correlation",
+  "description": "Detection of potentially network-exploitable systems without active scanning",
+  "version": "1.1",
+  "total_checks": 7,
+  "last_updated": "2026-03-06",
+  "items": [
+    {
+      "id": "SER-EC2-001",
+      "title": "EC2 instance with administrative ports exposed to the internet",
+      "severity": "Critical",
+      "description": "EC2 instances with world-open SSH/RDP rules in their security group AND an active IGW route increase the risk of initial access.",
+      "evidence_files": ["network-controls.json", "compute-inventory.json"],
+      "check_keywords": ["0.0.0.0/0", "::/0", "22", "3389"],
+      "remediation": "Restrict SSH/RDP to specific admin IPs, use a bastion host or VPN, and remove world-open ingress rules.",
+      "pci_dss": [
+        {
+          "control": "1.2.1",
+          "reason": "Limit inbound traffic to authorized sources only."
+        }
+      ]
+    },
+    {
+      "id": "SER-EC2-002",
+      "title": "Internet-reachable EC2 instance with active Inspector findings",
+      "severity": "High",
+      "description": "EC2 instances reachable from the internet that also have active Inspector vulnerability findings have an elevated probability of exploitation.",
+      "evidence_files": ["attack-path-candidates.json", "inspector-findings-normalized.json", "reachability-graph.json"],
+      "check_keywords": ["AWS_EC2_INSTANCE", "ACTIVE", "internet", "reachable"],
+      "remediation": "Close unnecessary network exposure and prioritize patching of Inspector findings on internet-reachable instances.",
+      "pci_dss": [
+        {
+          "control": "6.3.3",
+          "reason": "Vulnerabilities with high exploitability on exposed components must be mitigated as a priority."
+        }
+      ]
+    },
+    {
+      "id": "SER-ECS-001",
+      "title": "ECS service reachable from the internet via internet-facing ALB",
+      "severity": "High",
+      "description": "An ECS service exposed via an internet-facing ALB without application-layer security controls increases the attack surface.",
+      "evidence_files": ["reachability-graph.json", "front-doors.json"],
+      "check_keywords": ["alb->ecs-service", "internet-facing"],
+      "remediation": "Review whether public exposure is required. Implement WAF, ALB authentication, and port restrictions.",
+      "pci_dss": [
+        {
+          "control": "1.3.2",
+          "reason": "Traffic from the internet to the CDE must be limited to authorized components."
+        }
+      ]
+    },
+    {
+      "id": "SER-LMB-001",
+      "title": "Lambda Function URL publicly accessible without authentication",
+      "severity": "High",
+      "description": "Function URLs with AuthType NONE allow public invocation without any identity control.",
+      "evidence_files": ["front-doors.json"],
+      "check_keywords": ["lambda_function_urls", "AuthType", "NONE"],
+      "remediation": "Use AWS_IAM auth type or expose the function via API Gateway with robust authentication and authorization.",
+      "pci_dss": [
+        {
+          "control": "8.1.1",
+          "reason": "Access to system components must require authentication."
+        }
+      ]
+    },
+    {
+      "id": "SER-LMB-002",
+      "title": "Lambda exposed via API Gateway without authorization",
+      "severity": "High",
+      "description": "API Gateway routes with AuthorizationType NONE (excluding CORS OPTIONS preflight) expose Lambda functions without identity controls.",
+      "evidence_files": ["front-doors.json"],
+      "check_keywords": ["api_gateway_routes", "AuthorizationType", "NONE"],
+      "remediation": "Configure authorization on API Gateway (IAM, Cognito, Lambda Authorizer) or restrict by CORS policy.",
+      "pci_dss": [
+        {
+          "control": "8.2.1",
+          "reason": "Access to system components must require identification and authentication."
+        }
+      ]
+    },
+    {
+      "id": "SER-RDS-001",
+      "title": "Publicly accessible RDS instance with permissive security group",
+      "severity": "Critical",
+      "description": "RDS instances with PubliclyAccessible=true and world-open database ports significantly increase the attack surface.",
+      "evidence_files": ["compute-inventory.json", "network-controls.json"],
+      "check_keywords": ["PubliclyAccessible", "VpcSecurityGroups", "0.0.0.0/0", "::/0"],
+      "remediation": "Disable public access on RDS and restrict security groups to authorized private networks.",
+      "pci_dss": [
+        {
+          "control": "1.4.1",
+          "reason": "CDE components must not be directly exposed to the internet."
+        }
+      ]
+    },
+    {
+      "id": "SER-COR-003",
+      "title": "Asset with multiple high exploitability signals correlated",
+      "severity": "High",
+      "description": "Correlation of network exposure and high-impact context suggesting a probable exploitation risk. Reachability, vulnerability, and blast-radius scores all exceed critical thresholds.",
+      "evidence_files": ["compute-inventory.json", "network-controls.json", "attack-path-candidates.json"],
+      "check_keywords": ["internet", "high", "critical", "attack_path"],
+      "remediation": "Prioritize hardening of the affected asset, simultaneously reducing exposure, privilege scope, and attack surface.",
+      "pci_dss": [
+        {
+          "control": "6.4.3",
+          "reason": "High risks must be prioritized with compensating controls and timely remediation."
+        }
+      ]
+    }
+  ],
+  "notes": "v1.1: added SER-ECS-001 (ECS via ALB) and SER-LMB-002 (API GW unauth, OPTIONS excluded). SER-EC2-001 verifies IGW route to reduce false positives on private subnets."
+}
