@@ -29,7 +29,7 @@ class MarkdownFormatter(BaseFormatter):
         markdown_content = self._build_markdown()
 
         # Include skill name in filename to avoid overwriting when multiple skills
-        skill_name = self.findings.get("skill", "audit").lower()
+        skill_name = self._report_skill_slug()
         report_path = self.reports_path / f"audit-report-{skill_name}.{self.file_extension}"
 
         with open(report_path, "w") as f:
@@ -270,6 +270,16 @@ class MarkdownFormatter(BaseFormatter):
         "attack-path-candidates.json": "Attack Path Candidates",
         "inspector-findings-normalized.json": "Inspector Findings (normalized)",
         "port-service-hypothesis.json": "Port/Service Hypothesis",
+        "cve-intelligence.json": "CVE Intelligence",
+    }
+
+    # Primary item key per evidence file (for nested-dict evidence structures).
+    # Used by _resources_audited_section() when evidence is neither a raw list
+    # nor uses the standard {"items": [...]} envelope.
+    _EVIDENCE_FILE_COUNT_KEYS: dict = {
+        "attack-path-candidates.json": "paths",
+        "inspector-findings-normalized.json": "findings",
+        "reachability-graph.json": "edges",
     }
 
     def _compute_assessment_rating(
@@ -537,12 +547,29 @@ This report presents security findings from the {self._get_skill_display_name(sk
             except (json.JSONDecodeError, OSError):
                 continue
 
-            # Count items: handle raw list evidence and dict evidence with 'items' key
-            # (network/waf/ecr skills store evidence as {"_meta": ..., "items": [...], "by_id": {...}})
+            # Count items: handle raw list, standard {"items": [...]} envelope,
+            # known single-key dicts (SER skill), and multi-list dicts (compute-inventory).
             if isinstance(data, list):
                 count = len(data)
             elif isinstance(data, dict) and isinstance(data.get("items"), list):
                 count = len(data["items"])
+            elif isinstance(data, dict):
+                # Try known single primary-key shortcut first
+                item_key = self._EVIDENCE_FILE_COUNT_KEYS.get(json_file.name)
+                if item_key and isinstance(data.get(item_key), list):
+                    count = len(data[item_key])
+                else:
+                    # Fallback: sum items across all collection values
+                    # (handles compute-inventory, front-doors, cve-intelligence, etc.)
+                    count = sum(
+                        len(v)
+                        for k, v in data.items()
+                        if not k.startswith("_")
+                        and k not in ("summary", "errors", "enrichment_errors")
+                        and isinstance(v, (list, dict))
+                    )
+                if count == 0:
+                    continue
             else:
                 # Skip scalar dicts (password-policy) or unrecognized structures
                 continue
@@ -880,9 +907,8 @@ These correlations represent multi-stage attack scenarios where findings from di
         """Render Exploitability Analysis section for SER findings with CVE intelligence."""
         snippet = finding.get("evidence_snippet") or {}
         cve_details = snippet.get("cve_details", [])
-        attack_paths = snippet.get("attack_paths", {})
 
-        if not cve_details and not attack_paths:
+        if not cve_details:
             return ""
 
         section = "\n#### Exploitability Analysis\n\n"
@@ -901,29 +927,86 @@ These correlations represent multi-stage attack scenarios where findings from di
                 ports_str = ", ".join(str(p) for p in ports[:3]) if ports else "—"
                 exploitable = cve.get("exploitable_from_internet", False)
                 exploit_str = "Reachable" if exploitable else "Indirect risk"
-                section += f"| {cve_id} | {package} | {cvss_str} | {av} | {ports_str} | {exploit_str} |\n"
+                section += (
+                    f"| {cve_id} | {package} | {cvss_str} | {av} | {ports_str} | {exploit_str} |\n"
+                )
             section += "\n"
 
-        if attack_paths:
-            for iid, path_data in list(attack_paths.items())[:3]:
-                steps = path_data.get("steps", []) if isinstance(path_data, dict) else []
-                narrative = path_data.get("narrative", "") if isinstance(path_data, dict) else ""
-                if not steps:
-                    continue
-                section += f"**Attack Path — `{iid}`:**\n\n"
-                if narrative:
-                    section += f"{narrative}\n\n"
-                step_icons = ["", "🌐", "🔓", "💥", "🔑", "🔄", "🚪", "📦"]
+        return section
+
+    def _ser_attack_vector_section(self, finding: Dict[str, Any]) -> str:
+        """Render a narrative attack vector playbook for SER findings."""
+        snippet = finding.get("evidence_snippet") or {}
+        attack_paths = snippet.get("attack_paths", {})
+        if not isinstance(attack_paths, dict) or not attack_paths:
+            return ""
+
+        cve_details = snippet.get("cve_details", [])
+        network_cves: List[Dict[str, Any]] = []
+        if isinstance(cve_details, list):
+            network_cves = [
+                c
+                for c in cve_details
+                if isinstance(c, dict) and str(c.get("attack_vector", "")).upper() == "NETWORK"
+            ]
+
+        section = "\n**Attack Vector Playbook:**\n\n"
+        for iid, path_data in list(attack_paths.items())[:3]:
+            if not isinstance(path_data, dict):
+                continue
+
+            narrative = str(path_data.get("narrative", "")).strip()
+            steps = path_data.get("steps", []) if isinstance(path_data.get("steps"), list) else []
+            if not narrative and not steps:
+                continue
+
+            section += f"For instance `{iid}`, the exploitation flow is: "
+            if narrative:
+                section += narrative + " "
+            section += (
+                "An attacker validates exposed services, weaponizes a remotely reachable weakness to gain "
+                "execution in the workload context, and pivots to cloud control-plane access through metadata "
+                "and role credentials.\n\n"
+            )
+
+            if steps:
+                section += "Step-by-step path:\n"
                 for step in steps:
                     if not isinstance(step, dict):
                         continue
-                    n = int(step.get("step", 0))
-                    icon = step_icons[n] if n < len(step_icons) else "▶"
-                    action = step.get("action", "")
-                    technique = step.get("technique", "")
-                    tech_str = f" **[{technique}]**" if technique else ""
-                    section += f"{n}.{icon}{tech_str} {action}\n"
+                    n = int(step.get("step", 0) or 0)
+                    action = str(step.get("action", "")).strip()
+                    technique = str(step.get("technique", "")).strip()
+                    if not action:
+                        continue
+                    technique_suffix = f" ({technique})" if technique else ""
+                    section += f"{n}. {action}{technique_suffix}.\n"
                 section += "\n"
+
+            section += (
+                "Key concepts: IMDS (Instance Metadata Service) can expose temporary IAM role credentials from "
+                "inside the instance; lateral movement means reusing those credentials to access additional AWS "
+                "resources; blast radius describes the scope of impact enabled by those permissions.\n\n"
+            )
+
+            section += (
+                "Vulnerability research workflow: for each CVE/advisory reported by Inspector, confirm exploit "
+                "conditions in authoritative sources (NVD, vendor advisories, AWS bulletins, CISA KEV when "
+                "available), validate package/version presence in the target host, and map exploit preconditions "
+                "to observed network reachability and security group rules. This turns raw vulnerability evidence "
+                "into a complete, reproducible exploitation playbook.\n\n"
+            )
+
+            if network_cves:
+                prioritized_ids = [
+                    str(c.get("id", "")).strip()
+                    for c in network_cves[:6]
+                    if str(c.get("id", "")).strip()
+                ]
+                if prioritized_ids:
+                    section += "Priority advisories to validate first: "
+                    section += ", ".join(prioritized_ids)
+                    section += ".\n\n"
 
         return section
 
@@ -954,11 +1037,14 @@ These correlations represent multi-stage attack scenarios where findings from di
             "cve_details" in evidence_snippet or "attack_paths" in evidence_snippet
         )
 
+        attack_vector_block = ""
         if is_ser and has_cve_intel:
             detail += self._ser_exploitability_section(finding)
+            attack_vector_block = self._ser_attack_vector_section(finding)
             # Strip cve_details / attack_paths from the JSON blob shown below
             snippet_for_json = {
-                k: v for k, v in (evidence_snippet or {}).items()
+                k: v
+                for k, v in (evidence_snippet or {}).items()
                 if k not in ("cve_details", "attack_paths")
             }
         else:
@@ -979,6 +1065,9 @@ These correlations represent multi-stage attack scenarios where findings from di
                     detail += f"- `{ref}`\n"
                 if len(evidence_refs) > 5:
                     detail += f"- ... and {len(evidence_refs) - 5} more\n"
+
+        if attack_vector_block:
+            detail += "\n" + attack_vector_block
 
         if affected:
             detail += "\n**Affected Resources:**\n"

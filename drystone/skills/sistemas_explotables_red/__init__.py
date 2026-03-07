@@ -512,12 +512,18 @@ class SistemasExplotablesRedSkill(BaseSkill):
                 cve_id = entry["id"]
                 nvd = nvd_cache.get(cve_id, {})
                 vector = str(nvd.get("cvss_vector", "") or "")
-                attack_vector = "NETWORK" if "AV:N" in vector else (
-                    "LOCAL" if "AV:L" in vector else ""
-                )
-                exploitable = (
-                    attack_vector == "NETWORK" and len(open_port_nums) > 0
-                )
+                # Inspector Network Reachability findings are inherently network-accessible;
+                # skip CVSS-based inference and mark them as exploitable from the internet.
+                if "reachable from an internet gateway" in cve_id.lower():
+                    attack_vector = "NETWORK"
+                    exploitable = True
+                else:
+                    attack_vector = "NETWORK" if "AV:N" in vector else (
+                        "LOCAL" if "AV:L" in vector else ""
+                    )
+                    exploitable = (
+                        attack_vector == "NETWORK" and len(open_port_nums) > 0
+                    )
                 enriched_cves.append({
                     "id": cve_id,
                     "package": entry.get("package", ""),
