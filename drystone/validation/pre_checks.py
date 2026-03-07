@@ -7804,6 +7804,8 @@ def check_ser_ec2_002(evidence: Dict[str, Any]) -> PreCheckResult:
     cve_intel_doc = evidence.get("cve-intelligence", {})
     enriched_cve_details: List[Dict[str, Any]] = []
     per_instance_attack_paths: Dict[str, Any] = {}
+    per_instance_sg_rules: Dict[str, Any] = {}
+    per_instance_roles: Dict[str, str] = {}
     if isinstance(cve_intel_doc, dict):
         instances_intel = cve_intel_doc.get("instances", {})
         for arn in unique[:10]:
@@ -7819,6 +7821,7 @@ def check_ser_ec2_002(evidence: Dict[str, Any]) -> PreCheckResult:
                     "package": cve_entry.get("package", ""),
                     "inspector_severity": cve_entry.get("inspector_severity", ""),
                     "cvss_score": cve_entry.get("cvss_score"),
+                    "description": cve_entry.get("description", ""),
                     "attack_vector": cve_entry.get("attack_vector", ""),
                     "exploitable_from_internet": cve_entry.get("exploitable_from_internet", False),
                     "relevant_open_ports": cve_entry.get("relevant_open_ports", []),
@@ -7827,12 +7830,22 @@ def check_ser_ec2_002(evidence: Dict[str, Any]) -> PreCheckResult:
             attack_path = inst_data.get("attack_path")
             if isinstance(attack_path, dict) and attack_path:
                 per_instance_attack_paths[iid] = attack_path
+            sg_rules = inst_data.get("sg_rules")
+            if isinstance(sg_rules, list) and sg_rules:
+                per_instance_sg_rules[iid] = sg_rules
+            iam_role = inst_data.get("iam_role")
+            if isinstance(iam_role, str) and iam_role:
+                per_instance_roles[iid] = iam_role
 
     metadata: Dict[str, Any] = {
         "cve_details": enriched_cve_details if enriched_cve_details else cve_details,
     }
     if per_instance_attack_paths:
         metadata["attack_paths"] = per_instance_attack_paths
+    if per_instance_sg_rules:
+        metadata["sg_rules_context"] = per_instance_sg_rules
+    if per_instance_roles:
+        metadata["iam_roles"] = per_instance_roles
 
     return PreCheckResult(
         "SER-EC2-002",

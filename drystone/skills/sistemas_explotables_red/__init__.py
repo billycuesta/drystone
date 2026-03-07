@@ -409,42 +409,72 @@ class SistemasExplotablesRedSkill(BaseSkill):
                         {"id": cve_id, "package": package, "severity": sev}
                     )
 
-        # 2. Build SG → open internet-exposed ports mapping
+        # 2. Build SG → open internet-exposed ports mapping AND full ingress rules
         sg_open_ports: Dict[str, List[int]] = {}
+        sg_all_rules: Dict[str, Dict[str, Any]] = {}  # sgid → {name, rules}
         for sg in network_controls.get("security_groups", []) or []:
             if not isinstance(sg, dict):
                 continue
             sgid = str(sg.get("GroupId") or "")
             if not sgid:
                 continue
+            sg_name = str(sg.get("GroupName") or sgid)
             ports: List[int] = []
+            all_rules: List[Dict[str, Any]] = []
             for perm in sg.get("IpPermissions", []) or []:
                 if not isinstance(perm, dict):
                     continue
+                from_port = int(perm.get("FromPort", 0) or 0)
+                to_port = int(perm.get("ToPort", 65535) or 65535)
+                proto = str(perm.get("IpProtocol", "") or "")
+                proto_str = "all" if proto == "-1" else proto
+                port_str = (
+                    "all" if proto == "-1"
+                    else (str(from_port) if from_port == to_port else f"{from_port}-{to_port}")
+                )
                 ranges = perm.get("IpRanges", []) or []
                 ipv6_ranges = perm.get("Ipv6Ranges", []) or []
+                for r in ranges:
+                    cidr = str(r.get("CidrIp") or "")
+                    if cidr:
+                        all_rules.append(
+                            {"port": port_str, "protocol": proto_str, "source": cidr, "type": "cidr"}
+                        )
+                for r in ipv6_ranges:
+                    cidr = str(r.get("CidrIpv6") or "")
+                    if cidr:
+                        all_rules.append(
+                            {"port": port_str, "protocol": proto_str, "source": cidr, "type": "cidr_ipv6"}
+                        )
+                for r in perm.get("UserIdGroupPairs", []) or []:
+                    ref_id = str(r.get("GroupId") or "")
+                    if ref_id:
+                        all_rules.append(
+                            {"port": port_str, "protocol": proto_str, "source": ref_id, "type": "security_group"}
+                        )
+                # Determine if internet-accessible for sg_open_ports
                 is_internet = any(
                     str(r.get("CidrIp", "")).startswith("0.") for r in ranges
                 ) or any(
                     str(r.get("CidrIpv6", "")).startswith("::/") for r in ipv6_ranges
                 )
-                if not is_internet:
-                    continue
-                from_port = int(perm.get("FromPort", 0) or 0)
-                to_port = int(perm.get("ToPort", 65535) or 65535)
-                proto = str(perm.get("IpProtocol", "") or "")
-                if proto == "-1":  # all traffic
-                    ports.extend([22, 80, 443, 3389])
-                elif proto in ("tcp", "udp"):
-                    for p in range(from_port, min(to_port + 1, from_port + 100)):
-                        if p in self._PORT_SERVICE_MAP or from_port == to_port:
-                            ports.append(from_port)
-                            break
+                if is_internet:
+                    if proto == "-1":
+                        ports.extend([22, 80, 443, 3389])
+                    elif proto in ("tcp", "udp"):
+                        for p in range(from_port, min(to_port + 1, from_port + 100)):
+                            if p in self._PORT_SERVICE_MAP or from_port == to_port:
+                                ports.append(from_port)
+                                break
             if ports:
                 sg_open_ports[sgid] = sorted(set(ports))
+            if all_rules:
+                sg_all_rules[sgid] = {"name": sg_name, "rules": all_rules[:25]}
 
-        # 3. Build instance_id → list of open internet-exposed ports
+        # 3. Build instance_id → open internet-exposed ports, all SG rules, and IAM role
         instance_open_ports: Dict[str, List[Dict[str, Any]]] = {}
+        instance_sg_rules: Dict[str, List[Dict[str, Any]]] = {}  # iid → flat rule list
+        instance_roles: Dict[str, str] = {}  # iid → role name
         for inst in compute_inventory.get("ec2_instances", []) or []:
             if not isinstance(inst, dict) or not inst.get("PublicIpAddress"):
                 continue
@@ -452,6 +482,7 @@ class SistemasExplotablesRedSkill(BaseSkill):
             if not iid:
                 continue
             open_ports: List[Dict[str, Any]] = []
+            inst_rules: List[Dict[str, Any]] = []
             for sg_ref in inst.get("SecurityGroups", []) or []:
                 sgid = str(sg_ref.get("GroupId") or "") if isinstance(sg_ref, dict) else ""
                 for port in sg_open_ports.get(sgid, []):
@@ -459,7 +490,19 @@ class SistemasExplotablesRedSkill(BaseSkill):
                     open_ports.append(
                         {"port": port, "protocol": "tcp", "service": svc, "internet_exposed": True}
                     )
+                sg_data = sg_all_rules.get(sgid, {})
+                for rule in sg_data.get("rules", [])[:20]:
+                    inst_rules.append({**rule, "sg_id": sgid, "sg_name": sg_data.get("name", sgid)})
             instance_open_ports[iid] = open_ports
+            if inst_rules:
+                instance_sg_rules[iid] = inst_rules[:30]
+            # Extract IAM role name from instance profile ARN
+            profile = inst.get("IamInstanceProfile")
+            if isinstance(profile, dict):
+                arn = str(profile.get("Arn") or "")
+                role_name = arn.split("/")[-1] if "/" in arn else ""
+                if role_name:
+                    instance_roles[iid] = role_name
 
         # 4. Collect unique CVE IDs (cap at 20) and query NVD API
         all_cve_ids: List[str] = []
@@ -495,9 +538,14 @@ class SistemasExplotablesRedSkill(BaseSkill):
                         cvss_score = cvss_data.get("baseScore")
                         cvss_vector = str(cvss_data.get("vectorString", ""))
                         break
+                descriptions_list = cve_data.get("descriptions", [])
+                cve_description = next(
+                    (d.get("value", "") for d in descriptions_list
+                     if isinstance(d, dict) and d.get("lang") == "en"), "")
                 nvd_cache[cve_id] = {
                     "cvss_score": cvss_score,
                     "cvss_vector": cvss_vector,
+                    "description": cve_description[:600] if cve_description else "",
                 }
             except Exception as e:
                 enrichment_errors.append(f"NVD lookup failed for {cve_id}: {e}")
@@ -530,6 +578,7 @@ class SistemasExplotablesRedSkill(BaseSkill):
                     "inspector_severity": entry.get("severity", ""),
                     "cvss_score": nvd.get("cvss_score"),
                     "cvss_vector": vector or None,
+                    "description": nvd.get("description", ""),
                     "attack_vector": attack_vector or "UNKNOWN",
                     "exploitable_from_internet": exploitable,
                     "relevant_open_ports": open_port_nums[:5],
@@ -539,6 +588,8 @@ class SistemasExplotablesRedSkill(BaseSkill):
 
             instances_intel[iid] = {
                 "open_ports": open_ports,
+                "sg_rules": instance_sg_rules.get(iid, []),
+                "iam_role": instance_roles.get(iid, ""),
                 "cves": enriched_cves,
                 "attack_path": attack_path,
             }

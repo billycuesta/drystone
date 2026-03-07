@@ -935,78 +935,220 @@ These correlations represent multi-stage attack scenarios where findings from di
         return section
 
     def _ser_attack_vector_section(self, finding: Dict[str, Any]) -> str:
-        """Render a narrative attack vector playbook for SER findings."""
+        """Render a pentester-style attack vector playbook for SER findings."""
         snippet = finding.get("evidence_snippet") or {}
         attack_paths = snippet.get("attack_paths", {})
         if not isinstance(attack_paths, dict) or not attack_paths:
             return ""
 
         cve_details = snippet.get("cve_details", [])
-        network_cves: List[Dict[str, Any]] = []
+        sg_rules_context = snippet.get("sg_rules_context", {})
+        iam_roles = snippet.get("iam_roles", {})
+
+        # Group CVE details by instance for quick lookup
+        cves_by_instance: Dict[str, List[Dict[str, Any]]] = {}
         if isinstance(cve_details, list):
-            network_cves = [
-                c
-                for c in cve_details
-                if isinstance(c, dict) and str(c.get("attack_vector", "")).upper() == "NETWORK"
-            ]
+            for c in cve_details:
+                if not isinstance(c, dict):
+                    continue
+                res = str(c.get("resource", ""))
+                cves_by_instance.setdefault(res, []).append(c)
 
         section = "\n**Attack Vector Playbook:**\n\n"
+
         for iid, path_data in list(attack_paths.items())[:3]:
             if not isinstance(path_data, dict):
                 continue
 
-            narrative = str(path_data.get("narrative", "")).strip()
             steps = path_data.get("steps", []) if isinstance(path_data.get("steps"), list) else []
-            if not narrative and not steps:
+            if not steps and not cves_by_instance.get(iid):
                 continue
 
-            section += f"For instance `{iid}`, the exploitation flow is: "
-            if narrative:
-                section += narrative + " "
+            iam_role = str(iam_roles.get(iid, "") or "")
+            sg_rules = sg_rules_context.get(iid, []) if isinstance(sg_rules_context, dict) else []
+
+            section += f"#### Instance `{iid}`\n\n"
             section += (
-                "An attacker validates exposed services, weaponizes a remotely reachable weakness to gain "
-                "execution in the workload context, and pivots to cloud control-plane access through metadata "
-                "and role credentials.\n\n"
+                "As a pentester, here is how I would attack this instance step by step.\n\n"
             )
 
-            if steps:
-                section += "Step-by-step path:\n"
-                for step in steps:
-                    if not isinstance(step, dict):
-                        continue
-                    n = int(step.get("step", 0) or 0)
-                    action = str(step.get("action", "")).strip()
-                    technique = str(step.get("technique", "")).strip()
-                    if not action:
-                        continue
-                    technique_suffix = f" ({technique})" if technique else ""
-                    section += f"{n}. {action}{technique_suffix}.\n"
-                section += "\n"
+            # Step 1: Network reconnaissance — show SG rules table
+            section += "**Step 1 — Reconnaissance: What ports can I reach?**\n\n"
+            if isinstance(sg_rules, list) and sg_rules:
+                world_open = [
+                    r for r in sg_rules
+                    if isinstance(r, dict) and r.get("source") in ("0.0.0.0/0", "::/0")
+                ]
+                restricted = [
+                    r for r in sg_rules
+                    if isinstance(r, dict) and r.get("source") not in ("0.0.0.0/0", "::/0", "")
+                ]
+                if world_open:
+                    section += "The following ports are **open to the internet** (`0.0.0.0/0`):\n\n"
+                    section += "| Port/Range | Protocol | Source | SG |\n"
+                    section += "|------------|----------|--------|---------|\n"
+                    for r in world_open[:10]:
+                        section += (
+                            f"| {r.get('port','?')} "
+                            f"| {r.get('protocol','?')} "
+                            f"| {r.get('source','?')} "
+                            f"| `{r.get('sg_name', r.get('sg_id',''))}` |\n"
+                        )
+                    section += "\n"
+                    section += (
+                        "> **Pentester note:** World-open ports are directly reachable from my attack machine "
+                        "without any prior network access. These are my entry points.\n\n"
+                    )
+                if restricted:
+                    section += "Additional restricted rules (not world-open):\n\n"
+                    section += "| Port/Range | Protocol | Source | SG |\n"
+                    section += "|------------|----------|--------|---------|\n"
+                    for r in restricted[:8]:
+                        section += (
+                            f"| {r.get('port','?')} "
+                            f"| {r.get('protocol','?')} "
+                            f"| {r.get('source','?')} "
+                            f"| `{r.get('sg_name', r.get('sg_id',''))}` |\n"
+                        )
+                    section += "\n"
+            else:
+                # Fall back to steps-based open ports description
+                narrative = str(path_data.get("narrative", "")).strip()
+                if narrative:
+                    section += narrative + "\n\n"
 
-            section += (
-                "Key concepts: IMDS (Instance Metadata Service) can expose temporary IAM role credentials from "
-                "inside the instance; lateral movement means reusing those credentials to access additional AWS "
-                "resources; blast radius describes the scope of impact enabled by those permissions.\n\n"
-            )
-
-            section += (
-                "Vulnerability research workflow: for each CVE/advisory reported by Inspector, confirm exploit "
-                "conditions in authoritative sources (NVD, vendor advisories, AWS bulletins, CISA KEV when "
-                "available), validate package/version presence in the target host, and map exploit preconditions "
-                "to observed network reachability and security group rules. This turns raw vulnerability evidence "
-                "into a complete, reproducible exploitation playbook.\n\n"
-            )
+            # Step 2+: Per-CVE exploitation steps
+            inst_cves = cves_by_instance.get(iid, [])
+            network_cves = [
+                c for c in inst_cves
+                if isinstance(c, dict)
+                and (
+                    str(c.get("attack_vector", "")).upper() == "NETWORK"
+                    or c.get("exploitable_from_internet")
+                )
+            ]
 
             if network_cves:
-                prioritized_ids = [
-                    str(c.get("id", "")).strip()
-                    for c in network_cves[:6]
-                    if str(c.get("id", "")).strip()
-                ]
-                if prioritized_ids:
-                    section += "Priority advisories to validate first: "
-                    section += ", ".join(prioritized_ids)
-                    section += ".\n\n"
+                section += "**Step 2 — Exploitation: Which vulnerabilities can I weaponize?**\n\n"
+                for idx, cve in enumerate(network_cves[:5], start=1):
+                    cve_id = str(cve.get("id", "")).strip()
+                    package = str(cve.get("package", "") or "").strip()
+                    severity = str(cve.get("inspector_severity", "") or "").strip()
+                    cvss = cve.get("cvss_score")
+                    description = str(cve.get("description", "") or "").strip()
+                    open_ports = cve.get("relevant_open_ports", [])
+
+                    is_network_reachability = "reachable from an internet gateway" in cve_id.lower()
+
+                    section += f"**{idx}. `{cve_id}`"
+                    if package:
+                        section += f" ({package})"
+                    section += f"** — Inspector severity: {severity}"
+                    if cvss is not None:
+                        section += f", CVSS: {cvss}"
+                    section += "\n\n"
+
+                    if is_network_reachability:
+                        # Network reachability finding — explain what it means
+                        port_hint = ""
+                        if "port 22" in cve_id.lower():
+                            port_hint = "port 22 (SSH)"
+                        elif "port 3389" in cve_id.lower():
+                            port_hint = "port 3389 (RDP)"
+                        elif "port 80" in cve_id.lower():
+                            port_hint = "port 80 (HTTP)"
+                        elif "port 443" in cve_id.lower():
+                            port_hint = "port 443 (HTTPS)"
+                        else:
+                            port_hint = "a network port"
+                        section += (
+                            f"> AWS Inspector confirmed that {port_hint} on this instance is directly "
+                            "reachable from an Internet Gateway. This is not a CVE — it is a network "
+                            "reachability confirmation. This means I can reach the service on that port "
+                            "from the public internet without VPN or any prior access.\n\n"
+                        )
+                        section += (
+                            "**What this means in practice:** Any vulnerability running on this service "
+                            "(SSH brute force, CVE in the SSH daemon, weak credentials) is now remotely "
+                            "exploitable. I would start here as my entry point.\n\n"
+                        )
+                    else:
+                        if description:
+                            section += f"> **Vulnerability:** {description}\n\n"
+                        if open_ports:
+                            section += (
+                                f"> **Attack surface:** This vulnerability is exploitable via the network "
+                                f"(AV:N). The instance has port(s) `{', '.join(str(p) for p in open_ports)}` "
+                                "open to the internet — traffic to the affected service can reach me from "
+                                "the public internet.\n\n"
+                            )
+                        section += (
+                            "**What this means in practice:** I would look up a public exploit or PoC for "
+                            f"`{cve_id}`, confirm the affected package version is installed on the target, "
+                            "and deliver the payload via the exposed network port. Remote code execution "
+                            "would give me a shell in the instance context.\n\n"
+                        )
+
+            # IMDS credential harvesting step
+            step_num = 3 if network_cves else 2
+            section += f"**Step {step_num} — Credential Theft: Stealing IAM credentials via IMDS**\n\n"
+            section += (
+                "Once I have code execution on the instance (via SSH, RCE, or SSRF), I query the "
+                "EC2 Instance Metadata Service (IMDS) to steal the IAM role's temporary credentials:\n\n"
+            )
+            if iam_role:
+                section += (
+                    "```bash\n"
+                    "# 1. Check which IAM role is attached\n"
+                    f"curl http://169.254.169.254/latest/meta-data/iam/security-credentials/\n"
+                    f"# Returns: {iam_role}\n\n"
+                    "# 2. Steal the credentials\n"
+                    f"curl http://169.254.169.254/latest/meta-data/iam/security-credentials/{iam_role}\n"
+                    "# Returns: AccessKeyId, SecretAccessKey, Token (valid ~1-6 hours)\n"
+                    "```\n\n"
+                )
+            else:
+                section += (
+                    "```bash\n"
+                    "# 1. Check which IAM role is attached\n"
+                    "curl http://169.254.169.254/latest/meta-data/iam/security-credentials/\n\n"
+                    "# 2. Steal the credentials (replace ROLE-NAME with the output above)\n"
+                    "curl http://169.254.169.254/latest/meta-data/iam/security-credentials/ROLE-NAME\n"
+                    "# Returns: AccessKeyId, SecretAccessKey, Token (valid ~1-6 hours)\n"
+                    "```\n\n"
+                )
+            section += (
+                "> **Why this matters:** IMDS credentials are temporary but fully valid AWS credentials. "
+                "They carry the exact permissions of the attached IAM role. If the role has broad "
+                "permissions (S3 read, Secrets Manager access, IAM actions), the blast radius extends "
+                "far beyond this single instance.\n\n"
+            )
+
+            # Lateral movement step
+            step_num += 1
+            section += f"**Step {step_num} — Lateral Movement: What can I do with these credentials?**\n\n"
+            section += (
+                "```bash\n"
+                "# Export stolen credentials\n"
+                "export AWS_ACCESS_KEY_ID=<AccessKeyId>\n"
+                "export AWS_SECRET_ACCESS_KEY=<SecretAccessKey>\n"
+                "export AWS_SESSION_TOKEN=<Token>\n\n"
+                "# Verify identity\n"
+                "aws sts get-caller-identity\n\n"
+                "# Enumerate accessible data\n"
+                "aws s3 ls                                          # S3 buckets\n"
+                "aws secretsmanager list-secrets --region us-east-1 # Secrets\n"
+                "aws ssm describe-parameters --region us-east-1     # SSM parameters\n"
+                "aws iam list-attached-role-policies --role-name "
+            )
+            if iam_role:
+                section += iam_role
+            else:
+                section += "ROLE-NAME"
+            section += (
+                "  # Role policies\n"
+                "```\n\n"
+            )
 
         return section
 
