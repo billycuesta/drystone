@@ -1284,7 +1284,9 @@ Generated with [Drystone](https://github.com/billycuesta/drystone)
     def _pci_dss_compliance_summary(self) -> str:
         """Generate PCI DSS compliance summary section."""
         findings = self.findings.get("findings", [])
-        skill_name = self.findings.get("skill", "unknown").upper()
+        skill_name = self._get_skill_display_name(
+            self.findings.get("skill", "unknown").lower()
+        )
 
         # Get all PCI controls from checklist
         all_controls = self._get_all_checklist_controls()

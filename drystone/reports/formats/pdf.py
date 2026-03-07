@@ -30,7 +30,7 @@ class PDFFormatter(BaseFormatter):
 
     def generate(self) -> Path:
         html_content = self._build_html_from_xml_template()
-        skill_name = self.findings.get("skill", "audit").lower()
+        skill_name = self._report_skill_slug()
         report_path = self.reports_path / f"audit-report-{skill_name}.{self.file_extension}"
 
         try:
@@ -177,7 +177,7 @@ class PDFFormatter(BaseFormatter):
     def _display_skill(self) -> str:
         report_meta = self.findings.get("report_metadata", {})
         skill = report_meta.get("report_skill") or self.findings.get("skill", "unknown")
-        return str(skill).upper()
+        return self._get_skill_display_name(str(skill).lower())
 
     def _drystone_ascii_banner(self) -> str:
         return (
@@ -1109,8 +1109,21 @@ class PDFFormatter(BaseFormatter):
         cis_ref = html.escape(str(finding.get("cis_reference", "N/A")))
 
         evidence_snippet = finding.get("evidence_snippet")
-        if evidence_snippet:
-            dumped = json.dumps(evidence_snippet, indent=2, ensure_ascii=False)
+        skill = str(self.findings.get("skill", "")).lower()
+        is_ser = skill == "sistemas_explotables_red"
+        has_cve_intel = isinstance(evidence_snippet, dict) and (
+            "cve_details" in evidence_snippet or "attack_paths" in evidence_snippet
+        )
+        snippet_for_json = evidence_snippet
+        if is_ser and isinstance(evidence_snippet, dict):
+            snippet_for_json = {
+                k: v
+                for k, v in evidence_snippet.items()
+                if k not in ("cve_details", "attack_paths")
+            }
+
+        if snippet_for_json:
+            dumped = json.dumps(snippet_for_json, indent=2, ensure_ascii=False)
             evidence_block = (
                 "<div class='finding-resources finding-evidence'><h4>Evidence</h4>"
                 f"<pre class='code-block'>{html.escape(dumped)}</pre></div>"
@@ -1163,6 +1176,10 @@ class PDFFormatter(BaseFormatter):
             f"{exploit_suffix}</p>"
         )
 
+        attack_vector_block = ""
+        if is_ser and has_cve_intel:
+            attack_vector_block = self._ser_attack_vector_html(finding)
+
         return (
             "<div class='individual-finding'>"
             + f"<h3>[{finding_id}] {title}</h3>"
@@ -1172,11 +1189,83 @@ class PDFFormatter(BaseFormatter):
             + f"<ul class='resource-list'>{res_items}</ul></div>"
             + commands_block
             + evidence_block
+            + attack_vector_block
             + exploitation_block
             + f"<div class='finding-remediation'><h4>Remediation</h4><p>{remediation}</p></div>"
             + f"<p><strong>CIS Reference:</strong> {cis_ref}</p>"
             + "</div>"
         )
+
+    def _ser_attack_vector_html(self, finding: Dict[str, Any]) -> str:
+        snippet = finding.get("evidence_snippet") or {}
+        if not isinstance(snippet, dict):
+            return ""
+
+        attack_paths = snippet.get("attack_paths", {})
+        if not isinstance(attack_paths, dict) or not attack_paths:
+            return ""
+
+        cve_details = snippet.get("cve_details", [])
+        network_cve_ids: List[str] = []
+        if isinstance(cve_details, list):
+            for cve in cve_details:
+                if not isinstance(cve, dict):
+                    continue
+                if str(cve.get("attack_vector", "")).upper() != "NETWORK":
+                    continue
+                cve_id = str(cve.get("id", "")).strip()
+                if cve_id:
+                    network_cve_ids.append(cve_id)
+
+        blocks: List[str] = ["<div class='finding-exploitation'><h4>Attack Vector Playbook</h4>"]
+        for iid, path_data in list(attack_paths.items())[:3]:
+            if not isinstance(path_data, dict):
+                continue
+            narrative = str(path_data.get("narrative", "")).strip()
+            steps = path_data.get("steps", []) if isinstance(path_data.get("steps"), list) else []
+
+            lead = f"For instance {iid}, the exploitation flow starts from internet reachability and progresses into cloud credential abuse."
+            if narrative:
+                lead = f"For instance {iid}, {narrative}"
+            blocks.append(f"<p>{html.escape(lead)}</p>")
+            blocks.append(
+                "<p>The attacker validates exposed services, gains execution via a remotely reachable weakness, "
+                "queries IMDS for temporary role credentials, and reuses those credentials for lateral movement "
+                "or data access in AWS.</p>"
+            )
+            if steps:
+                step_items = []
+                for step in steps:
+                    if not isinstance(step, dict):
+                        continue
+                    action = str(step.get("action", "")).strip()
+                    if not action:
+                        continue
+                    technique = str(step.get("technique", "")).strip()
+                    suffix = f" ({technique})" if technique else ""
+                    step_items.append(f"<li>{html.escape(action + suffix)}</li>")
+                if step_items:
+                    blocks.append("<ol>" + "".join(step_items) + "</ol>")
+
+            blocks.append(
+                "<p><strong>Concepts:</strong> IMDS can expose temporary IAM credentials from inside the instance; "
+                "lateral movement means reusing those credentials to reach other AWS resources; blast radius is "
+                "the scope of impact enabled by those permissions.</p>"
+            )
+
+            research_text = (
+                "For internet research, validate each advisory with NVD/CVE entries, vendor bulletins, and CISA "
+                "KEV when applicable; confirm exploit preconditions and affected versions; then map those "
+                "requirements against observed ports, security groups, and package versions in evidence."
+            )
+            if network_cve_ids:
+                research_text += " Prioritize: " + ", ".join(network_cve_ids[:6]) + "."
+            blocks.append(
+                f"<p><strong>Research workflow:</strong> {html.escape(research_text)}</p>"
+            )
+
+        blocks.append("</div>")
+        return "".join(blocks)
 
     def _collect_validation_commands(self, finding: Dict[str, Any]) -> tuple[List[str], bool]:
         commands = (
