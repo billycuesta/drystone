@@ -49,6 +49,15 @@ class BaseFormatter(ABC):
             "Low": "🟢",
         }.get(severity, "⚪")
 
+    def _report_skill_slug(self) -> str:
+        """Return a filename-safe slug for the skill being reported.
+
+        Used to build report filenames like audit-report-network.md.
+        Falls back to 'unknown' if skill metadata is missing.
+        """
+        skill = str(self.findings.get("skill") or "unknown")
+        return skill.lower().replace(" ", "-")
+
     def _format_risk_score(self, score: float) -> str:
         """Format risk score with color indicator."""
         # Align with FindingsNormalizer.SEVERITY_RANGES.
