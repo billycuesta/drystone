@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import boto3
+from botocore.exceptions import ClientError
 
 from drystone.cloud.aws.client import AWSClient
 from drystone.skills.base import BaseSkill
@@ -406,6 +407,17 @@ class VulnsSkill(BaseSkill):
         except Exception as e:
             logger.error(f"Could not collect ECS task definition secrets: {e}")
 
+        # === TERRAFORM STATE FILES IN S3 ===
+        print("  Scanning S3 buckets for Terraform state files...")
+        try:
+            tf_data, tf_error = self._collect_terraform_state_secrets(client_kwargs)
+            self._save_json(
+                evidence_path / "terraform-state-scan.json",
+                {"items": tf_data, "error": tf_error},
+            )
+        except Exception as e:
+            logger.error(f"Could not scan for Terraform state files: {e}")
+
         print("\n✅ Vulnerability collection complete")
 
     def _collect_guardduty_status(
@@ -706,6 +718,107 @@ class VulnsSkill(BaseSkill):
             return out, None
         except Exception as e:
             return out, str(e)
+
+    def _collect_terraform_state_secrets(
+        self, client_kwargs: Dict[str, Any]
+    ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+        """Scan S3 buckets for Terraform state files that may contain plaintext secrets.
+
+        Strategy:
+        1. Identify candidate buckets by name heuristic (terraform, tfstate, tf-state, infra*)
+        2. For each candidate, list objects with .tfstate extension (sample, no full download)
+        3. For confirmed .tfstate files, attempt a partial content read (first 8KB)
+        4. Scan partial content for known secret patterns in Terraform state files
+        5. Never download complete state files — only read enough to confirm secrets presence
+
+        Evidence saved per candidate:
+          - BucketName, ObjectKey, SizeBytes, HasSuspiciousContent (bool), MatchedPatterns (list)
+        """
+        s3 = boto3.client("s3", **client_kwargs)
+        out: List[Dict[str, Any]] = []
+        # Heuristic patterns for Terraform state bucket names
+        tf_name_pattern = re.compile(
+            r"(?i)(terraform|tfstate|tf[_\-]state|tf[_\-]backend|infra[_\-]state|"
+            r"infrastructure[_\-]state|state[_\-]bucket)"
+        )
+        # Secret patterns commonly found in terraform.tfstate (plaintext values)
+        tf_secret_patterns = [
+            re.compile(r'"secret_string"\s*:\s*"[^"]{8,}"'),   # secretsmanager secret_string
+            re.compile(r'"password"\s*:\s*"[^"]{4,}"'),          # RDS/DB passwords
+            re.compile(r'"token"\s*:\s*"[^"]{8,}"'),             # Auth tokens
+            re.compile(r'"private_key"\s*:\s*"-----BEGIN'),       # Private keys
+            re.compile(r'"access_key"\s*:\s*"AKIA[0-9A-Z]{16}"'),# AWS access keys
+            re.compile(r'"secret_access_key"\s*:\s*"[A-Za-z0-9/+=]{30,}"'),
+        ]
+        try:
+            buckets_resp = s3.list_buckets()
+            all_buckets = [b["Name"] for b in buckets_resp.get("Buckets", []) if b.get("Name")]
+            candidate_buckets = [b for b in all_buckets if tf_name_pattern.search(b)]
+
+            for bucket_name in candidate_buckets:
+                bucket_entry: Dict[str, Any] = {
+                    "BucketName": bucket_name,
+                    "IsTerraformCandidate": True,
+                    "TfstateObjects": [],
+                    "HasSuspiciousContent": False,
+                    "MatchedPatterns": [],
+                    "AccessError": None,
+                }
+
+                try:
+                    # List objects — look for .tfstate files (max 50 to avoid throttling)
+                    list_resp = s3.list_objects_v2(Bucket=bucket_name, MaxKeys=200)
+                    tf_objects = [
+                        obj for obj in (list_resp.get("Contents") or [])
+                        if str(obj.get("Key", "")).endswith(".tfstate")
+                        or str(obj.get("Key", "")) == "terraform.tfstate"
+                    ]
+
+                    for obj in tf_objects[:5]:  # Sample up to 5 state files per bucket
+                        key = obj.get("Key", "")
+                        size = obj.get("Size", 0)
+                        obj_entry = {"Key": key, "SizeBytes": size, "Patterns": []}
+
+                        # Read only first 8KB — enough to detect secret patterns in state header
+                        try:
+                            get_resp = s3.get_object(
+                                Bucket=bucket_name,
+                                Key=key,
+                                Range="bytes=0-8191",  # First 8KB only
+                            )
+                            content = get_resp["Body"].read().decode("utf-8", errors="replace")
+                            matched = [
+                                p.pattern[:60] for p in tf_secret_patterns
+                                if p.search(content)
+                            ]
+                            if matched:
+                                obj_entry["Patterns"] = matched
+                                bucket_entry["HasSuspiciousContent"] = True
+                                bucket_entry["MatchedPatterns"].extend(matched)
+                        except Exception as read_err:
+                            obj_entry["ReadError"] = str(read_err)[:100]
+
+                        bucket_entry["TfstateObjects"].append(obj_entry)
+
+                except ClientError as ce:
+                    err_code = ce.response.get("Error", {}).get("Code", "")
+                    if err_code in ("AccessDenied", "AllAccessDisabled"):
+                        bucket_entry["AccessError"] = f"AccessDenied listing {bucket_name}"
+                    else:
+                        bucket_entry["AccessError"] = str(ce)[:100]
+                except Exception as e:
+                    bucket_entry["AccessError"] = str(e)[:100]
+
+                out.append(bucket_entry)
+
+            return out, None
+        except Exception as e:
+            err_str = str(e)
+            if "AccessDenied" in err_str:
+                logger.info("S3 ListBuckets not accessible (AccessDenied)")
+            else:
+                logger.warning(f"Could not scan for Terraform state files: {e}")
+            return out, err_str
 
     def _collect_ecs_task_secrets(
         self, client_kwargs: Dict[str, Any]

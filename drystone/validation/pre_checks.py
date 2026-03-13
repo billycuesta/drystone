@@ -11,6 +11,7 @@ The AI receives these verdicts as <pre_computed_facts> and must not contradict t
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, cast
@@ -3368,6 +3369,66 @@ def check_exp_023(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("exposure")
+def check_exp_024(evidence: Dict[str, Any]) -> PreCheckResult:
+    """EXP-024: S3 buckets used for audit/logging without KMS encryption.
+
+    AWS enables AES256 (SSE-S3) by default on all S3 buckets since 2023, but KMS (SSE-KMS)
+    provides additional controls: key rotation auditing, per-operation CloudTrail events,
+    key revocation capability, and cross-account access control.
+
+    This check flags audit/log/config buckets that use AES256 instead of KMS, as these
+    often contain sensitive security data (CloudTrail logs, Config snapshots, VPC flow logs).
+    Buckets with no encryption at all are flagged as FAIL regardless of purpose.
+    """
+    s3_doc = evidence.get("s3-buckets") or {}
+    items = s3_doc.get("items") if isinstance(s3_doc, dict) else None
+
+    if not isinstance(items, list) or not items:
+        return PreCheckResult("EXP-024", "SKIP", "no s3-buckets evidence", [])
+
+    # Heuristic: bucket names suggesting audit/logging/compliance data
+    _AUDIT_PATTERN = re.compile(
+        r"(?i)(log|audit|cloudtrail|config|compliance|security|siem|flow|access[_\-]log)",
+        re.IGNORECASE,
+    )
+
+    no_encryption: List[str] = []       # FAIL: no encryption at all
+    aes256_audit: List[str] = []        # WARN: AES256 on audit bucket (should be KMS)
+
+    for bucket in items:
+        if not isinstance(bucket, dict):
+            continue
+        name = str(bucket.get("Name") or "unknown")
+        algorithm = bucket.get("EncryptionAlgorithm")  # None, "AES256", or "aws:kms"
+
+        if algorithm is None:
+            # No server-side encryption configured
+            no_encryption.append(name)
+        elif algorithm == "AES256":
+            # AES256 is fine for most buckets, but audit buckets should use KMS
+            if _AUDIT_PATTERN.search(name):
+                aes256_audit.append(name)
+        # aws:kms → compliant, no action needed
+
+    if not no_encryption and not aes256_audit:
+        return PreCheckResult(
+            "EXP-024",
+            "PASS",
+            "all S3 buckets have encryption; audit/log buckets use KMS",
+            [],
+        )
+
+    affected = no_encryption + aes256_audit
+    parts = []
+    if no_encryption:
+        parts.append(f"{len(no_encryption)} bucket(s) with no encryption")
+    if aes256_audit:
+        parts.append(f"{len(aes256_audit)} audit/log bucket(s) using AES256 instead of KMS")
+    status = "FAIL" if no_encryption else "FAIL"
+    return PreCheckResult("EXP-024", status, "; ".join(parts), affected[:10])
+
+
+@_register("exposure")
 def check_exp_005(evidence: Dict[str, Any]) -> PreCheckResult:
     """EXP-005: Lambda function URLs without authentication (AuthType=NONE)."""
     urls_doc = evidence.get("lambda-function-urls")
@@ -5020,6 +5081,77 @@ def check_vuln_029(evidence: Dict[str, Any]) -> PreCheckResult:
         "FAIL",
         f"{len(affected)} ECS task definition(s) with sensitive env var keys (potential hardcoded secrets)",
         affected[:10],
+    )
+
+
+@_register("vulns")
+def check_vuln_026(evidence: Dict[str, Any]) -> PreCheckResult:
+    """VULN-026: S3 buckets with Terraform state files containing secrets in plaintext.
+
+    Terraform state files (.tfstate) store the complete infrastructure state including
+    resource attribute values. Secrets Manager secret_string, RDS passwords, and TLS private
+    keys often appear in plaintext in tfstate files stored in S3.
+    """
+    tf_doc = evidence.get("terraform-state-scan") or {}
+    items = tf_doc.get("items") if isinstance(tf_doc, dict) else None
+
+    error = tf_doc.get("error") if isinstance(tf_doc, dict) else None
+    if error and not items:
+        return PreCheckResult(
+            "VULN-026", "SKIP", f"Terraform state scan not accessible: {str(error)[:100]}", []
+        )
+
+    if not isinstance(items, list):
+        return PreCheckResult("VULN-026", "SKIP", "no terraform-state-scan evidence", [])
+
+    # Buckets with candidate names but no .tfstate objects found
+    candidates_no_state: List[str] = []
+    # Buckets with .tfstate files but read was denied
+    candidates_access_denied: List[str] = []
+    # Buckets with confirmed secrets in state files
+    confirmed_secrets: List[str] = []
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        bucket = str(item.get("BucketName") or "unknown")
+
+        if item.get("HasSuspiciousContent"):
+            patterns = item.get("MatchedPatterns") or []
+            label = f"{bucket} (patterns: {', '.join(str(p)[:40] for p in patterns[:2])})"
+            confirmed_secrets.append(label)
+        elif item.get("AccessError") and "AccessDenied" in str(item.get("AccessError", "")):
+            candidates_access_denied.append(bucket)
+        elif not item.get("TfstateObjects"):
+            candidates_no_state.append(bucket)
+
+    if confirmed_secrets:
+        return PreCheckResult(
+            "VULN-026",
+            "FAIL",
+            f"{len(confirmed_secrets)} S3 bucket(s) with Terraform state files containing plaintext secrets",
+            confirmed_secrets[:10],
+        )
+
+    if candidates_access_denied:
+        # We found candidate buckets but couldn't read them — flag as WARN
+        return PreCheckResult(
+            "VULN-026",
+            "FAIL",
+            f"{len(candidates_access_denied)} Terraform state bucket(s) found but content unreadable (AccessDenied) — manual review required",
+            candidates_access_denied[:10],
+        )
+
+    if candidates_no_state and not candidates_access_denied and not confirmed_secrets:
+        return PreCheckResult(
+            "VULN-026",
+            "PASS",
+            f"{len(candidates_no_state)} Terraform-named bucket(s) found but no .tfstate files detected",
+            [],
+        )
+
+    return PreCheckResult(
+        "VULN-026", "PASS", "no Terraform state files with secrets detected in candidate buckets", []
     )
 
 

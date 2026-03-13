@@ -243,6 +243,21 @@ class ExposureSkill(BaseSkill):
                 except Exception:
                     bucket_detail["Versioning"] = None
 
+                try:
+                    enc = s3_client.get_bucket_encryption(Bucket=bucket_name)
+                    rules = enc.get("ServerSideEncryptionConfiguration", {}).get("Rules", [])
+                    if rules:
+                        rule = rules[0].get("ApplyServerSideEncryptionByDefault", {})
+                        bucket_detail["EncryptionAlgorithm"] = rule.get("SSEAlgorithm")
+                        bucket_detail["KMSMasterKeyID"] = rule.get("KMSMasterKeyID")
+                    else:
+                        bucket_detail["EncryptionAlgorithm"] = None
+                        bucket_detail["KMSMasterKeyID"] = None
+                except Exception:
+                    # Bucket may have no encryption configuration (pre-2023 default)
+                    bucket_detail["EncryptionAlgorithm"] = None
+                    bucket_detail["KMSMasterKeyID"] = None
+
                 buckets_list.append(bucket_detail)
 
             # Index by bucket name for stable evidence references.

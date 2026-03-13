@@ -405,6 +405,25 @@
       ]
     },
     {
+      "id": "EXP-024",
+      "title": "S3 audit/log buckets without KMS encryption",
+      "severity": "High",
+      "description": "S3 buckets used for audit logs (CloudTrail, Config, VPC flow logs, access logs) that use AES256 (SSE-S3) instead of KMS (SSE-KMS) lack key management controls: no per-operation decrypt events in CloudTrail, no key rotation audit trail, and no ability to revoke access by disabling the KMS key. Buckets with no encryption at all are Critical risk.",
+      "evidence_files": ["s3-buckets.json"],
+      "check_keywords": ["EncryptionAlgorithm", "AES256", "aws:kms", "KMSMasterKeyID"],
+      "remediation": "Enable SSE-KMS on all audit/log buckets using a customer-managed key (CMK). For buckets with no encryption, enable SSE-KMS immediately. Set a bucket policy requiring aws:SecureTransport and denying non-KMS PutObject requests.",
+      "pci_dss": [
+        {
+          "control": "10.5.1",
+          "reason": "Audit logs must be protected from unauthorized access and modification. KMS provides key-level access control and rotation auditing not available with AES256."
+        },
+        {
+          "control": "3.5.1",
+          "reason": "Storage of sensitive authentication and audit data requires strong cryptography with auditable key management."
+        }
+      ]
+    },
+    {
       "id": "EXP-023",
       "title": "Resource-based policies with unrestricted Principal:* (SQS, SNS, OpenSearch, ECR, Secrets Manager)",
       "severity": "Critical",

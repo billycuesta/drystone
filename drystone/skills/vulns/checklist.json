@@ -402,6 +402,29 @@
       ]
     },
     {
+      "id": "VULN-026",
+      "title": "Terraform state files in S3 containing plaintext secrets",
+      "severity": "Critical",
+      "description": "S3 buckets with names suggesting Terraform state storage (terraform, tfstate, tf-state) contain .tfstate files with plaintext secrets: Secrets Manager secret_string values, RDS passwords, private keys, and AWS access keys. Any entity with s3:GetObject on these buckets obtains credentials for all managed resources.",
+      "evidence_files": ["terraform-state-scan.json"],
+      "check_keywords": ["tfstate", "secret_string", "password", "private_key", "terraform"],
+      "remediation": "Enable S3 server-side encryption (KMS) and block public access on state buckets. Rotate all credentials found in state files. Migrate to remote state backends with encryption at rest. Consider using Vault or AWS Secrets Manager for sensitive values to avoid storing them in state.",
+      "pci_dss": [
+        {
+          "control": "3.3.1",
+          "reason": "Sensitive authentication data (passwords, tokens, private keys) must not be stored in accessible storage locations. Terraform state files violate this by storing plaintext credentials alongside infrastructure configuration."
+        },
+        {
+          "control": "3.5.1",
+          "reason": "Primary account data must be protected with strong cryptography. State files containing PANs or credential data must be encrypted."
+        },
+        {
+          "control": "8.2.1",
+          "reason": "All system accounts and application credentials must be controlled. Credentials in state files are uncontrolled copies that persist even after rotation."
+        }
+      ]
+    },
+    {
       "id": "VULN-029",
       "title": "ECS task definitions with hardcoded secrets in environment variables",
       "severity": "High",
@@ -425,8 +448,8 @@
       ]
     }
   ],
-  "version": "1.4",
-  "total_checks": 27,
+  "version": "1.5",
+  "total_checks": 28,
   "last_updated": "2026-03-13",
   "notes": "Generated based on aws-vuln-skill.md and mapped against PCI DSS v4.0 controls."
 }

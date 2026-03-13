@@ -4702,3 +4702,144 @@ class TestEXP023ResourceBasedPolicies:
         ]}})
         assert result.status == "FAIL"
         assert len(result.affected_resources) == 2
+
+
+class TestVULN026TerraformState:
+    """Tests for VULN-026: Terraform state files with secrets in S3."""
+
+    def _run(self, evidence):
+        from drystone.validation.pre_checks import check_vuln_026
+        return check_vuln_026(evidence)
+
+    def _make_item(self, bucket, tf_objects=None, has_suspicious=False, patterns=None, access_error=None):
+        return {
+            "BucketName": bucket,
+            "IsTerraformCandidate": True,
+            "TfstateObjects": tf_objects or [],
+            "HasSuspiciousContent": has_suspicious,
+            "MatchedPatterns": patterns or [],
+            "AccessError": access_error,
+        }
+
+    def test_skip_no_evidence(self):
+        result = self._run({})
+        assert result.check_id == "VULN-026"
+        assert result.status == "SKIP"
+
+    def test_skip_access_denied(self):
+        result = self._run({
+            "terraform-state-scan": {
+                "items": [],
+                "error": "AccessDenied: User is not authorized to perform s3:ListBuckets",
+            }
+        })
+        assert result.status == "SKIP"
+
+    def test_pass_no_candidates(self):
+        result = self._run({"terraform-state-scan": {"items": [], "error": None}})
+        assert result.status == "PASS"
+
+    def test_pass_candidate_no_tfstate(self):
+        """Terraform-named bucket but no .tfstate objects found."""
+        result = self._run({"terraform-state-scan": {"items": [
+            self._make_item("terraform-state-prod", tf_objects=[], has_suspicious=False)
+        ]}})
+        assert result.status == "PASS"
+
+    def test_fail_confirmed_secrets(self):
+        result = self._run({"terraform-state-scan": {"items": [
+            self._make_item(
+                "myorg-tfstate",
+                tf_objects=[{"Key": "prod/terraform.tfstate", "SizeBytes": 512000, "Patterns": ['"secret_string"']}],
+                has_suspicious=True,
+                patterns=['"secret_string"\\s*:\\s*"[^"]{8,}"'],
+            )
+        ]}})
+        assert result.status == "FAIL"
+        assert "myorg-tfstate" in result.affected_resources[0]
+
+    def test_fail_access_denied_on_candidate(self):
+        """Candidate found but content unreadable → flag for manual review."""
+        result = self._run({"terraform-state-scan": {"items": [
+            self._make_item("terraform-infra-state", access_error="AccessDenied listing terraform-infra-state")
+        ]}})
+        assert result.status == "FAIL"
+        assert "terraform-infra-state" in result.affected_resources[0]
+
+    def test_fail_multiple_secrets_buckets(self):
+        result = self._run({"terraform-state-scan": {"items": [
+            self._make_item("tf-state-prod", has_suspicious=True, patterns=['"password"']),
+            self._make_item("tf-state-dev", has_suspicious=True, patterns=['"private_key"']),
+            self._make_item("tf-state-staging", tf_objects=[], has_suspicious=False),
+        ]}})
+        assert result.status == "FAIL"
+        assert len(result.affected_resources) == 2
+
+
+class TestEXP024S3KMSEncryption:
+    """Tests for EXP-024: S3 audit/log buckets without KMS encryption."""
+
+    def _run(self, evidence):
+        from drystone.validation.pre_checks import check_exp_024
+        return check_exp_024(evidence)
+
+    def _make_bucket(self, name, algorithm):
+        return {"Name": name, "EncryptionAlgorithm": algorithm, "KMSMasterKeyID": None}
+
+    def test_skip_no_evidence(self):
+        result = self._run({})
+        assert result.check_id == "EXP-024"
+        assert result.status == "SKIP"
+
+    def test_pass_all_kms(self):
+        result = self._run({"s3-buckets": {"items": [
+            self._make_bucket("cloudtrail-logs", "aws:kms"),
+            self._make_bucket("app-data", "aws:kms"),
+        ]}})
+        assert result.status == "PASS"
+
+    def test_pass_aes256_non_audit_bucket(self):
+        """Non-audit bucket with AES256 is acceptable."""
+        result = self._run({"s3-buckets": {"items": [
+            self._make_bucket("my-app-assets", "AES256"),
+            self._make_bucket("static-website", "AES256"),
+        ]}})
+        assert result.status == "PASS"
+
+    def test_fail_no_encryption(self):
+        """Any bucket with no encryption → FAIL."""
+        result = self._run({"s3-buckets": {"items": [
+            self._make_bucket("old-bucket", None),
+        ]}})
+        assert result.status == "FAIL"
+        assert "old-bucket" in result.affected_resources
+
+    def test_fail_audit_bucket_aes256(self):
+        """Audit/log bucket with AES256 (not KMS) → FAIL."""
+        result = self._run({"s3-buckets": {"items": [
+            self._make_bucket("cloudtrail-logs-prod", "AES256"),
+        ]}})
+        assert result.status == "FAIL"
+        assert "cloudtrail-logs-prod" in result.affected_resources
+
+    def test_fail_mixed_buckets(self):
+        """No encryption + AES256 audit buckets both flagged."""
+        result = self._run({"s3-buckets": {"items": [
+            self._make_bucket("cloudtrail-prod", "AES256"),   # audit + AES256
+            self._make_bucket("legacy-bucket", None),          # no encryption
+            self._make_bucket("app-config-s3", "aws:kms"),    # compliant
+            self._make_bucket("audit-archive", "AES256"),      # audit + AES256
+        ]}})
+        assert result.status == "FAIL"
+        # legacy-bucket (no enc) + cloudtrail-prod + audit-archive
+        assert len(result.affected_resources) == 3
+
+    def test_audit_pattern_matching(self):
+        """Ensure various audit bucket name patterns are detected."""
+        audit_names = ["audit-logs", "vpc-flow-logs", "config-snapshots",
+                       "security-events", "siem-bucket", "access-log-archive"]
+        result = self._run({"s3-buckets": {"items": [
+            self._make_bucket(name, "AES256") for name in audit_names
+        ]}})
+        assert result.status == "FAIL"
+        assert len(result.affected_resources) == len(audit_names)
