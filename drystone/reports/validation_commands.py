@@ -332,6 +332,43 @@ def suggest_aws_cli_commands(
                 f"aws ec2 describe-snapshots --owner-ids self --region {region}",
                 f"aws ec2 describe-snapshot-attribute --snapshot-id <snap-id> --attribute createVolumePermission --region {region}",
             ]
+        if fid in ("EXP-021", "EXP-006", "EXP-022"):
+            api_id = _first_resource_name(res, "apigateway") or "<api-id>"
+            return [
+                f"aws apigateway get-rest-apis --region {region}",
+                f"aws apigateway get-resources --rest-api-id {api_id} --region {region}",
+            ]
+        if fid == "EXP-019":
+            return [
+                f"aws es list-domain-names --region {region}",
+                f"aws es describe-elasticsearch-domain --domain-name <domain> --region {region}",
+            ]
+        if fid == "EXP-023":
+            return [
+                f"aws sns list-topics --region {region}",
+                f"aws sqs list-queues --region {region}",
+            ]
+        return []
+
+    def _network_finding_specific(fid: str, res: List[str]) -> List[str]:
+        """Per-finding-id commands for NETWORK checks."""
+        fid = fid.strip().upper()
+        sg = _first_resource_name(res, "ec2", "security-group") or "<sg-id>"
+        if fid in ("NET-011", "NET-009", "NET-015"):
+            return [
+                f"aws ec2 describe-security-groups --group-ids {sg} --region {region}",
+                f"aws ec2 describe-security-groups --region {region}",
+            ]
+        if fid in ("NET-016", "NET-025"):
+            return [
+                f"aws ec2 describe-subnets --region {region}",
+                f"aws ec2 describe-network-acls --region {region}",
+            ]
+        if fid in ("NET-007", "NET-EGR-001"):
+            return [
+                f"aws network-firewall list-firewalls --region {region}",
+                f"aws ec2 describe-route-tables --region {region}",
+            ]
         return []
 
     def _vuln_finding_specific(fid: str, res: List[str]) -> List[str]:
@@ -376,6 +413,8 @@ def suggest_aws_cli_commands(
             return _exposure_finding_specific(fid, res)
         if skill == "vulns":
             return _vuln_finding_specific(fid, res)
+        if skill == "network":
+            return _network_finding_specific(fid, res)
         return []
 
     # Smart per-finding commands for Secrets Manager checks.
