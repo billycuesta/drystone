@@ -1104,9 +1104,20 @@ class PDFFormatter(BaseFormatter):
         title = html.escape(str(finding.get("title", "Untitled")))
         severity = html.escape(str(finding.get("severity", "Unknown")))
         risk = float(finding.get("risk_score", 0.0))
-        description = html.escape(str(finding.get("description", "")))
-        remediation = html.escape(str(finding.get("remediation", "")))
+        description = html.escape(str(finding.get("description", ""))).replace("\n\n", "</p><p>")
+        remediation = html.escape(str(finding.get("remediation", ""))).replace("\n\n", "</p><p>")
         cis_ref = html.escape(str(finding.get("cis_reference", "N/A")))
+
+        raw_impact = finding.get("impact")
+        impact_html = ""
+        if raw_impact:
+            impact_text = html.escape(str(raw_impact)).replace("\n\n", "</p><p>")
+            impact_html = (
+                "<div class='finding-impact'>"
+                "<h4>Impacto</h4>"
+                f"<p>{impact_text}</p>"
+                "</div>"
+            )
 
         evidence_snippet = finding.get("evidence_snippet")
         skill = str(self.findings.get("skill", "")).lower()
@@ -1185,6 +1196,7 @@ class PDFFormatter(BaseFormatter):
             + f"<h3>[{finding_id}] {title}</h3>"
             + severity_line
             + f"<div class='finding-description'><p>{description}</p></div>"
+            + impact_html
             + "<div class='finding-resources finding-affected'><h4>Affected Resources</h4>"
             + f"<ul class='resource-list'>{res_items}</ul></div>"
             + commands_block
@@ -1288,6 +1300,9 @@ class PDFFormatter(BaseFormatter):
                 region=str(getattr(self.config, "aws_region", "us-east-1")),
                 account_id=self._resolved_account_id(self.findings.get("findings", [])),
                 finding_id=str(finding.get("id", "")),
+                affected_resources=[
+                    str(r) for r in (finding.get("affected_resources", []) or [])
+                ],
             )
             suggested = bool(cleaned)
         return cleaned, suggested

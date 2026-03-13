@@ -387,6 +387,23 @@
       page-break-inside: avoid;
     }
 
+    .finding-impact {
+      background: #fff7ed;
+      border-left: 3px solid #f97316;
+      border-radius: 6px;
+      padding: 12px 16px;
+      margin: 12px 0;
+      page-break-inside: avoid;
+    }
+
+    .finding-impact h4 {
+      color: #c2410c;
+      margin: 0 0 8px 0;
+      font-size: 0.9em;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
     .finding-exploitation {
       background: #fff7ed;
       border-left: 4px solid var(--accent-amber);

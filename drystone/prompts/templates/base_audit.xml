@@ -63,12 +63,28 @@ Extends with skill-specific fields.
       <field>title: string (concise, less than 80 chars)</field>
       <field>severity: enum Critical|High|Medium|Low</field>
       <field>risk_score: float (0.0-10.0)</field>
-      <field>description: string</field>
+      <field>description: string — 2 paragraphs: (1) what the misconfiguration/weakness is technically,
+        (2) why it exists or what enables it. Name the exact service, config, or permission involved.</field>
+      <field>impact: string — Separate from description. 2 paragraphs:
+        (1) Technical scenario: what can an attacker do if this is exploited (step-by-step attacker path),
+        (2) Business consequence: data exposure, financial impact, compliance violation.
+        Write in narrative prose, not bullet points. Reference affected resources by name when known.</field>
       <field>evidence_refs: array of strings (at least one)</field>
       <field>evidence_snippet: object (5-20 lines from real evidence)</field>
       <field>affected_resources: array of ARNs/identifiers</field>
-      <field>remediation: actionable string</field>
+      <field>remediation: string — Narrative recommendation ("It is recommended to..."), explain
+        WHY the fix works, not just WHAT to do. Reference specific AWS controls or services.</field>
     </required_fields>
+    <writing_style>
+      <description>Write 2 paragraphs: (1) what the misconfiguration/weakness is technically,
+        (2) why it exists or what enables it. Be specific — name the exact service, config,
+        or permission involved.</description>
+      <impact>Write 2 paragraphs: (1) concrete attacker scenario using the affected resources,
+        (2) business impact (data access, lateral movement, financial damage, compliance violation).
+        If resources are known, reference them by name or ARN.</impact>
+      <remediation>Write as narrative recommendation ("It is recommended to..."), explain
+        WHY the fix works, not just WHAT to do. Reference specific AWS controls.</remediation>
+    </writing_style>
     <process>
       <step>JSON structure validation</step>
       <step>Evidence reference existence validation</step>
@@ -168,6 +184,7 @@ Extends with skill-specific fields.
           <field name="risk_score" type="number" range="0.0-10.0"/>
           <field name="title" type="string"/>
           <field name="description" type="string"/>
+          <field name="impact" type="string" description="Business and technical impact (optional but recommended)"/>
           <field name="evidence_refs" type="array" items="string"/>
           <field name="evidence_snippet" type="object" description="JSON object showing problematic config"/>
           <field name="affected_resources" type="array" items="string" description="ARNs or identifiers"/>

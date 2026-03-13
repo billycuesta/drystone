@@ -23,6 +23,13 @@ class Finding(BaseModel):
     risk_score: float = Field(..., ge=0.0, le=10.0, description="Risk score 0.0-10.0")
     title: str = Field(..., description="Brief finding title")
     description: str = Field(..., description="Detailed description of the finding")
+    impact: Optional[str] = Field(
+        default=None,
+        description=(
+            "Business and technical impact if this finding is exploited (separate from description). "
+            "Two paragraphs: (1) technical attacker scenario, (2) business consequence."
+        ),
+    )
     exploitability_status: Optional[Literal["validated", "probable", "theoretical"]] = Field(
         default=None,
         description=(

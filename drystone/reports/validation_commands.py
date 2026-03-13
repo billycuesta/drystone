@@ -2,7 +2,82 @@
 
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, Optional
+
+
+def extract_resource_name(arn: str) -> Dict[str, str]:
+    """Extract resource type and name from an ARN for use in CLI commands.
+
+    Returns a dict with keys: service, type, name.
+    Returns empty dict if ARN is not parseable.
+
+    Examples:
+        arn:aws:iam::123:role/admin-role  -> {service: iam, type: role, name: admin-role}
+        arn:aws:s3:::my-bucket            -> {service: s3, type: my-bucket, name: my-bucket}
+        arn:aws:ec2:us-east-1:123:instance/i-abc -> {service: ec2, type: instance, name: i-abc}
+    """
+    parts = arn.split(":")
+    if len(parts) < 6:
+        return {}
+    service = parts[2]
+    resource = parts[5] if len(parts) > 5 else ""
+    if not resource:
+        return {}
+    resource_parts = resource.split("/", 1)
+    resource_type = resource_parts[0]
+    resource_name = resource_parts[1] if len(resource_parts) > 1 else resource
+    return {"service": service, "type": resource_type, "name": resource_name}
+
+
+def _arn_specific_commands(
+    affected_resources: List[str], region: str, skill: str
+) -> List[str]:
+    """Generate specific AWS CLI commands from affected_resources ARNs."""
+    commands: List[str] = []
+    seen: set = set()
+
+    for arn in affected_resources[:5]:
+        info = extract_resource_name(str(arn))
+        if not info:
+            continue
+        service = info["service"]
+        rtype = info["type"]
+        name = info["name"]
+        cmd: Optional[str] = None
+
+        if service == "iam":
+            if rtype == "role":
+                cmd = f"aws iam get-role --role-name {name}"
+            elif rtype == "user":
+                cmd = f"aws iam get-user --user-name {name}"
+            elif rtype == "policy":
+                cmd = f"aws iam get-policy --policy-arn {arn}"
+            elif rtype == "group":
+                cmd = f"aws iam get-group --group-name {name}"
+        elif service == "s3":
+            # arn:aws:s3:::bucket-name has type=bucket-name, name=bucket-name
+            bucket = rtype if not name or name == rtype else name
+            cmd = f"aws s3api get-bucket-policy --bucket {bucket}"
+        elif service == "ec2":
+            if rtype == "instance":
+                cmd = f"aws ec2 describe-instances --instance-ids {name} --region {region}"
+            elif rtype == "security-group":
+                cmd = f"aws ec2 describe-security-groups --group-ids {name} --region {region}"
+        elif service == "rds":
+            if rtype == "db":
+                cmd = f"aws rds describe-db-instances --db-instance-identifier {name} --region {region}"
+        elif service == "lambda":
+            if rtype == "function":
+                cmd = f"aws lambda get-function --function-name {name} --region {region}"
+        elif service == "secretsmanager":
+            if rtype == "secret":
+                cmd = f"aws secretsmanager describe-secret --secret-id {arn} --region {region}"
+
+        if cmd and cmd not in seen:
+            commands.append(cmd)
+            seen.add(cmd)
+
+    return commands
 
 
 def suggest_aws_cli_commands(
@@ -11,11 +86,13 @@ def suggest_aws_cli_commands(
     region: str = "us-east-1",
     account_id: str = "<account-id>",
     finding_id: str = "",
+    affected_resources: Optional[List[str]] = None,
 ) -> List[str]:
-    """Suggest AWS CLI commands from evidence references.
+    """Suggest AWS CLI commands from evidence references and affected resource ARNs.
 
     Commands are intentionally deterministic and runnable against AWS,
-    not local evidence files.
+    not local evidence files. When affected_resources contains parseable ARNs,
+    resource-specific commands are generated (e.g. --role-name actual-name).
     """
     skill_file_maps: Dict[str, Dict[str, str]] = {
         "iam": {
@@ -204,6 +281,13 @@ def suggest_aws_cli_commands(
     commands: List[str] = []
     seen = set()
     smap = skill_file_maps.get(skill, {})
+
+    # ARN-specific commands take priority: use real resource names when available.
+    if affected_resources:
+        for cmd in _arn_specific_commands(affected_resources, region, skill):
+            if cmd not in seen:
+                commands.append(cmd)
+                seen.add(cmd)
 
     if skill == "secretsmanager":
         for cmd in _secretsmanager_specific(finding_id):
