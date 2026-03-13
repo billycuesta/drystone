@@ -35,13 +35,63 @@ class JSONFormatter(BaseFormatter):
 
     def _build_json(self) -> Dict[str, Any]:
         """Build structured JSON export."""
-        return {
+        payload: Dict[str, Any] = {
             "metadata": self._metadata(),
             "findings": self.findings.get("findings", []),
             "summary": self.findings.get("summary", {}),
             "statistics": self._calculate_statistics(),
             "export_timestamp": datetime.utcnow().isoformat(),
         }
+        attack_paths = self._collect_attack_paths()
+        if attack_paths:
+            payload["attack_path_candidates"] = attack_paths
+        return payload
+
+    def _collect_attack_paths(self) -> list:
+        """Collect attack-path-candidates.json from evidence directories.
+
+        For single-skill exports: reads evidence/<skill>/attack-path-candidates.json.
+        For aggregated exports: reads all evidence/*/attack-path-candidates.json and
+        merges them sorted by overall_score descending.
+        """
+        skill = self.findings.get("skill", "")
+        evidence_base = self.session.base_path / "evidence"
+        if not evidence_base.exists():
+            return []
+
+        all_paths: list = []
+        if skill and skill != "aggregated":
+            # Single skill — look directly under evidence/<skill>/
+            candidate_file = evidence_base / skill / "attack-path-candidates.json"
+            if candidate_file.exists():
+                try:
+                    with open(candidate_file) as f:
+                        data = json.load(f)
+                    for path in data.get("paths", []):
+                        path["skill"] = skill
+                        all_paths.append(path)
+                except Exception:
+                    pass
+        else:
+            # Aggregated — scan all skill subdirectories
+            for skill_dir in sorted(evidence_base.iterdir()):
+                if not skill_dir.is_dir():
+                    continue
+                candidate_file = skill_dir / "attack-path-candidates.json"
+                if not candidate_file.exists():
+                    continue
+                try:
+                    with open(candidate_file) as f:
+                        data = json.load(f)
+                    for path in data.get("paths", []):
+                        path["skill"] = skill_dir.name
+                        all_paths.append(path)
+                except Exception:
+                    pass
+
+        # Sort by overall_score descending
+        all_paths.sort(key=lambda x: x.get("overall_score", 0), reverse=True)
+        return all_paths
 
     def _metadata(self) -> Dict[str, Any]:
         """Generate metadata section."""

@@ -692,6 +692,14 @@ class AuditOrchestrator:
         if len(self.results) >= 2:  # Need at least 2 skills for correlation
             correlation_result = self.run_correlation(output_dir)
 
+            # Persist correlations so pentest.py._load_correlations() can read them
+            if correlation_result:
+                corr_path = output_dir / "findings" / "correlated.json"
+                corr_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(corr_path, "w") as f:
+                    json.dump(correlation_result, f, indent=2, default=str)
+                logger.info(f"🔗 Correlations saved: {corr_path}")
+
             # Log correlation summary
             total_corr = correlation_result.get("total_correlations", 0)
             if total_corr > 0:

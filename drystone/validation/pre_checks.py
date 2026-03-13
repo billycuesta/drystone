@@ -51,6 +51,215 @@ def _register(skill: str):
     return decorator
 
 
+# ---------------------------------------------------------------------------
+# Impact narratives for deterministic pre-check findings.
+# Used by the reconciler in base.py to populate the `impact` field on
+# injected findings (pre-check FAIL → Finding). These are authoritative
+# descriptions of what an attacker achieves by exploiting each finding.
+# ---------------------------------------------------------------------------
+PRE_CHECK_IMPACTS: Dict[str, str] = {
+    # ── IAM ─────────────────────────────────────────────────────────────────
+    "IAM-001": (
+        "An attacker who compromises the root account gains unrestricted access to all AWS "
+        "services and resources, including the ability to create backdoor IAM users, delete "
+        "CloudTrail logs, and exfiltrate all data in the account.\n\n"
+        "For a PCI DSS environment, root account compromise violates Requirement 7 (least "
+        "privilege) and Requirement 8 (MFA for privileged accounts), potentially resulting "
+        "in failed audits and regulatory penalties."
+    ),
+    "IAM-002": (
+        "Console users without MFA are a single password away from full account access. "
+        "Phishing or credential stuffing attacks are trivially successful against accounts "
+        "protected only by a password, with no second factor to block unauthorized login.\n\n"
+        "In a PCI DSS v4.0 context, absence of MFA for interactive users directly violates "
+        "Requirement 8.4.2 (MFA for all non-console access into CDE)."
+    ),
+    "IAM-003": (
+        "Inactive credentials are a persistent attack surface. If credentials are leaked "
+        "(e.g., via GitHub secret scanning, phishing, or insider threat), a stale account "
+        "with no recent activity is unlikely to trigger behavioral alerts, allowing prolonged "
+        "unauthorized access without detection.\n\n"
+        "Disabled accounts that retain active credentials extend the blast radius of any "
+        "identity-related compromise beyond the active workforce."
+    ),
+    "IAM-004": (
+        "An attacker who obtains a leaked or exposed access key with an active rotation gap "
+        "has persistent programmatic access. If the key belongs to a privileged user, the "
+        "attacker can enumerate the entire AWS environment and exfiltrate data without "
+        "triggering console alerts.\n\n"
+        "Long-lived credentials significantly increase the blast radius of credential "
+        "exposure incidents, as organizations have no way to know when the key was first "
+        "stolen."
+    ),
+    "IAM-030": (
+        "Cross-account trust policies without ExternalId conditions are vulnerable to the "
+        "'confused deputy' attack. Any AWS account that knows the role ARN can assume the "
+        "role by impersonating a trusted service, bypassing all account boundary controls.\n\n"
+        "This enables lateral movement from any AWS account that can discover the role ARN, "
+        "which may be public through CloudTrail logs or AWS Config data."
+    ),
+    "IAM-033": (
+        "Cross-account roles without an ExternalId condition allow any principal from the "
+        "trusted account to assume the role. This expands the attack surface to all "
+        "identities in the partner/vendor account, including potentially compromised ones.\n\n"
+        "In a supply chain attack scenario, a compromised vendor account becomes an "
+        "immediate pivot point into the target environment with no additional exploitation "
+        "required."
+    ),
+    "IAM-040": (
+        "Without restrictive Service Control Policies, any IAM principal with sufficient "
+        "permissions can perform actions that bypass organizational guardrails. This includes "
+        "creating admin users, disabling CloudTrail, or accessing data outside the "
+        "authorized scope.\n\n"
+        "SCPs are the last line of defense against privilege escalation within an AWS "
+        "Organization. Without them, a single compromised account can escalate to "
+        "organization-wide impact."
+    ),
+    "IAM-041": (
+        "Any principal that can assume a role with AdministratorAccess immediately gains "
+        "full account control. This creates a single-hop path to complete account compromise "
+        "— no lateral movement required.\n\n"
+        "In a PCI DSS context, overly privileged roles violate the principle of least "
+        "privilege and expand the attack surface of the Cardholder Data Environment "
+        "significantly."
+    ),
+    "IAM-043": (
+        "Roles trusting AWS services without ExternalId or condition-based restrictions are "
+        "vulnerable to confused deputy attacks. An attacker who can invoke the trusted "
+        "service (e.g., Lambda, EC2) from any account can force it to assume the role on "
+        "their behalf.\n\n"
+        "This is particularly dangerous for roles used by compute services (Lambda, ECS), "
+        "as the attacker only needs code execution in any function/container invoking that "
+        "service role to pivot to the role's permissions."
+    ),
+    # ── RECON ────────────────────────────────────────────────────────────────
+    "RECON-002": (
+        "An unauthenticated attacker can invoke API Gateway endpoints directly, bypassing "
+        "all authentication controls. This enables reconnaissance of backend logic, data "
+        "extraction, and potentially business logic abuse without any credentials.\n\n"
+        "In a payment processing context, unauthenticated API access to payment or "
+        "transaction endpoints could expose customer financial data or allow unauthorized "
+        "payment operations directly from the internet."
+    ),
+    "RECON-003": (
+        "Elastic IPs attached to running instances expose those instances directly to the "
+        "internet with a static, discoverable address. Combined with overly permissive "
+        "security groups, this creates a direct attack surface for port scanning, "
+        "exploitation, and brute-force attacks.\n\n"
+        "Static IPs also appear in DNS records and certificate transparency logs, making "
+        "them trivially discoverable by attackers."
+    ),
+    "RECON-005": (
+        "Public Lambda Function URLs bypass API Gateway authentication and WAF inspection. "
+        "Any code deployed at a public Lambda URL is directly reachable from the internet "
+        "without any AWS authentication mechanism.\n\n"
+        "Unauthenticated Lambda URLs are a common misconfiguration vector — if the function "
+        "processes sensitive data or has broad IAM permissions, the exposure is equivalent "
+        "to an unauthenticated admin API endpoint."
+    ),
+    "RECON-007": (
+        "Load balancers without WAF protection are exposed to OWASP Top 10 web attacks "
+        "including SQL injection, XSS, and request flooding. Without a WAF, there is no "
+        "layer 7 defense to block malicious payloads before they reach the application.\n\n"
+        "For PCI DSS compliance, WAF protection is mandatory for all web-facing components "
+        "of the Cardholder Data Environment (Requirement 6.4.1)."
+    ),
+    "RECON-015": (
+        "A high attack surface score indicates multiple exposed services with insufficient "
+        "controls. Each exposed service is an independent attack vector — the compound risk "
+        "of multiple simultaneous exposure findings significantly increases the probability "
+        "of successful initial access.\n\n"
+        "Attackers targeting the organization have multiple entry points to probe, increasing "
+        "the likelihood of finding an exploitable vulnerability in at least one service."
+    ),
+    # ── EXPOSURE ─────────────────────────────────────────────────────────────
+    "EXP-013": (
+        "S3 buckets without enforced TLS encryption allow data in transit to be intercepted "
+        "via man-in-the-middle attacks on any network path between clients and S3. For "
+        "buckets containing sensitive data, this enables credential theft, data tampering, "
+        "and session hijacking.\n\n"
+        "PCI DSS Requirement 4.2.1 mandates encryption in transit for all cardholder data."
+    ),
+    "EXP-026": (
+        "Publicly accessible S3 buckets can be enumerated and read by any internet user. "
+        "If the bucket contains sensitive data (backups, logs, application data, PII), "
+        "the attacker has immediate unauthenticated data access.\n\n"
+        "Public S3 bucket misconfigurations account for a large proportion of cloud data "
+        "breaches. The impact ranges from data theft to full credential compromise if the "
+        "bucket contains configuration files or access keys."
+    ),
+    "EXP-028": (
+        "Public EBS snapshots allow any AWS account to create a volume from the snapshot "
+        "and mount it, gaining access to the full disk contents including operating system "
+        "files, application data, credentials, and private keys.\n\n"
+        "This is a critical finding — a single public snapshot can expose all data that "
+        "existed on the disk at snapshot time, including database files, SSH keys, and "
+        "application configuration with embedded secrets."
+    ),
+    # ── VULNS ────────────────────────────────────────────────────────────────
+    "VULN-004": (
+        "Active CVEs with exploits available represent validated, reproducible attack paths "
+        "to the affected instances. Unlike theoretical vulnerabilities, these findings can "
+        "be directly weaponized using publicly available proof-of-concept code.\n\n"
+        "An attacker with network access to the affected instance can achieve code execution, "
+        "privilege escalation, or data exfiltration depending on the specific CVE chain."
+    ),
+    "VULN-006": (
+        "EC2 instances not enrolled in AWS Inspector continuous scanning have no automated "
+        "vulnerability detection. Unscanned instances may have critical vulnerabilities that "
+        "have been present for months without generating alerts.\n\n"
+        "Without Inspector coverage, the organization has no visibility into the "
+        "exploitability posture of its compute fleet, making remediation prioritization "
+        "impossible."
+    ),
+    "VULN-008": (
+        "HIGH severity findings without a documented remediation plan represent accepted "
+        "risk without controls. Attackers can exploit these vulnerabilities knowing that "
+        "no mitigation is in place and no timeline for remediation exists.\n\n"
+        "In a PCI DSS context, unmitigated HIGH findings without compensating controls "
+        "or documented risk acceptance violate Requirement 6.3.3 (all security "
+        "vulnerabilities ranked)."
+    ),
+    "VULN-026": (
+        "Terraform state files contain plaintext infrastructure secrets including database "
+        "passwords, API keys, and service credentials embedded in resource definitions. "
+        "An attacker with S3 read access can immediately obtain all credentials used during "
+        "the last `terraform apply`.\n\n"
+        "This finding has been exploited in the wild — it provides a direct path to lateral "
+        "movement across all services whose credentials appear in the state file, without "
+        "requiring any additional exploitation."
+    ),
+    "VULN-GD-001": (
+        "GuardDuty disabled means no automated threat detection for the account. Malicious "
+        "activity including credential abuse, C2 communication, crypto-mining, and data "
+        "exfiltration will go undetected until manually discovered.\n\n"
+        "Without GuardDuty, the mean time to detect (MTTD) for active intrusions increases "
+        "dramatically. In a PCI DSS environment, lack of automated intrusion detection "
+        "violates Requirement 10.7 (detect and report failures of critical security "
+        "controls)."
+    ),
+    # ── NETWORK ──────────────────────────────────────────────────────────────
+    "NET-EGR-001": (
+        "Security groups with unrestricted egress (0.0.0.0/0 on all protocols) allow "
+        "compromised instances to communicate with any external host. This enables "
+        "data exfiltration, C2 beaconing, and lateral movement to other AWS services "
+        "or internet endpoints without restriction.\n\n"
+        "Unrestricted egress significantly increases the post-exploitation impact of any "
+        "initial access — an attacker who gains code execution on one instance can "
+        "immediately reach all other network destinations."
+    ),
+    "NET-007": (
+        "Security groups allowing unrestricted inbound access (0.0.0.0/0) on sensitive "
+        "ports expose services directly to the internet. This eliminates the network "
+        "perimeter as a defense layer, relying entirely on application-level authentication "
+        "to prevent unauthorized access.\n\n"
+        "Internet-facing management ports (SSH/22, RDP/3389) are continuously scanned by "
+        "automated attack infrastructure and are typically exploited within hours of "
+        "becoming public."
+    ),
+}
+
+
 def run_pre_checks(
     skill_name: str, evidence: Dict[str, Any], checklist: Dict[str, Any]
 ) -> List[PreCheckResult]:

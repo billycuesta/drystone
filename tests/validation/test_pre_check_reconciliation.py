@@ -193,6 +193,43 @@ class TestNonPreCheckedFindingsPreserved:
         assert "IAM-007" in ids
 
 
+class TestPreCheckImpactInjection:
+    """G3: Pre-check FAIL findings get impact narrative from PRE_CHECK_IMPACTS."""
+
+    def test_injected_finding_has_impact_when_defined(self):
+        """IAM-001 FAIL → injected finding should have impact text."""
+        skill = ConcreteSkill()
+        findings = _make_skill_findings([])
+        pre_checks = [
+            PreCheckResult("IAM-001", "FAIL", "AccountMFAEnabled=0"),
+        ]
+
+        result = skill._reconcile_with_pre_checks(findings, pre_checks, CHECKLIST)
+
+        injected = next((f for f in result.findings if f.id == "IAM-001"), None)
+        assert injected is not None
+        assert injected.impact is not None
+        assert "root account" in injected.impact.lower()
+        assert injected.exploitability_status == "validated"
+
+    def test_injected_finding_no_impact_when_not_defined(self):
+        """IAM-020 has no entry in PRE_CHECK_IMPACTS → impact is None."""
+        skill = ConcreteSkill()
+        findings = _make_skill_findings([])
+        pre_checks = [
+            PreCheckResult("IAM-020", "FAIL", "3 users without groups",
+                           ["arn:aws:iam::*:user/alice"]),
+        ]
+
+        result = skill._reconcile_with_pre_checks(findings, pre_checks, CHECKLIST)
+
+        injected = next((f for f in result.findings if f.id == "IAM-020"), None)
+        assert injected is not None
+        # No entry in PRE_CHECK_IMPACTS for IAM-020, so impact should be None
+        assert injected.impact is None
+        assert injected.exploitability_status == "validated"
+
+
 class TestSeverityToRisk:
     def test_critical(self):
         assert _severity_to_risk("Critical") == 9.0

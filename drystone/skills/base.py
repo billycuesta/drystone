@@ -438,6 +438,8 @@ class BaseSkill(ABC):
                     else:
                         precheck_description = evidence_line or check_id
 
+                    from drystone.validation.pre_checks import PRE_CHECK_IMPACTS
+
                     finding = Finding(
                         id=check_id,
                         severity=item.get("severity", "Medium"),
@@ -450,6 +452,7 @@ class BaseSkill(ABC):
                         evidence_snippet=evidence_snippet,
                         cis_reference=item.get("cis_reference") or item.get("cis_id"),
                         exploitability_status="validated",
+                        impact=PRE_CHECK_IMPACTS.get(check_id),
                     )
                     findings.findings.append(finding)
                     injected += 1

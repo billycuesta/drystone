@@ -213,6 +213,171 @@ def suggest_aws_cli_commands(
             return f"aws sns get-topic-attributes --topic-arn arn:aws:sns:{region}:{account_id}:OpsGenie"
         return ""
 
+    def _first_resource_name(arns: List[str], service: str, rtype: str = "") -> str:
+        """Extract resource name from first matching ARN."""
+        for arn in arns:
+            info = extract_resource_name(str(arn))
+            if not info or info.get("service") != service:
+                continue
+            if rtype and info.get("type") != rtype:
+                continue
+            return info.get("name", "")
+        return ""
+
+    def _iam_finding_specific(fid: str, res: List[str]) -> List[str]:
+        """Per-finding-id commands for IAM checks."""
+        fid = fid.strip().upper()
+        role_name = _first_resource_name(res, "iam", "role") or "<role-name>"
+        user_name = _first_resource_name(res, "iam", "user") or "<user-name>"
+
+        if fid == "IAM-001":
+            return [
+                "aws iam get-account-summary",
+                "aws iam list-mfa-devices --user-name root",
+            ]
+        if fid in ("IAM-002", "IAM-003"):
+            return [
+                "aws iam generate-credential-report",
+                "aws iam get-credential-report",
+                f"aws iam list-mfa-devices --user-name {user_name}",
+            ]
+        if fid == "IAM-004":
+            return [
+                f"aws iam list-access-keys --user-name {user_name}",
+                "aws iam generate-credential-report && aws iam get-credential-report",
+            ]
+        if fid in ("IAM-030", "IAM-033"):
+            return [
+                f"aws iam get-role --role-name {role_name}",
+                "aws iam list-roles | jq '.Roles[] | select(.AssumeRolePolicyDocument)'",
+            ]
+        if fid in ("IAM-041", "IAM-042"):
+            return [
+                f"aws iam list-attached-role-policies --role-name {role_name}",
+                "aws iam list-roles | jq '.Roles[] | select(.RoleName)' | head -20",
+            ]
+        if fid == "IAM-043":
+            return [
+                f"aws iam get-role --role-name {role_name}",
+                "aws iam list-roles | jq '.Roles[].AssumeRolePolicyDocument'",
+            ]
+        if fid == "IAM-040":
+            return [
+                "aws organizations list-policies --filter SERVICE_CONTROL_POLICY",
+                "aws organizations describe-policy --policy-id <policy-id>",
+            ]
+        return []
+
+    def _recon_finding_specific(fid: str, res: List[str]) -> List[str]:
+        """Per-finding-id commands for RECON checks."""
+        fid = fid.strip().upper()
+        if fid == "RECON-002":
+            api_id = _first_resource_name(res, "apigateway") or "<api-id>"
+            return [
+                f"aws apigateway get-rest-apis --region {region}",
+                f"aws apigateway get-stages --rest-api-id {api_id} --region {region}",
+            ]
+        if fid == "RECON-003":
+            return [
+                f"aws ec2 describe-addresses --region {region}",
+                f"aws ec2 describe-instances --filters Name=instance-state-name,Values=running --region {region}",
+            ]
+        if fid == "RECON-004":
+            return [
+                "aws route53 list-hosted-zones",
+                "aws route53 list-resource-record-sets --hosted-zone-id <zone-id>",
+            ]
+        if fid == "RECON-005":
+            func = _first_resource_name(res, "lambda", "function") or "<function-name>"
+            return [
+                f"aws lambda list-functions --region {region}",
+                f"aws lambda get-function-url-config --function-name {func} --region {region}",
+            ]
+        if fid in ("RECON-006", "RECON-015"):
+            return [
+                "aws cloudfront list-distributions",
+                f"aws cloudfront get-distribution-config --id <dist-id>",
+            ]
+        if fid in ("RECON-007", "RECON-011"):
+            return [
+                f"aws elbv2 describe-load-balancers --region {region}",
+                f"aws elbv2 describe-listeners --load-balancer-arn <alb-arn> --region {region}",
+            ]
+        return []
+
+    def _exposure_finding_specific(fid: str, res: List[str]) -> List[str]:
+        """Per-finding-id commands for EXPOSURE checks."""
+        fid = fid.strip().upper()
+        # Normalize S3 ARN: arn:aws:s3:::bucket-name
+        bucket = ""
+        for arn in res:
+            info = extract_resource_name(str(arn))
+            if info.get("service") == "s3":
+                bucket = info.get("type") or info.get("name") or ""
+                break
+        bucket = bucket or "<bucket-name>"
+
+        if fid in ("EXP-013", "EXP-014", "EXP-015"):
+            return [
+                f"aws s3api get-bucket-policy --bucket {bucket}",
+                f"aws s3api get-bucket-acl --bucket {bucket}",
+            ]
+        if fid == "EXP-026":
+            return [
+                f"aws s3api get-bucket-public-access-block --bucket {bucket}",
+                "aws s3api list-buckets",
+            ]
+        if fid in ("EXP-028", "EXP-029"):
+            return [
+                f"aws ec2 describe-snapshots --owner-ids self --region {region}",
+                f"aws ec2 describe-snapshot-attribute --snapshot-id <snap-id> --attribute createVolumePermission --region {region}",
+            ]
+        return []
+
+    def _vuln_finding_specific(fid: str, res: List[str]) -> List[str]:
+        """Per-finding-id commands for VULNS checks."""
+        fid = fid.strip().upper()
+        if fid == "VULN-026":
+            bucket = ""
+            for arn in res:
+                info = extract_resource_name(str(arn))
+                if info.get("service") == "s3":
+                    bucket = info.get("type") or info.get("name") or ""
+                    break
+            bucket = bucket or "<bucket-name>"
+            return [
+                f"aws s3 ls s3://{bucket}/ --region {region}",
+                f"aws s3api get-bucket-policy --bucket {bucket}",
+            ]
+        if fid in ("VULN-004", "VULN-008", "VULN-009"):
+            return [
+                f"aws inspector2 list-findings --region {region}",
+                f"aws inspector2 get-findings-statistics --region {region}",
+            ]
+        if fid in ("VULN-006", "VULN-007"):
+            return [
+                f"aws inspector2 list-coverage --region {region}",
+                f"aws ec2 describe-instances --region {region}",
+            ]
+        if fid in ("VULN-GD-001", "VULN-GD-002"):
+            return [
+                f"aws guardduty list-detectors --region {region}",
+                f"aws guardduty get-detector --detector-id <detector-id> --region {region}",
+            ]
+        return []
+
+    def _finding_specific_commands(fid: str, res: List[str]) -> List[str]:
+        """Dispatcher: route to per-skill per-finding-id helpers."""
+        if skill == "iam":
+            return _iam_finding_specific(fid, res)
+        if skill == "recon":
+            return _recon_finding_specific(fid, res)
+        if skill == "exposure":
+            return _exposure_finding_specific(fid, res)
+        if skill == "vulns":
+            return _vuln_finding_specific(fid, res)
+        return []
+
     # Smart per-finding commands for Secrets Manager checks.
     def _secretsmanager_specific(fid: str) -> List[str]:
         fid = fid.strip().upper()
@@ -289,8 +454,14 @@ def suggest_aws_cli_commands(
                 commands.append(cmd)
                 seen.add(cmd)
 
+    # Per-finding-id commands (IAM, RECON, EXPOSURE, VULNS, SECRETSMANAGER)
     if skill == "secretsmanager":
         for cmd in _secretsmanager_specific(finding_id):
+            if cmd not in seen:
+                commands.append(cmd)
+                seen.add(cmd)
+    elif finding_id:
+        for cmd in _finding_specific_commands(finding_id, affected_resources or []):
             if cmd not in seen:
                 commands.append(cmd)
                 seen.add(cmd)
