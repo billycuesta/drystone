@@ -980,6 +980,66 @@
       ]
     },
     {
+      "id": "IAM-042",
+      "cis_id": "N/A",
+      "title": "Customer-managed policies with privilege escalation permissions without MFA condition",
+      "severity": "Critical",
+      "description": "Policies granting iam:CreateAccessKey, iam:AttachRolePolicy, iam:PassRole, iam:CreateLoginProfile, or similar escalation permissions without requiring aws:MultiFactorAuthPresent:true allow any compromised session to self-escalate to admin. These are documented MITRE ATT&CK privilege escalation paths.",
+      "evidence_files": [
+        "policies.json"
+      ],
+      "check_keywords": [
+        "iam:CreateAccessKey",
+        "iam:AttachRolePolicy",
+        "iam:PassRole",
+        "iam:CreateLoginProfile",
+        "iam:UpdateLoginProfile",
+        "aws:MultiFactorAuthPresent"
+      ],
+      "remediation": "Add a Condition block requiring aws:MultiFactorAuthPresent: 'true' to any statement granting IAM write permissions. Alternatively, restrict the Resource to specific ARNs to eliminate the broad escalation vector.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "Access to sensitive functions (IAM management) must be restricted. Unrestricted iam:CreateAccessKey allows a compromised low-privilege identity to create admin credentials without MFA."
+        },
+        {
+          "control": "8.4.1",
+          "reason": "MFA must be required for all non-console access to sensitive administrative functions, including IAM credential management."
+        },
+        {
+          "control": "10.2.1.3",
+          "reason": "Privilege escalation events must be detectable. Policies without MFA gates allow silent escalation that may not trigger alerting."
+        }
+      ]
+    },
+    {
+      "id": "IAM-043",
+      "cis_id": "N/A",
+      "title": "Service trust policies vulnerable to Confused Deputy attack (missing aws:SourceAccount)",
+      "severity": "High",
+      "description": "IAM roles with Service principals (e.g. lambda.amazonaws.com, glue.amazonaws.com) in their trust policy but without aws:SourceAccount or aws:SourceArn conditions are vulnerable to the Confused Deputy attack. A malicious service in another AWS account can request AssumeRole on the role, gaining its permissions.",
+      "evidence_files": [
+        "roles.json"
+      ],
+      "check_keywords": [
+        "Principal.Service",
+        "aws:SourceAccount",
+        "aws:SourceArn",
+        "confused deputy"
+      ],
+      "remediation": "Add a Condition block to service trust statements with aws:SourceAccount (required) and aws:SourceArn (recommended). Example: {\"Condition\": {\"StringEquals\": {\"aws:SourceAccount\": \"<account-id>\"}}}. AWS documentation provides service-specific examples.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "Access to AWS roles must be restricted to authorized entities. Service trust policies without source conditions allow cross-account service abuse."
+        },
+        {
+          "control": "6.5.6",
+          "reason": "All public-facing components must be protected. Confused Deputy vulnerabilities in service roles expose internal infrastructure to external account abuse."
+        }
+      ]
+    },
+    {
       "id": "IAM-041",
       "cis_id": "N/A",
       "title": "Roles with AdministratorAccess or PowerUserAccess attached",
@@ -1011,8 +1071,8 @@
       ]
     }
   ],
-  "version": "2.5",
-  "total_checks": 41,
+  "version": "2.6",
+  "total_checks": 43,
   "last_updated": "2026-03-13",
   "notes": "Expanded checklist covers CIS AWS Foundations v1.5.0 + AWS Security Best Practices. Includes critical, high, medium, and low severity items. Mapped to PCI DSS v4.0 controls."
 }

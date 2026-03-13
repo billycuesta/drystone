@@ -403,6 +403,37 @@
           "reason": "Broad wildcard routing without authentication violates least privilege and increases unauthorized-access paths."
         }
       ]
+    },
+    {
+      "id": "EXP-023",
+      "title": "Resource-based policies with unrestricted Principal:* (SQS, SNS, OpenSearch, ECR, Secrets Manager)",
+      "severity": "Critical",
+      "description": "Managed AWS services (SQS queues, SNS topics, OpenSearch domains, ECR repositories, Secrets Manager secrets) with resource-based policies that allow any AWS identity (Principal: *) without conditions scoping access to a specific account, VPC, or organization are effectively public. Any AWS identity — including from other accounts — can perform the allowed actions.",
+      "evidence_files": [
+        "resource-based-policies.json"
+      ],
+      "check_keywords": [
+        "Principal",
+        "*",
+        "aws:SourceAccount",
+        "aws:PrincipalOrgID",
+        "aws:SourceVpc"
+      ],
+      "remediation": "Replace Principal:* with explicit account-scoped principals or add condition keys: aws:SourceAccount, aws:PrincipalOrgID, or aws:SourceVpc. For cross-account use cases, specify the exact consumer account ARN instead of *.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "Access to system components must be restricted based on job classification and function. Principal:* grants unrestricted access violating least privilege."
+        },
+        {
+          "control": "3.3.1",
+          "reason": "Sensitive data in services like Secrets Manager and SQS must be protected from unauthorized disclosure. Open resource policies expose data to any AWS identity."
+        },
+        {
+          "control": "1.3.2",
+          "reason": "Inbound traffic to sensitive system components must be restricted to authorized sources. Resource-based policies with Principal:* bypass network controls."
+        }
+      ]
     }
   ],
   "notes": "Generated based on aws-exposure-checklist.md and mapped against PCI DSS v4.0 controls."

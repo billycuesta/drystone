@@ -16,6 +16,130 @@ if TYPE_CHECKING:
     from drystone.agent.client import AgentClient
 
 
+def _collect_resource_based_policies(client_kwargs: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Collect resource-based policies from multiple AWS services.
+
+    Checks: SQS queues, SNS topics, Secrets Manager secrets, ECR repositories, OpenSearch domains.
+    Saves resource ARN, service type, and raw policy document for EXP-023 analysis.
+    Gracefully skips services that are inaccessible (AccessDenied) or not deployed.
+    """
+    out: List[Dict[str, Any]] = []
+
+    # --- SQS ---
+    try:
+        sqs = boto3.client("sqs", **client_kwargs)
+        queues_resp = sqs.list_queues()
+        for url in (queues_resp.get("QueueUrls") or []):
+            try:
+                attrs = sqs.get_queue_attributes(QueueUrl=url, AttributeNames=["QueueArn", "Policy"])
+                policy = attrs.get("Attributes", {}).get("Policy")
+                if policy:
+                    out.append({
+                        "Service": "sqs",
+                        "ResourceArn": attrs.get("Attributes", {}).get("QueueArn", url),
+                        "ResourceId": url.split("/")[-1],
+                        "Policy": policy,
+                    })
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    # --- SNS ---
+    try:
+        sns = boto3.client("sns", **client_kwargs)
+        paginator = sns.get_paginator("list_topics")
+        for page in paginator.paginate():
+            for topic in (page.get("Topics") or []):
+                arn = topic.get("TopicArn", "")
+                try:
+                    attrs = sns.get_topic_attributes(TopicArn=arn)
+                    policy = attrs.get("Attributes", {}).get("Policy")
+                    if policy:
+                        out.append({
+                            "Service": "sns",
+                            "ResourceArn": arn,
+                            "ResourceId": arn.split(":")[-1],
+                            "Policy": policy,
+                        })
+                except Exception:
+                    continue
+    except Exception:
+        pass
+
+    # --- Secrets Manager ---
+    try:
+        sm = boto3.client("secretsmanager", **client_kwargs)
+        paginator = sm.get_paginator("list_secrets")
+        for page in paginator.paginate():
+            for secret in (page.get("SecretList") or []):
+                arn = secret.get("ARN", "")
+                name = secret.get("Name", "")
+                try:
+                    resp = sm.get_resource_policy(SecretId=arn)
+                    policy = resp.get("ResourcePolicy")
+                    if policy:
+                        out.append({
+                            "Service": "secretsmanager",
+                            "ResourceArn": arn,
+                            "ResourceId": name,
+                            "Policy": policy,
+                        })
+                except Exception:
+                    continue
+    except Exception:
+        pass
+
+    # --- ECR ---
+    try:
+        ecr = boto3.client("ecr", **client_kwargs)
+        paginator = ecr.get_paginator("describe_repositories")
+        for page in paginator.paginate():
+            for repo in (page.get("repositories") or []):
+                arn = repo.get("repositoryArn", "")
+                name = repo.get("repositoryName", "")
+                try:
+                    resp = ecr.get_repository_policy(repositoryName=name)
+                    policy = resp.get("policyText")
+                    if policy:
+                        out.append({
+                            "Service": "ecr",
+                            "ResourceArn": arn,
+                            "ResourceId": name,
+                            "Policy": policy,
+                        })
+                except ecr.exceptions.RepositoryPolicyNotFoundException:
+                    continue
+                except Exception:
+                    continue
+    except Exception:
+        pass
+
+    # --- OpenSearch (resource-based policy via AccessPolicies) ---
+    try:
+        os_client = boto3.client("opensearch", **client_kwargs)
+        names_resp = os_client.list_domain_names()
+        for entry in (names_resp.get("DomainNames") or []):
+            dn = entry.get("DomainName", "")
+            try:
+                detail = os_client.describe_domain(DomainName=dn).get("DomainStatus", {})
+                policy = detail.get("AccessPolicies")
+                arn = detail.get("ARN", f"arn:aws:es:*:*:domain/{dn}")
+                if policy:
+                    out.append({
+                        "Service": "opensearch",
+                        "ResourceArn": arn,
+                        "ResourceId": dn,
+                        "Policy": policy,
+                    })
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    return out
+
+
 class ExposureSkill(BaseSkill):
     """Public exposure audit skill - identifies resources exposed to internet."""
 
@@ -629,6 +753,14 @@ class ExposureSkill(BaseSkill):
             _save(evidence_path / "elasticsearch-domains.json", {"items": domains_out})
         except Exception as e:
             print(f"    Warning: Could not collect Elasticsearch/OpenSearch domains: {e}")
+
+        # === RESOURCE-BASED POLICIES ===
+        print("  Collecting resource-based policies (SQS, SNS, OpenSearch, ECR, Secrets Manager)...")
+        try:
+            rbp_items = _collect_resource_based_policies(client_kwargs)
+            _save(evidence_path / "resource-based-policies.json", {"items": rbp_items})
+        except Exception as e:
+            print(f"    Warning: Could not collect resource-based policies: {e}")
 
         # Persist audit metadata last so it includes all files.
         _save(evidence_path / "_audit_metadata.json", audit_metadata)

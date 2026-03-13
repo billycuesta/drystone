@@ -814,6 +814,103 @@ def check_iam_033(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+def check_iam_043(evidence: Dict[str, Any]) -> PreCheckResult:
+    """IAM-043: Confused Deputy — service trust policies without aws:SourceAccount or aws:SourceArn.
+
+    Roles whose trust policy has a Service principal (e.g. lambda.amazonaws.com) but lacks
+    a condition scoping the caller to a specific account/ARN are vulnerable to the Confused
+    Deputy attack: a malicious service in another account could request AssumeRole on this role.
+
+    Services excluded by design (instance profiles, cross-service internal use):
+      - ec2.amazonaws.com, ecs-tasks.amazonaws.com, eks.amazonaws.com
+      - edgelambda.amazonaws.com (Lambda@Edge, managed by CloudFront)
+    """
+    roles = evidence.get("roles")
+    if not isinstance(roles, list) or not roles:
+        return PreCheckResult("IAM-043", "SKIP", "no roles evidence", [])
+
+    # Services where Confused Deputy condition is not applicable by design
+    _EXCLUDED_SERVICES = {
+        "ec2.amazonaws.com",
+        "ecs-tasks.amazonaws.com",
+        "eks.amazonaws.com",
+        "edgelambda.amazonaws.com",
+        "ec2.amazonaws.com.cn",
+    }
+
+    # Conditions that scope the service call to a specific origin (mitigate confused deputy)
+    _SOURCE_CONDITIONS = {
+        "aws:sourceaccount",
+        "aws:sourcearn",
+        "aws:sourceorgid",
+        "aws:sourceorgpaths",
+    }
+
+    affected_fail: List[str] = []  # No source condition at all
+    affected_warn: List[str] = []  # Has aws:SourceArn but not aws:SourceAccount (weaker)
+
+    for role in roles:
+        if not isinstance(role, dict):
+            continue
+        role_name = str(role.get("RoleName") or "unknown")
+        role_arn = str(role.get("Arn") or f"role/{role_name}")
+        trust = role.get("AssumeRolePolicyDocument")
+        if not isinstance(trust, dict):
+            continue
+
+        for stmt in _stmts_from_policy(trust):
+            if not isinstance(stmt, dict):
+                continue
+            if str(stmt.get("Effect", "")).upper() != "ALLOW":
+                continue
+
+            principal = stmt.get("Principal")
+            if not isinstance(principal, dict):
+                continue
+
+            service_p = principal.get("Service")
+            services: List[str] = (
+                [service_p] if isinstance(service_p, str) else service_p
+                if isinstance(service_p, list)
+                else []
+            )
+
+            # Filter out excluded services
+            relevant = [s for s in services if s not in _EXCLUDED_SERVICES]
+            if not relevant:
+                continue
+
+            cond = stmt.get("Condition") or {}
+            cond_text = json.dumps(cond, default=str).lower()
+
+            has_source_cond = any(k in cond_text for k in _SOURCE_CONDITIONS)
+            has_account_cond = "aws:sourceaccount" in cond_text
+
+            if not has_source_cond:
+                # No scope restriction at all → Confused Deputy risk
+                label = f"{role_arn} (service: {', '.join(relevant[:2])})"
+                if label not in affected_fail:
+                    affected_fail.append(label)
+                break  # one violation per role
+            # has_source_cond=True (SourceAccount, SourceArn, or SourceOrgId) → sufficient
+
+    if not affected_fail and not affected_warn:
+        return PreCheckResult(
+            "IAM-043",
+            "PASS",
+            "all service trust policies have aws:SourceAccount, aws:SourceArn, or aws:SourceOrgID conditions",
+            [],
+        )
+
+    all_affected = affected_fail + affected_warn
+    count_fail = len(affected_fail)
+    summary_parts = []
+    if count_fail:
+        summary_parts.append(f"{count_fail} role(s) with service trust and no source-scoping condition")
+    return PreCheckResult("IAM-043", "FAIL", "; ".join(summary_parts), all_affected[:10])
+
+
+@_register("iam")
 def check_iam_034(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM policies should not allow IdP takeover actions broadly."""
     pols = evidence.get("policies")
@@ -1307,6 +1404,121 @@ def check_iam_041(evidence: Dict[str, Any]) -> PreCheckResult:
         "FAIL",
         f"{len(affected_warn)} role(s) with wildcard inline policies (Action:*/Resource:*)",
         affected_warn[:10],
+    )
+
+
+@_register("iam")
+def check_iam_042(evidence: Dict[str, Any]) -> PreCheckResult:
+    """IAM-042: Privilege escalation paths via dangerous IAM permissions without MFA condition.
+
+    Detects policies granting escalation-capable permissions (based on Rhino Security Labs taxonomy)
+    without requiring aws:MultiFactorAuthPresent:true. These permissions allow a low-privilege
+    identity to elevate to admin without additional authentication.
+
+    Escalation categories:
+      - Credential creation: iam:CreateAccessKey, iam:CreateLoginProfile, iam:UpdateLoginProfile
+      - Policy attachment: iam:AttachUserPolicy, iam:AttachRolePolicy, iam:AttachGroupPolicy
+      - Policy modification: iam:PutUserPolicy, iam:PutRolePolicy, iam:PutGroupPolicy
+      - Role passing: iam:PassRole (combined with other services = privilege escalation vector)
+      - MFA bypass: iam:CreateVirtualMFADevice without scoped resource
+    """
+    policies = evidence.get("policies")
+    if not isinstance(policies, list) or not policies:
+        return PreCheckResult("IAM-042", "SKIP", "no policies evidence", [])
+
+    # Escalation permissions — must be checked with broad Resource scope
+    _ESCALATION_PERMS = {
+        "iam:createaccesskey",
+        "iam:createloginprofile",
+        "iam:updateloginprofile",
+        "iam:attachuserpolicy",
+        "iam:attachrolepolicy",
+        "iam:attachgrouppolicy",
+        "iam:putuserpolicy",
+        "iam:putrolepolicy",
+        "iam:putgrouppolicy",
+        "iam:passrole",
+        "iam:createvirtualmfadevice",
+    }
+
+    affected: List[str] = []
+
+    for policy in policies:
+        if not isinstance(policy, dict):
+            continue
+
+        policy_arn = str(policy.get("Arn") or policy.get("PolicyName") or "unknown")
+        # Skip AWS-managed policies — we can't change them; focus on customer-managed
+        if policy_arn.startswith("arn:aws:iam::aws:policy/"):
+            continue
+
+        doc = policy.get("PolicyDocument") or {}
+        if isinstance(doc, str):
+            try:
+                doc = json.loads(doc)
+            except Exception:
+                continue
+        if not isinstance(doc, dict):
+            continue
+
+        for stmt in _stmts_from_policy(doc):
+            if not isinstance(stmt, dict):
+                continue
+            if str(stmt.get("Effect", "")).upper() != "ALLOW":
+                continue
+
+            # Check resource scope — only broad resources are dangerous
+            resource = stmt.get("Resource", "")
+            resource_list = [resource] if isinstance(resource, str) else resource
+            has_broad_resource = any(
+                str(r) in ("*", "arn:aws:iam::*:*", "arn:aws:iam:::*") for r in resource_list
+            )
+            if not has_broad_resource:
+                continue
+
+            # Check for escalation actions
+            actions_raw = stmt.get("Action", [])
+            if isinstance(actions_raw, str):
+                actions_raw = [actions_raw]
+            actions_lower = [str(a).lower() for a in actions_raw]
+
+            found_escalation = set()
+            for act in actions_lower:
+                if act == "*" or act == "iam:*":
+                    found_escalation.add(act)
+                elif act in _ESCALATION_PERMS:
+                    found_escalation.add(act)
+
+            if not found_escalation:
+                continue
+
+            # Check if MFA condition is present
+            cond = stmt.get("Condition") or {}
+            cond_text = json.dumps(cond, default=str).lower()
+            has_mfa_cond = (
+                "aws:multifactorauthpresent" in cond_text and '"true"' in cond_text
+            )
+
+            if not has_mfa_cond:
+                label = (
+                    f"{policy_arn} ({', '.join(sorted(found_escalation)[:3])})"
+                )
+                if label not in affected:
+                    affected.append(label)
+                break  # One violation per policy is enough
+
+    if not affected:
+        return PreCheckResult(
+            "IAM-042",
+            "PASS",
+            "no customer-managed policies with unguarded escalation permissions found",
+            [],
+        )
+    return PreCheckResult(
+        "IAM-042",
+        "FAIL",
+        f"{len(affected)} policy(ies) with privilege escalation permissions without MFA condition",
+        affected[:10],
     )
 
 
@@ -3056,6 +3268,102 @@ def check_exp_022(evidence: Dict[str, Any]) -> PreCheckResult:
         "FAIL",
         f"{len(risky)} unauthenticated wildcard API routes",
         risky[:10],
+    )
+
+
+@_register("exposure")
+def check_exp_023(evidence: Dict[str, Any]) -> PreCheckResult:
+    """EXP-023: Resource-based policies with Principal:* without restrictive conditions.
+
+    Detects SQS, SNS, Secrets Manager, ECR, and OpenSearch resources whose resource-based
+    policies allow any AWS identity (Principal: * or Principal.AWS: *) without conditions
+    scoping access to a specific account, VPC, or organization.
+
+    A Principal:* without conditions is analogous to a public S3 bucket — any AWS identity
+    (including from other accounts) can perform the allowed actions.
+    """
+    rbp_doc = evidence.get("resource-based-policies") or {}
+    items = rbp_doc.get("items") if isinstance(rbp_doc, dict) else None
+
+    if not isinstance(items, list):
+        return PreCheckResult("EXP-023", "SKIP", "no resource-based-policies evidence", [])
+
+    if not items:
+        return PreCheckResult(
+            "EXP-023", "PASS", "no resource-based policies found across checked services", []
+        )
+
+    # Conditions that restrict the open Principal:* to a meaningful scope
+    _SCOPE_CONDITIONS = {
+        "aws:sourceaccount",
+        "aws:sourcearn",
+        "aws:principalorgid",
+        "aws:sourceorgid",
+        "aws:sourcevpc",
+        "aws:sourcevpce",
+        "aws:principalaccount",
+    }
+
+    affected: List[str] = []
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+
+        resource_arn = str(item.get("ResourceArn") or item.get("ResourceId") or "unknown")
+        service = str(item.get("Service") or "unknown")
+        policy_raw = item.get("Policy") or ""
+
+        try:
+            policy_doc = json.loads(policy_raw) if isinstance(policy_raw, str) else policy_raw
+        except Exception:
+            continue
+
+        if not isinstance(policy_doc, dict):
+            continue
+
+        for stmt in _stmts_from_policy(policy_doc):
+            if not isinstance(stmt, dict):
+                continue
+            if str(stmt.get("Effect", "")).upper() != "ALLOW":
+                continue
+
+            principal = stmt.get("Principal")
+            # Detect open principal: "*" string or {"AWS": "*"} / {"Service": "*"}
+            is_open_principal = False
+            if principal == "*":
+                is_open_principal = True
+            elif isinstance(principal, dict):
+                aws_p = principal.get("AWS")
+                if aws_p == "*" or (isinstance(aws_p, list) and "*" in aws_p):
+                    is_open_principal = True
+
+            if not is_open_principal:
+                continue
+
+            # Check for scope-restricting conditions
+            cond = stmt.get("Condition") or {}
+            cond_text = json.dumps(cond, default=str).lower()
+            has_scope_cond = any(k in cond_text for k in _SCOPE_CONDITIONS)
+
+            if not has_scope_cond:
+                label = f"{service}:{resource_arn}"
+                if label not in affected:
+                    affected.append(label)
+                break  # one violation per resource
+
+    if not affected:
+        return PreCheckResult(
+            "EXP-023",
+            "PASS",
+            "no resource-based policies with unrestricted Principal:* found",
+            [],
+        )
+    return PreCheckResult(
+        "EXP-023",
+        "FAIL",
+        f"{len(affected)} resource(s) with Principal:* without scope-restricting conditions",
+        affected[:10],
     )
 
 

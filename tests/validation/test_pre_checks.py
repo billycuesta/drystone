@@ -4441,3 +4441,264 @@ class TestPentestPresetSecretsmgr:
         )
         expected = ["recon", "iam", "exposure", "network", "vulns", "secretsmanager"]
         assert config.skills == expected
+
+
+class TestIAM043ConfusedDeputy:
+    """Tests for IAM-043: Service trust policies vulnerable to Confused Deputy."""
+
+    def _run(self, evidence):
+        from drystone.validation.pre_checks import check_iam_043
+        return check_iam_043(evidence)
+
+    def _make_role(self, name, service_principal, conditions=None):
+        stmt = {
+            "Effect": "Allow",
+            "Principal": {"Service": service_principal},
+            "Action": "sts:AssumeRole",
+        }
+        if conditions:
+            stmt["Condition"] = conditions
+        return {
+            "RoleName": name,
+            "Arn": f"arn:aws:iam::123456789012:role/{name}",
+            "AssumeRolePolicyDocument": {"Statement": [stmt]},
+            "AttachedPolicies": [],
+        }
+
+    def test_skip_no_evidence(self):
+        result = self._run({})
+        assert result.check_id == "IAM-043"
+        assert result.status == "SKIP"
+
+    def test_pass_no_service_principals(self):
+        """Roles with only AWS principals (not services) should pass."""
+        result = self._run({
+            "roles": [{
+                "RoleName": "cross-account",
+                "Arn": "arn:aws:iam::123:role/cross",
+                "AssumeRolePolicyDocument": {
+                    "Statement": [{
+                        "Effect": "Allow",
+                        "Principal": {"AWS": "arn:aws:iam::999:root"},
+                        "Action": "sts:AssumeRole",
+                    }]
+                },
+                "AttachedPolicies": [],
+            }]
+        })
+        assert result.status == "PASS"
+
+    def test_pass_excluded_service(self):
+        """ec2.amazonaws.com is excluded by design."""
+        result = self._run({"roles": [self._make_role("ec2-role", "ec2.amazonaws.com")]})
+        assert result.status == "PASS"
+
+    def test_pass_ecs_tasks_excluded(self):
+        """ecs-tasks.amazonaws.com is excluded by design."""
+        result = self._run({"roles": [self._make_role("ecs-role", "ecs-tasks.amazonaws.com")]})
+        assert result.status == "PASS"
+
+    def test_fail_lambda_no_source_condition(self):
+        """Lambda service principal without SourceAccount → FAIL."""
+        result = self._run({"roles": [self._make_role("lambda-role", "lambda.amazonaws.com")]})
+        assert result.status == "FAIL"
+        assert "lambda-role" in result.affected_resources[0]
+
+    def test_pass_lambda_with_source_account(self):
+        result = self._run({"roles": [self._make_role(
+            "lambda-scoped",
+            "lambda.amazonaws.com",
+            conditions={"StringEquals": {"aws:SourceAccount": "123456789012"}},
+        )]})
+        assert result.status == "PASS"
+
+    def test_pass_lambda_with_source_arn(self):
+        result = self._run({"roles": [self._make_role(
+            "lambda-scoped",
+            "lambda.amazonaws.com",
+            conditions={"ArnLike": {"aws:SourceArn": "arn:aws:lambda:us-east-1:123:function:*"}},
+        )]})
+        assert result.status == "PASS"
+
+    def test_fail_glue_no_condition(self):
+        result = self._run({"roles": [self._make_role("glue-role", "glue.amazonaws.com")]})
+        assert result.status == "FAIL"
+
+    def test_fail_multiple_roles(self):
+        result = self._run({
+            "roles": [
+                self._make_role("lambda-role", "lambda.amazonaws.com"),
+                self._make_role("glue-role", "glue.amazonaws.com"),
+                # This one is safe
+                self._make_role(
+                    "safe-role", "sns.amazonaws.com",
+                    conditions={"StringEquals": {"aws:SourceAccount": "123456789012"}},
+                ),
+            ]
+        })
+        assert result.status == "FAIL"
+        assert len(result.affected_resources) == 2
+
+
+class TestIAM042PrivEscalation:
+    """Tests for IAM-042: Privilege escalation paths without MFA condition."""
+
+    def _run(self, evidence):
+        from drystone.validation.pre_checks import check_iam_042
+        return check_iam_042(evidence)
+
+    def _make_policy(self, name, action, resource="*", effect="Allow", conditions=None):
+        stmt = {"Effect": effect, "Action": action, "Resource": resource}
+        if conditions:
+            stmt["Condition"] = conditions
+        return {
+            "Arn": f"arn:aws:iam::123456789012:policy/{name}",
+            "PolicyName": name,
+            "PolicyDocument": {"Version": "2012-10-17", "Statement": [stmt]},
+        }
+
+    def test_skip_no_evidence(self):
+        result = self._run({})
+        assert result.check_id == "IAM-042"
+        assert result.status == "SKIP"
+
+    def test_pass_no_escalation_perms(self):
+        result = self._run({"policies": [
+            self._make_policy("read-only", "s3:GetObject")
+        ]})
+        assert result.status == "PASS"
+
+    def test_pass_aws_managed_policy_skipped(self):
+        """AWS-managed policies should be skipped (we can't change them)."""
+        pol = {
+            "Arn": "arn:aws:iam::aws:policy/PowerUserAccess",
+            "PolicyName": "PowerUserAccess",
+            "PolicyDocument": {"Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]},
+        }
+        result = self._run({"policies": [pol]})
+        assert result.status == "PASS"
+
+    def test_fail_create_access_key_no_mfa(self):
+        result = self._run({"policies": [
+            self._make_policy("dangerous", "iam:CreateAccessKey", resource="*")
+        ]})
+        assert result.status == "FAIL"
+        assert "iam:createaccesskey" in result.affected_resources[0]
+
+    def test_fail_attach_role_policy_no_mfa(self):
+        result = self._run({"policies": [
+            self._make_policy("attacher", "iam:AttachRolePolicy", resource="*")
+        ]})
+        assert result.status == "FAIL"
+
+    def test_pass_create_access_key_with_mfa(self):
+        result = self._run({"policies": [
+            self._make_policy(
+                "mfa-guarded",
+                "iam:CreateAccessKey",
+                conditions={"Bool": {"aws:MultiFactorAuthPresent": "true"}},
+            )
+        ]})
+        assert result.status == "PASS"
+
+    def test_pass_scoped_resource_not_broad(self):
+        """Scoped resource (not *) should not trigger even without MFA."""
+        result = self._run({"policies": [
+            self._make_policy(
+                "scoped",
+                "iam:CreateAccessKey",
+                resource="arn:aws:iam::123456789012:user/specific-user",
+            )
+        ]})
+        assert result.status == "PASS"
+
+    def test_fail_iam_wildcard_no_mfa(self):
+        result = self._run({"policies": [
+            self._make_policy("iam-all", "iam:*", resource="*")
+        ]})
+        assert result.status == "FAIL"
+
+    def test_fail_passrole_no_mfa(self):
+        result = self._run({"policies": [
+            self._make_policy("passer", "iam:PassRole", resource="*")
+        ]})
+        assert result.status == "FAIL"
+
+
+class TestEXP023ResourceBasedPolicies:
+    """Tests for EXP-023: Resource-based policies with unrestricted Principal:*."""
+
+    def _run(self, evidence):
+        from drystone.validation.pre_checks import check_exp_023
+        return check_exp_023(evidence)
+
+    def _make_item(self, service, arn, principal, conditions=None):
+        stmt = {"Effect": "Allow", "Principal": principal, "Action": "*"}
+        if conditions:
+            stmt["Condition"] = conditions
+        import json
+        return {
+            "Service": service,
+            "ResourceArn": arn,
+            "ResourceId": arn.split(":")[-1],
+            "Policy": json.dumps({"Version": "2012-10-17", "Statement": [stmt]}),
+        }
+
+    def test_skip_no_evidence(self):
+        result = self._run({})
+        assert result.check_id == "EXP-023"
+        assert result.status == "SKIP"
+
+    def test_pass_empty_items(self):
+        result = self._run({"resource-based-policies": {"items": []}})
+        assert result.status == "PASS"
+
+    def test_pass_scoped_principal(self):
+        """Principal with specific account ARN should pass."""
+        result = self._run({"resource-based-policies": {"items": [
+            self._make_item("sqs", "arn:aws:sqs:us-east-1:123:myqueue",
+                            "arn:aws:iam::456789012345:root")
+        ]}})
+        assert result.status == "PASS"
+
+    def test_fail_sqs_open_principal_string(self):
+        """Principal: '*' (string) without condition → FAIL."""
+        result = self._run({"resource-based-policies": {"items": [
+            self._make_item("sqs", "arn:aws:sqs:us-east-1:123:myqueue", "*")
+        ]}})
+        assert result.status == "FAIL"
+        assert "sqs" in result.affected_resources[0]
+
+    def test_fail_sqs_open_principal_aws_dict(self):
+        """Principal: {AWS: '*'} without condition → FAIL."""
+        result = self._run({"resource-based-policies": {"items": [
+            self._make_item("sns", "arn:aws:sns:us-east-1:123:mytopic", {"AWS": "*"})
+        ]}})
+        assert result.status == "FAIL"
+
+    def test_pass_open_principal_with_source_account(self):
+        """Principal:* with aws:SourceAccount condition → PASS."""
+        result = self._run({"resource-based-policies": {"items": [
+            self._make_item("secretsmanager", "arn:aws:secretsmanager:us-east-1:123:secret:foo",
+                            "*",
+                            conditions={"StringEquals": {"aws:SourceAccount": "123456789012"}})
+        ]}})
+        assert result.status == "PASS"
+
+    def test_pass_open_principal_with_vpc_condition(self):
+        result = self._run({"resource-based-policies": {"items": [
+            self._make_item("sqs", "arn:aws:sqs:us-east-1:123:queue", "*",
+                            conditions={"StringEquals": {"aws:SourceVpc": "vpc-12345678"}})
+        ]}})
+        assert result.status == "PASS"
+
+    def test_fail_multiple_open_resources(self):
+        result = self._run({"resource-based-policies": {"items": [
+            self._make_item("sqs", "arn:aws:sqs:us-east-1:123:q1", "*"),
+            self._make_item("sns", "arn:aws:sns:us-east-1:123:t1", {"AWS": "*"}),
+            # This one is safe
+            self._make_item("ecr", "arn:aws:ecr:us-east-1:123:repo/safe", "*",
+                            conditions={"StringEquals": {"aws:PrincipalOrgID": "o-abc123"}}),
+        ]}})
+        assert result.status == "FAIL"
+        assert len(result.affected_resources) == 2
