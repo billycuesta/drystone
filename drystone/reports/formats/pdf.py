@@ -52,6 +52,14 @@ class PDFFormatter(BaseFormatter):
 
         return self._replace_placeholders(html_block, self._build_placeholders())
 
+    @staticmethod
+    def _md_bold_to_html(text: str) -> str:
+        """Convert **bold** markdown syntax to HTML <strong> tags.
+
+        Must be called AFTER html.escape() since asterisks are not escaped by html.escape.
+        """
+        return re.sub(r"\*\*([^*\n]+)\*\*", r"<strong>\1</strong>", text)
+
     def _replace_placeholders(self, content: str, values: Dict[str, str]) -> str:
         rendered = content
         for key, value in values.items():
@@ -1104,17 +1112,23 @@ class PDFFormatter(BaseFormatter):
         title = html.escape(str(finding.get("title", "Untitled")))
         severity = html.escape(str(finding.get("severity", "Unknown")))
         risk = float(finding.get("risk_score", 0.0))
-        description = html.escape(str(finding.get("description", ""))).replace("\n\n", "</p><p>")
-        remediation = html.escape(str(finding.get("remediation", ""))).replace("\n\n", "</p><p>")
+        description = self._md_bold_to_html(
+            html.escape(str(finding.get("description", ""))).replace("\n\n", "</p><p>")
+        )
+        remediation = self._md_bold_to_html(
+            html.escape(str(finding.get("remediation", ""))).replace("\n\n", "</p><p>")
+        )
         cis_ref = html.escape(str(finding.get("cis_reference", "N/A")))
 
         raw_impact = finding.get("impact")
         impact_html = ""
         if raw_impact:
-            impact_text = html.escape(str(raw_impact)).replace("\n\n", "</p><p>")
+            impact_text = self._md_bold_to_html(
+                html.escape(str(raw_impact)).replace("\n\n", "</p><p>")
+            )
             impact_html = (
                 "<div class='finding-impact'>"
-                "<h4>Impacto</h4>"
+                "<h4>Impact</h4>"
                 f"<p>{impact_text}</p>"
                 "</div>"
             )
@@ -1196,13 +1210,13 @@ class PDFFormatter(BaseFormatter):
             + f"<h3>[{finding_id}] {title}</h3>"
             + severity_line
             + f"<div class='finding-description'><p>{description}</p></div>"
-            + impact_html
             + "<div class='finding-resources finding-affected'><h4>Affected Resources</h4>"
             + f"<ul class='resource-list'>{res_items}</ul></div>"
             + commands_block
             + evidence_block
             + attack_vector_block
             + exploitation_block
+            + impact_html
             + f"<div class='finding-remediation'><h4>Remediation</h4><p>{remediation}</p></div>"
             + f"<p><strong>CIS Reference:</strong> {cis_ref}</p>"
             + "</div>"
