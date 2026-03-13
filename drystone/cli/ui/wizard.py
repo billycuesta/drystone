@@ -289,7 +289,7 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
 
     # ── Step 2: Skill Selection ───────────────────────────────────
     current_skills = defaults.get("skills", ["iam"])
-    pentest_core = ["recon", "iam", "exposure", "network", "vulns"]
+    pentest_core = ["recon", "iam", "exposure", "network", "vulns", "secretsmanager"]
     if current_skills == pentest_core:
         default_skill = "pentest"
     elif isinstance(current_skills, list) and current_skills:
@@ -472,7 +472,7 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
     current_report_type = defaults.get("report_type", "general")
 
     if selected_skill == "pentest":
-        skills = ["recon", "iam", "exposure", "network", "vulns"]
+        skills = ["recon", "iam", "exposure", "network", "vulns", "secretsmanager"]
         report_type = "pentest"
     else:
         skills = [selected_skill]

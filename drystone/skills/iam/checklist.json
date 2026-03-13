@@ -978,10 +978,41 @@
           "reason": "Authorization-control changes must follow controlled and auditable change management to prevent unauthorized security regression."
         }
       ]
+    },
+    {
+      "id": "IAM-041",
+      "cis_id": "N/A",
+      "title": "Roles with AdministratorAccess or PowerUserAccess attached",
+      "severity": "Critical",
+      "description": "IAM roles with AdministratorAccess or PowerUserAccess policies represent maximum blast radius. Any service or user able to assume these roles gains full or near-full control of the AWS account. This is the most common high-risk finding in real-world audits.",
+      "evidence_files": [
+        "roles.json"
+      ],
+      "check_keywords": [
+        "AdministratorAccess",
+        "PowerUserAccess",
+        "AttachedPolicies",
+        "AssumeRolePolicyDocument"
+      ],
+      "remediation": "Replace AdministratorAccess/PowerUserAccess with scoped least-privilege policies. Document any remaining admin roles with a compensating control justification. Review trust policies to limit which entities can assume the role.",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "Access to system components must be restricted based on job classification and function, following least privilege. Admin policies violate this requirement by granting unrestricted access."
+        },
+        {
+          "control": "7.2.2",
+          "reason": "Privileges assigned to privileged accounts must be managed and monitored. Roles with AdministratorAccess must be explicitly justified and continuously reviewed."
+        },
+        {
+          "control": "8.2.2",
+          "reason": "System/application accounts must be managed with controls that prevent misuse. Over-privileged roles are a primary vector for privilege escalation attacks."
+        }
+      ]
     }
   ],
-  "version": "2.4",
-  "total_checks": 40,
-  "last_updated": "2026-03-02",
+  "version": "2.5",
+  "total_checks": 41,
+  "last_updated": "2026-03-13",
   "notes": "Expanded checklist covers CIS AWS Foundations v1.5.0 + AWS Security Best Practices. Includes critical, high, medium, and low severity items. Mapped to PCI DSS v4.0 controls."
 }

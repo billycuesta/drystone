@@ -4224,3 +4224,220 @@ class TestExploitabilityStatus:
         )
         dumped = f.model_dump(mode="json")
         assert dumped["exploitability_status"] == "theoretical"
+
+
+class TestVULN029ECSTaskSecrets:
+    """Tests for VULN-029: ECS task definitions with hardcoded secrets in env vars."""
+
+    def _run(self, evidence):
+        from drystone.validation.pre_checks import check_vuln_029
+        return check_vuln_029(evidence)
+
+    def test_skip_no_evidence(self):
+        result = self._run({})
+        assert result.check_id == "VULN-029"
+        assert result.status == "SKIP"
+
+    def test_skip_access_denied(self):
+        result = self._run({
+            "ecs-task-env-secrets": {
+                "items": [],
+                "error": "AccessDeniedException: User is not authorized to perform ecs:ListTaskDefinitions",
+            }
+        })
+        assert result.status == "SKIP"
+
+    def test_skip_empty_items(self):
+        result = self._run({
+            "ecs-task-env-secrets": {"items": [], "error": None}
+        })
+        assert result.status == "SKIP"
+
+    def test_pass_no_sensitive_vars(self):
+        result = self._run({
+            "ecs-task-env-secrets": {
+                "items": [
+                    {
+                        "TaskDefinitionArn": "arn:aws:ecs:us-east-1:123456789:task-definition/web:5",
+                        "Family": "web",
+                        "Revision": 5,
+                        "HasSensitiveEnvVars": False,
+                        "ExposedContainers": [],
+                    }
+                ],
+                "error": None,
+            }
+        })
+        assert result.status == "PASS"
+
+    def test_fail_sensitive_env_key_detected(self):
+        result = self._run({
+            "ecs-task-env-secrets": {
+                "items": [
+                    {
+                        "TaskDefinitionArn": "arn:aws:ecs:us-east-1:123456789:task-definition/api:3",
+                        "Family": "api",
+                        "Revision": 3,
+                        "HasSensitiveEnvVars": True,
+                        "ExposedContainers": [
+                            {
+                                "ContainerName": "api",
+                                "SensitiveEnvKeys": ["DB_PASSWORD", "API_SECRET"],
+                                "UsesSecretsManagerRefs": False,
+                            }
+                        ],
+                    }
+                ],
+                "error": None,
+            }
+        })
+        assert result.status == "FAIL"
+        assert "VULN-029" == result.check_id
+        assert len(result.affected_resources) == 1
+        assert "api:3" in result.affected_resources[0]
+
+    def test_fail_multiple_task_definitions(self):
+        result = self._run({
+            "ecs-task-env-secrets": {
+                "items": [
+                    {
+                        "TaskDefinitionArn": "arn:aws:ecs:us-east-1:123:task-definition/svc-a:1",
+                        "HasSensitiveEnvVars": True,
+                        "ExposedContainers": [
+                            {"ContainerName": "a", "SensitiveEnvKeys": ["DB_PASSWORD"], "UsesSecretsManagerRefs": False}
+                        ],
+                    },
+                    {
+                        "TaskDefinitionArn": "arn:aws:ecs:us-east-1:123:task-definition/svc-b:2",
+                        "HasSensitiveEnvVars": False,
+                        "ExposedContainers": [],
+                    },
+                    {
+                        "TaskDefinitionArn": "arn:aws:ecs:us-east-1:123:task-definition/svc-c:3",
+                        "HasSensitiveEnvVars": True,
+                        "ExposedContainers": [
+                            {"ContainerName": "c", "SensitiveEnvKeys": ["API_TOKEN"], "UsesSecretsManagerRefs": False}
+                        ],
+                    },
+                ],
+                "error": None,
+            }
+        })
+        assert result.status == "FAIL"
+        assert len(result.affected_resources) == 2
+
+
+class TestIAM041AdminRoles:
+    """Tests for IAM-041: Roles with AdministratorAccess or PowerUserAccess."""
+
+    def _run(self, evidence):
+        from drystone.validation.pre_checks import check_iam_041
+        return check_iam_041(evidence)
+
+    def _make_role(self, name, attached_arns=None, inline=None, trusted_by=None):
+        trust_stmts = []
+        if trusted_by:
+            trust_stmts.append({"Principal": {"AWS": trusted_by}, "Effect": "Allow", "Action": "sts:AssumeRole"})
+        return {
+            "RoleName": name,
+            "AttachedPolicies": [{"PolicyName": a.split("/")[-1], "PolicyArn": a} for a in (attached_arns or [])],
+            "InlinePolicies": inline or {},
+            "AssumeRolePolicyDocument": {"Statement": trust_stmts},
+        }
+
+    def test_skip_no_evidence(self):
+        result = self._run({})
+        assert result.check_id == "IAM-041"
+        assert result.status == "SKIP"
+
+    def test_pass_no_admin_roles(self):
+        evidence = {
+            "roles": [
+                self._make_role("read-only", ["arn:aws:iam::aws:policy/ReadOnlyAccess"]),
+                self._make_role("s3-writer", ["arn:aws:iam::aws:policy/AmazonS3FullAccess"]),
+            ]
+        }
+        result = self._run(evidence)
+        assert result.status == "PASS"
+
+    def test_fail_administrator_access(self):
+        evidence = {
+            "roles": [
+                self._make_role(
+                    "ops-admin",
+                    ["arn:aws:iam::aws:policy/AdministratorAccess"],
+                    trusted_by="arn:aws:iam::123456789012:user/deploy-bot",
+                )
+            ]
+        }
+        result = self._run(evidence)
+        assert result.status == "FAIL"
+        assert len(result.affected_resources) == 1
+        assert "ops-admin" in result.affected_resources[0]
+
+    def test_fail_power_user_access(self):
+        evidence = {
+            "roles": [
+                self._make_role("power-role", ["arn:aws:iam::aws:policy/PowerUserAccess"])
+            ]
+        }
+        result = self._run(evidence)
+        assert result.status == "FAIL"
+        assert "power-role" in result.affected_resources[0]
+
+    def test_fail_multiple_admin_roles(self):
+        evidence = {
+            "roles": [
+                self._make_role("admin-a", ["arn:aws:iam::aws:policy/AdministratorAccess"]),
+                self._make_role("admin-b", ["arn:aws:iam::aws:policy/PowerUserAccess"]),
+                self._make_role("safe-role", ["arn:aws:iam::aws:policy/ReadOnlyAccess"]),
+            ]
+        }
+        result = self._run(evidence)
+        assert result.status == "FAIL"
+        assert len(result.affected_resources) == 2
+
+    def test_fail_trust_context_included(self):
+        """Trust principal should appear in affected resource label for context."""
+        evidence = {
+            "roles": [
+                self._make_role(
+                    "cicd-role",
+                    ["arn:aws:iam::aws:policy/AdministratorAccess"],
+                    trusted_by="arn:aws:iam::123456789012:root",
+                )
+            ]
+        }
+        result = self._run(evidence)
+        assert result.status == "FAIL"
+        # Label should reference the trust principal
+        assert "trusted by" in result.affected_resources[0]
+
+    def test_pass_empty_roles_list(self):
+        result = self._run({"roles": []})
+        assert result.status == "SKIP"
+
+
+class TestPentestPresetSecretsmgr:
+    """Tests for GAP-007: secretsmanager included in pentest preset."""
+
+    def test_pentest_skill_expands_to_include_secretsmanager(self):
+        from drystone.models.config import WizardConfig
+        config = WizardConfig(
+            client_name="TestClient",
+            aws_access_key_id="AKIAIOSFODNN7EXAMPLE",
+            aws_secret_access_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            skills=["pentest"],
+        )
+        assert "secretsmanager" in config.skills
+
+    def test_pentest_preset_full_list(self):
+        from drystone.models.config import WizardConfig
+        config = WizardConfig(
+            client_name="TestClient",
+            aws_access_key_id="AKIAIOSFODNN7EXAMPLE",
+            aws_secret_access_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            skills=["pentest"],
+        )
+        expected = ["recon", "iam", "exposure", "network", "vulns", "secretsmanager"]
+        assert config.skills == expected

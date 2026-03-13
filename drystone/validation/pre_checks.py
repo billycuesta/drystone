@@ -1221,6 +1221,96 @@ def check_iam_040(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+def check_iam_041(evidence: Dict[str, Any]) -> PreCheckResult:
+    """IAM-041: Roles with AdministratorAccess or PowerUserAccess attached policies."""
+    roles = evidence.get("roles")
+    if not isinstance(roles, list) or not roles:
+        return PreCheckResult("IAM-041", "SKIP", "no roles evidence", [])
+
+    # AWS-managed over-privileged policies
+    admin_policies = {
+        "arn:aws:iam::aws:policy/AdministratorAccess",
+        "arn:aws:iam::aws:policy/PowerUserAccess",
+    }
+
+    affected_fail: List[str] = []  # AdministratorAccess or PowerUserAccess
+    affected_warn: List[str] = []  # Custom policy with Action:*/Resource:*
+
+    for role in roles:
+        if not isinstance(role, dict):
+            continue
+        role_name = str(role.get("RoleName") or "unknown")
+        attached = role.get("AttachedPolicies") or []
+
+        # Check AWS-managed admin policies (deterministic FAIL)
+        for policy in attached:
+            if not isinstance(policy, dict):
+                continue
+            policy_arn = str(policy.get("PolicyArn") or "")
+            if policy_arn in admin_policies:
+                trust = role.get("AssumeRolePolicyDocument", {})
+                # Extract principals that can assume this role (for context)
+                principals: List[str] = []
+                for stmt in (trust.get("Statement") or []):
+                    p = stmt.get("Principal")
+                    if isinstance(p, str):
+                        principals.append(p)
+                    elif isinstance(p, dict):
+                        for v in p.values():
+                            if isinstance(v, list):
+                                principals.extend(v)
+                            elif isinstance(v, str):
+                                principals.append(v)
+                label = role_name
+                if principals:
+                    label = f"{role_name} (trusted by: {', '.join(principals[:2])})"
+                affected_fail.append(label)
+                break  # Don't double-count the role
+
+        # Check custom inline policies with Action:*/Resource:* (WARN)
+        if role_name not in [r.split(" ")[0] for r in affected_fail]:
+            inline_policies = role.get("InlinePolicies") or {}
+            for _pname, doc in (inline_policies.items() if isinstance(inline_policies, dict) else []):
+                if not isinstance(doc, dict):
+                    continue
+                for stmt in (doc.get("Statement") or []):
+                    if not isinstance(stmt, dict):
+                        continue
+                    action = stmt.get("Action", "")
+                    resource = stmt.get("Resource", "")
+                    effect = str(stmt.get("Effect", "")).upper()
+                    if (
+                        effect == "ALLOW"
+                        and action in ("*", ["*"])
+                        and resource in ("*", ["*"])
+                    ):
+                        affected_warn.append(f"{role_name} (inline wildcard policy: {_pname})")
+                        break
+
+    if not affected_fail and not affected_warn:
+        return PreCheckResult(
+            "IAM-041",
+            "PASS",
+            "no roles with AdministratorAccess, PowerUserAccess, or wildcard inline policies",
+            [],
+        )
+
+    if affected_fail:
+        summary = f"{len(affected_fail)} role(s) with AdministratorAccess/PowerUserAccess"
+        if affected_warn:
+            summary += f"; {len(affected_warn)} role(s) with wildcard inline policies"
+        return PreCheckResult("IAM-041", "FAIL", summary, (affected_fail + affected_warn)[:10])
+
+    # Only warns (no AdministratorAccess/PowerUserAccess)
+    return PreCheckResult(
+        "IAM-041",
+        "FAIL",
+        f"{len(affected_warn)} role(s) with wildcard inline policies (Action:*/Resource:*)",
+        affected_warn[:10],
+    )
+
+
+@_register("iam")
 def check_iam_007(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM-007: Inline policies must not be used on IAM roles — use managed policies instead."""
     roles = evidence.get("roles")
@@ -4583,6 +4673,45 @@ def check_vuln_028(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("VULN-028", "PASS", "no public EBS snapshots detected", [])
     return PreCheckResult(
         "VULN-028", "FAIL", f"{len(public_ids)} public EBS snapshots", public_ids[:10]
+    )
+
+
+@_register("vulns")
+def check_vuln_029(evidence: Dict[str, Any]) -> PreCheckResult:
+    """VULN-029: ECS task definitions with hardcoded secrets in environment variables."""
+    ecs_doc = evidence.get("ecs-task-env-secrets") or {}
+    items = ecs_doc.get("items") if isinstance(ecs_doc, dict) else None
+
+    # Access denied or API not available
+    error = ecs_doc.get("error") if isinstance(ecs_doc, dict) else None
+    if error and not items:
+        return PreCheckResult(
+            "VULN-029", "SKIP", f"ECS task definitions not accessible: {str(error)[:100]}", []
+        )
+
+    if not isinstance(items, list) or not items:
+        return PreCheckResult("VULN-029", "SKIP", "no ecs-task-env-secrets evidence", [])
+
+    affected: List[str] = []
+    for td in items:
+        if not isinstance(td, dict):
+            continue
+        if td.get("HasSensitiveEnvVars"):
+            arn = str(td.get("TaskDefinitionArn") or td.get("Family") or "unknown")
+            affected.append(arn)
+
+    if not affected:
+        return PreCheckResult(
+            "VULN-029",
+            "PASS",
+            "no ECS task definitions with sensitive environment variable keys detected",
+            [],
+        )
+    return PreCheckResult(
+        "VULN-029",
+        "FAIL",
+        f"{len(affected)} ECS task definition(s) with sensitive env var keys (potential hardcoded secrets)",
+        affected[:10],
     )
 
 

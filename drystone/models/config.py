@@ -211,9 +211,9 @@ class WizardConfig(BaseModel):
         if "pentest" in v:
             if len(v) > 1:
                 raise ValueError("'pentest' skill cannot be combined with other skills")
-            return ["recon", "iam", "exposure", "network", "vulns"]
+            return ["recon", "iam", "exposure", "network", "vulns", "secretsmanager"]
 
-        pentest_core = ["recon", "iam", "exposure", "network", "vulns"]
+        pentest_core = ["recon", "iam", "exposure", "network", "vulns", "secretsmanager"]
         if len(v) > 1 and v != pentest_core:
             raise ValueError(
                 "Single-skill scans only. Select one skill, or use 'pentest' preset for multi-skill execution."
@@ -255,7 +255,7 @@ class WizardConfig(BaseModel):
         if v == "pentest":
             skills = values.get("skills") or []
             # After validation, preset expands to core skills.
-            if skills != ["recon", "iam", "exposure", "network", "vulns"]:
+            if skills != ["recon", "iam", "exposure", "network", "vulns", "secretsmanager"]:
                 raise ValueError(
                     "report_type='pentest' is only supported with the pentest preset (Recon+IAM+Exposure+Network+Vulns)"
                 )

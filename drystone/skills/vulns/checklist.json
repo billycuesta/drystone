@@ -400,10 +400,33 @@
           "reason": "Snapshot restoration rights must be limited to authorized identities only."
         }
       ]
+    },
+    {
+      "id": "VULN-029",
+      "title": "ECS task definitions with hardcoded secrets in environment variables",
+      "severity": "High",
+      "description": "ECS task definitions store sensitive configuration (passwords, tokens, API keys, credentials) as plaintext environment variables in the containerDefinitions.environment block. Any entity with ecs:DescribeTaskDefinition permission can read these values, and they appear in CloudTrail logs and AWS console.",
+      "evidence_files": ["ecs-task-env-secrets.json"],
+      "check_keywords": ["environment", "sensitive", "secret", "password", "token", "api_key"],
+      "remediation": "Replace plaintext environment variables with AWS Secrets Manager or SSM Parameter Store references using the containerDefinitions.secrets block. Rotate all exposed credentials immediately.",
+      "pci_dss": [
+        {
+          "control": "3.3.1",
+          "reason": "Sensitive authentication data must not be stored in insecure locations. Plaintext secrets in ECS task definitions are readable by any IAM principal with ecs:DescribeTaskDefinition access."
+        },
+        {
+          "control": "6.2.3.a",
+          "reason": "Secure development and deployment practices must prevent embedding secrets in application configuration artifacts such as container task definitions."
+        },
+        {
+          "control": "8.2.1",
+          "reason": "Credential management requires controlled issuance and secure storage, not plaintext values in compute configuration."
+        }
+      ]
     }
   ],
-  "version": "1.3",
-  "total_checks": 26,
-  "last_updated": "2026-02-18",
+  "version": "1.4",
+  "total_checks": 27,
+  "last_updated": "2026-03-13",
   "notes": "Generated based on aws-vuln-skill.md and mapped against PCI DSS v4.0 controls."
 }

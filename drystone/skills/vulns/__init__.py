@@ -395,6 +395,17 @@ class VulnsSkill(BaseSkill):
         except Exception as e:
             logger.error(f"Could not collect GuardDuty status: {e}")
 
+        # === ECS TASK DEFINITION SECRETS ===
+        print("  Collecting ECS task definition environment variables...")
+        try:
+            ecs_data, ecs_error = self._collect_ecs_task_secrets(client_kwargs)
+            self._save_json(
+                evidence_path / "ecs-task-env-secrets.json",
+                {"items": ecs_data, "error": ecs_error},
+            )
+        except Exception as e:
+            logger.error(f"Could not collect ECS task definition secrets: {e}")
+
         print("\n✅ Vulnerability collection complete")
 
     def _collect_guardduty_status(
@@ -695,6 +706,76 @@ class VulnsSkill(BaseSkill):
             return out, None
         except Exception as e:
             return out, str(e)
+
+    def _collect_ecs_task_secrets(
+        self, client_kwargs: Dict[str, Any]
+    ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+        """Collect ECS task definition environment variables for secret exposure analysis.
+
+        Scans active task definitions for hardcoded credentials in the environment[] block.
+        Keys matching common secret patterns (password, token, secret, key, api_key, credential)
+        are flagged — values are never included to avoid leaking secrets in evidence files.
+        """
+        ecs = boto3.client("ecs", **client_kwargs)
+        out: List[Dict[str, Any]] = []
+        # Sensitive key patterns — same list as Lambda env var check (VULN-024)
+        secret_pattern = re.compile(
+            r"(?i)(password|secret|token|api[_\-]?key|credential|access[_\-]?key|auth)",
+        )
+        try:
+            # List all active task definition ARNs (active only, not inactive)
+            arn_list: List[str] = []
+            paginator = ecs.get_paginator("list_task_definitions")
+            for page in paginator.paginate(status="ACTIVE"):
+                arn_list.extend(page.get("taskDefinitionArns", []))
+
+            for arn in arn_list:
+                try:
+                    resp = ecs.describe_task_definition(taskDefinition=arn)
+                    td = resp.get("taskDefinition", {})
+                    containers = td.get("containerDefinitions", [])
+                    exposed_containers: List[Dict[str, Any]] = []
+
+                    for container in containers:
+                        env_vars = container.get("environment", [])  # [{name, value}, ...]
+                        sensitive_keys = [
+                            e["name"]
+                            for e in env_vars
+                            if isinstance(e, dict)
+                            and secret_pattern.search(e.get("name", ""))
+                        ]
+                        if sensitive_keys:
+                            exposed_containers.append(
+                                {
+                                    "ContainerName": container.get("name"),
+                                    "SensitiveEnvKeys": sensitive_keys,
+                                    # Secrets Manager refs are safe to log (not the values)
+                                    "UsesSecretsManagerRefs": bool(
+                                        container.get("secrets", [])
+                                    ),
+                                }
+                            )
+
+                    out.append(
+                        {
+                            "TaskDefinitionArn": arn,
+                            "Family": td.get("family"),
+                            "Revision": td.get("revision"),
+                            "ExposedContainers": exposed_containers,
+                            "HasSensitiveEnvVars": bool(exposed_containers),
+                        }
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not describe task definition {arn}: {e}")
+
+            return out, None
+        except Exception as e:
+            err_str = str(e)
+            if "AccessDeniedException" in err_str or "is not authorized" in err_str:
+                logger.info("ECS task definitions not accessible (AccessDenied)")
+            else:
+                logger.warning(f"Could not collect ECS task definition secrets: {e}")
+            return out, err_str
 
     def _save_json(self, filepath: Path, data):
         """Save data to JSON file with proper datetime serialization."""
