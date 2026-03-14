@@ -27,6 +27,13 @@ class DynamicCorrelationPattern:
     threat_context: ThreatContext
     exploitability: ExploitabilityInfo
     amplification_factor: float = 1.3
+    # Optional: returns the specific findings that triggered this pattern.
+    # Finding-based patterns should implement this so correlations get proper
+    # source_finding_ids, source_findings, and affected_resources.
+    # Evidence-based patterns leave this as None (source_finding_ids stays []).
+    source_finder: Optional[
+        Callable[[Dict[str, List[Finding]], Dict[str, List[Finding]], Dict[str, Any]], List[Finding]]
+    ] = None
 
 
 class PatternRegistry:
@@ -2623,6 +2630,17 @@ def _exposure_api_unauth_mutation_remediation(_: Dict[str, Any]) -> List[str]:
     ]
 
 
+def _find_exposure_api_unauth_mutation(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> List[Finding]:
+    return [
+        f for f in findings_by_skill.get("exposure", [])
+        if f.id in {"EXP-021", "EXP-022"}
+    ]
+
+
 PATTERN_REGISTRY.register(
     DynamicCorrelationPattern(
         id="exposure_api_unauthenticated_mutation_chain",
@@ -2631,6 +2649,7 @@ PATTERN_REGISTRY.register(
         severity="Critical",
         skills_required=["exposure"],
         matcher=_match_exposure_api_unauth_mutation_chain,
+        source_finder=_find_exposure_api_unauth_mutation,
         attack_path_generator=_exposure_api_unauth_mutation_attack_path,
         remediation_generator=_exposure_api_unauth_mutation_remediation,
         threat_context=ThreatContext(
@@ -3052,6 +3071,22 @@ def _recon_apigw_unauth_exfil_remediation(_: Dict[str, Any]) -> List[str]:
     ]
 
 
+def _find_recon_apigw_unauth_to_data_exfil(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> List[Finding]:
+    trigger_recon = [
+        f for f in findings_by_skill.get("recon", [])
+        if f.id in {"RECON-002", "RECON-014"} or "unauthenticated" in f.title.lower()
+    ]
+    trigger_exposure = [
+        f for f in findings_by_skill.get("exposure", [])
+        if f.id.startswith("EXP-") and f.severity in {"Critical", "High"}
+    ]
+    return trigger_recon + trigger_exposure
+
+
 PATTERN_REGISTRY.register(
     DynamicCorrelationPattern(
         id="recon_apigw_unauth_to_data_exfil",
@@ -3064,6 +3099,7 @@ PATTERN_REGISTRY.register(
         severity="Critical",
         skills_required=["recon", "exposure"],
         matcher=_match_recon_apigw_unauth_to_data_exfil,
+        source_finder=_find_recon_apigw_unauth_to_data_exfil,
         attack_path_generator=_recon_apigw_unauth_exfil_attack_path,
         remediation_generator=_recon_apigw_unauth_exfil_remediation,
         threat_context=ThreatContext(
@@ -3480,6 +3516,24 @@ def _recon_public_ip_no_firewall_remediation(_: Dict[str, Any]) -> List[str]:
     ]
 
 
+def _find_recon_public_ip_no_firewall_lateral(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> List[Finding]:
+    trigger_recon = [
+        f for f in findings_by_skill.get("recon", [])
+        if f.id == "RECON-003" or (
+            "elastic" in f.title.lower() and "ip" in f.title.lower()
+        )
+    ]
+    trigger_network = [
+        f for f in findings_by_skill.get("network", [])
+        if f.id in {"NET-007", "NET-EGR-001"} or "firewall" in f.title.lower()
+    ]
+    return trigger_recon + trigger_network
+
+
 PATTERN_REGISTRY.register(
     DynamicCorrelationPattern(
         id="recon_public_ip_no_firewall_lateral",
@@ -3492,6 +3546,7 @@ PATTERN_REGISTRY.register(
         severity="High",
         skills_required=["recon", "network"],
         matcher=_match_recon_public_ip_no_firewall_lateral,
+        source_finder=_find_recon_public_ip_no_firewall_lateral,
         attack_path_generator=_recon_public_ip_no_firewall_path,
         remediation_generator=_recon_public_ip_no_firewall_remediation,
         threat_context=ThreatContext(

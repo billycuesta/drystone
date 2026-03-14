@@ -184,6 +184,44 @@ class CorrelationEngine:
                         findings_by_skill, self._resource_index_cache, evidence_by_skill
                     ):
                         continue
+
+                    # Resolve source findings: use source_finder if available (finding-based
+                    # patterns), otherwise leave empty (evidence-based patterns).
+                    source_findings_list: list = []
+                    if pattern.source_finder is not None:
+                        try:
+                            source_findings_list = pattern.source_finder(
+                                findings_by_skill, self._resource_index_cache, evidence_by_skill
+                            ) or []
+                        except Exception as _sf_err:
+                            logger.warning(
+                                f"source_finder for {pattern.id} failed: {_sf_err}"
+                            )
+
+                    source_ids = sorted({f.id for f in source_findings_list})
+                    source_refs = [
+                        SourceFindingRef(
+                            id=f.id,
+                            skill=f.id.split("-")[0].lower(),
+                            title=f.title,
+                            severity=f.severity,
+                            risk_score=f.risk_score,
+                            contribution_weight=1.0 / max(len(source_findings_list), 1),
+                        )
+                        for f in source_findings_list
+                    ]
+                    affected_resources = list(
+                        {arn for f in source_findings_list for arn in f.affected_resources}
+                    )
+
+                    # Compound risk: use actual finding scores when available, fallback to formula.
+                    if source_findings_list:
+                        compound_risk = self._calculate_compound_risk(
+                            source_findings_list, pattern.amplification_factor
+                        )
+                    else:
+                        compound_risk = min(10.0, 6.5 * pattern.amplification_factor)
+
                     self._corr_counter += 1
                     session_id = self.session_dir.name
                     session_prefix = session_id[:8] if len(session_id) >= 8 else "00000000"
@@ -193,16 +231,14 @@ class CorrelationEngine:
                         id=corr_id,
                         pattern_id=pattern.id,
                         severity=pattern.severity,
-                        compound_risk_score=min(10.0, 6.5 * pattern.amplification_factor),
+                        compound_risk_score=compound_risk,
                         title=pattern.name,
                         description=pattern.description,
                         attack_path=pattern.attack_path_generator(evidence_by_skill),
-                        source_finding_ids=[],
-                        source_findings=[],
-                        affected_resources=[],
-                        remediation_priority=self._get_remediation_priority(
-                            min(10.0, 6.5 * pattern.amplification_factor)
-                        ),
+                        source_finding_ids=source_ids,
+                        source_findings=source_refs,
+                        affected_resources=affected_resources,
+                        remediation_priority=self._get_remediation_priority(compound_risk),
                         remediation_steps=pattern.remediation_generator(evidence_by_skill),
                         cis_reference=None,
                         pci_dss=None,
