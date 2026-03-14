@@ -448,6 +448,18 @@ def audit(
     phase_done += 1
     _print_progress("Analysis complete", phase_done, phase_total)
 
+    # === PHASE 3b: CROSS-SKILL CORRELATION ===
+    if all_findings and len(all_findings) > 1:
+        try:
+            from drystone.correlation.engine import CorrelationEngine
+            _engine = CorrelationEngine(session_dir=session.base_path)
+            _corr_result = _engine.run()
+            _n_chains = _corr_result.get("total_correlations", 0)
+            if _n_chains:
+                click.echo(f"  🔗 {_n_chains} attack chain(s) correlated\n")
+        except Exception as _corr_err:
+            pass  # Non-blocking: report generates with empty chains if correlation fails
+
     # === PHASE 4: REPORT GENERATION ===
     if all_findings:
         click.echo("📄 Generating reports...\n")

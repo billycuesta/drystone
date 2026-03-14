@@ -53,6 +53,7 @@ Extends with skill-specific fields.
       <failure>Invalid JSON structure</failure>
       <failure>Evidence refs not found in collected evidence</failure>
       <failure>Critical severity without critical evidence</failure>
+      <failure>Missing impact field or empty value on any finding</failure>
     </validation_failures_trigger_retry>
   </critical>
 
@@ -184,7 +185,7 @@ Extends with skill-specific fields.
           <field name="risk_score" type="number" range="0.0-10.0"/>
           <field name="title" type="string"/>
           <field name="description" type="string"/>
-          <field name="impact" type="string" description="Business and technical impact (optional but recommended)"/>
+          <field name="impact" type="string" description="Business and technical impact (REQUIRED - exactly 2 paragraphs: (1) attacker technical path, (2) business consequence)"/>
           <field name="evidence_refs" type="array" items="string"/>
           <field name="evidence_snippet" type="object" description="JSON object showing problematic config"/>
           <field name="affected_resources" type="array" items="string" description="ARNs or identifiers"/>
