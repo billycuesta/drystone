@@ -92,6 +92,12 @@ class WizardConfig(BaseModel):
         description="Language used in generated reports",
     )
 
+    # Client context file (optional, enriches reports with business context)
+    client_context_file: Optional[Path] = Field(
+        default=None,
+        description="Path to client-context.md file for report enrichment",
+    )
+
     # Metadata
     created_at: datetime = Field(default_factory=datetime.utcnow)
     non_interactive: bool = Field(default=False)
@@ -308,6 +314,21 @@ class WizardConfig(BaseModel):
         if value not in allowed:
             raise ValueError(f"Invalid scan_depth: {value}. Valid: {sorted(allowed)}")
         return value
+
+    @property
+    def _client_context(self):
+        """Load and cache client context from file if configured."""
+        if not hasattr(self, "_cached_client_context"):
+            if self.client_context_file:
+                try:
+                    from drystone.models.client_context import ClientContext
+
+                    self._cached_client_context = ClientContext.from_file(self.client_context_file)
+                except Exception:
+                    self._cached_client_context = None
+            else:
+                self._cached_client_context = None
+        return self._cached_client_context
 
     def dict_for_json(self) -> dict:
         """Convert to JSON-serializable dict, excluding sensitive credentials if not stored directly."""

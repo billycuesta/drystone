@@ -1182,6 +1182,12 @@ Missing CloudWatch alarm:
 
                 context["SKILL_ADDENDUM"] = format_pre_checks_for_prompt(pre_checks, checklist)
 
+            # Inject client context if available (enriches findings with business context)
+            client_ctx = getattr(self, "_client_context_xml", None)
+            if client_ctx:
+                addendum = context.get("SKILL_ADDENDUM", "")
+                context["SKILL_ADDENDUM"] = addendum + "\n" + client_ctx
+
             # Load and render template
             template = get_audit_template(skill_name, context)
             return template

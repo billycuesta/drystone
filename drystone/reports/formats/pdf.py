@@ -43,6 +43,17 @@ class PDFFormatter(BaseFormatter):
         HTML(string=html_content).write_pdf(str(report_path))
         return report_path
 
+    def _get_client_context(self):
+        """Safely get client context, returning None if not available or mock."""
+        try:
+            ctx = getattr(self.config, "_client_context", None)
+            # Guard against Mock objects in tests — check for a real attribute
+            if ctx is not None and hasattr(ctx, "organization") and isinstance(getattr(ctx, "organization", None), str):
+                return ctx
+        except Exception:
+            pass
+        return None
+
     def _build_html_from_xml_template(self) -> str:
         template_path = Path(__file__).parent.parent / "templates" / "pdf_report.xml"
         root = ET.parse(template_path).getroot()
@@ -105,7 +116,9 @@ class PDFFormatter(BaseFormatter):
             "SCOPE_DEFINITION": self._scope_definition_html(summary, findings),
             "INVENTORY_SECTION": self._inventory_section_html(),
             "INVENTORY_ENV_SECTION": self._inventory_environment_section_html(),
+            "DOCUMENT_CONTROL": self._document_control_html(),
             "EXECUTIVE_NARRATIVE": self._executive_narrative_html(summary),
+            "CONDITIONS_SECTION": self._conditions_section_html(),
             "METHODOLOGY_SECTION": self._methodology_section_html(),
             "SEVERITY_CHART": self._severity_distribution_chart_html(summary),
             "PHASE_FINDINGS_TABLE": self._phase_findings_table_html(findings) if is_pentest else "",
@@ -435,7 +448,7 @@ class PDFFormatter(BaseFormatter):
         )
 
     def _executive_narrative_html(self, summary: Dict[str, Any]) -> str:
-        """Generate narrative executive summary section for PDF reports."""
+        """Generate enriched narrative executive summary section for PDF reports."""
         skill = str(self.findings.get("skill", "unknown")).lower()
         client = html.escape(str(self.session.client_name or "the assessed environment"))
 
@@ -451,6 +464,25 @@ class PDFFormatter(BaseFormatter):
                 skill, f"{self._get_skill_display_name(skill)} security controls and configurations"
             ).rstrip(".")
         )
+
+        # Business context from client context file (if available)
+        business_intro = ""
+        client_context = self._get_client_context()
+        if client_context:
+            biz_text = str(getattr(client_context, "business_context", "") or "").strip()
+            if biz_text:
+                biz = html.escape(biz_text.split("\n")[0])
+                business_intro = f"<p>{biz}</p>"
+
+        # Assessment dates from client context or session
+        dates_html = ""
+        if client_context:
+            ad = getattr(client_context, "assessment_dates", None)
+            if isinstance(ad, dict):
+                start = ad.get("start", "")
+                end = ad.get("end", "")
+            if start and end:
+                dates_html = f"<p style='font-size:10px;color:#6b7280'>Assessment period: {html.escape(start)} to {html.escape(end)}</p>"
 
         if total == 0:
             findings_text = (
@@ -489,14 +521,56 @@ class PDFFormatter(BaseFormatter):
             critical, high, medium, low, risk_score, total
         )
 
-        return (
-            f"<p>This security assessment evaluated the {scope} for <strong>{client}</strong>. "
-            f"{findings_text}</p>"
-            f"<div class='assessment-rating {rating_class}'>"
-            f"<span class='rating-label'>Overall Assessment:</span> "
-            f"<span class='rating-value'>{html.escape(rating_label)}</span>"
-            f"<p class='rating-desc'>{html.escape(rating_desc)}</p>"
+        # Mini risk bar for executive summary
+        colors = ["#16a34a", "#22c55e", "#eab308", "#f97316", "#dc2626"]
+        segments = "".join(
+            f"<div style='flex:1;background:{c};height:12px'></div>" for c in colors
+        )
+        indicator_pct = min(max(risk_score / 10.0 * 100, 0), 100)
+        risk_bar = (
+            f"<div style='position:relative;margin:8px 0'>"
+            f"<div style='display:flex;border-radius:8px;overflow:hidden'>{segments}</div>"
+            f"<div style='position:absolute;top:-2px;left:{indicator_pct:.0f}%;width:3px;height:16px;"
+            f"background:#111827;border-radius:2px'></div>"
             f"</div>"
+        )
+
+        # Top recommendations from critical/high findings
+        top_recs_html = ""
+        findings_list = self.findings.get("findings", [])
+        top_findings = sorted(
+            [f for f in findings_list if f.get("severity") in ("Critical", "High")],
+            key=lambda f: -float(f.get("risk_score", 0.0)),
+        )[:5]
+        if top_findings:
+            rec_items = []
+            for f in top_findings:
+                f = self._normalize_finding_language(f)
+                fid = html.escape(str(f.get("id", "")))
+                title = html.escape(str(f.get("title", "")))
+                sev = str(f.get("severity", "")).lower()
+                rec_items.append(
+                    f"<li><span class='severity-pill severity-{sev}'>"
+                    f"{html.escape(str(f.get('severity', '')))}</span> "
+                    f"<strong>{fid}</strong> — {title}</li>"
+                )
+            top_recs_html = (
+                "<h3 style='margin-top:14px'>Top Recommendations</h3>"
+                f"<ol style='margin:0;padding-left:18px'>{''.join(rec_items)}</ol>"
+            )
+
+        return (
+            business_intro
+            + dates_html
+            + f"<p>This security assessment evaluated the {scope} for <strong>{client}</strong>. "
+            + f"{findings_text}</p>"
+            + risk_bar
+            + f"<div class='assessment-rating {rating_class}'>"
+            + f"<span class='rating-label'>Overall Assessment:</span> "
+            + f"<span class='rating-value'>{html.escape(rating_label)}</span>"
+            + f"<p class='rating-desc'>{html.escape(rating_desc)}</p>"
+            + f"</div>"
+            + top_recs_html
         )
 
     def _scope_definition_html(
@@ -524,6 +598,18 @@ class PDFFormatter(BaseFormatter):
             ("AI Provider", str(getattr(self.config, "ai_provider", "unknown"))),
             ("AI Model", str(getattr(self.config, "ai_model", "auto"))),
         ]
+
+        # Enrich from client context
+        client_context = self._get_client_context()
+        if client_context:
+            if getattr(client_context, "project", ""):
+                fields.insert(2, ("Project", client_context.project))
+            ad = getattr(client_context, "assessment_dates", None)
+            if isinstance(ad, dict):
+                start = ad.get("start", "")
+                end = ad.get("end", "")
+                if start and end:
+                    fields.append(("Assessment Period", f"{start} to {end}"))
 
         return "".join(item(label, value) for label, value in fields)
 
@@ -874,23 +960,163 @@ class PDFFormatter(BaseFormatter):
                 "<p>No cross-skill attack patterns detected. Individual findings analyzed separately.</p>"
             )
 
+        sorted_corrs = sorted(
+            correlations, key=lambda x: x.get("compound_risk_score", 0), reverse=True
+        )
         blocks = []
-        for corr in correlations[:10]:
-            title = html.escape(str(corr.get("title", "Attack chain")))
-            corr_id = html.escape(str(corr.get("id", "CORR")))
-            severity = html.escape(str(corr.get("severity", "High")))
-            risk = float(corr.get("compound_risk_score", 0.0))
-            desc = html.escape(str(corr.get("description", "")))
-            blocks.append(
-                '<div class="individual-finding">'
-                f"<h3>[{corr_id}] {title}</h3>"
-                f"<p><strong>Severity:</strong> <span class='severity-pill severity-{severity.lower()}'>{severity}</span> "
-                f"| <strong>Compound Risk:</strong> {risk:.1f}/10</p>"
-                f"<p>{desc}</p>"
-                "</div>"
+        for corr in sorted_corrs[:10]:
+            blocks.append(self._correlation_card_html(corr))
+
+        return (
+            f"<h2>Attack Chains ({len(correlations)})</h2>"
+            + "".join(blocks)
+        )
+
+    def _correlation_card_html(self, corr: Dict[str, Any]) -> str:
+        """Render a correlation as a full finding card (same depth as technical findings)."""
+        corr_id = html.escape(str(corr.get("id", "CORR")))
+        title = html.escape(str(corr.get("title", "Attack chain")))
+        severity = html.escape(str(corr.get("severity", "High")))
+        risk = float(corr.get("compound_risk_score", 0.0))
+        desc = self._md_bold_to_html(
+            html.escape(str(corr.get("description", ""))).replace("\n\n", "</p><p>")
+        )
+        pattern_id = html.escape(str(corr.get("pattern_id", "N/A")))
+
+        # CVSS
+        cvss = corr.get("cvss") or {}
+        cvss_score = float(cvss.get("base_score", risk))
+        cvss_vector = html.escape(str(cvss.get("vector_string", "N/A")))
+
+        # MITRE ATT&CK
+        threat = corr.get("threat_context") or {}
+        tactics = ", ".join(threat.get("mitre_attack_tactics", [])) or "N/A"
+        techniques = ", ".join(threat.get("mitre_attack_techniques", [])) or "N/A"
+
+        # Attack path
+        attack_path = corr.get("attack_path") or []
+        if attack_path:
+            path_items = "".join(
+                f"<li>{html.escape(str(step))}</li>" for step in attack_path
+            )
+            path_html = f"<ol class='attack-path-list'>{path_items}</ol>"
+        else:
+            path_html = "<p>N/A</p>"
+
+        # Source findings
+        source_findings = corr.get("source_findings") or []
+        source_items = []
+        for sf in source_findings:
+            if isinstance(sf, dict):
+                sf_id = html.escape(str(sf.get("id", "?")))
+                sf_title = html.escape(str(sf.get("title", "Unknown")))
+                sf_sev = html.escape(str(sf.get("severity", "?")))
+                sf_score = float(sf.get("risk_score", 0))
+                source_items.append(
+                    f"<li><code>{sf_id}</code> ({sf_sev}, {sf_score:.1f}): {sf_title}</li>"
+                )
+            else:
+                source_items.append(f"<li>{html.escape(str(sf))}</li>")
+        # Fallback to source_finding_ids
+        if not source_items:
+            for sid in corr.get("source_finding_ids") or []:
+                source_items.append(f"<li><code>{html.escape(str(sid))}</code></li>")
+        source_html = (
+            "<ul>" + "".join(source_items) + "</ul>"
+            if source_items
+            else "<p>Evidence-based pattern (no individual source findings)</p>"
+        )
+
+        # Exploitation details
+        exploit = corr.get("exploitability") or {}
+        exploit_steps = exploit.get("exploitation_steps") or attack_path or []
+        if exploit_steps:
+            steps_items = "".join(
+                f"<li>{html.escape(str(step))}</li>" for step in exploit_steps
+            )
+            steps_html = f"<ol>{steps_items}</ol>"
+        else:
+            steps_html = "<p>See attack path above</p>"
+
+        complexity = html.escape(str(exploit.get("exploitation_complexity", "N/A")))
+        est_time = html.escape(str(exploit.get("estimated_time_to_compromise", "N/A")))
+        tools = ", ".join(exploit.get("tools_required", [])) or "N/A"
+
+        # Technical impact / blast radius
+        impact = corr.get("technical_impact") or {}
+        blast = impact.get("blast_radius") or {}
+        if blast:
+            blast_parts = []
+            for k, v in blast.items():
+                blast_parts.append(f"{html.escape(str(k))}: {html.escape(str(v))}")
+            blast_line = "; ".join(blast_parts) if blast_parts else "N/A"
+        else:
+            blast_line = "N/A"
+
+        # Affected resources
+        affected = corr.get("affected_resources") or []
+        res_items = "".join(
+            f"<li><code>{html.escape(str(res))}</code></li>" for res in affected[:8]
+        )
+
+        # Remediation
+        remediation_steps = corr.get("remediation_steps") or []
+        if remediation_steps:
+            rem_items = "".join(
+                f"<li>{html.escape(str(step))}</li>" for step in remediation_steps
+            )
+            remediation_html = f"<ol>{rem_items}</ol>"
+        else:
+            remediation_html = "<p>N/A</p>"
+
+        priority = html.escape(str(corr.get("remediation_priority", "N/A")))
+
+        # Conditionally render affected resources
+        affected_block = ""
+        if res_items:
+            affected_block = (
+                f"<div class='finding-resources finding-affected'><h4>Affected Resources</h4>"
+                f"<ul class='resource-list'>{res_items}</ul></div>"
             )
 
-        return "<h2>Cross-Skill Correlations</h2>" + "".join(blocks)
+        # Conditionally render blast radius
+        impact_block = ""
+        if blast_line and blast_line != "N/A":
+            impact_block = (
+                f"<div class='finding-impact'><h4>Technical Impact</h4>"
+                f"<p><strong>Blast radius:</strong> {blast_line}</p></div>"
+            )
+
+        # Conditionally render priority
+        priority_line = ""
+        if priority and priority not in ("N/A", "None", ""):
+            priority_line = f"<p><strong>Priority:</strong> {priority}</p>"
+
+        return (
+            "<div class='individual-finding'>"
+            f"<h3>[{corr_id}] {title}</h3>"
+            f"<p><strong>Severity:</strong> "
+            f"<span class='severity-pill severity-{severity.lower()}'>{severity}</span> | "
+            f"<strong>Compound Risk:</strong> {risk:.1f}/10 | "
+            f"<strong>CVSS 3.1:</strong> {cvss_score:.1f} ({cvss_vector})</p>"
+            f"<p><strong>Pattern:</strong> <code>{pattern_id}</code></p>"
+            f"<div class='finding-description'><p>{desc}</p></div>"
+            f"<div class='finding-mitre'><h4>MITRE ATT&amp;CK</h4>"
+            f"<p><strong>Tactics:</strong> {html.escape(tactics)}<br>"
+            f"<strong>Techniques:</strong> {html.escape(techniques)}</p></div>"
+            f"<div class='finding-attack-path'><h4>Attack Path</h4>{path_html}</div>"
+            f"<div class='finding-sources'><h4>Source Findings</h4>{source_html}</div>"
+            f"<div class='finding-exploitation'><h4>Exploitation Details</h4>"
+            f"{steps_html}"
+            f"<p><strong>Complexity:</strong> {complexity} | "
+            f"<strong>Estimated time:</strong> {est_time} | "
+            f"<strong>Tools:</strong> {html.escape(tools)}</p></div>"
+            + impact_block
+            + affected_block
+            + f"<div class='finding-remediation'><h4>Remediation</h4>{remediation_html}</div>"
+            + priority_line
+            + "</div>"
+        )
 
     # Phase sections mirroring PentestFormatter._PHASE_SECTIONS (markdown)
     _PENTEST_PHASE_SECTIONS = [
@@ -1191,15 +1417,10 @@ class PDFFormatter(BaseFormatter):
                 f"<pre class='code-block'>{html.escape(dumped)}</pre></div>"
             )
         else:
-            evidence_block = (
-                "<div class='finding-resources finding-evidence'><h4>Evidence</h4>"
-                "<p>No raw evidence snippet available for this finding.</p></div>"
-            )
+            evidence_block = ""
 
         resources = finding.get("affected_resources", [])[:8]
         res_items = "".join(f"<li><code>{html.escape(str(res))}</code></li>" for res in resources)
-        if not res_items:
-            res_items = "<li>No affected resources listed</li>"
 
         commands, commands_suggested = self._collect_validation_commands(finding)
         commands_block = self._validation_commands_block_html(commands, commands_suggested)
@@ -1242,20 +1463,30 @@ class PDFFormatter(BaseFormatter):
         if is_ser and has_cve_intel:
             attack_vector_block = self._ser_attack_vector_html(finding)
 
+        affected_block = ""
+        if res_items:
+            affected_block = (
+                "<div class='finding-resources finding-affected'><h4>Affected Resources</h4>"
+                f"<ul class='resource-list'>{res_items}</ul></div>"
+            )
+
+        cis_line = ""
+        if cis_ref and cis_ref not in ("N/A", "None", "", "n/a"):
+            cis_line = f"<p><strong>CIS Reference:</strong> {cis_ref}</p>"
+
         return (
             "<div class='individual-finding'>"
             + f"<h3>[{finding_id}] {title}</h3>"
             + severity_line
             + f"<div class='finding-description'><p>{description}</p></div>"
-            + "<div class='finding-resources finding-affected'><h4>Affected Resources</h4>"
-            + f"<ul class='resource-list'>{res_items}</ul></div>"
+            + affected_block
             + commands_block
             + evidence_block
             + attack_vector_block
             + exploitation_block
             + impact_html
             + f"<div class='finding-remediation'><h4>Remediation</h4><p>{remediation}</p></div>"
-            + f"<p><strong>CIS Reference:</strong> {cis_ref}</p>"
+            + cis_line
             + "</div>"
         )
 
@@ -1495,6 +1726,214 @@ class PDFFormatter(BaseFormatter):
             f"<ul>{_items(high, 5)}</ul>"
             "<h3>Medium-term (31-90 days) - Medium Priority</h3>"
             f"<ul>{_items(medium, 3)}</ul>"
+        )
+
+    def _risk_scale_html(self, summary: Dict[str, Any]) -> str:
+        """Generate risk scale section with visual bar and definitions table."""
+        risk_score = float(summary.get("overall_risk_score", 0.0))
+        lang = str(getattr(self.config, "report_language", "en") or "en").lower()
+
+        if lang == "es":
+            levels = [
+                ("Apropiado", "#16a34a", "0 hallazgos", "Sin acción requerida", "rs-appropriate"),
+                ("Bajo", "#22c55e", "0.0 – 2.9", "Mejoras menores, planificación regular", "rs-low"),
+                ("Medio", "#eab308", "3.0 – 5.9", "Remediación en 30 días", "rs-medium"),
+                ("Alto", "#f97316", "6.0 – 8.4", "Remediación urgente (7 días)", "rs-high"),
+                ("Crítico", "#dc2626", "8.5 – 10.0", "Riesgo de explotación inmediata", "rs-critical"),
+            ]
+            header = "Escala de Riesgo"
+            col_headers = ("Nivel", "Rango", "Acción Requerida")
+        else:
+            levels = [
+                ("Appropriate", "#16a34a", "0 findings", "No action required", "rs-appropriate"),
+                ("Low", "#22c55e", "0.0 – 2.9", "Minor improvements, regular cycle", "rs-low"),
+                ("Medium", "#eab308", "3.0 – 5.9", "Remediation within 30 days", "rs-medium"),
+                ("High", "#f97316", "6.0 – 8.4", "Urgent remediation (7 days)", "rs-high"),
+                ("Critical", "#dc2626", "8.5 – 10.0", "Immediate exploitation risk", "rs-critical"),
+            ]
+            header = "Risk Scale"
+            col_headers = ("Level", "Range", "Required Action")
+
+        # Calculate indicator position (0-100%)
+        indicator_pct = min(max(risk_score / 10.0 * 100, 0), 100)
+        # Map to the correct segment (5 segments, each 20%)
+        segment_idx = 0
+        if risk_score > 0:
+            if risk_score < 3.0:
+                segment_idx = 1
+            elif risk_score < 6.0:
+                segment_idx = 2
+            elif risk_score < 8.5:
+                segment_idx = 3
+            else:
+                segment_idx = 4
+
+        # Build bar segments with indicator
+        bar_segments = []
+        for i, (_, color, _, _, css_class) in enumerate(levels):
+            indicator = ""
+            if i == segment_idx:
+                # Position within segment (each segment is 20% width)
+                if i == 0:
+                    inner_pct = 50  # center for "appropriate"
+                else:
+                    seg_ranges = [(0, 0), (0, 2.9), (3.0, 5.9), (6.0, 8.4), (8.5, 10.0)]
+                    lo, hi = seg_ranges[i]
+                    span = max(hi - lo, 0.1)
+                    inner_pct = min(((risk_score - lo) / span) * 100, 100)
+                indicator = f"<div class='risk-scale-indicator' style='left:{inner_pct:.0f}%'></div>"
+            bar_segments.append(
+                f"<div class='rs-segment {css_class}' style='position:relative'>{indicator}</div>"
+            )
+
+        bar_html = "<div class='risk-scale-bar'>" + "".join(bar_segments) + "</div>"
+
+        # Build definitions table
+        rows = []
+        for label, color, range_str, action, _ in levels:
+            dot = f"<span class='rs-dot' style='background:{color}'></span>"
+            rows.append(
+                f"<tr><td>{dot}{html.escape(label)}</td>"
+                f"<td>{html.escape(range_str)}</td>"
+                f"<td>{html.escape(action)}</td></tr>"
+            )
+
+        table = (
+            f"<table class='risk-scale-table'>"
+            f"<thead><tr><th>{col_headers[0]}</th><th>{col_headers[1]}</th><th>{col_headers[2]}</th></tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody></table>"
+        )
+
+        return (
+            f"<h2>{header}</h2>"
+            f"<div class='card'>"
+            f"<p style='font-size:10px;color:#6b7280;margin-bottom:4px'>"
+            f"Current risk score: <strong>{risk_score:.1f}/10.0</strong></p>"
+            f"{bar_html}{table}</div>"
+        )
+
+    def _document_control_html(self) -> str:
+        """Generate document control section with metadata."""
+        client = str(self.session.client_name or "Unknown")
+        report_date = self.findings.get("analyzed_at", datetime.utcnow().isoformat())
+        report_date_clean = report_date.replace("T", " ").split(".")[0]
+        date_short = report_date_clean.split(" ")[0]  # YYYY-MM-DD
+
+        # Auto-generate document code
+        client_slug = re.sub(r"[^a-zA-Z0-9]", "", client).upper()[:12]
+        report_type = str(getattr(self.config, "report_type", "general")).upper()
+        type_map = {"GENERAL": "SEC", "PCI-DSS": "PCI", "PENTEST": "IPT"}
+        type_code = type_map.get(report_type, "SEC")
+        doc_code = f"{client_slug}-{type_code}-{date_short}-v1.0"
+
+        # Client context overrides if available
+        client_context = self._get_client_context()
+        if client_context:
+            code_val = str(getattr(client_context, "code", "") or "")
+            if code_val:
+                doc_code = code_val
+            project_val = str(getattr(client_context, "project", "") or "")
+            project_name = project_val if project_val else f"AWS Security Assessment — {client}"
+            version_val = str(getattr(client_context, "version", "") or "")
+            version = version_val if version_val else "1.0"
+            report_date_val = str(getattr(client_context, "report_date", "") or "")
+            if report_date_val:
+                report_date_clean = report_date_val
+        else:
+            project_name = f"AWS Security Assessment — {client}"
+            version = "1.0"
+
+        def row(label: str, value: str) -> str:
+            return (
+                "<div class='scope-row'>"
+                f"<span class='scope-label'>{html.escape(label)}</span>"
+                f"<span class='scope-value'>{html.escape(value)}</span>"
+                "</div>"
+            )
+
+        fields = [
+            ("Document Code", doc_code),
+            ("Project", project_name),
+            ("Client", client),
+            ("Date", report_date_clean),
+            ("Version", version),
+            ("Classification", "CONFIDENTIAL"),
+        ]
+
+        return (
+            "<h2>Document Control</h2>"
+            "<div class='document-control'>"
+            + "".join(row(label, value) for label, value in fields)
+            + "</div>"
+        )
+
+    def _conditions_section_html(self) -> str:
+        """Generate conditions and exclusions section."""
+        lang = str(getattr(self.config, "report_language", "en") or "en").lower()
+
+        # Auto-detected conditions
+        region = str(getattr(self.config, "aws_region", "unknown"))
+        access_key = self._masked_access_key()
+        skills_raw = getattr(self.config, "skills", None)
+        skills = list(skills_raw) if isinstance(skills_raw, (list, tuple)) else []
+        skills_str = ", ".join(str(s).upper() for s in skills) if skills else "N/A"
+        scan_depth_raw = getattr(self.config, "scan_depth", "normal")
+        scan_depth = str(scan_depth_raw).capitalize() if isinstance(scan_depth_raw, str) else "Normal"
+
+        if lang == "es":
+            header = "Condiciones y Exclusiones"
+            scope_header = "Alcance de la Evaluación"
+            exclusions_header = "Exclusiones"
+            default_exclusions = [
+                "Pruebas de Denegación de Servicio (DoS/DDoS)",
+                "Ingeniería social",
+                "Seguridad física",
+                "Evaluación limitada al plano de control (control-plane only)",
+            ]
+        else:
+            header = "Conditions &amp; Exclusions"
+            scope_header = "Assessment Scope"
+            exclusions_header = "Exclusions"
+            default_exclusions = [
+                "Denial of Service (DoS/DDoS) testing",
+                "Social engineering",
+                "Physical security assessment",
+                "Control-plane only assessment",
+            ]
+
+        # Build scope conditions
+        scope_items = [
+            f"AWS Region: {region}",
+            f"Access Key: {access_key}",
+            f"Skills evaluated: {skills_str}",
+            f"Scan depth: {scan_depth}",
+        ]
+
+        # Client context overrides
+        client_context = self._get_client_context()
+        if client_context:
+            extra_conditions = getattr(client_context, "conditions", None)
+            if isinstance(extra_conditions, list):
+                scope_items.extend(str(c) for c in extra_conditions)
+            extra_exclusions = getattr(client_context, "exclusions", None)
+            if isinstance(extra_exclusions, list) and extra_exclusions:
+                default_exclusions = [str(e) for e in extra_exclusions] + default_exclusions
+
+        scope_list = "".join(
+            f"<li>{html.escape(item)}</li>" for item in scope_items
+        )
+        exclusions_list = "".join(
+            f"<li>{html.escape(item)}</li>" for item in default_exclusions
+        )
+
+        return (
+            f"<h2>{header}</h2>"
+            "<div class='card'>"
+            f"<h3>{scope_header}</h3>"
+            f"<ul class='conditions-list'>{scope_list}</ul>"
+            f"<h3>{exclusions_header}</h3>"
+            f"<ul class='conditions-list'>{exclusions_list}</ul>"
+            "</div>"
         )
 
     def _references_html(self) -> str:

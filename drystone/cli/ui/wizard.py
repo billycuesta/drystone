@@ -287,6 +287,23 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
     if client_name is None:
         raise KeyboardInterrupt("Wizard cancelled")
 
+    # ── Step 1b: Client Context File (optional) ──────────────────
+    client_context_file = questionary.text(
+        "Client context file (optional, press Enter to skip):",
+        default=defaults.get("client_context_file", ""),
+    ).ask()
+    if client_context_file is None:
+        raise KeyboardInterrupt("Wizard cancelled")
+    if client_context_file.strip():
+        from pathlib import Path
+
+        expanded = Path(client_context_file).expanduser()
+        if expanded.exists():
+            print(f"✅ Client context file: {expanded}")
+        else:
+            print(f"⚠️  File not found: {expanded} (will be ignored)")
+            client_context_file = ""
+
     # ── Step 2: Skill Selection ───────────────────────────────────
     current_skills = defaults.get("skills", ["iam"])
     pentest_core = ["recon", "iam", "exposure", "network", "vulns", "secretsmanager"]
@@ -504,6 +521,8 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
         "output_formats": output_formats,
         "report_type": report_type,
     }
+    if client_context_file and client_context_file.strip():
+        project_config["client_context_file"] = client_context_file.strip()
     project_config.update(creds_config)
 
     return project_config

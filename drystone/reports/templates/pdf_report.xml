@@ -475,6 +475,14 @@
 
     .page-break { page-break-before: always; }
 
+    /* Prevent orphaned section headers — keep h2 with following content */
+    .section-group {
+      page-break-inside: avoid;
+    }
+    h2 + .card {
+      page-break-before: avoid;
+    }
+
     .index-list {
       margin: 0;
       padding-left: 18px;
@@ -552,6 +560,83 @@
     .rating-critical   { border-left-color: #dc2626; background: #fef2f2; }
     .rating-critical   .rating-value { color: #dc2626; }
 
+    /* Risk Scale */
+    .risk-scale-bar {
+      display: flex;
+      height: 18px;
+      border-radius: 10px;
+      overflow: hidden;
+      margin: 10px 0 6px 0;
+    }
+    .risk-scale-bar .rs-segment {
+      flex: 1;
+      position: relative;
+    }
+    .risk-scale-bar .rs-appropriate { background: #16a34a; }
+    .risk-scale-bar .rs-low { background: #22c55e; }
+    .risk-scale-bar .rs-medium { background: #eab308; }
+    .risk-scale-bar .rs-high { background: #f97316; }
+    .risk-scale-bar .rs-critical { background: #dc2626; }
+    .risk-scale-indicator {
+      position: absolute;
+      top: -4px;
+      width: 4px;
+      height: 26px;
+      background: #111827;
+      border-radius: 2px;
+      z-index: 2;
+    }
+    .risk-scale-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+      font-size: 9.5px;
+    }
+    .risk-scale-table th {
+      text-align: left;
+      padding: 6px 8px;
+      background: #f3f4f6;
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      border-bottom: 1px solid #d1d5db;
+    }
+    .risk-scale-table td {
+      padding: 6px 8px;
+      border-bottom: 1px solid #e5e7eb;
+      vertical-align: top;
+    }
+    .risk-scale-table .rs-dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+
+    /* Document Control */
+    .document-control {
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: 12px;
+      padding: 12px;
+      margin: 10px 0 14px 0;
+      page-break-inside: avoid;
+    }
+
+    /* Conditions Section */
+    .conditions-list {
+      list-style: disc;
+      padding-left: 20px;
+      margin: 6px 0;
+    }
+    .conditions-list li {
+      margin-bottom: 4px;
+      font-size: 10.5px;
+      color: #374151;
+    }
+
   </style>
 </head>
 <body>
@@ -566,17 +651,15 @@
   </div>
 
   <div class="report-content">
-  <h2>Index</h2>
-  <div class="card">
-    {{INDEX_SECTION}}
-  </div>
 
-  <div class="page-break"></div>
+  {{DOCUMENT_CONTROL}}
 
   <h2>Scope Definition</h2>
   <div class="scope-definition">
     {{SCOPE_DEFINITION}}
   </div>
+
+  {{CONDITIONS_SECTION}}
 
   <h2>Inventory</h2>
   <div class="card">
@@ -591,6 +674,7 @@
 
   {{METHODOLOGY_SECTION}}
 
+  <div class="section-group">
   <h2>Risk Analysis</h2>
   <div class="card">
     <h3>Severity Distribution</h3>
@@ -608,6 +692,7 @@
       </thead>
       <tbody>{{TOP_FINDINGS_ROWS}}</tbody>
     </table>
+  </div>
   </div>
 
   {{PAGEBREAK_ARCH_CORR}}

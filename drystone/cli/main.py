@@ -83,6 +83,11 @@ def cli() -> None:
     type=click.Choice(["shallow", "normal", "deep", "very-deep"]),
     help="Scan depth controlling chunk budget and token usage",
 )
+@click.option(
+    "--client-context",
+    type=click.Path(exists=True),
+    help="Path to client-context.md file for report enrichment",
+)
 def audit(
     non_interactive: bool,
     client: Optional[str] = None,
@@ -92,6 +97,7 @@ def audit(
     min_severity: Literal["low", "medium", "high", "critical"] = "low",
     report_type: Optional[Literal["general", "pci-dss", "pentest"]] = None,
     scan_depth: Optional[Literal["shallow", "normal", "deep", "very-deep"]] = None,
+    client_context: Optional[str] = None,
 ) -> None:
     """Run AWS security audit."""
 
@@ -104,7 +110,7 @@ def audit(
 
     # Determine if we should use interactive mode
     has_cli_args = bool(
-        client or region or skills or formats or min_severity != "low" or report_type or scan_depth
+        client or region or skills or formats or min_severity != "low" or report_type or scan_depth or client_context
     )
     should_use_interactive = not non_interactive and not has_cli_args
 
@@ -172,6 +178,8 @@ def audit(
         config.report_type = cast(Literal["general", "pci-dss", "pentest"], report_type)
     if scan_depth and config is not None:
         config.scan_depth = scan_depth
+    if client_context and config is not None:
+        config.client_context_file = Path(client_context)
 
     # Show summary
     try:
@@ -350,6 +358,21 @@ def audit(
 
     agent = AgentClient(provider_config=provider_config)
     agent.metrics_tracker = metrics_tracker
+
+    # Inject client context XML for AI prompt enrichment
+    if hasattr(config, "_client_context") and config._client_context:
+        ctx = config._client_context
+        ctx_parts = ["<client_context>"]
+        if ctx.organization:
+            ctx_parts.append(f"  <organization>{ctx.organization}</organization>")
+        if ctx.industry:
+            ctx_parts.append(f"  <industry>{ctx.industry}</industry>")
+        if ctx.business_context:
+            ctx_parts.append(f"  <business_context>{ctx.business_context}</business_context>")
+        if ctx.compliance_reqs:
+            ctx_parts.append(f"  <compliance_requirements>{ctx.compliance_reqs}</compliance_requirements>")
+        ctx_parts.append("</client_context>")
+        agent._client_context_xml = "\n".join(ctx_parts)
 
     # Analyze skills in PARALLEL using ThreadPoolExecutor
     # This dramatically speeds up multi-skill audits (4-5x faster)
