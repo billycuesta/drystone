@@ -371,8 +371,22 @@ class CorrelationEngine:
         return graph
 
     def calculate_cvss_score(self, finding: CorrelatedFinding) -> CVSSScore:
-        """Calculate simplified CVSS v3.1 mapping for correlation output."""
-        sev = finding.severity
+        """Calculate simplified CVSS v3.1 mapping for correlation output.
+
+        Derives the severity bracket from compound_risk_score so the CVSS
+        vector and base_score are always coherent.
+        """
+        score = round(float(finding.compound_risk_score), 1)
+        # Derive severity bracket from score (not from finding.severity label)
+        if score >= 9.0:
+            sev_key = "Critical"
+        elif score >= 7.0:
+            sev_key = "High"
+        elif score >= 4.0:
+            sev_key = "Medium"
+        else:
+            sev_key = "Low"
+
         mapping = {
             "Critical": {
                 "AV": "N",
@@ -415,11 +429,11 @@ class CorrelationEngine:
                 "A": "N",
             },
         }
-        m = mapping.get(sev, mapping["Medium"])
+        m = mapping[sev_key]
         vector = f"CVSS:3.1/AV:{m['AV']}/AC:{m['AC']}/PR:{m['PR']}/UI:{m['UI']}/S:{m['S']}/C:{m['C']}/I:{m['I']}/A:{m['A']}"
         return CVSSScore(
             vector_string=vector,
-            base_score=round(float(finding.compound_risk_score), 1),
+            base_score=score,
             attack_vector="Network" if m["AV"] == "N" else "Adjacent",
             attack_complexity="Low" if m["AC"] == "L" else "High",
             privileges_required="None" if m["PR"] == "N" else "Low",

@@ -15,6 +15,7 @@ from drystone.reports.formats import (
 )
 from drystone.pentest.exploitation_enricher import PentestExploitationEnricher
 from drystone.storage.session import AuditSession
+from drystone.validation.cross_skill_dedup import deduplicate_cross_skill
 
 
 class ReportGenerator:
@@ -191,6 +192,19 @@ class ReportGenerator:
         """
 
         findings_data = self._load_and_merge_all_findings()
+
+        # Cross-skill dedup: remove duplicate findings covering the same resources
+        raw_findings = findings_data.get("findings", [])
+        deduped = deduplicate_cross_skill(raw_findings)
+        if len(deduped) != len(raw_findings):
+            findings_data["findings"] = deduped
+            # Recalculate summary counts
+            findings_data["summary"]["total_findings"] = len(deduped)
+            for sev in ("critical", "high", "medium", "low"):
+                sev_cap = sev.capitalize()
+                findings_data["summary"][sev] = sum(
+                    1 for f in deduped if f.get("severity") == sev_cap
+                )
 
         # Apply the same severity filtering rules (PCI DSS excluded)
         if self.config.report_type == "pci-dss":

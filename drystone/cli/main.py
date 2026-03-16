@@ -141,7 +141,9 @@ def audit(
                 config.aws_region = region
             if skills:
                 if skills == "pentest":
-                    config.skills = ["recon", "iam", "exposure", "network", "vulns"]
+                    from drystone.models.config import PENTEST_CORE_SKILLS
+
+                    config.skills = list(PENTEST_CORE_SKILLS)
                     config.report_type = "pentest"
                 else:
                     config.skills = [skills]

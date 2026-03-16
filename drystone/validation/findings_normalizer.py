@@ -221,6 +221,9 @@ class FindingsNormalizer:
             finding.severity = severity
             finding.risk_score = risk_score
 
+            # Ensure impact is populated (fallback from severity template)
+            self._ensure_impact(finding)
+
             # Keep model-provided title to preserve report language alignment.
 
             # Patch obviously incorrect account IDs in affected resource ARNs using audit metadata.
@@ -1383,6 +1386,55 @@ class FindingsNormalizer:
 
         return False
 
+    # Severity-based impact templates used when the LLM returns no impact.
+    _IMPACT_TEMPLATES = {
+        "Critical": (
+            "Exploitation of this vulnerability can lead to full compromise of the affected "
+            "resource(s). An attacker who exploits {title} gains a high-privilege foothold "
+            "that enables lateral movement, data exfiltration, or service disruption.\n\n"
+            "The business impact includes potential regulatory violations, data breach "
+            "notification obligations, and loss of customer trust."
+        ),
+        "High": (
+            "If exploited, an attacker could leverage {title} to escalate privileges or "
+            "access sensitive data beyond their authorized scope.\n\n"
+            "Depending on the environment, this could result in unauthorized access to "
+            "production systems or customer data."
+        ),
+        "Medium": (
+            "This finding ({title}) represents a security gap that could be chained with "
+            "other vulnerabilities to increase attack impact.\n\n"
+            "While not directly exploitable for full compromise, it weakens the overall "
+            "security posture and should be remediated in the medium term."
+        ),
+        "Low": (
+            "This finding ({title}) represents a minor security improvement opportunity.\n\n"
+            "The direct risk is limited, but addressing it contributes to defense-in-depth "
+            "and reduces the attack surface."
+        ),
+    }
+
+    def _ensure_impact(self, finding: Finding) -> None:
+        """Populate impact field if missing, using severity-based template."""
+        if finding.impact:
+            return
+        template = self._IMPACT_TEMPLATES.get(finding.severity, self._IMPACT_TEMPLATES["Medium"])
+        finding.impact = template.format(title=finding.title.lower())
+
+    def _align_severity_to_score(
+        self, severity: Severity, risk_score: float
+    ) -> Tuple[Severity, float]:
+        """Ensure severity label and risk_score are mutually consistent.
+
+        If the risk_score falls outside the expected range for the severity,
+        the severity label is adjusted to match the score (score is truth).
+        """
+        for sev_label, (low, high) in self.SEVERITY_RANGES.items():
+            if low <= risk_score <= high:
+                return cast(Severity, sev_label), risk_score
+        # Fallback: if score is out of all ranges (e.g., 0.0), keep as-is
+        return severity, risk_score
+
     def _calibrate_severity(
         self, finding_id: str, current_severity: str, current_risk_score: float
     ) -> Tuple[Severity, float]:
@@ -1415,8 +1467,10 @@ class FindingsNormalizer:
         """
         # Get expected severity from checklist
         if finding_id not in self.checklist_map:
-            # Invalid ID: return current values (will be filtered)
-            return cast(Severity, current_severity), current_risk_score
+            # Not in checklist: ensure severity label matches risk_score range
+            return self._align_severity_to_score(
+                cast(Severity, current_severity), current_risk_score
+            )
 
         expected_severity = cast(Severity, self.checklist_map[finding_id]["severity"])
 

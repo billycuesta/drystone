@@ -12,6 +12,10 @@ _EXAMPLE_AWS_ACCESS_KEY = "AKIAIOSFODNN7EXAMPLE"  # nosec
 _EXAMPLE_AWS_SECRET_KEY = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"  # nosec
 
 
+# Canonical pentest skill list — single source of truth for --skills=pentest
+PENTEST_CORE_SKILLS = ["recon", "iam", "exposure", "network", "vulns", "secretsmanager"]
+
+
 class WizardConfig(BaseModel):
     """Configuration from the interactive wizard."""
 
@@ -211,9 +215,9 @@ class WizardConfig(BaseModel):
         if "pentest" in v:
             if len(v) > 1:
                 raise ValueError("'pentest' skill cannot be combined with other skills")
-            return ["recon", "iam", "exposure", "network", "vulns", "secretsmanager"]
+            return list(PENTEST_CORE_SKILLS)
 
-        pentest_core = ["recon", "iam", "exposure", "network", "vulns", "secretsmanager"]
+        pentest_core = PENTEST_CORE_SKILLS
         if len(v) > 1 and v != pentest_core:
             raise ValueError(
                 "Single-skill scans only. Select one skill, or use 'pentest' preset for multi-skill execution."

@@ -1987,6 +1987,21 @@ def _lambda_env_remediation(_: Dict[str, Any]) -> List[str]:
     ]
 
 
+def _find_sources_lambda_env_secret_leakage(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> List[Finding]:
+    sources: List[Finding] = []
+    for f in findings_by_skill.get("vulns", []):
+        if "lambda" in f.title.lower() or "env" in f.title.lower() or "secret" in f.title.lower():
+            sources.append(f)
+    for f in findings_by_skill.get("secretsmanager", []):
+        if "lambda" in f.title.lower() or "rotation" in f.title.lower():
+            sources.append(f)
+    return sources
+
+
 PATTERN_REGISTRY.register(
     DynamicCorrelationPattern(
         id="vulns_lambda_env_secret_leakage",
@@ -1995,6 +2010,7 @@ PATTERN_REGISTRY.register(
         severity="High",
         skills_required=["vulns"],
         matcher=_match_lambda_env_secret_leak,
+        source_finder=_find_sources_lambda_env_secret_leakage,
         attack_path_generator=_lambda_env_attack_path,
         remediation_generator=_lambda_env_remediation,
         threat_context=ThreatContext(
@@ -2248,6 +2264,21 @@ def _resource_policy_remediation(_: Dict[str, Any]) -> List[str]:
     ]
 
 
+def _find_sources_wildcard_principal(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> List[Finding]:
+    sources: List[Finding] = []
+    for f in findings_by_skill.get("iam", []):
+        if f.id in ("IAM-030",) or "wildcard" in f.title.lower() or "principal" in f.title.lower():
+            sources.append(f)
+    for f in findings_by_skill.get("exposure", []):
+        if f.id in ("EXP-023",) or "wildcard" in f.title.lower() or "resource policy" in f.title.lower():
+            sources.append(f)
+    return sources
+
+
 PATTERN_REGISTRY.register(
     DynamicCorrelationPattern(
         id="iam_resource_policy_wildcard_principal",
@@ -2256,6 +2287,7 @@ PATTERN_REGISTRY.register(
         severity="Critical",
         skills_required=["iam"],
         matcher=_match_resource_policy_wildcard,
+        source_finder=_find_sources_wildcard_principal,
         attack_path_generator=_resource_policy_attack_path,
         remediation_generator=_resource_policy_remediation,
         threat_context=ThreatContext(
@@ -2312,6 +2344,19 @@ def _nat_pivot_remediation(_: Dict[str, Any]) -> List[str]:
     ]
 
 
+def _find_sources_nat_egress_pivoting(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> List[Finding]:
+    sources: List[Finding] = []
+    for f in findings_by_skill.get("network", []):
+        title_lower = f.title.lower()
+        if "nat" in title_lower or "egress" in title_lower or "route" in title_lower:
+            sources.append(f)
+    return sources
+
+
 PATTERN_REGISTRY.register(
     DynamicCorrelationPattern(
         id="network_nat_egress_pivoting",
@@ -2320,6 +2365,7 @@ PATTERN_REGISTRY.register(
         severity="Medium",
         skills_required=["network"],
         matcher=_match_nat_egress_pivot,
+        source_finder=_find_sources_nat_egress_pivoting,
         attack_path_generator=_nat_pivot_attack_path,
         remediation_generator=_nat_pivot_remediation,
         threat_context=ThreatContext(
