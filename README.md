@@ -28,7 +28,8 @@ Auditorías de seguridad automatizadas en AWS con análisis inteligente usando C
 | **Error Resilience** | +90% (retry + validation) | ✅ |
 | **Validation Framework** | Multi-skill gating rules + snippet extraction | ✅ |
 | **Report Structure** | Findings summary + architecture visualization | ✅ |
-| **Last Updated** | 2026-02-26 | ✅ |
+| **PDF Professionalism** | Document control, conditions, client context (8.5+/10) | ✅ |
+| **Last Updated** | 2026-03-16 | ✅ |
 
 ---
 
