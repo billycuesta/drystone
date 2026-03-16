@@ -166,6 +166,36 @@ class PDFFormatter(BaseFormatter):
             "Detailed Findings by Phase" if is_pentest else "Detailed Findings by Severity"
         )
 
+        # Build correlations index (attack chains)
+        corr_index = ""
+        if is_pentest:
+            corr_file = self.session.base_path / "findings" / "correlated.json"
+            if corr_file.exists():
+                try:
+                    with open(corr_file, "r") as f:
+                        corr_data = json.load(f)
+                    correlations = corr_data.get("correlations", []) or []
+                    if correlations:
+                        corr_items = []
+                        for c in sorted(
+                            correlations,
+                            key=lambda x: x.get("compound_risk_score", 0),
+                            reverse=True,
+                        ):
+                            cid = html.escape(str(c.get("id", "N/A")))
+                            ctitle = html.escape(str(c.get("title", "Untitled")))
+                            corr_items.append(
+                                f"<li><span class='index-code'>{cid}</span> {ctitle}</li>"
+                            )
+                        corr_index = (
+                            "<li>Attack Chains"
+                            "<ol class='index-sublist'>"
+                            + "".join(corr_items)
+                            + "</ol></li>"
+                        )
+                except (OSError, json.JSONDecodeError):
+                    pass
+
         return (
             "<ol class='index-list'>"
             "<li>Scope Definition</li>"
@@ -175,7 +205,8 @@ class PDFFormatter(BaseFormatter):
             "<li>Architecture Overview (if available)</li>"
             "<li>Cross-Skill Correlations (if available)</li>"
             f"<li>{findings_label}" + nested_findings + "</li>"
-            "<li>Observations</li>"
+            + corr_index
+            + "<li>Observations</li>"
             "<li>Remediation Timeline</li>"
             "<li>References</li>"
             "<li>Notes</li>"
@@ -892,6 +923,12 @@ class PDFFormatter(BaseFormatter):
             "skill": "vulns",
             "prefixes": ("VULN-",),
             "description": "CVEs, missing patches, insecure runtime configurations.",
+        },
+        {
+            "phase": "Phase 2 — Secrets Management",
+            "skill": "secretsmanager",
+            "prefixes": ("SM-",),
+            "description": "Secrets rotation, access policies, monitoring gaps.",
         },
     ]
 
