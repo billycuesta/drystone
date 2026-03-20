@@ -16,6 +16,15 @@ from drystone.reports.validation_commands import suggest_aws_cli_commands
 
 
 class PDFFormatter(BaseFormatter):
+    # Skill execution order (pentest phases)
+    PHASE_ORDER = {
+        "recon": 0, "iam": 1, "exposure": 2,
+        "network": 3, "vulns": 4, "alerting": 5,
+        "hardening": 6, "secretsmanager": 7,
+        "waf": 8, "ecr": 9, "cicd": 10, "kms": 11,
+        "messaging": 12, "compute": 13,
+    }
+
     def _finding_sort_key(self, finding: Dict[str, Any]) -> tuple:
         sev_order = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
         return (
@@ -23,6 +32,20 @@ class PDFFormatter(BaseFormatter):
             -float(finding.get("risk_score", 0.0)),
             str(finding.get("id", "")),
         )
+
+    def _finding_phase_sort_key(self, finding: Dict[str, Any]) -> tuple:
+        """Sort key for findings ordered by pentest phase, then severity."""
+        fid = str(finding.get("id", "")).lower()
+        # Infer phase from finding ID prefix (e.g., "recon-003" → "recon")
+        prefix = fid.split("-")[0] if "-" in fid else "zzz"
+        phase_idx = self.PHASE_ORDER.get(prefix, 99)
+
+        # Sort by: phase → severity → risk score → ID
+        sev_order = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
+        sev_idx = sev_order.get(str(finding.get("severity", "Low")), 4)
+        risk = -float(finding.get("risk_score", 0.0))
+
+        return (phase_idx, sev_idx, risk, str(finding.get("id", "")))
 
     @property
     def file_extension(self) -> str:
@@ -908,7 +931,10 @@ class PDFFormatter(BaseFormatter):
         if not findings:
             return '<tr><td colspan="5">No findings</td></tr>'
 
-        ordered = sorted(findings, key=self._finding_sort_key)
+        # For pentest reports, sort by phase (execution order); otherwise by severity
+        is_pentest = str(getattr(self.config, "report_type", "general")) == "pentest"
+        sort_key = self._finding_phase_sort_key if is_pentest else self._finding_sort_key
+        ordered = sorted(findings, key=sort_key)
 
         rows = []
         for finding in ordered:
@@ -1459,6 +1485,16 @@ class PDFFormatter(BaseFormatter):
             f"{exploit_suffix}</p>"
         )
 
+        analogy = finding.get("security_analogy")
+        analogy_block = ""
+        if analogy:
+            analogy_html = self._md_bold_to_html(html.escape(str(analogy)))
+            analogy_block = (
+                "<div class='finding-analogy'>"
+                f"<em style='color:#666;font-style:italic;'>{analogy_html}</em>"
+                "</div>"
+            )
+
         attack_vector_block = ""
         if is_ser and has_cve_intel:
             attack_vector_block = self._ser_attack_vector_html(finding)
@@ -1478,6 +1514,7 @@ class PDFFormatter(BaseFormatter):
             "<div class='individual-finding'>"
             + f"<h3>[{finding_id}] {title}</h3>"
             + severity_line
+            + analogy_block
             + f"<div class='finding-description'><p>{description}</p></div>"
             + affected_block
             + commands_block

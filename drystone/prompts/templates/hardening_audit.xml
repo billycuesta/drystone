@@ -143,7 +143,19 @@ Focus: AWS Config, Security Hub, compliance standards, security controls.
       </focus>
     </evidence_focus>
 
-  </skill_specific>
+
+    <irrefutable_evidence_guide>
+      <requirement>Every HARDENING finding MUST include in evidence_snippet the exact AWS metadata that proves the claim:</requirement>
+      <key_fields>
+        <field>Specific SCPs and their restrictions</field>
+        <field>Config rules and compliance status</field>
+        <field>AWS Config evaluations</field>
+        <field>Multi-region state</field>
+      </key_fields>
+      <general_rule>Do not make generic assertions. Include the exact field values from AWS API responses (JSON snippets) that justify the finding.</general_rule>
+    </irrefutable_evidence_guide>
+
+    </skill_specific>
 
   <remediation_templates>
     <template id="enable_security_hub">

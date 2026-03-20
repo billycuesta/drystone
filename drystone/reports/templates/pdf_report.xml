@@ -189,6 +189,10 @@
       page-break-inside: avoid;
     }
 
+    .risk-widget {
+      margin-bottom: 1.5rem;
+    }
+
     .scope-definition {
       background: var(--surface);
       border: 1px solid var(--surface-border);
@@ -676,15 +680,21 @@
 
   <div class="section-group">
   <h2>Risk Analysis</h2>
-  <div class="card">
+  <div class="card risk-widget">
     <h3>Severity Distribution</h3>
     <table class="findings-summary-table severity-summary-table">
       <thead><tr><th>Severity</th><th>Distribution</th><th>Count</th></tr></thead>
       <tbody>{{SEVERITY_CHART}}</tbody>
     </table>
+  </div>
+  <div class="card risk-widget">
     {{PHASE_FINDINGS_TABLE}}
+  </div>
+  <div class="card risk-widget">
     <h3>Top 5 Affected Resources</h3>
     <ul>{{TOP_RESOURCES}}</ul>
+  </div>
+  <div class="card risk-widget">
     <h3>Findings Summary</h3>
     <table class="findings-summary-table">
       <thead>
@@ -697,7 +707,6 @@
 
   {{PAGEBREAK_ARCH_CORR}}
   {{ARCHITECTURE_SECTION}}
-  {{CORRELATION_SECTION}}
 
   {{PAGEBREAK_FINDINGS}}
   {{FINDINGS_BY_SEVERITY}}
@@ -709,6 +718,8 @@
 
   <h2>Remediation Timeline (Recommended)</h2>
   <div class="card">{{REMEDIATION_TIMELINE}}</div>
+
+  {{CORRELATION_SECTION}}
 
   <h2>References</h2>
   <div class="card"><ul>{{REFERENCES}}</ul></div>

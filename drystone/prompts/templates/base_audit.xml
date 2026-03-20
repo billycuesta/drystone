@@ -39,8 +39,9 @@ Extends with skill-specific fields.
     <professional_standard>
       <rule>Claims require evidence: every finding MUST reference specific evidence artifacts</rule>
       <rule>No theoretical vulnerabilities: only report proven issues backed by AWS API data</rule>
-      <rule>Evidence snippet required: include 5-20 lines of actual evidence JSON</rule>
+      <rule>Evidence snippet required: include 5-20 lines of actual evidence JSON with exact AWS metadata</rule>
       <rule>Default to skepticism: assume NOT vulnerable until proven by evidence</rule>
+      <rule>IRREFUTABLE EVIDENCE: Every finding MUST include in evidence_snippet the exact AWS metadata that PROVES the claim (no generic assertions)</rule>
     </professional_standard>
     <verification_framework>
       <step>Finding references specific evidence file (users.json, security-groups.json, etc.)</step>
@@ -75,6 +76,9 @@ Extends with skill-specific fields.
       <field>affected_resources: array of ARNs/identifiers</field>
       <field>remediation: string — Narrative recommendation ("It is recommended to..."), explain
         WHY the fix works, not just WHAT to do. Reference specific AWS controls or services.</field>
+      <field>security_analogy: string (OPTIONAL) — One or two sentences comparing this technical risk to a real-world
+        physical security situation. Example: "This is like leaving a master key in the lock of the main vault door."
+        Keep it clear for non-technical stakeholders. If you cannot create a good analogy, omit this field.</field>
     </required_fields>
     <writing_style>
       <description>Write 2 paragraphs: (1) what the misconfiguration/weakness is technically,
@@ -197,6 +201,7 @@ Extends with skill-specific fields.
               <field name="reason" type="string"/>
             </object>
           </field name="pci_dss"/>
+          <field name="security_analogy" type="string" description="Physical security analogy for non-technical stakeholders (OPTIONAL)" example="Like leaving a master key in the front door of a bank vault"/>
         </object>
       </field name="findings"/>
       <field name="summary" type="object">

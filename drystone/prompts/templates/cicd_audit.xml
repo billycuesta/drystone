@@ -27,5 +27,18 @@ Focus: token leakage paths and risky build configurations.
         <action>Include evidence_refs pointing into codebuild-projects.json or codebuild-source-credentials.json</action>
       </rule>
     </cicd_specific_rules>
+
+    <irrefutable_evidence_guide>
+      <requirement>Every CI/CD finding MUST include in evidence_snippet the exact AWS metadata:</requirement>
+      <key_fields>
+        <field>ProjectName and ProjectArn</field>
+        <field>Source configuration: Type (GITHUB, CODECOMMIT, BITBUCKET), insecureSsl flag</field>
+        <field>ServiceRole ARN and permissions (assume role policy, inline policies)</field>
+        <field>Environment configuration: PrivilegedMode (true/false), ComputeType</field>
+        <field>EnvironmentVariables: types (PARAMETER_STORE, SECRETS_MANAGER) and values (if logs show secrets)</field>
+        <field>Source credentials type (BASIC_AUTH, OAUTH, PERSONAL_ACCESS_TOKEN)</field>
+      </key_fields>
+      <general_rule>Do not make generic assertions. Include exact project configuration from AWS API responses. NEVER include actual credential values or tokens.</general_rule>
+    </irrefutable_evidence_guide>
   </skill_specific>
 </audit_task>

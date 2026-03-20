@@ -72,7 +72,19 @@ Focus: AWS Inspector v2, CVEs, patch management, configuration vulnerabilities.
       </focus>
     </evidence_focus>
 
-  </skill_specific>
+
+    <irrefutable_evidence_guide>
+      <requirement>Every VULNS finding MUST include in evidence_snippet the exact AWS metadata that proves the claim:</requirement>
+      <key_fields>
+        <field>CVE ID and severity</field>
+        <field>Affected resource ARN</field>
+        <field>Remediation status</field>
+        <field>Inspector scan results</field>
+      </key_fields>
+      <general_rule>Do not make generic assertions. Include the exact field values from AWS API responses (JSON snippets) that justify the finding.</general_rule>
+    </irrefutable_evidence_guide>
+
+    </skill_specific>
 
   <remediation_templates>
     <template id="patch_critical_cve">

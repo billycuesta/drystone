@@ -61,6 +61,14 @@ class Finding(BaseModel):
         default_factory=list,
         description="PCI DSS controls related to this finding (v4.0)",
     )
+    security_analogy: Optional[str] = Field(
+        default=None,
+        description=(
+            "A 1-2 sentence analogy comparing this technical risk to a real-world "
+            "physical security situation for non-technical stakeholders. "
+            "Example: 'This is like leaving a master key in the lock of the main vault door.'"
+        ),
+    )
 
     class Config:
         """Pydantic config."""
@@ -87,6 +95,7 @@ class Finding(BaseModel):
                         "reason": "This control requires MFA for all non-console administrative access into the CDE. The root user is the highest privileged account.",
                     }
                 ],
+                "security_analogy": "This is like leaving the master key in the front door of a bank vault — anyone can walk in and take what they want.",
             }
         }
 

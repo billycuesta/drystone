@@ -105,5 +105,17 @@ Focus: WAF coverage, rule effectiveness, logging, and PCI DSS 6.4.2 alignment.
       </focus>
     </evidence_focus>
 
-  </skill_specific>
+
+    <irrefutable_evidence_guide>
+      <requirement>Every WAF finding MUST include in evidence_snippet the exact AWS metadata that proves the claim:</requirement>
+      <key_fields>
+        <field>WebACL ID and ARN</field>
+        <field>Rule priority and action (Allow/Block/Count)</field>
+        <field>IP set details</field>
+        <field>Rate limiting rules</field>
+      </key_fields>
+      <general_rule>Do not make generic assertions. Include the exact field values from AWS API responses (JSON snippets) that justify the finding.</general_rule>
+    </irrefutable_evidence_guide>
+
+    </skill_specific>
 </audit_task>

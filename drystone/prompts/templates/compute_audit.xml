@@ -28,5 +28,18 @@ Focus: workload attack surface and persistence indicators.
         <action>Include evidence_refs into ecs-inventory.json, eventbridge-rules.json, or eks-inventory.json.</action>
       </rule>
     </compute_specific_rules>
+
+    <irrefutable_evidence_guide>
+      <requirement>Every COMPUTE finding MUST include in evidence_snippet the exact AWS metadata:</requirement>
+      <key_fields>
+        <field>For ECS: ClusterArn, ServiceArn, TaskDefinitionArn</field>
+        <field>For ECS tasks: TaskRoleArn, ExecutionRoleArn (IAM roles used)</field>
+        <field>For EKS: ClusterName, ClusterEndpoint, LoggingConfig</field>
+        <field>For EventBridge: RuleArn, Targets array showing execution (e.g., ECS task launch)</field>
+        <field>Environment variables and secrets in task definitions</field>
+        <field>Network configuration: awsvpc, security groups, public IP assignment</field>
+      </key_fields>
+      <general_rule>Do not make generic assertions. Include exact ARNs, IAM role details, and EventBridge rule configuration from AWS API responses.</general_rule>
+    </irrefutable_evidence_guide>
   </skill_specific>
 </audit_task>

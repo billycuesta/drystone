@@ -28,5 +28,18 @@ Focus: resource policies, redrive/DLQ abuse, and injection risks.
         <action>Explain exact statement fields enabling the path</action>
       </rule>
     </messaging_specific_rules>
+
+    <irrefutable_evidence_guide>
+      <requirement>Every MESSAGING finding MUST include in evidence_snippet the exact AWS metadata:</requirement>
+      <key_fields>
+        <field>QueueArn or TopicArn</field>
+        <field>Queue/Topic Policy JSON showing Principal, Action, and Condition (or absence thereof)</field>
+        <field>For SQS: RedrivePolicy configuration (DLQ target), VisibilityTimeout, MessageRetentionPeriod</field>
+        <field>For SNS: Subscriptions array with Protocol and Endpoint</field>
+        <field>Encryption: KmsMasterKeyId (empty = no encryption)</field>
+        <field>For resource-based policies: exact Principal field (*, arn:, aws:PrincipalOrgID, etc.)</field>
+      </key_fields>
+      <general_rule>Do not make generic assertions. Include exact policy JSON and queue/topic attributes from AWS API responses.</general_rule>
+    </irrefutable_evidence_guide>
   </skill_specific>
 </audit_task>

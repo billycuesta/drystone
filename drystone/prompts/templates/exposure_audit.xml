@@ -123,6 +123,34 @@ Focus: Public resources, unencrypted data, internet-facing services.
       </focus>
     </evidence_focus>
 
+    <irrefutable_evidence_guide>
+      <requirement>Every Exposure finding MUST include in evidence_snippet the exact AWS metadata that proves the claim:</requirement>
+      <for_s3_public>
+        <field>BucketName and PublicAccessBlockConfiguration (all 4 settings)</field>
+        <field>For bucket policies: exact Principal and Action that allow public access</field>
+        <field>For ACLs: exact Grantee field showing "AllUsers" or "AuthenticatedUsers"</field>
+      </for_s3_public>
+      <for_rds_exposure>
+        <field>DBInstanceIdentifier, PubliclyAccessible flag (true/false)</field>
+        <field>VPC SecurityGroups: exact Ingress rules showing port access from 0.0.0.0/0</field>
+        <field>StorageEncrypted flag (true/false)</field>
+      </for_rds_exposure>
+      <for_ami>
+        <field>ImageId and LaunchPermission JSON showing explicit account IDs or "Public":"true"</field>
+        <field>ImageState and visibility (public/private)</field>
+      </for_ami>
+      <for_resource_policies>
+        <field>CRITICAL: For Principal:* findings, include the ENTIRE Principal/Condition block</field>
+        <field>If Principal:* exists without Condition, generate a concrete replacement policy JSON:</field>
+        <field>Example: Principal: {"AWS": "arn:aws:iam::ACCOUNT_ID:role/SERVICE_ROLE"} with specific service role appropriate for the resource type</field>
+        <field>Show the exact permissions (s3:GetObject, sqs:SendMessage, etc.) that should be allowed</field>
+      </for_resource_policies>
+      <for_tls_policies>
+        <field>LoadBalancerName and ListenerPort/Protocol</field>
+        <field>SslPolicy field showing minimum TLS version (e.g., "ELBSecurityPolicy-TLS-1-2-2017-01")</field>
+      </for_tls_policies>
+    </irrefutable_evidence_guide>
+
   </skill_specific>
 
   <remediation_templates>

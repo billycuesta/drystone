@@ -106,6 +106,41 @@ This skill runs FIRST in the pentest pipeline to map what an attacker sees from 
       </focus>
     </evidence_focus>
 
+    <irrefutable_evidence_guide>
+      <requirement>Every RECON finding MUST include in evidence_snippet the exact attack surface metadata:</requirement>
+      <for_dns_zones>
+        <field>HostedZoneId (full ID)</field>
+        <field>ZoneName (exact DNS zone)</field>
+        <field>IsPrivate flag (true/false) — MUST be false for public exposure findings</field>
+        <field>Exact record Name and Type (A, CNAME, MX, etc.) if exposed</field>
+        <field>If zone exposes architecture: list sensitive keywords found (pci, admin, internal, db, staging, prod, vpc)</field>
+      </for_dns_zones>
+      <for_eip>
+        <field>PublicIp (exact IP address)</field>
+        <field>InstanceId and InstanceName (EC2 tag)</field>
+        <field>Associated SecurityGroupIds and permissive Ingress rules (0.0.0.0/0, exact ports)</field>
+        <field>InstanceName + port mapping to show complete attack chain</field>
+      </for_eip>
+      <for_api_gateway>
+        <field>RestApiId or HttpApiId</field>
+        <field>StageName and Endpoint URL</field>
+        <field>Auth method: AuthorizationType (NONE = public)</field>
+        <field>UnauthenticatedRouteCount (>0 indicates public routes)</field>
+      </for_api_gateway>
+      <for_lambda_url>
+        <field>FunctionUrl (exact public URL if IsPublic=true)</field>
+        <field>AuthType (NONE = public, AWS_IAM = restricted)</field>
+        <field>CORS AllowOrigins setting (["*"] = unrestricted)</field>
+      </for_lambda_url>
+      <for_alb>
+        <field>LoadBalancerName</field>
+        <field>Scheme (internet-facing vs. internal)</field>
+        <field>Listener Protocol and Port</field>
+        <field>WafWebAclArn (empty = no WAF protection)</field>
+        <field>SecurityGroups with Ingress rules from 0.0.0.0/0</field>
+      </for_alb>
+    </irrefutable_evidence_guide>
+
   </skill_specific>
 
   <remediation_templates>

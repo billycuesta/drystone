@@ -66,6 +66,32 @@ Focus: Identity, access control, privilege escalation, credentials.
       </focus>
     </evidence_focus>
 
+    <irrefutable_evidence_guide>
+      <requirement>Every IAM finding MUST include in evidence_snippet:</requirement>
+      <for_root_account>
+        <field>AccountAccessKeysPresent: boolean (if True, root has active access keys)</field>
+        <field>RootAccountMFAEnabled: boolean (if False, root lacks MFA)</field>
+        <field>Exact access key IDs and their CreateDate</field>
+        <field>Root console usage timestamps from CloudTrail if available</field>
+      </for_root_account>
+      <for_iam_users>
+        <field>AccessKeys: array with exact AccessKeyId, Status (Active/Inactive), CreateDate</field>
+        <field>AttachedPolicies: list of attached managed policies</field>
+        <field>InlinePolicies: exact policy JSON showing problematic permissions</field>
+        <field>MFADevices: array (empty means no MFA)</field>
+        <field>PasswordLastUsed, AccessKeyLastUsedDate timestamps</field>
+      </for_iam_users>
+      <for_privilege_escalation>
+        <field>The exact inline/managed policy JSON allowing iam:*, sts:AssumeRole without conditions</field>
+        <field>AssumeRolePolicyDocument showing the problematic Principal and missing Condition</field>
+        <field>All attached policies that could enable privilege escalation path</field>
+      </for_privilege_escalation>
+      <for_cross_account>
+        <field>AssumeRolePolicyDocument with Principal field showing cross-account ARN or "*"</field>
+        <field>Condition block (or absence thereof) that restricts external trust</field>
+      </for_cross_account>
+    </irrefutable_evidence_guide>
+
   </skill_specific>
 
   <remediation_templates>

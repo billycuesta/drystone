@@ -84,7 +84,19 @@ Focus: Network segmentation, security groups, NACLs, routing, VPC endpoints.
       </focus>
     </evidence_focus>
 
-  </skill_specific>
+
+    <irrefutable_evidence_guide>
+      <requirement>Every NETWORK finding MUST include in evidence_snippet the exact AWS metadata that proves the claim:</requirement>
+      <key_fields>
+        <field>CIDR+Port of culpable rule</field>
+        <field>Security Group ID</field>
+        <field>VPC ID</field>
+        <field>Route table configuration</field>
+      </key_fields>
+      <general_rule>Do not make generic assertions. Include the exact field values from AWS API responses (JSON snippets) that justify the finding.</general_rule>
+    </irrefutable_evidence_guide>
+
+    </skill_specific>
 
   <remediation_templates>
     <template id="sg_ssh_exposure">

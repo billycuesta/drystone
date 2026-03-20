@@ -33,5 +33,18 @@
         For rotation/scanning interval-like findings: only generate them if the evidence includes the required configuration fields.
       </rule>
     </anti_hallucination>
+
+    <irrefutable_evidence_guide>
+      <requirement>Every ECR finding MUST include in evidence_snippet the exact AWS metadata:</requirement>
+      <key_fields>
+        <field>RepositoryUri and RepositoryName</field>
+        <field>RepositoryPolicyText (if public access claim)</field>
+        <field>ImageScanningConfiguration (scanOnPush: true/false)</field>
+        <field>EncryptionConfiguration (encryptionType and keyId)</field>
+        <field>RegistryScanningConfiguration and replication configuration</field>
+        <field>Image digest, scan status, and vulnerability counts</field>
+      </key_fields>
+      <general_rule>Do not make generic assertions. Include exact policy JSON and repository configuration from AWS API responses.</general_rule>
+    </irrefutable_evidence_guide>
   </skill_addendum>
 </audit_task>

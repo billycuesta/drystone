@@ -28,5 +28,17 @@ Focus: key policy exposure, grants, and abuse paths.
         <action>Describe impact accordingly and avoid overclaiming data exposure</action>
       </rule>
     </kms_specific_rules>
+
+    <irrefutable_evidence_guide>
+      <requirement>Every KMS finding MUST include in evidence_snippet the exact AWS metadata:</requirement>
+      <key_fields>
+        <field>Key ID (ARN and identifier)</field>
+        <field>Key policy Principal field showing wildcard (*) or cross-account root</field>
+        <field>Key policy Action array and conditions (or absence thereof)</field>
+        <field>Grants with GranteePrincipal and Operations (list of allowed KMS operations)</field>
+        <field>Key rotation EnableKeyRotation flag (true/false)</field>
+      </key_fields>
+      <general_rule>Do not make generic assertions. Include exact policy JSON and grant details from AWS API responses.</general_rule>
+    </irrefutable_evidence_guide>
   </skill_specific>
 </audit_task>

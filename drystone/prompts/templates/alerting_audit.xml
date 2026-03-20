@@ -99,7 +99,19 @@ Focus: Security event detection, notification chains, alert architecture.
       </focus>
     </evidence_focus>
 
-  </skill_specific>
+
+    <irrefutable_evidence_guide>
+      <requirement>Every ALERTING finding MUST include in evidence_snippet the exact AWS metadata that proves the claim:</requirement>
+      <key_fields>
+        <field>CloudTrail log configuration</field>
+        <field>CloudWatch log groups and retention</field>
+        <field>EventBridge rules</field>
+        <field>SNS topic permissions</field>
+      </key_fields>
+      <general_rule>Do not make generic assertions. Include the exact field values from AWS API responses (JSON snippets) that justify the finding.</general_rule>
+    </irrefutable_evidence_guide>
+
+    </skill_specific>
 
   <architecture_diagram>
     <description>Alert architecture flow</description>
