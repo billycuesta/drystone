@@ -7700,11 +7700,23 @@ def check_recon_003(evidence: Dict[str, Any]) -> PreCheckResult:
             "RECON-003", "PASS", f"{eip_count} EIP(s) allocated but none attached to instances", []
         )
 
+    # Build enriched evidence snippet with SG rules chain
+    enriched_eips = []
+    for eip in public_eps.get("elastic_ips", []):
+        if isinstance(eip, dict) and eip.get("AssociatedWithInstance"):
+            enriched_eips.append({
+                "PublicIp": eip.get("PublicIp"),
+                "InstanceId": eip.get("InstanceId"),
+                "InstanceName": eip.get("InstanceName", "unknown"),
+                "PermissiveSGRules": eip.get("PermissiveSGRules", []),
+            })
+
     return PreCheckResult(
         "RECON-003",
         "FAIL",
         f"{len(instance_eips)}/{eip_count} Elastic IPs attached to EC2 instances (public IPs)",
         instance_eips[:10],
+        evidence_snippet={"elastic_ips_with_sg_rules": enriched_eips[:5]},  # max 5 for readability
     )
 
 

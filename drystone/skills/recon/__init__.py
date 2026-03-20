@@ -447,13 +447,60 @@ class ReconSkill(BaseSkill):
         except ClientError as e:
             logger.error(f"Could not list NAT Gateways: {e}")
 
+        # Enrich EIPs with instance names and permissive SG rules
+        enriched_eips = []
+        for eip in elastic_ips:
+            enriched = self._enrich_eip_with_sg_rules(eip, ec2)
+            enriched_eips.append(enriched)
+
         return {
-            "elastic_ip_count": len(elastic_ips),
+            "elastic_ip_count": len(enriched_eips),
             "nat_gateway_ip_count": len(nat_gw_ips),
-            "total_public_ip_count": len(elastic_ips) + len(nat_gw_ips),
-            "elastic_ips": elastic_ips,
+            "total_public_ip_count": len(enriched_eips) + len(nat_gw_ips),
+            "elastic_ips": enriched_eips,
             "nat_gateway_ips": nat_gw_ips,
         }
+
+    def _enrich_eip_with_sg_rules(self, eip: Dict[str, Any], ec2_client) -> Dict[str, Any]:
+        """Expand EIP entry with instance name and permissive SG rules."""
+        instance_id = eip.get("InstanceId")
+        if not instance_id:
+            return eip  # EIP not attached to instance
+
+        try:
+            # Get instance name tag
+            resp = ec2_client.describe_instances(InstanceIds=[instance_id])
+            instance = resp["Reservations"][0]["Instances"][0]
+            name_tag = next(
+                (t["Value"] for t in instance.get("Tags", []) if t["Key"] == "Name"),
+                instance_id
+            )
+            sg_ids = [sg["GroupId"] for sg in instance.get("SecurityGroups", [])]
+
+            # Get SG rules (only ingress, only permissive ones: 0.0.0.0/0 or ::/0)
+            sgs = ec2_client.describe_security_groups(GroupIds=sg_ids)["SecurityGroups"]
+            permissive_rules = []
+            for sg in sgs:
+                for rule in sg.get("IpPermissions", []):
+                    cidr_ranges = rule.get("IpRanges", []) + rule.get("Ipv6Ranges", [])
+                    for cidr in cidr_ranges:
+                        if cidr.get("CidrIp") in ("0.0.0.0/0", "::/0") or \
+                           cidr.get("CidrIpv6") == "::/0":
+                            permissive_rules.append({
+                                "SecurityGroupId": sg["GroupId"],
+                                "SecurityGroupName": sg["GroupName"],
+                                "Protocol": rule.get("IpProtocol", "-1"),
+                                "FromPort": rule.get("FromPort"),
+                                "ToPort": rule.get("ToPort"),
+                                "Cidr": cidr.get("CidrIp") or cidr.get("CidrIpv6"),
+                            })
+
+            eip["InstanceName"] = name_tag
+            eip["PermissiveSGRules"] = permissive_rules  # list of culpable rules
+        except Exception:
+            pass  # degraded mode: EIP without enrichment
+
+        return eip
 
     # -------------------------------------------------------------------------
     # CLOUDFRONT
