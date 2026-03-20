@@ -443,10 +443,6 @@ class BaseSkill(ABC):
 
                     analogy = PRE_CHECK_ANALOGIES.get(check_id)
 
-                    # Append analogy as final paragraph of description
-                    if analogy:
-                        precheck_description += f"\n\n{analogy}"
-
                     finding = Finding(
                         id=check_id,
                         severity=item.get("severity", "Medium"),

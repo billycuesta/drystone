@@ -298,6 +298,17 @@ class FindingsNormalizer:
             logger.debug(f"  ✅ Accepted: {normalized_id} | {severity} | risk={risk_score:.1f}")
             normalized.append(finding)
 
+        # Fallback: populate security_analogy from PRE_CHECK_ANALOGIES for findings
+        # that the LLM didn't provide an analogy for but have a known pre-check analogy.
+        from drystone.validation.pre_checks import PRE_CHECK_ANALOGIES
+
+        for finding in normalized:
+            if not finding.security_analogy:
+                fallback = PRE_CHECK_ANALOGIES.get(finding.id)
+                if fallback:
+                    finding.security_analogy = fallback
+                    logger.debug(f"  🔄 Analogy fallback applied for {finding.id}")
+
         return normalized
 
     def _verify_finding(self, finding_id: str, finding: Finding) -> Tuple[bool, Optional[str]]:

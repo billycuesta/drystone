@@ -76,10 +76,10 @@ Extends with skill-specific fields.
       <field>affected_resources: array of ARNs/identifiers</field>
       <field>remediation: string — Narrative recommendation ("It is recommended to..."), explain
         WHY the fix works, not just WHAT to do. Reference specific AWS controls or services.</field>
-      <field>security_analogy: string (OPTIONAL) — One or two sentences comparing this technical risk to a real-world
+      <field>security_analogy: string (STRONGLY RECOMMENDED) — One or two sentences comparing this technical risk to a real-world
         physical security situation. This analogy should read as a natural continuation of the description —
         it will be appended as the final paragraph. Keep it clear for non-technical stakeholders.
-        If you cannot create a good analogy, omit this field.</field>
+        You SHOULD provide an analogy for every finding. Only omit if the finding is highly abstract with no physical parallel.</field>
     </required_fields>
     <writing_style>
       <description>Write 2 paragraphs: (1) what the misconfiguration/weakness is technically,

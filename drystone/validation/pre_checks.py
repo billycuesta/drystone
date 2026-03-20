@@ -370,6 +370,26 @@ PRE_CHECK_ANALOGIES: Dict[str, str] = {
         "Like removing the security screening at a building's main entrance — every visitor "
         "walks in unchecked, carrying whatever they want."
     ),
+    "RECON-006": (
+        "Like a building whose architectural plans are publicly available at city hall — "
+        "an attacker can study every entrance, exit, and weak point before arriving."
+    ),
+    "RECON-008": (
+        "Like a company that publishes its internal phone directory online — attackers "
+        "know exactly who to impersonate and which extensions to call."
+    ),
+    "RECON-009": (
+        "Like leaving a map of your security camera blind spots on the front desk — "
+        "attackers know precisely where they will not be seen."
+    ),
+    "RECON-010": (
+        "Like a building that advertises its alarm vendor and model on the front door — "
+        "attackers can research known bypasses before attempting entry."
+    ),
+    "RECON-012": (
+        "Like printing your building's maintenance schedule on a public sign — "
+        "an attacker knows exactly when the guards change and the cameras reboot."
+    ),
     "RECON-015": (
         "Like a building with multiple unlocked entrances on different streets — the more "
         "doors you leave open, the harder it is to watch them all."
@@ -379,13 +399,37 @@ PRE_CHECK_ANALOGIES: Dict[str, str] = {
         "exactly where the valuable data is."
     ),
     # ── EXPOSURE ─────────────────────────────────────────────────────────────
+    "EXP-006": (
+        "Like a warehouse with loading docks open to the public street and no gate — "
+        "anyone can drive up and start loading goods."
+    ),
+    "EXP-007": (
+        "Like a database server sitting in a storefront window — visible and reachable "
+        "to every passerby on the internet."
+    ),
     "EXP-013": (
         "Like sending confidential documents via open postcard instead of sealed envelope — "
         "anyone along the delivery route can read them."
     ),
+    "EXP-014": (
+        "Like storing company blueprints in an unlocked public locker — anyone who knows "
+        "the locker number can access them without identification."
+    ),
+    "EXP-015": (
+        "Like a public filing cabinet that also accepts new documents from strangers — "
+        "an attacker can plant malicious files alongside legitimate ones."
+    ),
+    "EXP-020": (
+        "Like leaving a building's service entrance propped open with no camera or guard — "
+        "it is technically accessible from the street but nobody is watching."
+    ),
     "EXP-023": (
         "Like leaving a bank vault open with a sign saying 'anyone welcome' — no ID check, "
         "no access log."
+    ),
+    "EXP-024": (
+        "Like a secure facility where the side gate has no lock because 'only employees "
+        "know about it' — security through obscurity is not security."
     ),
     "EXP-026": (
         "Like storing sensitive files in an unlocked filing cabinet in the lobby — "
@@ -396,9 +440,29 @@ PRE_CHECK_ANALOGIES: Dict[str, str] = {
         "the dumpster has a complete copy of your data."
     ),
     # ── NETWORK ──────────────────────────────────────────────────────────────
+    "NET-003": (
+        "Like a building with no internal doors — once someone gets past the front entrance, "
+        "they can walk freely into every room, including the vault."
+    ),
     "NET-007": (
         "Like removing the fence around a military base and posting signs for each building — "
         "anyone with a map can walk to any facility."
+    ),
+    "NET-010": (
+        "Like a security checkpoint that only checks employee badges but lets anyone "
+        "in a delivery uniform pass without verification."
+    ),
+    "NET-011": (
+        "Like connecting two office buildings with an open hallway and no door — "
+        "a breach in one building immediately compromises the other."
+    ),
+    "NET-016": (
+        "Like a building with fire exits that also serve as unrestricted entrances — "
+        "emergency routes become attack paths when they bypass security controls."
+    ),
+    "NET-025": (
+        "Like a corporate campus where every building shares the same master key — "
+        "compromising one lock compromises all facilities."
     ),
     "NET-EGR-001": (
         "Like having no exit inspection at a secure facility — a thief can walk out with "
@@ -416,6 +480,18 @@ PRE_CHECK_ANALOGIES: Dict[str, str] = {
     "VULN-008": (
         "Like knowing about a broken lock for months but never scheduling a locksmith — "
         "the problem is documented but nobody is fixing it."
+    ),
+    "VULN-009": (
+        "Like a building where the fire alarm has a known defect but the manufacturer's patch "
+        "has been sitting in a drawer for weeks — the fix exists but was never applied."
+    ),
+    "VULN-023": (
+        "Like running an aging elevator that the manufacturer no longer services — "
+        "when something breaks, there are no parts and no technician coming."
+    ),
+    "VULN-025": (
+        "Like a security company that scans the lobby cameras but never checks the parking "
+        "garage or loading dock — blind spots leave entire areas unmonitored."
     ),
     "VULN-026": (
         "Like storing all your building's alarm codes in a notebook labeled 'ALARM CODES' "
@@ -455,6 +531,10 @@ PRE_CHECK_ANALOGIES: Dict[str, str] = {
     "SM-001": (
         "Like writing passwords on sticky notes and never replacing them — the longer "
         "a secret stays the same, the more likely it has been seen by the wrong person."
+    ),
+    "SM-012": (
+        "Like a safe whose combination is shared verbally between employees — there is no "
+        "record of who knows it, and no way to change it without telling everyone again."
     ),
     # ── ECR ──────────────────────────────────────────────────────────────────
     "ECR-001": (
