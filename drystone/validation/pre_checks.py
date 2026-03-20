@@ -1529,92 +1529,134 @@ def check_iam_040(evidence: Dict[str, Any]) -> PreCheckResult:
 
 @_register("iam")
 def check_iam_041(evidence: Dict[str, Any]) -> PreCheckResult:
-    """IAM-041: Roles with AdministratorAccess or PowerUserAccess attached policies."""
+    """IAM-041: Roles with AdministratorAccess or PowerUserAccess.
+
+    Privileged roles are flagged unless they are ServiceLinkedRole.
+    Severity is dynamic based on Access Advisor:
+      - Never used (AccessAdvisorDaysAgo=None) or >90 days → Critical (zombi role)
+      - <=90 days ago → High (active but privileged)
+
+    Also checks Trust Policy for MFA condition.
+    """
     roles = evidence.get("roles")
     if not isinstance(roles, list) or not roles:
         return PreCheckResult("IAM-041", "SKIP", "no roles evidence", [])
 
-    # AWS-managed over-privileged policies
     admin_policies = {
         "arn:aws:iam::aws:policy/AdministratorAccess",
         "arn:aws:iam::aws:policy/PowerUserAccess",
     }
 
-    affected_fail: List[str] = []  # AdministratorAccess or PowerUserAccess
-    affected_warn: List[str] = []  # Custom policy with Action:*/Resource:*
+    affected_roles: List[Dict[str, Any]] = []
 
     for role in roles:
         if not isinstance(role, dict):
             continue
+
+        # Skip ServiceLinkedRole (AWS-managed, not customer risk)
+        role_type = role.get("RoleType", "Unknown")
+        if role_type == "ServiceLinkedRole":
+            continue
+
         role_name = str(role.get("RoleName") or "unknown")
         attached = role.get("AttachedPolicies") or []
 
-        # Check AWS-managed admin policies (deterministic FAIL)
+        # Check AWS-managed admin policies
+        has_admin = False
         for policy in attached:
             if not isinstance(policy, dict):
                 continue
             policy_arn = str(policy.get("PolicyArn") or "")
             if policy_arn in admin_policies:
-                trust = role.get("AssumeRolePolicyDocument", {})
-                # Extract principals that can assume this role (for context)
-                principals: List[str] = []
-                for stmt in (trust.get("Statement") or []):
-                    p = stmt.get("Principal")
-                    if isinstance(p, str):
-                        principals.append(p)
-                    elif isinstance(p, dict):
-                        for v in p.values():
-                            if isinstance(v, list):
-                                principals.extend(v)
-                            elif isinstance(v, str):
-                                principals.append(v)
-                label = role_name
-                if principals:
-                    label = f"{role_name} (trusted by: {', '.join(principals[:2])})"
-                affected_fail.append(label)
-                break  # Don't double-count the role
+                has_admin = True
+                break
 
-        # Check custom inline policies with Action:*/Resource:* (WARN)
-        if role_name not in [r.split(" ")[0] for r in affected_fail]:
-            inline_policies = role.get("InlinePolicies") or {}
-            for _pname, doc in (inline_policies.items() if isinstance(inline_policies, dict) else []):
-                if not isinstance(doc, dict):
-                    continue
-                for stmt in (doc.get("Statement") or []):
-                    if not isinstance(stmt, dict):
-                        continue
-                    action = stmt.get("Action", "")
-                    resource = stmt.get("Resource", "")
-                    effect = str(stmt.get("Effect", "")).upper()
-                    if (
-                        effect == "ALLOW"
-                        and action in ("*", ["*"])
-                        and resource in ("*", ["*"])
-                    ):
-                        affected_warn.append(f"{role_name} (inline wildcard policy: {_pname})")
-                        break
+        if not has_admin:
+            continue
 
-    if not affected_fail and not affected_warn:
+        # This role has privileged access; determine severity
+        access_advisor_days = role.get("AccessAdvisorDaysAgo")
+
+        # Determine severity based on last access
+        if access_advisor_days is None or access_advisor_days > 90:
+            severity = "Critical"  # Never used or zombi
+        else:
+            severity = "High"  # Active but privileged
+
+        # Check Trust Policy for MFA condition
+        trust_policy = role.get("AssumeRolePolicyDocument", {})
+        has_mfa_condition = _has_mfa_condition_in_policy(trust_policy)
+
+        # Extract trusted principals for context
+        principals: List[str] = []
+        for stmt in (trust_policy.get("Statement") or []):
+            p = stmt.get("Principal")
+            if isinstance(p, str):
+                principals.append(p)
+            elif isinstance(p, dict):
+                for v in p.values():
+                    if isinstance(v, list):
+                        principals.extend(v)
+                    elif isinstance(v, str):
+                        principals.append(v)
+
+        affected_roles.append({
+            "role_name": role_name,
+            "severity": severity,
+            "access_days_ago": access_advisor_days,
+            "has_mfa_condition": has_mfa_condition,
+            "principals": principals[:2],  # Keep first 2 for display
+        })
+
+    if not affected_roles:
         return PreCheckResult(
             "IAM-041",
             "PASS",
-            "no roles with AdministratorAccess, PowerUserAccess, or wildcard inline policies",
+            "no customer-managed roles with AdministratorAccess/PowerUserAccess",
             [],
         )
 
-    if affected_fail:
-        summary = f"{len(affected_fail)} role(s) with AdministratorAccess/PowerUserAccess"
-        if affected_warn:
-            summary += f"; {len(affected_warn)} role(s) with wildcard inline policies"
-        return PreCheckResult("IAM-041", "FAIL", summary, (affected_fail + affected_warn)[:10])
+    # Build evidence snippet with detailed role analysis
+    snippet_roles = []
+    affected_labels = []
+    for r in affected_roles[:10]:
+        snippet_roles.append({
+            "RoleName": r["role_name"],
+            "Severity": r["severity"],
+            "AccessAdvisorDaysAgo": r["access_days_ago"],
+            "HasMFACondition": r["has_mfa_condition"],
+            "TrustedBy": r["principals"],
+        })
+        # Build label with trust context for backward compatibility
+        label = r["role_name"]
+        if r["principals"]:
+            label = f"{r['role_name']} (trusted by: {', '.join(r['principals'])})"
+        affected_labels.append(label)
 
-    # Only warns (no AdministratorAccess/PowerUserAccess)
+    # Determine overall severity
+    has_critical = any(r["severity"] == "Critical" for r in affected_roles)
+    overall_summary = f"{len(affected_roles)} privileged role(s) detected"
+    if has_critical:
+        overall_summary += f" ({sum(1 for r in affected_roles if r['severity'] == 'Critical')} unused/zombi)"
+
     return PreCheckResult(
         "IAM-041",
         "FAIL",
-        f"{len(affected_warn)} role(s) with wildcard inline policies (Action:*/Resource:*)",
-        affected_warn[:10],
+        overall_summary,
+        affected_labels,
+        metadata={"detailed_roles": snippet_roles},
     )
+
+
+def _has_mfa_condition_in_policy(policy: Dict[str, Any]) -> bool:
+    """Check if policy has aws:MultiFactorAuthPresent condition."""
+    for stmt in policy.get("Statement", []):
+        if not isinstance(stmt, dict):
+            continue
+        conditions = stmt.get("Condition", {})
+        if "aws:MultiFactorAuthPresent" in str(conditions):
+            return True
+    return False
 
 
 @_register("iam")
@@ -7716,7 +7758,7 @@ def check_recon_003(evidence: Dict[str, Any]) -> PreCheckResult:
         "FAIL",
         f"{len(instance_eips)}/{eip_count} Elastic IPs attached to EC2 instances (public IPs)",
         instance_eips[:10],
-        evidence_snippet={"elastic_ips_with_sg_rules": enriched_eips[:5]},  # max 5 for readability
+        metadata={"elastic_ips_with_sg_rules": enriched_eips[:5]},  # max 5 for readability
     )
 
 
@@ -8228,7 +8270,7 @@ def check_recon_004(evidence: Dict[str, Any]) -> PreCheckResult:
             "FAIL",
             f"{len(revealing_records)} DNS record(s) in public zones reveal service endpoints",
             revealing_records[:10],
-            evidence_snippet={"public_dns_zones": enriched_zones[:5]},
+            metadata={"public_dns_zones": enriched_zones[:5]},
         )
 
     return PreCheckResult(
@@ -8265,7 +8307,7 @@ def check_recon_019(evidence: Dict[str, Any]) -> PreCheckResult:
             "FAIL",
             f"{len(critical_zones)} public DNS zone(s) with sensitive keywords (pci/admin/internal/prod/dev)",
             [z["ZoneName"] for z in critical_zones][:10],
-            evidence_snippet={"sensitive_public_zones": critical_zones[:5]},
+            metadata={"sensitive_public_zones": critical_zones[:5]},
         )
 
     return PreCheckResult(

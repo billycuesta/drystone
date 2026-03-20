@@ -1,6 +1,8 @@
 """IAM security skill for AWS audit."""
 
 import json
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
@@ -245,9 +247,20 @@ class IAMSkill(BaseSkill):
                     logger.warning(f"Could not list inline policies for role {role_name}: {e}")
                     role_detail["InlinePolicies"] = []
 
+                # Classify role type (ServiceLinkedRole, SSO_Managed, or CustomerCreated)
+                role_detail["RoleType"] = self._classify_role_type(role_detail)
+
                 roles_detailed.append(role_detail)
         except Exception as e:
             logger.error(f"Could not list IAM roles: {e}")
+
+        # Enrich privileged roles with Access Advisor data (30s timeout)
+        print("  Enriching roles with Access Advisor data...")
+        advisor_data = self._get_access_advisor_for_privileged_roles(iam_client, roles_detailed)
+        for role in roles_detailed:
+            arn = role.get("Arn")
+            if arn in advisor_data:
+                role["AccessAdvisorDaysAgo"] = advisor_data[arn]
 
         self._save_json(evidence_path / "roles.json", roles_detailed)
 
@@ -387,6 +400,112 @@ class IAMSkill(BaseSkill):
         print(f"   - {len(roles_detailed)} roles")
         print(f"   - {len(policies_detailed)} custom policies")
         print(f"   - {len(scps)} SCPs")
+
+    def _classify_role_type(self, role: Dict[str, Any]) -> str:
+        """Classify role type: ServiceLinkedRole, SSO_Managed, or CustomerCreated.
+
+        Args:
+            role: Role detail dict with Path and Arn
+
+        Returns:
+            Role type classification string
+        """
+        path = role.get("Path", "/")
+        if path.startswith("/aws-service-role/"):
+            return "ServiceLinkedRole"
+
+        arn = role.get("Arn", "")
+        if "AWSReservedSSO_" in arn:
+            return "SSO_Managed"
+
+        return "CustomerCreated"
+
+    def _get_access_advisor_for_privileged_roles(
+        self, iam_client: Any, roles: List[Dict[str, Any]]
+    ) -> Dict[str, Optional[int]]:
+        """Get Access Advisor data for roles with admin/poweruser policies.
+
+        Calls IAM Access Advisor API to determine last access time for privileged roles.
+        Timeout: 30 seconds total. Returns {role_arn: days_since_last_access or None}.
+
+        Args:
+            iam_client: IAM boto3 client
+            roles: List of role details from collection
+
+        Returns:
+            Dict mapping role ARN to days_ago (int), None (never used), or missing if timeout
+        """
+        privileged_policies = {
+            "arn:aws:iam::aws:policy/AdministratorAccess",
+            "arn:aws:iam::aws:policy/PowerUserAccess",
+        }
+
+        # Find privileged roles
+        privileged_arns: List[str] = []
+        for role in roles:
+            if not isinstance(role, dict):
+                continue
+            attached = role.get("AttachedPolicies") or []
+            for policy in attached:
+                if not isinstance(policy, dict):
+                    continue
+                policy_arn = policy.get("PolicyArn", "")
+                if policy_arn in privileged_policies:
+                    arn = role.get("Arn")
+                    if arn:
+                        privileged_arns.append(arn)
+                    break
+
+        results: Dict[str, Optional[int]] = {}
+        deadline = time.time() + 30  # 30s timeout
+
+        for arn in privileged_arns:
+            if time.time() > deadline:
+                logger.debug(f"Access Advisor timeout reached, stopping queries")
+                break
+
+            try:
+                # Generate service last accessed details job
+                job_resp = iam_client.generate_service_last_accessed_details(Arn=arn)
+                job_id = job_resp["JobId"]
+
+                # Poll for completion (max 5s per role)
+                for attempt in range(10):
+                    if time.time() > deadline:
+                        logger.debug(f"Access Advisor timeout, skipping role {arn}")
+                        break
+
+                    time.sleep(0.5)
+                    try:
+                        detail = iam_client.get_service_last_accessed_details(JobId=job_id)
+                        if detail["JobStatus"] == "COMPLETED":
+                            # Find most recent service access
+                            services = detail.get("ServicesLastAccessed", [])
+                            last_accessed_list = [
+                                s.get("LastAuthenticated")
+                                for s in services
+                                if s.get("LastAuthenticated")
+                            ]
+
+                            if last_accessed_list:
+                                # Get the most recent access time
+                                last_accessed = max(last_accessed_list)
+                                days_ago = (datetime.now(timezone.utc) - last_accessed).days
+                                results[arn] = days_ago
+                            else:
+                                # Never accessed
+                                results[arn] = None
+
+                            break
+                    except Exception as e:
+                        logger.debug(f"Error polling Access Advisor for {arn}: {e}")
+                        continue
+
+            except Exception as e:
+                logger.debug(f"Could not get Access Advisor data for {arn}: {e}")
+                # degraded mode: skip this role
+
+        return results
 
     def _extract_trust_principals(self, trust_policy: Dict[str, Any]) -> List[str]:
         """Extract principal values from trust policy document."""
