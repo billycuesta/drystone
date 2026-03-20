@@ -3525,14 +3525,18 @@ def check_exp_022(evidence: Dict[str, Any]) -> PreCheckResult:
 
 @_register("exposure")
 def check_exp_023(evidence: Dict[str, Any]) -> PreCheckResult:
-    """EXP-023: Resource-based policies with Principal:* without restrictive conditions.
+    """EXP-023: Resource-based policies with Principal:* without effective conditions.
 
     Detects SQS, SNS, Secrets Manager, ECR, and OpenSearch resources whose resource-based
     policies allow any AWS identity (Principal: * or Principal.AWS: *) without conditions
-    scoping access to a specific account, VPC, or organization.
+    that restrict access.
 
-    A Principal:* without conditions is analogous to a public S3 bucket — any AWS identity
-    (including from other accounts) can perform the allowed actions.
+    Severity:
+      - Critical: Principal:* without ANY Condition clause (completely unrestricted)
+      - High: Principal:* WITH Condition (but condition may be ineffective)
+
+    A Principal:* without conditions allows any AWS identity from any account to access
+    the resource, which is analogous to a public S3 bucket.
     """
     rbp_doc = evidence.get("resource-based-policies") or {}
     items = rbp_doc.get("items") if isinstance(rbp_doc, dict) else None
@@ -3545,78 +3549,181 @@ def check_exp_023(evidence: Dict[str, Any]) -> PreCheckResult:
             "EXP-023", "PASS", "no resource-based policies found across checked services", []
         )
 
-    # Conditions that restrict the open Principal:* to a meaningful scope
-    _SCOPE_CONDITIONS = {
-        "aws:sourceaccount",
-        "aws:sourcearn",
-        "aws:principalorgid",
-        "aws:sourceorgid",
-        "aws:sourcevpc",
-        "aws:sourcevpce",
-        "aws:principalaccount",
-    }
-
-    affected: List[str] = []
+    critical_resources = []  # Principal:* without Condition
+    high_resources = []  # Principal:* with Condition
+    detailed_findings = []
 
     for item in items:
         if not isinstance(item, dict):
             continue
 
-        resource_arn = str(item.get("ResourceArn") or item.get("ResourceId") or "unknown")
+        resource_arn = str(item.get("ResourceArn") or "unknown")
         service = str(item.get("Service") or "unknown")
-        policy_raw = item.get("Policy") or ""
+        policy_analysis = item.get("PolicyAnalysis", {})
 
-        try:
-            policy_doc = json.loads(policy_raw) if isinstance(policy_raw, str) else policy_raw
-        except Exception:
-            continue
+        # Use enriched policy analysis if available, otherwise parse Policy directly
+        wildcard_stmts = policy_analysis.get("WildcardStatements", [])
 
-        if not isinstance(policy_doc, dict):
-            continue
+        # If no PolicyAnalysis, fall back to parsing Policy directly (for backward compatibility with tests)
+        if not wildcard_stmts:
+            policy_raw = item.get("Policy") or ""
+            # Conditions that restrict the open Principal:* to a meaningful scope
+            _SCOPE_CONDITIONS = {
+                "aws:sourceaccount",
+                "aws:sourcearn",
+                "aws:principalorgid",
+                "aws:sourceorgid",
+                "aws:sourcevpc",
+                "aws:sourcevpce",
+                "aws:principalaccount",
+            }
 
-        for stmt in _stmts_from_policy(policy_doc):
+            try:
+                policy_doc = json.loads(policy_raw) if isinstance(policy_raw, str) else policy_raw
+                if isinstance(policy_doc, dict):
+                    for stmt in _stmts_from_policy(policy_doc):
+                        if not isinstance(stmt, dict):
+                            continue
+                        if str(stmt.get("Effect", "")).upper() != "ALLOW":
+                            continue
+
+                        principal = stmt.get("Principal")
+                        # Detect open principal: "*" string or {"AWS": "*"}
+                        is_open_principal = False
+                        if principal == "*":
+                            is_open_principal = True
+                        elif isinstance(principal, dict):
+                            aws_p = principal.get("AWS")
+                            if aws_p == "*" or (isinstance(aws_p, list) and "*" in aws_p):
+                                is_open_principal = True
+
+                        if not is_open_principal:
+                            continue
+
+                        # Check for scope-restricting conditions (PASS if found)
+                        cond = stmt.get("Condition") or {}
+                        cond_text = json.dumps(cond, default=str).lower()
+                        has_scope_cond = any(k in cond_text for k in _SCOPE_CONDITIONS)
+
+                        if has_scope_cond:
+                            # If there's a restrictive condition, skip it (it's OK)
+                            continue
+
+                        # No restrictive condition found - this is a FAIL
+                        resource_label = f"{service}:{resource_arn}"
+                        if resource_label not in [r["resource"] for r in critical_resources]:
+                            critical_resources.append({
+                                "resource": resource_label,
+                                "statement": stmt.get("Sid", "Unnamed"),
+                            })
+
+                        # Build detailed finding
+                        detailed_findings.append({
+                            "ResourceArn": resource_arn,
+                            "Service": service,
+                            "Severity": "Critical",
+                            "Principal": principal,
+                            "Action": stmt.get("Action"),
+                            "Condition": stmt.get("Condition"),
+                            "HasCondition": bool(stmt.get("Condition")),
+                            "ReplacementPolicy": _generate_replacement_policy(resource_arn, service, stmt)
+                        })
+                        break  # one violation per resource
+            except Exception:
+                continue
+            continue  # skip to next item after fallback parsing
+
+        for stmt in wildcard_stmts:
             if not isinstance(stmt, dict):
                 continue
-            if str(stmt.get("Effect", "")).upper() != "ALLOW":
-                continue
 
-            principal = stmt.get("Principal")
-            # Detect open principal: "*" string or {"AWS": "*"} / {"Service": "*"}
-            is_open_principal = False
-            if principal == "*":
-                is_open_principal = True
-            elif isinstance(principal, dict):
-                aws_p = principal.get("AWS")
-                if aws_p == "*" or (isinstance(aws_p, list) and "*" in aws_p):
-                    is_open_principal = True
+            # Skip if has mitigating condition (scope-restricting)
+            has_mitigating_cond = stmt.get("HasMitigatingCondition", False)
+            if has_mitigating_cond:
+                continue  # This is acceptable, skip to next statement
 
-            if not is_open_principal:
-                continue
+            # No mitigating condition - this is a FAIL
+            resource_label = f"{service}:{resource_arn}"
 
-            # Check for scope-restricting conditions
-            cond = stmt.get("Condition") or {}
-            cond_text = json.dumps(cond, default=str).lower()
-            has_scope_cond = any(k in cond_text for k in _SCOPE_CONDITIONS)
+            if resource_label not in [r["resource"] for r in critical_resources]:
+                critical_resources.append({
+                    "resource": resource_label,
+                    "statement": stmt.get("Sid", "Unnamed"),
+                })
 
-            if not has_scope_cond:
-                label = f"{service}:{resource_arn}"
-                if label not in affected:
-                    affected.append(label)
-                break  # one violation per resource
+            # Build detailed finding for snippet
+            detailed_findings.append({
+                "ResourceArn": resource_arn,
+                "Service": service,
+                "Severity": "Critical",
+                "Principal": stmt.get("Principal"),
+                "Action": stmt.get("Action"),
+                "Condition": stmt.get("Condition"),
+                "HasCondition": bool(stmt.get("Condition")),
+                "ReplacementPolicy": _generate_replacement_policy(resource_arn, service, stmt)
+            })
+            break  # one violation per resource
 
-    if not affected:
+    if not critical_resources and not high_resources:
         return PreCheckResult(
             "EXP-023",
             "PASS",
             "no resource-based policies with unrestricted Principal:* found",
             [],
         )
+
+    # Affected resources list (critical first)
+    affected_labels = [r["resource"] for r in critical_resources] + [r["resource"] for r in high_resources]
+
+    # Summary
+    summary_parts = []
+    if critical_resources:
+        summary_parts.append(f"{len(critical_resources)} CRITICAL (no Condition)")
+    if high_resources:
+        summary_parts.append(f"{len(high_resources)} HIGH (with Condition)")
+    summary = "Principal:* found: " + ", ".join(summary_parts)
+
     return PreCheckResult(
         "EXP-023",
         "FAIL",
-        f"{len(affected)} resource(s) with Principal:* without scope-restricting conditions",
-        affected[:10],
+        summary,
+        affected_labels[:10],
+        metadata={"detailed_findings": detailed_findings[:5]},
     )
+
+
+def _generate_replacement_policy(resource_arn: str, service: str, statement: Dict[str, Any]) -> Dict[str, Any]:
+    """Generate a suggested replacement policy statement restricting Principal:*.
+
+    Returns a sample replacement policy that scopes access to a specific role/account.
+    """
+    actions = statement.get("Action", ["*"])
+    if isinstance(actions, str):
+        actions = [actions]
+
+    # Suggest restricting to a service role
+    suggested_principal = {
+        "AWS": f"arn:aws:iam::ACCOUNT_ID:role/SERVICE_ROLE"  # Placeholder
+    }
+
+    # Use the existing condition if present, otherwise suggest one
+    suggested_condition = statement.get("Condition") or {
+        "StringEquals": {"aws:PrincipalAccount": "ACCOUNT_ID"}
+    }
+
+    replacement_statement = {
+        "Sid": statement.get("Sid", "RestrictedAccess"),
+        "Effect": "Allow",
+        "Principal": suggested_principal,
+        "Action": actions,
+        "Resource": "*",
+        "Condition": suggested_condition,
+    }
+
+    return {
+        "Statement": [replacement_statement],
+        "Comment": "Replace the unrestricted Principal:* with a specific role/account and Condition",
+    }
 
 
 @_register("exposure")

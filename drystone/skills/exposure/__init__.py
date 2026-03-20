@@ -20,7 +20,7 @@ def _collect_resource_based_policies(client_kwargs: Dict[str, Any]) -> List[Dict
     """Collect resource-based policies from multiple AWS services.
 
     Checks: SQS queues, SNS topics, Secrets Manager secrets, ECR repositories, OpenSearch domains.
-    Saves resource ARN, service type, and raw policy document for EXP-023 analysis.
+    Saves resource ARN, service type, raw policy document, and Principal:* analysis for EXP-023.
     Gracefully skips services that are inaccessible (AccessDenied) or not deployed.
     """
     out: List[Dict[str, Any]] = []
@@ -34,12 +34,16 @@ def _collect_resource_based_policies(client_kwargs: Dict[str, Any]) -> List[Dict
                 attrs = sqs.get_queue_attributes(QueueUrl=url, AttributeNames=["QueueArn", "Policy"])
                 policy = attrs.get("Attributes", {}).get("Policy")
                 if policy:
-                    out.append({
+                    arn = attrs.get("Attributes", {}).get("QueueArn", url)
+                    resource = {
                         "Service": "sqs",
-                        "ResourceArn": attrs.get("Attributes", {}).get("QueueArn", url),
+                        "ResourceArn": arn,
                         "ResourceId": url.split("/")[-1],
                         "Policy": policy,
-                    })
+                    }
+                    # Enrich with policy analysis
+                    resource["PolicyAnalysis"] = _analyze_resource_policy(policy, arn, "sqs")
+                    out.append(resource)
             except Exception:
                 continue
     except Exception:
@@ -56,12 +60,15 @@ def _collect_resource_based_policies(client_kwargs: Dict[str, Any]) -> List[Dict
                     attrs = sns.get_topic_attributes(TopicArn=arn)
                     policy = attrs.get("Attributes", {}).get("Policy")
                     if policy:
-                        out.append({
+                        resource = {
                             "Service": "sns",
                             "ResourceArn": arn,
                             "ResourceId": arn.split(":")[-1],
                             "Policy": policy,
-                        })
+                        }
+                        # Enrich with policy analysis
+                        resource["PolicyAnalysis"] = _analyze_resource_policy(policy, arn, "sns")
+                        out.append(resource)
                 except Exception:
                     continue
     except Exception:
@@ -79,12 +86,17 @@ def _collect_resource_based_policies(client_kwargs: Dict[str, Any]) -> List[Dict
                     resp = sm.get_resource_policy(SecretId=arn)
                     policy = resp.get("ResourcePolicy")
                     if policy:
-                        out.append({
+                        resource = {
                             "Service": "secretsmanager",
                             "ResourceArn": arn,
                             "ResourceId": name,
                             "Policy": policy,
-                        })
+                        }
+                        # Enrich with policy analysis
+                        resource["PolicyAnalysis"] = _analyze_resource_policy(
+                            policy, arn, "secretsmanager"
+                        )
+                        out.append(resource)
                 except Exception:
                     continue
     except Exception:
@@ -102,12 +114,15 @@ def _collect_resource_based_policies(client_kwargs: Dict[str, Any]) -> List[Dict
                     resp = ecr.get_repository_policy(repositoryName=name)
                     policy = resp.get("policyText")
                     if policy:
-                        out.append({
+                        resource = {
                             "Service": "ecr",
                             "ResourceArn": arn,
                             "ResourceId": name,
                             "Policy": policy,
-                        })
+                        }
+                        # Enrich with policy analysis
+                        resource["PolicyAnalysis"] = _analyze_resource_policy(policy, arn, "ecr")
+                        out.append(resource)
                 except ecr.exceptions.RepositoryPolicyNotFoundException:
                     continue
                 except Exception:
@@ -126,18 +141,113 @@ def _collect_resource_based_policies(client_kwargs: Dict[str, Any]) -> List[Dict
                 policy = detail.get("AccessPolicies")
                 arn = detail.get("ARN", f"arn:aws:es:*:*:domain/{dn}")
                 if policy:
-                    out.append({
+                    resource = {
                         "Service": "opensearch",
                         "ResourceArn": arn,
                         "ResourceId": dn,
                         "Policy": policy,
-                    })
+                    }
+                    # Enrich with policy analysis
+                    resource["PolicyAnalysis"] = _analyze_resource_policy(policy, arn, "opensearch")
+                    out.append(resource)
             except Exception:
                 continue
     except Exception:
         pass
 
     return out
+
+
+def _analyze_resource_policy(
+    policy_json: str, resource_arn: str, service_type: str
+) -> Dict[str, Any]:
+    """Extract Principal:* risks with Condition analysis from resource policy.
+
+    Args:
+        policy_json: Raw policy document (string or JSON)
+        resource_arn: ARN of the resource
+        service_type: Service type (sqs, sns, etc.)
+
+    Returns:
+        Dict with risk analysis: {
+            "ResourceArn": str,
+            "ServiceType": str,
+            "WildcardStatements": [
+                {
+                    "Sid": str,
+                    "Effect": str,
+                    "Principal": str|dict,
+                    "Action": str|list,
+                    "Condition": dict|None,
+                    "HasMitigatingCondition": bool (has scope-restricting Condition),
+                    "MaxSeverity": "Critical" | "Low"
+                }
+            ],
+            "PolicyDocument": dict (parsed JSON)
+        }
+    """
+    try:
+        # Parse policy document
+        if isinstance(policy_json, str):
+            policy = json.loads(policy_json)
+        else:
+            policy = policy_json
+    except (json.JSONDecodeError, TypeError):
+        return {
+            "ResourceArn": resource_arn,
+            "ServiceType": service_type,
+            "WildcardStatements": [],
+            "PolicyDocument": {},
+        }
+
+    # Conditions that restrict the open Principal:* to a meaningful scope
+    _SCOPE_CONDITIONS = {
+        "aws:sourceaccount",
+        "aws:sourcearn",
+        "aws:principalorgid",
+        "aws:sourceorgid",
+        "aws:sourcevpc",
+        "aws:sourcevpce",
+        "aws:principalaccount",
+    }
+
+    risky_statements = []
+
+    for stmt in policy.get("Statement", []):
+        if not isinstance(stmt, dict):
+            continue
+
+        principal = stmt.get("Principal", {})
+
+        # Detect Principal:* (unrestricted)
+        is_wildcard = principal == "*" or (
+            isinstance(principal, dict) and principal.get("AWS") == "*"
+        )
+
+        if not is_wildcard:
+            continue
+
+        # Check if there's a SCOPE-RESTRICTING Condition clause
+        cond = stmt.get("Condition") or {}
+        cond_text = json.dumps(cond, default=str).lower()
+        has_mitigating_cond = any(k in cond_text for k in _SCOPE_CONDITIONS)
+
+        risky_statements.append({
+            "Sid": stmt.get("Sid"),
+            "Effect": stmt.get("Effect"),
+            "Principal": principal,
+            "Action": stmt.get("Action"),
+            "Condition": cond if cond else None,  # None if no Condition
+            "HasMitigatingCondition": has_mitigating_cond,  # True only if has scope-restricting Condition
+            "MaxSeverity": "Low" if has_mitigating_cond else "Critical",
+        })
+
+    return {
+        "ResourceArn": resource_arn,
+        "ServiceType": service_type,
+        "WildcardStatements": risky_statements,
+        "PolicyDocument": policy,
+    }
 
 
 class ExposureSkill(BaseSkill):
