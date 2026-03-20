@@ -146,6 +146,14 @@ class ReconSkill(BaseSkill):
         except ClientError as e:
             logger.error(f"Could not list hosted zones: {e}")
 
+        # Enrich zones with semantic analysis
+        import re
+        for zone in zones:
+            zone["SensitivityAnalysis"] = self._classify_dns_sensitivity(
+                zone_name=zone.get("Name", ""),
+                records=zone.get("Records", [])
+            )
+
         public_zones = [z for z in zones if not z.get("IsPrivate")]
         wildcard_records = [
             r
@@ -501,6 +509,53 @@ class ReconSkill(BaseSkill):
             pass  # degraded mode: EIP without enrichment
 
         return eip
+
+    def _classify_dns_sensitivity(self, zone_name: str, records: list) -> dict:
+        """Return sensitivity classification for a public DNS zone."""
+        import re
+
+        SENSITIVE_KEYWORDS = {
+            "critical": ["pci", "cardholder", "payment", "cde"],
+            "high":     ["admin", "internal", "mgmt", "management", "prod", "production"],
+            "medium":   ["db", "database", "stage", "staging", "dev", "vpn", "bastion"],
+        }
+
+        GEO_ENV_PATTERNS = [
+            r"\b(pci|prod)\.(mx|co|br|ar|cl)\b",  # pci.mx.ejemplo.com
+            r"\b(internal|db)\.(us|eu|ap)-\w+\b",  # internal.us-east.ejemplo.com
+        ]
+
+        name_lower = zone_name.lower()
+
+        # Keyword detection
+        matched_keywords = []
+        severity_bump = None
+        for sev, kws in SENSITIVE_KEYWORDS.items():
+            for kw in kws:
+                if kw in name_lower:
+                    matched_keywords.append(kw)
+                    if severity_bump is None:
+                        severity_bump = sev
+
+        # Geographic/environment pattern detection
+        geo_matches = []
+        for pattern in GEO_ENV_PATTERNS:
+            if re.search(pattern, name_lower):
+                geo_matches.append(pattern)
+
+        # Record-level analysis
+        sensitive_records = [
+            r for r in records
+            if any(kw in r.get("Name", "").lower()
+                   for kws in SENSITIVE_KEYWORDS.values() for kw in kws)
+        ]
+
+        return {
+            "SensitiveKeywords": matched_keywords,
+            "SeverityBump": severity_bump,  # None, "medium", "high", "critical"
+            "GeoEnvPatterns": geo_matches,
+            "SensitiveRecordCount": len(sensitive_records),
+        }
 
     # -------------------------------------------------------------------------
     # CLOUDFRONT

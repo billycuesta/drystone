@@ -8206,17 +8206,72 @@ def check_recon_004(evidence: Dict[str, Any]) -> PreCheckResult:
                 revealing_records.append(f"{rec_name} ({rec_type}) in {zone_name}")
 
     if revealing_records:
+        # Build enriched snippet with zone details and sensitivity analysis
+        enriched_zones = []
+        for zone in r53.get("zones", []):
+            if not isinstance(zone, dict) or zone.get("IsPrivate"):
+                continue
+            enriched_zones.append({
+                "HostedZoneId": zone.get("Id"),
+                "ZoneName": zone.get("Name"),
+                "IsPrivate": zone.get("IsPrivate", False),
+                "RecordCount": zone.get("RecordCount", 0),
+                "SensitivityAnalysis": zone.get("SensitivityAnalysis", {}),
+                "ExposedRecords": [
+                    {"Name": r["Name"], "Type": r["Type"]}
+                    for r in zone.get("Records", [])[:5]
+                ],
+            })
+
         return PreCheckResult(
             "RECON-004",
             "FAIL",
             f"{len(revealing_records)} DNS record(s) in public zones reveal service endpoints",
             revealing_records[:10],
+            evidence_snippet={"public_dns_zones": enriched_zones[:5]},
         )
 
     return PreCheckResult(
         "RECON-004",
         "PASS",
         f"{public_zones} public zone(s) present but no revealing A/AAAA/CNAME/MX records found",
+        [],
+    )
+
+
+@_register("recon")
+def check_recon_019(evidence: Dict[str, Any]) -> PreCheckResult:
+    """RECON-019: Public DNS zones with sensitive keywords expose architecture."""
+    r53 = evidence.get("route53-zones")
+    if not isinstance(r53, dict):
+        return PreCheckResult("RECON-019", "SKIP", "no route53-zones evidence", [])
+
+    critical_zones = []
+    for zone in r53.get("zones", []):
+        if not isinstance(zone, dict) or zone.get("IsPrivate"):
+            continue
+        analysis = zone.get("SensitivityAnalysis", {})
+        if analysis.get("SeverityBump") in ("critical", "high"):
+            critical_zones.append({
+                "ZoneName": zone.get("Name"),
+                "Keywords": analysis.get("SensitiveKeywords"),
+                "GeoPatterns": analysis.get("GeoEnvPatterns"),
+                "IsPrivate": False,
+            })
+
+    if critical_zones:
+        return PreCheckResult(
+            "RECON-019",
+            "FAIL",
+            f"{len(critical_zones)} public DNS zone(s) with sensitive keywords (pci/admin/internal/prod/dev)",
+            [z["ZoneName"] for z in critical_zones][:10],
+            evidence_snippet={"sensitive_public_zones": critical_zones[:5]},
+        )
+
+    return PreCheckResult(
+        "RECON-019",
+        "PASS",
+        "no public zones with sensitive keywords detected",
         [],
     )
 
