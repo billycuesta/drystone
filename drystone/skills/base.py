@@ -439,6 +439,13 @@ class BaseSkill(ABC):
                         precheck_description = evidence_line or check_id
 
                     from drystone.validation.pre_checks import PRE_CHECK_IMPACTS
+                    from drystone.validation.pre_checks import PRE_CHECK_ANALOGIES
+
+                    analogy = PRE_CHECK_ANALOGIES.get(check_id)
+
+                    # Append analogy as final paragraph of description
+                    if analogy:
+                        precheck_description += f"\n\n{analogy}"
 
                     finding = Finding(
                         id=check_id,
@@ -453,6 +460,7 @@ class BaseSkill(ABC):
                         cis_reference=item.get("cis_reference") or item.get("cis_id"),
                         exploitability_status="validated",
                         impact=PRE_CHECK_IMPACTS.get(check_id),
+                        security_analogy=analogy,
                     )
                     findings.findings.append(finding)
                     injected += 1

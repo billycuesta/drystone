@@ -1486,14 +1486,6 @@ class PDFFormatter(BaseFormatter):
         )
 
         analogy = finding.get("security_analogy")
-        analogy_block = ""
-        if analogy:
-            analogy_html = self._md_bold_to_html(html.escape(str(analogy)))
-            analogy_block = (
-                "<div class='finding-analogy'>"
-                f"<em style='color:#666;font-style:italic;'>{analogy_html}</em>"
-                "</div>"
-            )
 
         attack_vector_block = ""
         if is_ser and has_cve_intel:
@@ -1510,12 +1502,17 @@ class PDFFormatter(BaseFormatter):
         if cis_ref and cis_ref not in ("N/A", "None", "", "n/a"):
             cis_line = f"<p><strong>CIS Reference:</strong> {cis_ref}</p>"
 
+        # Build description with analogy as final paragraph
+        description_html = f"<p>{description}</p>"
+        if analogy:
+            analogy_html = self._md_bold_to_html(html.escape(str(analogy)))
+            description_html += f"<p class='finding-analogy'><em>{analogy_html}</em></p>"
+
         return (
             "<div class='individual-finding'>"
             + f"<h3>[{finding_id}] {title}</h3>"
             + severity_line
-            + analogy_block
-            + f"<div class='finding-description'><p>{description}</p></div>"
+            + f"<div class='finding-description'>{description_html}</div>"
             + affected_block
             + commands_block
             + evidence_block

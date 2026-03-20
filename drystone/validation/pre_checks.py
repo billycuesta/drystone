@@ -259,6 +259,210 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
     ),
 }
 
+# ---------------------------------------------------------------------------
+# PRE_CHECK_ANALOGIES — Physical-world security analogies for pre-check findings.
+# Used by the reconciler in base.py to populate the `security_analogy` field on
+# injected findings, making technical risks accessible to non-technical stakeholders.
+# ---------------------------------------------------------------------------
+PRE_CHECK_ANALOGIES: Dict[str, str] = {
+    # ── IAM ─────────────────────────────────────────────────────────────────
+    "IAM-001": (
+        "Like leaving the master key to an entire building on the reception desk "
+        "with no lock, no guard, and no camera — anyone who picks it up owns everything."
+    ),
+    "IAM-002": (
+        "Like protecting a bank vault with only a 4-digit PIN and no security guard — "
+        "a single stolen password is all it takes to walk in."
+    ),
+    "IAM-003": (
+        "Like keeping copies of old office keys that still open every door — "
+        "a forgotten key found by a stranger grants full access."
+    ),
+    "IAM-004": (
+        "Like never changing the locks after giving a copy of the key to a contractor "
+        "who finished their project months ago."
+    ),
+    "IAM-005": (
+        "Like allowing '1234' as the combination to a safe that holds company finances."
+    ),
+    "IAM-007": (
+        "Like taping handwritten permission slips directly onto employee badges instead of "
+        "using a centralized access control system — impossible to audit or revoke."
+    ),
+    "IAM-008": (
+        "Like issuing a skeleton key that opens every room in the building, including the vault, "
+        "server room, and CEO's office."
+    ),
+    "IAM-009": (
+        "Like the building owner carrying a set of master keys while walking through a crowded "
+        "market — if pickpocketed, the thief has unrestricted access to every room."
+    ),
+    "IAM-010": (
+        "Like giving the building superintendent a master key but not requiring them to show "
+        "ID when entering — anyone who looks the part can walk in."
+    ),
+    "IAM-011": (
+        "Like posting an open invitation on a public bulletin board: 'Anyone can use our "
+        "building — no ID required.'"
+    ),
+    "IAM-012": (
+        "Like keeping active badges for employees who left the company months ago — "
+        "their badges still open every door."
+    ),
+    "IAM-014": (
+        "Like giving an employee two separate sets of building keys — if one set is stolen, "
+        "you might not even notice because the other set still works."
+    ),
+    "IAM-020": (
+        "Like assigning permissions to individuals instead of departments — when someone "
+        "moves teams, their old access lingers because nobody tracks it centrally."
+    ),
+    "IAM-029": (
+        "Like a chain of delegated authorities where a janitor can promote themselves to "
+        "building manager by exploiting a series of trust relationships."
+    ),
+    "IAM-030": (
+        "Like accepting any delivery driver who claims to be from a trusted courier — "
+        "without verifying their ID badge, an impersonator walks right in."
+    ),
+    "IAM-032": (
+        "Like accepting any employee badge from a partner company without checking the photo — "
+        "a stolen badge from any partner grants access."
+    ),
+    "IAM-033": (
+        "Like signing a contract that says 'anyone from Company X can enter our vault' instead "
+        "of 'only John from Company X, with badge #4521, can enter.'"
+    ),
+    "IAM-040": (
+        "Like a corporate headquarters with no security policy — each department sets its own "
+        "rules, and some departments have no rules at all."
+    ),
+    "IAM-041": (
+        "Like giving a master key to every department head with no log of who uses it or when "
+        "— a single compromised key holder means total building access."
+    ),
+    "IAM-042": (
+        "Like having a fire escape that bypasses all security checkpoints — useful in an "
+        "emergency but devastating if an intruder finds it."
+    ),
+    "IAM-043": (
+        "Like a trusted delivery service that can open any door in the building on behalf of "
+        "its customers — a compromised driver gains access to every room."
+    ),
+    # ── RECON ────────────────────────────────────────────────────────────────
+    "RECON-002": (
+        "Like putting a service window on the street with no cashier and no security camera — "
+        "anyone can walk up and place orders anonymously."
+    ),
+    "RECON-003": (
+        "Like having your home address publicly listed with the front door unlocked — "
+        "anyone can find you and walk in."
+    ),
+    "RECON-004": (
+        "Like posting your building's floor plan on a public bulletin board — attackers "
+        "can map your infrastructure before attempting entry."
+    ),
+    "RECON-005": (
+        "Like installing a backdoor directly to the street with no receptionist — "
+        "anyone who finds it walks straight into the office."
+    ),
+    "RECON-007": (
+        "Like removing the security screening at a building's main entrance — every visitor "
+        "walks in unchecked, carrying whatever they want."
+    ),
+    "RECON-015": (
+        "Like a building with multiple unlocked entrances on different streets — the more "
+        "doors you leave open, the harder it is to watch them all."
+    ),
+    "RECON-019": (
+        "Like labeling your vault door 'PCI VAULT' in a public directory — it tells attackers "
+        "exactly where the valuable data is."
+    ),
+    # ── EXPOSURE ─────────────────────────────────────────────────────────────
+    "EXP-013": (
+        "Like sending confidential documents via open postcard instead of sealed envelope — "
+        "anyone along the delivery route can read them."
+    ),
+    "EXP-023": (
+        "Like leaving a bank vault open with a sign saying 'anyone welcome' — no ID check, "
+        "no access log."
+    ),
+    "EXP-026": (
+        "Like storing sensitive files in an unlocked filing cabinet in the lobby — "
+        "any visitor can browse through them."
+    ),
+    "EXP-028": (
+        "Like throwing away a hard drive without wiping it — anyone who finds it in "
+        "the dumpster has a complete copy of your data."
+    ),
+    # ── NETWORK ──────────────────────────────────────────────────────────────
+    "NET-007": (
+        "Like removing the fence around a military base and posting signs for each building — "
+        "anyone with a map can walk to any facility."
+    ),
+    "NET-EGR-001": (
+        "Like having no exit inspection at a secure facility — a thief can walk out with "
+        "anything and nobody will notice."
+    ),
+    # ── VULNS ────────────────────────────────────────────────────────────────
+    "VULN-004": (
+        "Like knowing the exact combination to a lock because someone published it online — "
+        "exploits exist, and attackers have the recipe."
+    ),
+    "VULN-006": (
+        "Like never sending a health inspector to check your restaurants — problems exist "
+        "but nobody is looking for them."
+    ),
+    "VULN-008": (
+        "Like knowing about a broken lock for months but never scheduling a locksmith — "
+        "the problem is documented but nobody is fixing it."
+    ),
+    "VULN-026": (
+        "Like storing all your building's alarm codes in a notebook labeled 'ALARM CODES' "
+        "sitting on an unlocked shelf."
+    ),
+    "VULN-GD-001": (
+        "Like disabling the alarm system in a jewelry store — burglars can operate "
+        "freely because nothing will alert the police."
+    ),
+    # ── HARDENING ────────────────────────────────────────────────────────────
+    "HRD-001": (
+        "Like operating a building with no inventory of who entered, what changed, or "
+        "when — you cannot detect tampering if you never recorded the baseline."
+    ),
+    "HRD-002": (
+        "Like a security operations center that exists on paper but has no monitors "
+        "plugged in — the infrastructure is there but nothing is being watched."
+    ),
+    "HRD-005": (
+        "Like a hospital with critical alarms going off that nobody is responding to — "
+        "the most urgent problems are being ignored."
+    ),
+    "HRD-007": (
+        "Like a payment terminal that was never certified — it might work, but nobody "
+        "has verified it meets the security standards required by law."
+    ),
+    "HRD-014": (
+        "Like removing the motion sensors from a warehouse — intruders can move freely "
+        "and nothing will trigger an alert."
+    ),
+    # ── ALERTING ─────────────────────────────────────────────────────────────
+    "ALRT-001": (
+        "Like a security camera system where the footage is recorded but nobody is watching "
+        "the monitors — events happen but alerts never reach anyone."
+    ),
+    # ── SECRETS MANAGER ──────────────────────────────────────────────────────
+    "SM-001": (
+        "Like writing passwords on sticky notes and never replacing them — the longer "
+        "a secret stays the same, the more likely it has been seen by the wrong person."
+    ),
+    # ── ECR ──────────────────────────────────────────────────────────────────
+    "ECR-001": (
+        "Like shipping products without quality control — you are deploying containers "
+        "that have never been inspected for defects."
+    ),
+}
+
 
 def run_pre_checks(
     skill_name: str, evidence: Dict[str, Any], checklist: Dict[str, Any]
@@ -1602,6 +1806,7 @@ def check_iam_041(evidence: Dict[str, Any]) -> PreCheckResult:
 
         affected_roles.append({
             "role_name": role_name,
+            "role_type": role_type,
             "severity": severity,
             "access_days_ago": access_advisor_days,
             "has_mfa_condition": has_mfa_condition,
@@ -1622,6 +1827,7 @@ def check_iam_041(evidence: Dict[str, Any]) -> PreCheckResult:
     for r in affected_roles[:10]:
         snippet_roles.append({
             "RoleName": r["role_name"],
+            "RoleType": r["role_type"],
             "Severity": r["severity"],
             "AccessAdvisorDaysAgo": r["access_days_ago"],
             "HasMFACondition": r["has_mfa_condition"],

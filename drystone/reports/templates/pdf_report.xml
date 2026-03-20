@@ -417,6 +417,16 @@
       page-break-inside: avoid;
     }
 
+    .finding-analogy {
+      margin: 0.75rem 0 0 0;
+      padding: 0.5rem 0.75rem;
+      border-left: 3px solid #6c757d;
+      background: #f8f9fa;
+      color: #555;
+      font-style: italic;
+      font-size: 0.9em;
+    }
+
     .resource-list {
       list-style: none;
       padding: 0;

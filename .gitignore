@@ -52,6 +52,9 @@ audit-logs/
 bandit*.json
 security-scan-*.json
 
+# Client context files (contain client-specific data)
+client-context-*.md
+
 # Env vars
 .env
 .env.local

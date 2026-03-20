@@ -1164,6 +1164,11 @@ These correlations represent multi-stage attack scenarios where findings from di
         evidence_snippet = finding.get("evidence_snippet")
         evidence_refs = finding.get("evidence_refs", [])
 
+        # Append analogy as final paragraph of description (if present)
+        analogy = finding.get("security_analogy")
+        if analogy:
+            description = f"{description}\n\n*{analogy}*"
+
         detail = f"""### [{finding_id}] {title}
 
 **Risk Score:** {self._format_risk_score(risk_score)}

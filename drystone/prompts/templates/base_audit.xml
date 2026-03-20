@@ -77,8 +77,9 @@ Extends with skill-specific fields.
       <field>remediation: string — Narrative recommendation ("It is recommended to..."), explain
         WHY the fix works, not just WHAT to do. Reference specific AWS controls or services.</field>
       <field>security_analogy: string (OPTIONAL) — One or two sentences comparing this technical risk to a real-world
-        physical security situation. Example: "This is like leaving a master key in the lock of the main vault door."
-        Keep it clear for non-technical stakeholders. If you cannot create a good analogy, omit this field.</field>
+        physical security situation. This analogy should read as a natural continuation of the description —
+        it will be appended as the final paragraph. Keep it clear for non-technical stakeholders.
+        If you cannot create a good analogy, omit this field.</field>
     </required_fields>
     <writing_style>
       <description>Write 2 paragraphs: (1) what the misconfiguration/weakness is technically,
@@ -169,6 +170,17 @@ Extends with skill-specific fields.
   <chunking>
     {CHUNKING_INSTRUCTIONS}
   </chunking>
+
+  <irrefutable_evidence_guide>
+    <requirement>Every finding MUST include in evidence_snippet the exact AWS metadata
+    that proves the claim. Generic assertions without supporting metadata will be rejected.</requirement>
+    <general_rules>
+      <rule>Include resource ARNs, IDs, and names for all affected resources</rule>
+      <rule>Include the exact configuration value that creates the risk (flag, CIDR, principal, etc.)</rule>
+      <rule>Include timestamps (LastUsed, CreateDate) when relevant to the finding</rule>
+      <rule>Never assert a state without the API response field that confirms it</rule>
+    </general_rules>
+  </irrefutable_evidence_guide>
 
   <skill_addendum>
     {SKILL_ADDENDUM}
