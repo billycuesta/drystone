@@ -968,19 +968,19 @@ These correlations represent multi-stage attack scenarios where findings from di
             sg_rules = sg_rules_context.get(iid, []) if isinstance(sg_rules_context, dict) else []
 
             section += f"#### Instance `{iid}`\n\n"
-            section += (
-                "As a pentester, here is how I would attack this instance step by step.\n\n"
-            )
+            section += "As a pentester, here is how I would attack this instance step by step.\n\n"
 
             # Step 1: Network reconnaissance — show SG rules table
             section += "**Step 1 — Reconnaissance: What ports can I reach?**\n\n"
             if isinstance(sg_rules, list) and sg_rules:
                 world_open = [
-                    r for r in sg_rules
+                    r
+                    for r in sg_rules
                     if isinstance(r, dict) and r.get("source") in ("0.0.0.0/0", "::/0")
                 ]
                 restricted = [
-                    r for r in sg_rules
+                    r
+                    for r in sg_rules
                     if isinstance(r, dict) and r.get("source") not in ("0.0.0.0/0", "::/0", "")
                 ]
                 if world_open:
@@ -989,10 +989,10 @@ These correlations represent multi-stage attack scenarios where findings from di
                     section += "|------------|----------|--------|---------|\n"
                     for r in world_open[:10]:
                         section += (
-                            f"| {r.get('port','?')} "
-                            f"| {r.get('protocol','?')} "
-                            f"| {r.get('source','?')} "
-                            f"| `{r.get('sg_name', r.get('sg_id',''))}` |\n"
+                            f"| {r.get('port', '?')} "
+                            f"| {r.get('protocol', '?')} "
+                            f"| {r.get('source', '?')} "
+                            f"| `{r.get('sg_name', r.get('sg_id', ''))}` |\n"
                         )
                     section += "\n"
                     section += (
@@ -1005,10 +1005,10 @@ These correlations represent multi-stage attack scenarios where findings from di
                     section += "|------------|----------|--------|---------|\n"
                     for r in restricted[:8]:
                         section += (
-                            f"| {r.get('port','?')} "
-                            f"| {r.get('protocol','?')} "
-                            f"| {r.get('source','?')} "
-                            f"| `{r.get('sg_name', r.get('sg_id',''))}` |\n"
+                            f"| {r.get('port', '?')} "
+                            f"| {r.get('protocol', '?')} "
+                            f"| {r.get('source', '?')} "
+                            f"| `{r.get('sg_name', r.get('sg_id', ''))}` |\n"
                         )
                     section += "\n"
             else:
@@ -1020,7 +1020,8 @@ These correlations represent multi-stage attack scenarios where findings from di
             # Step 2+: Per-CVE exploitation steps
             inst_cves = cves_by_instance.get(iid, [])
             network_cves = [
-                c for c in inst_cves
+                c
+                for c in inst_cves
                 if isinstance(c, dict)
                 and (
                     str(c.get("attack_vector", "")).upper() == "NETWORK"
@@ -1091,7 +1092,9 @@ These correlations represent multi-stage attack scenarios where findings from di
 
             # IMDS credential harvesting step
             step_num = 3 if network_cves else 2
-            section += f"**Step {step_num} — Credential Theft: Stealing IAM credentials via IMDS**\n\n"
+            section += (
+                f"**Step {step_num} — Credential Theft: Stealing IAM credentials via IMDS**\n\n"
+            )
             section += (
                 "Once I have code execution on the instance (via SSH, RCE, or SSRF), I query the "
                 "EC2 Instance Metadata Service (IMDS) to steal the IAM role's temporary credentials:\n\n"
@@ -1126,7 +1129,9 @@ These correlations represent multi-stage attack scenarios where findings from di
 
             # Lateral movement step
             step_num += 1
-            section += f"**Step {step_num} — Lateral Movement: What can I do with these credentials?**\n\n"
+            section += (
+                f"**Step {step_num} — Lateral Movement: What can I do with these credentials?**\n\n"
+            )
             section += (
                 "```bash\n"
                 "# Export stolen credentials\n"
@@ -1145,10 +1150,7 @@ These correlations represent multi-stage attack scenarios where findings from di
                 section += iam_role
             else:
                 section += "ROLE-NAME"
-            section += (
-                "  # Role policies\n"
-                "```\n\n"
-            )
+            section += "  # Role policies\n```\n\n"
 
         return section
 
@@ -1167,7 +1169,7 @@ These correlations represent multi-stage attack scenarios where findings from di
         # Append analogy as final paragraph of description (if present)
         analogy = finding.get("security_analogy")
         if analogy:
-            description = f"{description}\n\n*{analogy}*"
+            description = f"{description}\n\n*Analogy: {analogy}*"
 
         detail = f"""### [{finding_id}] {title}
 
@@ -1431,9 +1433,7 @@ Generated with [Drystone](https://github.com/billycuesta/drystone)
     def _pci_dss_compliance_summary(self) -> str:
         """Generate PCI DSS compliance summary section."""
         findings = self.findings.get("findings", [])
-        skill_name = self._get_skill_display_name(
-            self.findings.get("skill", "unknown").lower()
-        )
+        skill_name = self._get_skill_display_name(self.findings.get("skill", "unknown").lower())
 
         # Get all PCI controls from checklist
         all_controls = self._get_all_checklist_controls()

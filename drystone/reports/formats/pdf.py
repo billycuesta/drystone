@@ -18,11 +18,20 @@ from drystone.reports.validation_commands import suggest_aws_cli_commands
 class PDFFormatter(BaseFormatter):
     # Skill execution order (pentest phases)
     PHASE_ORDER = {
-        "recon": 0, "iam": 1, "exposure": 2,
-        "network": 3, "vulns": 4, "alerting": 5,
-        "hardening": 6, "secretsmanager": 7,
-        "waf": 8, "ecr": 9, "cicd": 10, "kms": 11,
-        "messaging": 12, "compute": 13,
+        "recon": 0,
+        "iam": 1,
+        "exposure": 2,
+        "network": 3,
+        "vulns": 4,
+        "alerting": 5,
+        "hardening": 6,
+        "secretsmanager": 7,
+        "waf": 8,
+        "ecr": 9,
+        "cicd": 10,
+        "kms": 11,
+        "messaging": 12,
+        "compute": 13,
     }
 
     def _finding_sort_key(self, finding: Dict[str, Any]) -> tuple:
@@ -71,7 +80,11 @@ class PDFFormatter(BaseFormatter):
         try:
             ctx = getattr(self.config, "_client_context", None)
             # Guard against Mock objects in tests — check for a real attribute
-            if ctx is not None and hasattr(ctx, "organization") and isinstance(getattr(ctx, "organization", None), str):
+            if (
+                ctx is not None
+                and hasattr(ctx, "organization")
+                and isinstance(getattr(ctx, "organization", None), str)
+            ):
                 return ctx
         except Exception:
             pass
@@ -155,7 +168,6 @@ class PDFFormatter(BaseFormatter):
             "PAGEBREAK_ARCH_CORR": pagebreak_arch_corr,
             "FINDINGS_BY_SEVERITY": findings_html,
             "PAGEBREAK_FINDINGS": pagebreak_findings,
-            "OBSERVATIONS": self._observations_html(),
             "REMEDIATION_TIMELINE": self._remediation_timeline_html(findings),
             "REFERENCES": self._references_html(),
             "FOOTER_NOTES": self._footer_notes_html(),
@@ -225,9 +237,7 @@ class PDFFormatter(BaseFormatter):
                             )
                         corr_index = (
                             "<li>Attack Chains"
-                            "<ol class='index-sublist'>"
-                            + "".join(corr_items)
-                            + "</ol></li>"
+                            "<ol class='index-sublist'>" + "".join(corr_items) + "</ol></li>"
                         )
                 except (OSError, json.JSONDecodeError):
                     pass
@@ -240,10 +250,11 @@ class PDFFormatter(BaseFormatter):
             "<li>Risk Analysis</li>"
             "<li>Architecture Overview (if available)</li>"
             "<li>Cross-Skill Correlations (if available)</li>"
-            f"<li>{findings_label}" + nested_findings + "</li>"
+            f"<li>{findings_label}"
+            + nested_findings
+            + "</li>"
             + corr_index
-            + "<li>Observations</li>"
-            "<li>Remediation Timeline</li>"
+            + "<li>Remediation Timeline</li>"
             "<li>References</li>"
             "<li>Notes</li>"
             "</ol>"
@@ -546,9 +557,7 @@ class PDFFormatter(BaseFormatter):
 
         # Mini risk bar for executive summary
         colors = ["#16a34a", "#22c55e", "#eab308", "#f97316", "#dc2626"]
-        segments = "".join(
-            f"<div style='flex:1;background:{c};height:12px'></div>" for c in colors
-        )
+        segments = "".join(f"<div style='flex:1;background:{c};height:12px'></div>" for c in colors)
         indicator_pct = min(max(risk_score / 10.0 * 100, 0), 100)
         risk_bar = (
             f"<div style='position:relative;margin:8px 0'>"
@@ -993,10 +1002,22 @@ class PDFFormatter(BaseFormatter):
         for corr in sorted_corrs[:10]:
             blocks.append(self._correlation_card_html(corr))
 
-        return (
-            f"<h2>Attack Chains ({len(correlations)})</h2>"
-            + "".join(blocks)
+        intro_html = (
+            "<p class='phase-description'><strong>Focus areas:</strong> multi-step compromise logic | "
+            "cross-skill chaining | compound business impact | remediation sequencing</p>"
+            "<div class='finding-description'>"
+            "<p><strong>What this section is:</strong> each attack chain links independent findings into a "
+            "single adversarial storyline, from initial foothold to privilege expansion, lateral movement, "
+            "and potential business impact.</p>"
+            "<p><strong>Why it matters:</strong> isolated findings can appear manageable, but chained "
+            "weaknesses show how a realistic attacker combines them to reach high-impact outcomes.</p>"
+            "<p><strong>How to use it:</strong> prioritize remediation by chain and break any critical step "
+            "to collapse the full path, starting with internet-exposed entry points and privilege-escalation "
+            "pivots.</p>"
+            "</div>"
         )
+
+        return f"<h2>Attack Chains ({len(correlations)})</h2>" + intro_html + "".join(blocks)
 
     def _correlation_card_html(self, corr: Dict[str, Any]) -> str:
         """Render a correlation as a full finding card (same depth as technical findings)."""
@@ -1022,9 +1043,7 @@ class PDFFormatter(BaseFormatter):
         # Attack path
         attack_path = corr.get("attack_path") or []
         if attack_path:
-            path_items = "".join(
-                f"<li>{html.escape(str(step))}</li>" for step in attack_path
-            )
+            path_items = "".join(f"<li>{html.escape(str(step))}</li>" for step in attack_path)
             path_html = f"<ol class='attack-path-list'>{path_items}</ol>"
         else:
             path_html = "<p>N/A</p>"
@@ -1057,9 +1076,7 @@ class PDFFormatter(BaseFormatter):
         exploit = corr.get("exploitability") or {}
         exploit_steps = exploit.get("exploitation_steps") or attack_path or []
         if exploit_steps:
-            steps_items = "".join(
-                f"<li>{html.escape(str(step))}</li>" for step in exploit_steps
-            )
+            steps_items = "".join(f"<li>{html.escape(str(step))}</li>" for step in exploit_steps)
             steps_html = f"<ol>{steps_items}</ol>"
         else:
             steps_html = "<p>See attack path above</p>"
@@ -1088,9 +1105,7 @@ class PDFFormatter(BaseFormatter):
         # Remediation
         remediation_steps = corr.get("remediation_steps") or []
         if remediation_steps:
-            rem_items = "".join(
-                f"<li>{html.escape(str(step))}</li>" for step in remediation_steps
-            )
+            rem_items = "".join(f"<li>{html.escape(str(step))}</li>" for step in remediation_steps)
             remediation_html = f"<ol>{rem_items}</ol>"
         else:
             remediation_html = "<p>N/A</p>"
@@ -1150,39 +1165,68 @@ class PDFFormatter(BaseFormatter):
             "phase": "Phase 1 — Reconnaissance",
             "skill": "recon",
             "prefixes": ("RECON-",),
-            "description": "External attack surface mapping: public entry points, DNS, API exposure.",
+            "description": "External attack surface mapping across public entry points, DNS, and API exposure.",
+            "focus_text": "Map all externally reachable assets and public attack surfaces, including DNS records, exposed endpoints, and API stages, to establish realistic entry vectors and unauthenticated discovery opportunities.",
         },
         {
             "phase": "Phase 2 — Identity &amp; Access Management",
             "skill": "iam",
             "prefixes": ("IAM-",),
             "description": "Privilege escalation paths, cross-account trust, credential hygiene.",
+            "focus_text": "Assess identity trust boundaries by analyzing overprivileged principals, role assumption chains, cross-account trust policies, root-account safeguards, and credential lifecycle controls (key age, MFA, rotation, and policy scoping).",
         },
         {
             "phase": "Phase 2 — External Exposure",
             "skill": "exposure",
             "prefixes": ("EXP-",),
             "description": "Public-facing resources, open S3 buckets, public snapshots.",
+            "focus_text": "Identify unintended internet exposure across data and service planes, including public storage artifacts, exposed management interfaces, and weak resource policies that can enable anonymous access or unauthorized external interaction.",
         },
         {
             "phase": "Phase 2 — Network Security",
             "skill": "network",
             "prefixes": ("NET-",),
             "description": "Lateral movement paths, missing firewalls, unrestricted egress.",
+            "focus_text": "Evaluate segmentation and containment posture by tracing possible lateral movement routes, permissive ingress/egress rules, missing inspection layers, and trust-path combinations that could expand compromise across VPC boundaries.",
         },
         {
             "phase": "Phase 2 — Vulnerabilities",
             "skill": "vulns",
             "prefixes": ("VULN-",),
             "description": "CVEs, missing patches, insecure runtime configurations.",
+            "focus_text": "Prioritize exploitable technical weaknesses using Inspector-derived vulnerability intelligence, patching status, exploitability context, and runtime hardening signals to estimate likelihood and operational impact.",
         },
         {
             "phase": "Phase 2 — Secrets Management",
             "skill": "secretsmanager",
             "prefixes": ("SM-",),
             "description": "Secrets rotation, access policies, monitoring gaps.",
+            "focus_text": "Review secret governance controls, including rotation enforcement, least-privilege access policies, stale credential exposure risk, and monitoring coverage for high-impact retrieval or misuse events.",
         },
     ]
+
+    def _phase_description_html(self, section: Dict[str, Any]) -> str:
+        """Render phase subtitle as a structured focus line."""
+        focus_text = str(section.get("focus_text", "")).strip()
+        if focus_text:
+            return f"<p class='phase-description'><strong>Focus areas:</strong> {html.escape(focus_text)}</p>"
+
+        focus_areas = section.get("focus_areas")
+        if isinstance(focus_areas, list) and focus_areas:
+            clean_areas = [str(item).strip() for item in focus_areas if str(item).strip()]
+            if clean_areas:
+                focus = " | ".join(html.escape(item) for item in clean_areas)
+                return f"<p class='phase-description'><strong>Focus areas:</strong> {focus}</p>"
+
+        description = str(section.get("description", "")).strip()
+        if not description:
+            return ""
+        return (
+            "<p class='phase-description'>"
+            "<strong>Focus areas:</strong> "
+            f"{html.escape(description)}"
+            "</p>"
+        )
 
     def _skill_for_finding_pdf(self, finding: Dict[str, Any]) -> str:
         fid = str(finding.get("id", ""))
@@ -1212,18 +1256,19 @@ class PDFFormatter(BaseFormatter):
             items_sorted = sorted(
                 items, key=lambda f: float(f.get("risk_score", 0.0)), reverse=True
             )
-            phase_header = (
-                f"<h2>{section['phase']}</h2>"
-                f"<p class='phase-description'><em>{section['description']}</em></p>"
-            )
-            sections_html.append(phase_header)
+            phase_header = f"<h2>{section['phase']}</h2>{self._phase_description_html(section)}"
+            section_block = ["<div class='phase-section'>", phase_header]
             for finding in items_sorted:
-                sections_html.append(self._finding_card_html(finding))
+                section_block.append(self._finding_card_html(finding))
+            section_block.append("</div>")
+            sections_html.append("".join(section_block))
 
         if other:
-            sections_html.append("<h2>Other Findings</h2>")
+            section_block = ["<div class='phase-section'>", "<h2>Other Findings</h2>"]
             for finding in other:
-                sections_html.append(self._finding_card_html(finding))
+                section_block.append(self._finding_card_html(finding))
+            section_block.append("</div>")
+            sections_html.append("".join(section_block))
 
         return "".join(sections_html)
 
@@ -1415,12 +1460,7 @@ class PDFFormatter(BaseFormatter):
             impact_text = self._md_bold_to_html(
                 html.escape(str(raw_impact)).replace("\n\n", "</p><p>")
             )
-            impact_html = (
-                "<div class='finding-impact'>"
-                "<h4>Impact</h4>"
-                f"<p>{impact_text}</p>"
-                "</div>"
-            )
+            impact_html = f"<div class='finding-impact'><h4>Impact</h4><p>{impact_text}</p></div>"
 
         evidence_snippet = finding.get("evidence_snippet")
         skill = str(self.findings.get("skill", "")).lower()
@@ -1502,11 +1542,11 @@ class PDFFormatter(BaseFormatter):
         if cis_ref and cis_ref not in ("N/A", "None", "", "n/a"):
             cis_line = f"<p><strong>CIS Reference:</strong> {cis_ref}</p>"
 
-        # Build description with analogy as final paragraph
+        # Build description with analogy as final paragraph (no standalone callout box)
         description_html = f"<p>{description}</p>"
         if analogy:
             analogy_html = self._md_bold_to_html(html.escape(str(analogy)))
-            description_html += f"<p class='finding-analogy'><em>{analogy_html}</em></p>"
+            description_html += f"<p><em><strong>Analogy:</strong> {analogy_html}</em></p>"
 
         return (
             "<div class='individual-finding'>"
@@ -1616,9 +1656,7 @@ class PDFFormatter(BaseFormatter):
                 region=str(getattr(self.config, "aws_region", "us-east-1")),
                 account_id=self._resolved_account_id(self.findings.get("findings", [])),
                 finding_id=str(finding.get("id", "")),
-                affected_resources=[
-                    str(r) for r in (finding.get("affected_resources", []) or [])
-                ],
+                affected_resources=[str(r) for r in (finding.get("affected_resources", []) or [])],
             )
             suggested = bool(cleaned)
         return cleaned, suggested
@@ -1720,11 +1758,26 @@ class PDFFormatter(BaseFormatter):
         return (
             "<h2>Methodology</h2>"
             "<div class='card'>"
-            "<p>This engagement follows a PTES-oriented methodology (Penetration Testing Execution Standard), adapted for AWS control-plane assessments and evidence-driven analysis.</p>"
+            "<p>This engagement follows a PTES-oriented methodology (Penetration Testing Execution Standard), adapted for AWS control-plane assessments. The workflow is evidence-driven and non-intrusive: Drystone collects AWS-native telemetry/configuration data, validates deterministic security conditions, and models realistic attacker paths without deploying active exploitation payloads into production systems.</p>"
+            "<h3>Test Scope and Procedures Executed</h3>"
+            "<ul>"
+            "<li><strong>IAM assessment:</strong> users, roles, policies, trust relationships, root posture, MFA coverage, and privilege-escalation opportunities.</li>"
+            "<li><strong>Exposure assessment:</strong> internet-reachable services, public buckets/snapshots, exposed entry points, and externally accessible management surfaces.</li>"
+            "<li><strong>Network assessment:</strong> segmentation controls (Security Groups/NACLs), lateral movement paths, permissive ingress/egress rules, and trust-boundary weaknesses.</li>"
+            "<li><strong>Vulnerability assessment:</strong> AWS Inspector v2 outputs, exploitable CVEs, remediation coverage, and runtime hardening gaps.</li>"
+            "<li><strong>Secrets assessment:</strong> Secrets Manager rotation status, policy scope, and monitoring coverage for high-impact secret access patterns.</li>"
+            "</ul>"
+            "<h3>Evidence and Validation Model</h3>"
+            "<ul>"
+            "<li><strong>Source of evidence:</strong> direct AWS API responses captured as raw JSON per skill and retained for traceability.</li>"
+            "<li><strong>Deterministic pre-checks:</strong> reproducible rule checks validate objective controls before AI interpretation.</li>"
+            "<li><strong>Analyst/AI interpretation:</strong> findings are enriched with risk context, exploitability stance, and remediation guidance.</li>"
+            "<li><strong>Cross-skill correlation:</strong> findings are linked into attack chains that represent realistic end-to-end compromise scenarios.</li>"
+            "</ul>"
             "<h3>Reporting Phases Used in This Report</h3>"
             "<ol>"
             "<li><strong>Phase 1 - Reconnaissance:</strong> external attack surface mapping (DNS, public endpoints, APIs).</li>"
-            "<li><strong>Phase 2 - Analysis:</strong> findings grouped by skill domain (IAM, Exposure, Network, Vulnerabilities).</li>"
+            "<li><strong>Phase 2 - Analysis:</strong> findings grouped by skill domain (IAM, Exposure, Network, Vulnerabilities, and Secrets).</li>"
             "<li><strong>Phase 3 - Correlation + Reporting:</strong> attack-chain correlation, risk synthesis, and remediation plan.</li>"
             "</ol>"
             "<h3>PTES Mapping (Execution Backbone)</h3>"
@@ -1733,7 +1786,7 @@ class PDFFormatter(BaseFormatter):
             "<li><strong>Threat Modeling + Vulnerability Analysis + Theoretical Exploitation + Post-Exploitation</strong> -> <strong>Report Phase 2</strong></li>"
             "<li><strong>Reporting</strong> -> <strong>Report Phase 3</strong></li>"
             "</ul>"
-            "<p><strong>Reference frameworks:</strong> PTES (execution flow), OWASP Testing principles (verification mindset), and cloud security best practices for AWS.</p>"
+            "<p><strong>Compliance-ready method evidence:</strong> this workflow is structured to satisfy methodology expectations commonly required by PCI DSS, ISO 27001, and SOC 2 by producing scoped procedures, repeatable control validation, traceable evidence references, and risk-prioritized remediation outputs.</p>"
             "</div>"
         )
 
@@ -1770,10 +1823,22 @@ class PDFFormatter(BaseFormatter):
         if lang == "es":
             levels = [
                 ("Apropiado", "#16a34a", "0 hallazgos", "Sin acción requerida", "rs-appropriate"),
-                ("Bajo", "#22c55e", "0.0 – 2.9", "Mejoras menores, planificación regular", "rs-low"),
+                (
+                    "Bajo",
+                    "#22c55e",
+                    "0.0 – 2.9",
+                    "Mejoras menores, planificación regular",
+                    "rs-low",
+                ),
                 ("Medio", "#eab308", "3.0 – 5.9", "Remediación en 30 días", "rs-medium"),
                 ("Alto", "#f97316", "6.0 – 8.4", "Remediación urgente (7 días)", "rs-high"),
-                ("Crítico", "#dc2626", "8.5 – 10.0", "Riesgo de explotación inmediata", "rs-critical"),
+                (
+                    "Crítico",
+                    "#dc2626",
+                    "8.5 – 10.0",
+                    "Riesgo de explotación inmediata",
+                    "rs-critical",
+                ),
             ]
             header = "Escala de Riesgo"
             col_headers = ("Nivel", "Rango", "Acción Requerida")
@@ -1815,7 +1880,9 @@ class PDFFormatter(BaseFormatter):
                     lo, hi = seg_ranges[i]
                     span = max(hi - lo, 0.1)
                     inner_pct = min(((risk_score - lo) / span) * 100, 100)
-                indicator = f"<div class='risk-scale-indicator' style='left:{inner_pct:.0f}%'></div>"
+                indicator = (
+                    f"<div class='risk-scale-indicator' style='left:{inner_pct:.0f}%'></div>"
+                )
             bar_segments.append(
                 f"<div class='rs-segment {css_class}' style='position:relative'>{indicator}</div>"
             )
@@ -1912,7 +1979,9 @@ class PDFFormatter(BaseFormatter):
         skills = list(skills_raw) if isinstance(skills_raw, (list, tuple)) else []
         skills_str = ", ".join(str(s).upper() for s in skills) if skills else "N/A"
         scan_depth_raw = getattr(self.config, "scan_depth", "normal")
-        scan_depth = str(scan_depth_raw).capitalize() if isinstance(scan_depth_raw, str) else "Normal"
+        scan_depth = (
+            str(scan_depth_raw).capitalize() if isinstance(scan_depth_raw, str) else "Normal"
+        )
 
         if lang == "es":
             header = "Condiciones y Exclusiones"
@@ -1953,12 +2022,8 @@ class PDFFormatter(BaseFormatter):
             if isinstance(extra_exclusions, list) and extra_exclusions:
                 default_exclusions = [str(e) for e in extra_exclusions] + default_exclusions
 
-        scope_list = "".join(
-            f"<li>{html.escape(item)}</li>" for item in scope_items
-        )
-        exclusions_list = "".join(
-            f"<li>{html.escape(item)}</li>" for item in default_exclusions
-        )
+        scope_list = "".join(f"<li>{html.escape(item)}</li>" for item in scope_items)
+        exclusions_list = "".join(f"<li>{html.escape(item)}</li>" for item in default_exclusions)
 
         return (
             f"<h2>{header}</h2>"

@@ -303,6 +303,14 @@
       font-size: 0.92em;
     }
 
+    .phase-section {
+      page-break-before: always;
+    }
+
+    .phase-section:first-of-type {
+      page-break-before: auto;
+    }
+
     .findings-summary-table .totals-row td {
       background: #f0f4ff;
       border-top: 2px solid #6366f1;
@@ -723,13 +731,10 @@
 
   <div class="page-break"></div>
 
-  <h2>Observations</h2>
-  <div class="card">{{OBSERVATIONS}}</div>
+  {{CORRELATION_SECTION}}
 
   <h2>Remediation Timeline (Recommended)</h2>
   <div class="card">{{REMEDIATION_TIMELINE}}</div>
-
-  {{CORRELATION_SECTION}}
 
   <h2>References</h2>
   <div class="card"><ul>{{REFERENCES}}</ul></div>
