@@ -1167,6 +1167,9 @@ class PDFFormatter(BaseFormatter):
             "prefixes": ("RECON-",),
             "description": "External attack surface mapping across public entry points, DNS, and API exposure.",
             "focus_text": "Map all externally reachable assets and public attack surfaces, including DNS records, exposed endpoints, and API stages, to establish realistic entry vectors and unauthenticated discovery opportunities.",
+            "objective": "Establish a realistic initial-access baseline by identifying externally discoverable services and unmanaged exposure points.",
+            "what_was_evaluated": "Public endpoints, DNS intelligence, API stage exposure, and externally reachable service metadata.",
+            "why_this_matters": "Reconnaissance findings define the attacker starting point and prioritize the controls that reduce first-contact compromise risk.",
         },
         {
             "phase": "Phase 2 — Identity &amp; Access Management",
@@ -1174,6 +1177,9 @@ class PDFFormatter(BaseFormatter):
             "prefixes": ("IAM-",),
             "description": "Privilege escalation paths, cross-account trust, credential hygiene.",
             "focus_text": "Assess identity trust boundaries by analyzing overprivileged principals, role assumption chains, cross-account trust policies, root-account safeguards, and credential lifecycle controls (key age, MFA, rotation, and policy scoping).",
+            "objective": "Validate whether identity controls enforce least privilege and resist abuse of trust relationships.",
+            "what_was_evaluated": "Role trust policies, privileged policy grants, root-account controls, MFA posture, and credential hygiene indicators.",
+            "why_this_matters": "Identity misconfigurations are high-leverage pivots that can transform limited access into broad account compromise.",
         },
         {
             "phase": "Phase 2 — External Exposure",
@@ -1181,6 +1187,9 @@ class PDFFormatter(BaseFormatter):
             "prefixes": ("EXP-",),
             "description": "Public-facing resources, open S3 buckets, public snapshots.",
             "focus_text": "Identify unintended internet exposure across data and service planes, including public storage artifacts, exposed management interfaces, and weak resource policies that can enable anonymous access or unauthorized external interaction.",
+            "objective": "Confirm that internet-facing resources and data planes are intentionally exposed and appropriately protected.",
+            "what_was_evaluated": "Public buckets/snapshots, externally accessible interfaces, and resource policies that permit anonymous or cross-account interaction.",
+            "why_this_matters": "Unintended exposure creates immediate attack paths and direct data-loss scenarios without requiring deep internal footholds.",
         },
         {
             "phase": "Phase 2 — Network Security",
@@ -1188,6 +1197,9 @@ class PDFFormatter(BaseFormatter):
             "prefixes": ("NET-",),
             "description": "Lateral movement paths, missing firewalls, unrestricted egress.",
             "focus_text": "Evaluate segmentation and containment posture by tracing possible lateral movement routes, permissive ingress/egress rules, missing inspection layers, and trust-path combinations that could expand compromise across VPC boundaries.",
+            "objective": "Measure how effectively network controls contain compromise and block unauthorized east-west movement.",
+            "what_was_evaluated": "Segmentation boundaries, permissive Security Group/NACL patterns, egress controls, and inspection coverage gaps.",
+            "why_this_matters": "Weak containment allows a single exposed workload to become a pivot into broader infrastructure compromise.",
         },
         {
             "phase": "Phase 2 — Vulnerabilities",
@@ -1195,6 +1207,9 @@ class PDFFormatter(BaseFormatter):
             "prefixes": ("VULN-",),
             "description": "CVEs, missing patches, insecure runtime configurations.",
             "focus_text": "Prioritize exploitable technical weaknesses using Inspector-derived vulnerability intelligence, patching status, exploitability context, and runtime hardening signals to estimate likelihood and operational impact.",
+            "objective": "Prioritize vulnerabilities by exploitability and business impact instead of raw volume.",
+            "what_was_evaluated": "Inspector v2 findings, patch/remediation status, exploitability indicators, and runtime hardening posture.",
+            "why_this_matters": "Risk-ranked vulnerability context enables faster remediation of issues most likely to produce practical compromise.",
         },
         {
             "phase": "Phase 2 — Secrets Management",
@@ -1202,11 +1217,29 @@ class PDFFormatter(BaseFormatter):
             "prefixes": ("SM-",),
             "description": "Secrets rotation, access policies, monitoring gaps.",
             "focus_text": "Review secret governance controls, including rotation enforcement, least-privilege access policies, stale credential exposure risk, and monitoring coverage for high-impact retrieval or misuse events.",
+            "objective": "Verify that secret lifecycle and access controls prevent credential misuse and long-lived exposure.",
+            "what_was_evaluated": "Rotation enforcement, policy scope, stale secret risk, and monitoring for high-risk secret retrieval patterns.",
+            "why_this_matters": "Secret-management failures can provide durable access that bypasses perimeter and workload hardening controls.",
         },
     ]
 
     def _phase_description_html(self, section: Dict[str, Any]) -> str:
-        """Render phase subtitle as a structured focus line."""
+        """Render editorial phase context below each phase title."""
+        objective = str(section.get("objective", "")).strip()
+        evaluated = str(section.get("what_was_evaluated", "")).strip()
+        why = str(section.get("why_this_matters", "")).strip()
+        if objective or evaluated or why:
+            details: List[str] = []
+            if objective:
+                details.append(f"<p><strong>Objective:</strong> {html.escape(objective)}</p>")
+            if evaluated:
+                details.append(
+                    f"<p><strong>What was evaluated:</strong> {html.escape(evaluated)}</p>"
+                )
+            if why:
+                details.append(f"<p><strong>Why this matters:</strong> {html.escape(why)}</p>")
+            return "<div class='phase-description'>" + "".join(details) + "</div>"
+
         focus_text = str(section.get("focus_text", "")).strip()
         if focus_text:
             return f"<p class='phase-description'><strong>Focus areas:</strong> {html.escape(focus_text)}</p>"
