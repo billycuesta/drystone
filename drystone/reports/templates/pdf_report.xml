@@ -81,6 +81,20 @@
       background: #f3f4f6;
     }
 
+    .report-content p,
+    .report-content li,
+    .report-content td {
+      text-align: justify;
+      text-justify: inter-word;
+    }
+
+    .report-content pre,
+    .report-content code,
+    .report-content .code-block {
+      text-align: left;
+      text-justify: auto;
+    }
+
     body > * {
       position: relative;
       z-index: 1;
@@ -383,12 +397,35 @@
       padding-bottom: 5px;
     }
 
+    .individual-finding h4 {
+      color: #111827;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-size: 1em;
+    }
+
     .finding-description {
       background: var(--surface-soft);
       padding: 12px;
       border-radius: 8px;
       border-left: 4px solid #a0a8cc;
-      page-break-inside: avoid;
+      page-break-inside: auto;
+    }
+
+    .finding-description h4 {
+      margin-top: 0;
+      margin-bottom: 6px;
+    }
+
+    .finding-inline-section {
+      margin-top: 16px;
+      padding-top: 14px;
+      border-top: 1px dashed #cbd5e1;
+      page-break-inside: auto;
+    }
+
+    .finding-inline-section h4 {
+      margin: 0 0 6px 0;
     }
 
     .finding-resources {
@@ -413,9 +450,15 @@
       page-break-inside: avoid;
     }
 
+    .finding-remediation h4,
+    .finding-exploitation h4 {
+      margin-top: 0;
+      margin-bottom: 6px;
+    }
+
     .finding-impact {
       background: #fff7ed;
-      border-left: 3px solid #f97316;
+      border-left: 4px solid #f97316;
       border-radius: 6px;
       padding: 12px 16px;
       margin: 12px 0;
@@ -423,9 +466,8 @@
     }
 
     .finding-impact h4 {
-      color: #c2410c;
+      color: #111827;
       margin: 0 0 8px 0;
-      font-size: 0.9em;
       text-transform: uppercase;
       letter-spacing: 0.05em;
     }
@@ -493,6 +535,14 @@
     }
 
     .finding-evidence .code-block {
+      background: #303030;
+      color: #ffffff;
+    }
+
+    .finding-inline-section.finding-affected .code-block,
+    .finding-inline-section.finding-validation .code-block,
+    .finding-inline-section.finding-evidence .code-block,
+    .finding-exploitation .code-block {
       background: #303030;
       color: #ffffff;
     }

@@ -1141,7 +1141,7 @@ class PDFFormatter(BaseFormatter):
             f"<strong>Compound Risk:</strong> {risk:.1f}/10 | "
             f"<strong>CVSS 3.1:</strong> {cvss_score:.1f} ({cvss_vector})</p>"
             f"<p><strong>Pattern:</strong> <code>{pattern_id}</code></p>"
-            f"<div class='finding-description'><p>{desc}</p></div>"
+            f"<div class='finding-description'><h4>Description</h4><p>{desc}</p></div>"
             f"<div class='finding-mitre'><h4>MITRE ATT&amp;CK</h4>"
             f"<p><strong>Tactics:</strong> {html.escape(tactics)}<br>"
             f"<strong>Techniques:</strong> {html.escape(techniques)}</p></div>"
@@ -1509,20 +1509,9 @@ class PDFFormatter(BaseFormatter):
                 if k not in ("cve_details", "attack_paths")
             }
 
-        if snippet_for_json:
-            dumped = json.dumps(snippet_for_json, indent=2, ensure_ascii=False)
-            evidence_block = (
-                "<div class='finding-resources finding-evidence'><h4>Evidence</h4>"
-                f"<pre class='code-block'>{html.escape(dumped)}</pre></div>"
-            )
-        else:
-            evidence_block = ""
-
         resources = finding.get("affected_resources", [])[:8]
-        res_items = "".join(f"<li><code>{html.escape(str(res))}</code></li>" for res in resources)
 
         commands, commands_suggested = self._collect_validation_commands(finding)
-        commands_block = self._validation_commands_block_html(commands, commands_suggested)
         is_pentest_report = str(getattr(self.config, "report_type", "general")) == "pentest"
         exploitation_block = (
             self._exploitation_block_html(finding, commands) if is_pentest_report else ""
@@ -1538,7 +1527,7 @@ class PDFFormatter(BaseFormatter):
         if exploit_status:
             _style = _exploit_styles.get(exploit_status, _default_style)
             exploit_badge_html = (
-                "<span style='padding:2px 8px;border-radius:12px;font-size:0.8em;"
+                "<span style='padding:2px 8px;border-radius:12px;font-size:0.8em;font-weight:700;"
                 + _style
                 + "'>"
                 + exploit_status.title()
@@ -1564,13 +1553,6 @@ class PDFFormatter(BaseFormatter):
         if is_ser and has_cve_intel:
             attack_vector_block = self._ser_attack_vector_html(finding)
 
-        affected_block = ""
-        if res_items:
-            affected_block = (
-                "<div class='finding-resources finding-affected'><h4>Affected Resources</h4>"
-                f"<ul class='resource-list'>{res_items}</ul></div>"
-            )
-
         cis_line = ""
         if cis_ref and cis_ref not in ("N/A", "None", "", "n/a"):
             cis_line = f"<p><strong>CIS Reference:</strong> {cis_ref}</p>"
@@ -1581,14 +1563,39 @@ class PDFFormatter(BaseFormatter):
             analogy_html = self._md_bold_to_html(html.escape(str(analogy)))
             description_html += f"<p><em><strong>Analogy:</strong> {analogy_html}</em></p>"
 
+        if resources:
+            affected_text = "\n".join(str(res) for res in resources)
+            description_html += (
+                "<div class='finding-inline-section finding-affected'><h4>Affected Resources</h4>"
+                f"<pre class='code-block'>{html.escape(affected_text)}</pre></div>"
+            )
+
+        if commands:
+            heading = (
+                "Validation Commands (AWS CLI Suggested)"
+                if commands_suggested
+                else "Validation Commands"
+            )
+            commands_text = "\n".join(commands)
+            description_html += (
+                "<div class='finding-inline-section finding-validation'><h4>"
+                f"{html.escape(heading)}"
+                "</h4>"
+                f"<pre class='code-block'>{html.escape(commands_text)}</pre></div>"
+            )
+
+        if snippet_for_json:
+            dumped = json.dumps(snippet_for_json, indent=2, ensure_ascii=False)
+            description_html += (
+                "<div class='finding-inline-section finding-evidence'><h4>Evidence</h4>"
+                f"<pre class='code-block'>{html.escape(dumped)}</pre></div>"
+            )
+
         return (
             "<div class='individual-finding'>"
             + f"<h3>[{finding_id}] {title}</h3>"
             + severity_line
-            + f"<div class='finding-description'>{description_html}</div>"
-            + affected_block
-            + commands_block
-            + evidence_block
+            + f"<div class='finding-description'><h4>Description</h4>{description_html}</div>"
             + attack_vector_block
             + exploitation_block
             + impact_html
@@ -1745,10 +1752,11 @@ class PDFFormatter(BaseFormatter):
 
         cmd_html = ""
         if exploit_commands:
-            items = "".join(
-                f"<li><code>{html.escape(cmd)}</code></li>" for cmd in exploit_commands[:5]
+            exploit_text = "\n".join(exploit_commands[:5])
+            cmd_html = (
+                "<h4>Exploitation Commands</h4>"
+                f"<pre class='code-block'>{html.escape(exploit_text)}</pre>"
             )
-            cmd_html = f"<ul class='resource-list'>{items}</ul>"
 
         return (
             "<div class='finding-exploitation'><h4>Exploitation (Theoretical)</h4>"
