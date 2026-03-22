@@ -245,6 +245,7 @@ class WizardConfig(BaseModel):
             "messaging",
             "cicd",
             "compute",
+            "sistemas_explotables_red",
         }
         invalid = set(v) - valid_skills
         if invalid:
