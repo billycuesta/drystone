@@ -9419,31 +9419,68 @@ def check_ser_lmb_002(evidence: Dict[str, Any]) -> PreCheckResult:
     if not routes:
         return PreCheckResult("SER-LMB-002", "PASS", "no API Gateway routes found", [])
 
+    # WebSocket API V2 routes: $connect is the handshake (must be authorized),
+    # $disconnect and $default only execute after connection is established.
+    # Flagging $disconnect/$default as separate issues inflates the count and
+    # misleads remediation — the fix is always on $connect.
+    _WEBSOCKET_POST_CONNECT = {"$DISCONNECT", "$DEFAULT"}
+
     unauth: List[str] = []
+    websocket_connect_unauth: List[str] = []  # Track WebSocket APIs missing auth on $connect
+
     for route in routes:
         if not isinstance(route, dict):
             continue
         method = str(route.get("Method") or "").upper()
-        # OPTIONS is a CORS preflight method — browsers send it automatically
-        # and API Gateway requires it to be unauthenticated by design.
+        # OPTIONS is a CORS preflight — browsers send it automatically and
+        # API Gateway requires it to be unauthenticated by design.
         if method == "OPTIONS":
             continue
-        auth = str(route.get("AuthorizationType") or "").upper()
-        if auth in ("NONE", ""):
-            path = str(route.get("Path") or "")
-            api_id = str(route.get("ApiId") or "")
-            key = f"{api_id} {method} {path}".strip()
-            if key and key not in unauth:
-                unauth.append(key)
 
-    if not unauth:
+        auth = str(route.get("AuthorizationType") or "").upper()
+        api_id = str(route.get("ApiId") or "")
+        path = str(route.get("Path") or "")
+        api_type = str(route.get("ApiType") or "").upper()
+
+        # Detect WebSocket APIs by route method names ($connect/$disconnect/$default)
+        # even when ApiType is not labelled as WEBSOCKET in the collector output.
+        is_websocket_route = method in {"$CONNECT", "$DISCONNECT", "$DEFAULT"}
+
+        if is_websocket_route and method in _WEBSOCKET_POST_CONNECT:
+            # Post-connect routes are only reachable after $connect authenticates;
+            # skip them to avoid counting a single WebSocket issue 3× times.
+            continue
+
+        if auth in ("NONE", ""):
+            key = f"{api_id} {method} {path}".strip()
+            if not key:
+                continue
+            if is_websocket_route and method == "$CONNECT":
+                # Report WebSocket issues as a group keyed by API ID
+                ws_key = f"{api_id} (WebSocket API: $connect unauthenticated)"
+                if ws_key not in websocket_connect_unauth:
+                    websocket_connect_unauth.append(ws_key)
+            else:
+                if key not in unauth:
+                    unauth.append(key)
+
+    all_unauth = unauth + websocket_connect_unauth
+    if not all_unauth:
         return PreCheckResult(
             "SER-LMB-002", "PASS", "all API Gateway routes have authorization (OPTIONS excluded)", []
         )
 
+    ws_count = len(websocket_connect_unauth)
+    http_count = len(unauth)
+    parts = []
+    if http_count:
+        parts.append(f"{http_count} HTTP/REST route(s) without authorization")
+    if ws_count:
+        parts.append(f"{ws_count} WebSocket API(s) with unauthenticated $connect")
+
     return PreCheckResult(
         "SER-LMB-002",
         "FAIL",
-        f"{len(unauth)} API Gateway route(s) without authorization (OPTIONS CORS routes excluded)",
-        unauth[:20],
+        "; ".join(parts),
+        all_unauth[:20],
     )

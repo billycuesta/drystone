@@ -588,6 +588,53 @@ class BaseSkill(ABC):
 
             return [], {"evidence_summary": getattr(result, "evidence_summary", "pre-check fail")}
 
+        if check_id == "SER-LMB-002":
+            front_doc = evidence.get("front-doors", {})
+            routes = front_doc.get("api_gateway_routes", []) if isinstance(front_doc, dict) else []
+            affected = set(str(r) for r in (getattr(result, "affected_resources", []) or []))
+            matched = []
+            for route in routes:
+                if not isinstance(route, dict):
+                    continue
+                api_id = str(route.get("ApiId") or "")
+                method = str(route.get("Method") or "")
+                path = str(route.get("Path") or "")
+                key = f"{api_id} {method} {path}".strip()
+                ws_key = f"{api_id} (WebSocket API: $connect unauthenticated)"
+                if key in affected or ws_key in affected or api_id in affected:
+                    matched.append({
+                        "ApiId": route.get("ApiId"),
+                        "ApiType": route.get("ApiType"),
+                        "Method": route.get("Method"),
+                        "Path": route.get("Path"),
+                        "AuthorizationType": route.get("AuthorizationType"),
+                        "ApiKeyRequired": route.get("ApiKeyRequired"),
+                    })
+            if matched:
+                return (
+                    ["front-doors.json#/api_gateway_routes"],
+                    {"api_gateway_routes": matched},
+                )
+            # Fallback: return all unauth routes from evidence
+            unauth_routes = [
+                r for r in routes
+                if isinstance(r, dict)
+                and str(r.get("AuthorizationType") or "").upper() in ("NONE", "")
+                and str(r.get("Method") or "").upper() not in ("OPTIONS", "$DISCONNECT", "$DEFAULT")
+            ]
+            if unauth_routes:
+                return (
+                    ["front-doors.json#/api_gateway_routes"],
+                    {"api_gateway_routes": [{
+                        "ApiId": r.get("ApiId"),
+                        "ApiType": r.get("ApiType"),
+                        "Method": r.get("Method"),
+                        "Path": r.get("Path"),
+                        "AuthorizationType": r.get("AuthorizationType"),
+                    } for r in unauth_routes[:5]]},
+                )
+            return [], {"evidence_summary": getattr(result, "evidence_summary", "pre-check fail")}
+
         if check_id in {"ECR-002", "ECR-005", "ECR-006"}:
             repos_doc = evidence.get("repositories")
             repos = repos_doc.get("repositories") if isinstance(repos_doc, dict) else None
