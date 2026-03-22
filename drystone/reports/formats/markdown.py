@@ -52,10 +52,6 @@ class MarkdownFormatter(BaseFormatter):
             self._correlation_section(),
         ]
 
-        # Only include PCI DSS summary for PCI compliance reports
-        if self.config.report_type == "pci-dss":
-            parts.append(self._pci_dss_compliance_summary())
-
         parts.extend(
             [
                 self._findings_by_severity(),
@@ -63,6 +59,7 @@ class MarkdownFormatter(BaseFormatter):
                 self._remediation_timeline(),
                 self._references(),
                 self._footer(),
+                self._pci_dss_annex_md(),
             ]
         )
 
@@ -1429,6 +1426,91 @@ Generated with [Drystone](https://github.com/billycuesta/drystone)
                 parts.append(f"{counts[severity]} {severity}")
 
         return ", ".join(parts) if parts else "-"
+
+    def _pci_dss_annex_md(self) -> str:
+        """Generate PCI DSS Annex A at the end of the report.
+
+        Only emits content when report_type == 'pci-dss'. Returns empty string otherwise.
+        """
+        if getattr(self.config, "report_type", "general") != "pci-dss":
+            return ""
+
+        from drystone.reports.formats.pci_dss import build_pci_controls_map, get_requirement_name
+
+        findings = self.findings.get("findings", [])
+        skills = list(getattr(self.config, "skills", [])) or [
+            self.findings.get("skill", "unknown")
+        ]
+
+        data = build_pci_controls_map(findings, skills)
+        controls = data["controls"]
+        summary = data["summary"]
+
+        if not controls:
+            return ""
+
+        is_en = self._is_english_report()
+        annex_title = "Annex A: PCI DSS v4.0 Control Mapping" if is_en else "Anexo A: Mapeo de Controles PCI DSS v4.0"
+        ok_label = "OK" if is_en else "OK"
+        ko_label = "KO"
+        header_control = "Control" if is_en else "Control"
+        header_status = "Status" if is_en else "Estado"
+        header_just = "Justification" if is_en else "Justificación"
+        compliance_label = "Compliance Rate" if is_en else "Tasa de cumplimiento"
+        legend_ok = "No violations found" if is_en else "Sin incumplimientos detectados"
+        legend_ko = "Violations detected — see findings above" if is_en else "Incumplimientos detectados — ver findings arriba"
+
+        lines = [
+            "---",
+            "",
+            f"## {annex_title}",
+            "",
+            f"**{compliance_label}:** {summary['ok']}/{summary['total']} ({summary['ok'] / summary['total'] * 100:.0f}%)" if summary["total"] else "",
+            "",
+        ]
+
+        current_req = None
+        for ctrl in controls:
+            req_num = ctrl["requirement"]
+            if req_num != current_req:
+                current_req = req_num
+                req_name = get_requirement_name(req_num)
+                lines.append(f"### Requirement {req_num} · {req_name}")
+                lines.append("")
+                lines.append(f"| {header_control} | {header_status} | {header_just} |")
+                lines.append("|---------|--------|---------------|")
+
+            cid = ctrl["control"]
+            if ctrl["status"] == "ko":
+                status_icon = f"❌ {ko_label}"
+                # Pick the first finding's per-control reason
+                finding = ctrl["findings"][0]
+                finding_reason = None
+                for p in finding.get("pci_dss") or []:
+                    if p.get("control") == cid:
+                        finding_reason = p.get("reason")
+                        break
+                reason = finding_reason or ctrl.get("reason", "")
+                fid = finding.get("id", "")
+                ftitle = finding.get("title", "")
+                just = f"**{fid}**: {ftitle}. {reason}" if fid else reason
+            else:
+                status_icon = f"✅ {ok_label}"
+                check_ids = [c["id"] for c in ctrl.get("checks", [])]
+                ids_str = ", ".join(check_ids) if check_ids else "N/A"
+                just = ids_str
+
+            # Escape pipe chars in justification to avoid breaking Markdown table
+            just = just.replace("|", "\\|")
+            lines.append(f"| {cid} | {status_icon} | {just} |")
+
+        lines += [
+            "",
+            f"**Legend:** ✅ {legend_ok} · ❌ {legend_ko}",
+            "",
+        ]
+
+        return "\n".join(lines)
 
     def _pci_dss_compliance_summary(self) -> str:
         """Generate PCI DSS compliance summary section."""

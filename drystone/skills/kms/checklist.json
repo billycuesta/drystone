@@ -11,8 +11,16 @@
       "title": "KMS key policy allows wildcard or broad cross-account principals",
       "severity": "Critical",
       "description": "Overly permissive key policies can enable cross-account decrypt/encrypt or management of CMKs.",
-      "evidence_files": ["kms-key-policies.json"],
-      "check_keywords": ["Principal", "*", "root", "kms:*", "kms:Decrypt"],
+      "evidence_files": [
+        "kms-key-policies.json"
+      ],
+      "check_keywords": [
+        "Principal",
+        "*",
+        "root",
+        "kms:*",
+        "kms:Decrypt"
+      ],
       "remediation": "Restrict key policies to explicit principals and add conditions (aws:SourceAccount, aws:PrincipalArn) where applicable.",
       "pci_dss": [
         {
@@ -26,8 +34,14 @@
       "title": "Unexpected KMS grants allow decrypt or data key generation",
       "severity": "High",
       "description": "KMS grants can provide stealthy access to decrypt or generate data keys without changing key policies.",
-      "evidence_files": ["kms-grants.json"],
-      "check_keywords": ["CreateGrant", "Decrypt", "GenerateDataKey"],
+      "evidence_files": [
+        "kms-grants.json"
+      ],
+      "check_keywords": [
+        "CreateGrant",
+        "Decrypt",
+        "GenerateDataKey"
+      ],
       "remediation": "Review and revoke unexpected grants; enforce least privilege and monitor CreateGrant/ListGrants usage.",
       "pci_dss": [
         {
@@ -41,8 +55,13 @@
       "title": "Principals can modify KMS key policy or create grants",
       "severity": "High",
       "description": "Permissions like kms:PutKeyPolicy or kms:CreateGrant can be abused for persistence or privesc.",
-      "evidence_files": ["kms-key-policies.json"],
-      "check_keywords": ["kms:PutKeyPolicy", "kms:CreateGrant"],
+      "evidence_files": [
+        "kms-key-policies.json"
+      ],
+      "check_keywords": [
+        "kms:PutKeyPolicy",
+        "kms:CreateGrant"
+      ],
       "remediation": "Restrict KMS administrative permissions and enforce separation of duties for key administration vs key usage.",
       "pci_dss": [
         {
@@ -56,8 +75,12 @@
       "title": "Customer-managed KMS keys do not have rotation enabled",
       "severity": "Medium",
       "description": "Long-lived keys increase blast radius if compromised and reduce cryptographic hygiene.",
-      "evidence_files": ["kms-keys.json"],
-      "check_keywords": ["KeyRotationEnabled"],
+      "evidence_files": [
+        "kms-keys.json"
+      ],
+      "check_keywords": [
+        "KeyRotationEnabled"
+      ],
       "remediation": "Enable automatic key rotation for customer-managed CMKs where supported.",
       "pci_dss": [
         {
@@ -71,13 +94,21 @@
       "title": "KMS policies allow destructive key availability actions",
       "severity": "Critical",
       "description": "Actions like DisableKey, ScheduleKeyDeletion, DeleteImportedKeyMaterial, DeleteAlias, or UpdateAlias can be abused for ransomware-like denial of service.",
-      "evidence_files": ["kms-key-policies.json"],
-      "check_keywords": ["kms:DisableKey", "kms:ScheduleKeyDeletion", "kms:DeleteImportedKeyMaterial", "kms:DeleteAlias", "kms:UpdateAlias"],
+      "evidence_files": [
+        "kms-key-policies.json"
+      ],
+      "check_keywords": [
+        "kms:DisableKey",
+        "kms:ScheduleKeyDeletion",
+        "kms:DeleteImportedKeyMaterial",
+        "kms:DeleteAlias",
+        "kms:UpdateAlias"
+      ],
       "remediation": "Restrict destructive KMS actions to tightly controlled break-glass roles and monitor CloudTrail for policy/key state changes.",
       "pci_dss": [
         {
-          "control": "12.10.1",
-          "reason": "Security incident response procedures should detect and contain key-management abuse impacting availability."
+          "control": "3.7.5",
+          "reason": "KMS policies allowing destructive actions (key deletion, disabling) can result in permanent loss of cryptographic keys protecting cardholder data. PCI DSS 3.7.5 requires procedures to retire or replace cryptographic keys when integrity is weakened, including controls preventing unauthorized key destruction."
         }
       ]
     },
@@ -86,8 +117,14 @@
       "title": "Imported key material can be deleted (Origin=EXTERNAL)",
       "severity": "High",
       "description": "For CMKs with imported key material, DeleteImportedKeyMaterial can render encrypted data inaccessible if abused.",
-      "evidence_files": ["kms-keys.json", "kms-key-policies.json"],
-      "check_keywords": ["Origin=EXTERNAL", "kms:DeleteImportedKeyMaterial"],
+      "evidence_files": [
+        "kms-keys.json",
+        "kms-key-policies.json"
+      ],
+      "check_keywords": [
+        "Origin=EXTERNAL",
+        "kms:DeleteImportedKeyMaterial"
+      ],
       "remediation": "Use dedicated admin roles for imported-key lifecycle actions and alert on DeleteImportedKeyMaterial attempts.",
       "pci_dss": [
         {
@@ -101,8 +138,14 @@
       "title": "KMS grants enable persistence via CreateGrant delegation",
       "severity": "High",
       "description": "CreateGrant permissions in grants can allow durable delegated access and persistence over key usage.",
-      "evidence_files": ["kms-grants.json"],
-      "check_keywords": ["CreateGrant", "RetireGrant", "ListGrants"],
+      "evidence_files": [
+        "kms-grants.json"
+      ],
+      "check_keywords": [
+        "CreateGrant",
+        "RetireGrant",
+        "ListGrants"
+      ],
       "remediation": "Remove unnecessary CreateGrant operations from grants, enforce grant constraints, and continuously review grant inventory.",
       "pci_dss": [
         {

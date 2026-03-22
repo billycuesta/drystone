@@ -300,6 +300,33 @@
       white-space: nowrap;
     }
 
+    .pci-annex-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 9px;
+    }
+    .pci-annex-table th {
+      background: #1e3a5f;
+      color: #fff;
+      padding: 5px 8px;
+      text-align: left;
+      font-size: 9px;
+    }
+    .pci-annex-table td {
+      padding: 4px 8px;
+      border-bottom: 1px solid #e5e7eb;
+      vertical-align: top;
+    }
+    .pci-annex-table tr.pci-req-header td {
+      background: #f0f4f8;
+      font-weight: 700;
+      font-size: 9px;
+      color: #1e3a5f;
+      padding: 5px 8px;
+    }
+    .pci-annex-table .pci-ok { color: #047857; font-weight: 700; }
+    .pci-annex-table .pci-ko { color: #b91c1c; font-weight: 700; }
+
     .severity-critical { color: #b91c1c; font-weight: 700; }
     .severity-high { color: #b45309; font-weight: 700; }
     .severity-medium { color: #0369a1; font-weight: 700; }
@@ -805,6 +832,8 @@
 
   <h2>Notes</h2>
   <div class="card">{{FOOTER_NOTES}}</div>
+
+  {{PCI_DSS_ANNEX}}
   </div>
 </body>
 </html>

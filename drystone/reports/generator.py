@@ -161,9 +161,7 @@ class ReportGenerator:
         report_context["report_metadata"] = report_metadata
 
         for format_name in formats:
-            if self.config.report_type == "pci-dss" and format_name == "markdown":
-                formatter_class = PCIDSSFormatter
-            elif self.config.report_type == "pentest" and format_name == "markdown":
+            if self.config.report_type == "pentest" and format_name == "markdown":
                 formatter_class = PentestFormatter
             elif self.config.report_type == "pentest" and format_name == "pdf":
                 formatter_class = PentestPDFFormatter
@@ -225,9 +223,7 @@ class ReportGenerator:
         report_metadata["report_skill"] = "aggregated"
         report_context["report_metadata"] = report_metadata
         for format_name in formats:
-            if self.config.report_type == "pci-dss" and format_name == "markdown":
-                formatter_class = PCIDSSFormatter
-            elif self.config.report_type == "pentest" and format_name == "markdown":
+            if self.config.report_type == "pentest" and format_name == "markdown":
                 formatter_class = PentestFormatter
             elif self.config.report_type == "pentest" and format_name == "pdf":
                 formatter_class = PentestPDFFormatter

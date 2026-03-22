@@ -621,8 +621,8 @@
       "remediation": "Compare custom policies with AWS managed policies. Consolidate and remove duplicates.",
       "pci_dss": [
         {
-          "control": "6.5.1",
-          "reason": "This control requires a formal change control process. Simplifying the policy landscape by using standard, managed policies where possible makes the security impact analysis for any change much easier and more reliable."
+          "control": "7.2.5.1",
+          "reason": "Customer-managed policies duplicating AWS managed policies indicate lack of formal access policy governance. PCI DSS 7.2.5.1 requires all user accounts and access rights to be reviewed at least once every six months; redundant duplicate policies complicate this governance."
         }
       ]
     },
@@ -949,10 +949,6 @@
         {
           "control": "7.2.1",
           "reason": "SCPs enforce org-level least-privilege boundaries preventing principals from exceeding approved access even if IAM policies are misconfigured."
-        },
-        {
-          "control": "6.5.1",
-          "reason": "Org-level change controls via SCPs prevent unauthorized changes to security controls across all accounts in the OU."
         }
       ]
     },
@@ -974,8 +970,8 @@
       "remediation": "Restrict policy detachment/deletion actions, require change approvals, and continuously monitor authorization-control modifications.",
       "pci_dss": [
         {
-          "control": "6.5.1",
-          "reason": "Authorization-control changes must follow controlled and auditable change management to prevent unauthorized security regression."
+          "control": "7.2.1",
+          "reason": "Allowing broad detachment or deletion of IAM policies undermines the principle of least privilege. PCI DSS 7.2.1 requires access control systems that restrict access based on business need-to-know and least privilege."
         }
       ]
     },
@@ -1069,8 +1065,8 @@
           "reason": "System/application accounts must be managed with controls that prevent misuse. Over-privileged roles are a primary vector for privilege escalation attacks."
         }
       ]
-    }
-    ,{
+    },
+    {
       "id": "IAM-044",
       "cis_id": "N/A",
       "title": "Privileged and SSO roles should not have MaxSessionDuration greater than 1 hour",

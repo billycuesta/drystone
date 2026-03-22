@@ -11,8 +11,15 @@
       "title": "Repositories must not allow public access via wildcard principals",
       "severity": "Critical",
       "description": "A repository policy that allows Principal '*' (or AWS '*') can expose container images publicly, enabling unauthorized pulls and supply-chain compromise.",
-      "evidence_files": ["repositories.json"],
-      "check_keywords": ["Policy", "Principal", "*", "IsPublic"],
+      "evidence_files": [
+        "repositories.json"
+      ],
+      "check_keywords": [
+        "Policy",
+        "Principal",
+        "*",
+        "IsPublic"
+      ],
       "remediation": "Remove wildcard principals from repository policies. Use least-privilege principals (specific IAM roles/users/accounts) and conditions. Validate with: aws ecr get-repository-policy --repository-name <name>.",
       "pci_dss": [
         {
@@ -26,8 +33,13 @@
       "title": "Image tags should be immutable",
       "severity": "High",
       "description": "Mutable tags allow overwriting images (e.g., 'latest'), increasing risk of untracked changes and supply-chain abuse.",
-      "evidence_files": ["repositories.json"],
-      "check_keywords": ["ImageTagMutability", "MUTABLE"],
+      "evidence_files": [
+        "repositories.json"
+      ],
+      "check_keywords": [
+        "ImageTagMutability",
+        "MUTABLE"
+      ],
       "remediation": "Enable IMMUTABLE tags: aws ecr put-image-tag-mutability --repository-name <name> --image-tag-mutability IMMUTABLE.",
       "pci_dss": [
         {
@@ -41,8 +53,14 @@
       "title": "Image scanning on push should be enabled",
       "severity": "High",
       "description": "Scan-on-push enables continuous vulnerability discovery at publish time, reducing exposure to known vulnerable images.",
-      "evidence_files": ["repositories.json", "registry.json"],
-      "check_keywords": ["ScanOnPush", "registry_scanning"],
+      "evidence_files": [
+        "repositories.json",
+        "registry.json"
+      ],
+      "check_keywords": [
+        "ScanOnPush",
+        "registry_scanning"
+      ],
       "remediation": "Enable scan on push per repo: aws ecr put-image-scanning-configuration --repository-name <name> --image-scanning-configuration scanOnPush=true. Consider enabling registry scanning configuration for consistent coverage.",
       "pci_dss": [
         {
@@ -56,8 +74,14 @@
       "title": "Registry scanning configuration should be defined",
       "severity": "Medium",
       "description": "A defined registry scanning configuration (rules and scan type) improves consistency and prevents coverage gaps.",
-      "evidence_files": ["registry.json"],
-      "check_keywords": ["registry_scanning", "scanType", "rules"],
+      "evidence_files": [
+        "registry.json"
+      ],
+      "check_keywords": [
+        "registry_scanning",
+        "scanType",
+        "rules"
+      ],
       "remediation": "Define a registry scanning configuration with required scan type/rules. Validate with: aws ecr describe-registry-scanning-configuration.",
       "pci_dss": [
         {
@@ -71,8 +95,13 @@
       "title": "Repositories should use KMS customer-managed keys when required",
       "severity": "Medium",
       "description": "Customer-managed KMS keys provide stronger governance (policy controls, rotation, auditability) than default encryption.",
-      "evidence_files": ["repositories.json"],
-      "check_keywords": ["EncryptionType", "KmsKey"],
+      "evidence_files": [
+        "repositories.json"
+      ],
+      "check_keywords": [
+        "EncryptionType",
+        "KmsKey"
+      ],
       "remediation": "Create/choose a CMK and configure repository encryption where applicable. For existing repos, migrate policy and controls around key usage; ensure IAM key permissions follow least privilege.",
       "pci_dss": [
         {
@@ -86,13 +115,18 @@
       "title": "Lifecycle policies should be configured to expire unused images",
       "severity": "Medium",
       "description": "Without lifecycle policies, old/untagged images can accumulate, increasing attack surface and operational risk.",
-      "evidence_files": ["repositories.json"],
-      "check_keywords": ["HasLifecyclePolicy", "LifecyclePolicy"],
+      "evidence_files": [
+        "repositories.json"
+      ],
+      "check_keywords": [
+        "HasLifecyclePolicy",
+        "LifecyclePolicy"
+      ],
       "remediation": "Define lifecycle policies to expire untagged images and old versions. Validate with: aws ecr get-lifecycle-policy --repository-name <name>.",
       "pci_dss": [
         {
           "control": "2.2.6",
-          "reason": "Unused components increase risk. Lifecycle hygiene supports reducing unnecessary artifacts." 
+          "reason": "Unused components increase risk. Lifecycle hygiene supports reducing unnecessary artifacts."
         }
       ]
     },
@@ -101,13 +135,19 @@
       "title": "Cross-account repository access should be explicitly reviewed",
       "severity": "High",
       "description": "Cross-account principals in repository policies can unintentionally expose images or enable supply-chain compromise if not tightly controlled.",
-      "evidence_files": ["repositories.json"],
-      "check_keywords": ["Policy", "AWS", "Account"],
+      "evidence_files": [
+        "repositories.json"
+      ],
+      "check_keywords": [
+        "Policy",
+        "AWS",
+        "Account"
+      ],
       "remediation": "Restrict repository policies to required accounts/roles only, add conditions (e.g., aws:PrincipalArn), and consider service control policies. Review principals regularly.",
       "pci_dss": [
         {
           "control": "7.2.2",
-          "reason": "Least privilege requires limiting access to only necessary principals, including external accounts." 
+          "reason": "Least privilege requires limiting access to only necessary principals, including external accounts."
         }
       ]
     },
@@ -116,28 +156,34 @@
       "title": "Registry replication configuration should be evaluated for resiliency",
       "severity": "Low",
       "description": "Replication can improve availability and support regional resiliency depending on business needs.",
-      "evidence_files": ["registry.json"],
-      "check_keywords": ["replicationConfiguration", "rules"],
+      "evidence_files": [
+        "registry.json"
+      ],
+      "check_keywords": [
+        "replicationConfiguration",
+        "rules"
+      ],
       "remediation": "If required, configure ECR replication to secondary regions/accounts. Validate with: aws ecr describe-registry.",
-      "pci_dss": [
-        {
-          "control": "12.10.1",
-          "reason": "Business continuity planning can require resilient delivery of critical artifacts." 
-        }
-      ]
+      "pci_dss": []
     },
     {
       "id": "ECR-009",
       "title": "Repository policies should prefer explicit principals over broad patterns",
       "severity": "Medium",
       "description": "Broad principals or overly permissive actions (ecr:*) increase blast radius. Policies should use explicit principals and actions.",
-      "evidence_files": ["repositories.json"],
-      "check_keywords": ["Policy", "Action", "ecr:"],
+      "evidence_files": [
+        "repositories.json"
+      ],
+      "check_keywords": [
+        "Policy",
+        "Action",
+        "ecr:"
+      ],
       "remediation": "Review repository policies and restrict Actions to only required (e.g., ecr:BatchGetImage, ecr:GetDownloadUrlForLayer). Avoid ecr:* unless justified.",
       "pci_dss": [
         {
           "control": "7.2.2",
-          "reason": "Least privilege requires limiting actions to the minimum required." 
+          "reason": "Least privilege requires limiting actions to the minimum required."
         }
       ]
     },
@@ -146,8 +192,13 @@
       "title": "ECR evidence should include registry-level settings",
       "severity": "Low",
       "description": "If registry-level evidence is missing due to permissions, findings that depend on it should be treated as unverifiable.",
-      "evidence_files": ["registry.json"],
-      "check_keywords": ["error", "AccessDenied"],
+      "evidence_files": [
+        "registry.json"
+      ],
+      "check_keywords": [
+        "error",
+        "AccessDenied"
+      ],
       "remediation": "Ensure the audit role has permissions for: ecr:DescribeRegistry, ecr:DescribeRegistryScanningConfiguration, ecr:GetRegistryPolicy.",
       "pci_dss": []
     }

@@ -11,8 +11,14 @@
       "title": "SQS queue policy uses aws:PrincipalOrgID backdoor-style access",
       "severity": "High",
       "description": "Org-scoped access via aws:PrincipalOrgID can create hidden broad access paths.",
-      "evidence_files": ["sqs-queues.json"],
-      "check_keywords": ["aws:PrincipalOrgID", "Condition", "Policy"],
+      "evidence_files": [
+        "sqs-queues.json"
+      ],
+      "check_keywords": [
+        "aws:PrincipalOrgID",
+        "Condition",
+        "Policy"
+      ],
       "remediation": "Review SQS queue policies and restrict principals explicitly; avoid org-wide broad permissions unless required.",
       "pci_dss": [
         {
@@ -26,8 +32,13 @@
       "title": "SQS redrive configuration could enable DLQ-based exfiltration",
       "severity": "High",
       "description": "DLQ/RedrivePolicy and RedriveAllowPolicy can be abused to siphon messages to attacker-controlled queues.",
-      "evidence_files": ["sqs-queues.json"],
-      "check_keywords": ["RedrivePolicy", "RedriveAllowPolicy"],
+      "evidence_files": [
+        "sqs-queues.json"
+      ],
+      "check_keywords": [
+        "RedrivePolicy",
+        "RedriveAllowPolicy"
+      ],
       "remediation": "Lock down who can modify queue attributes; review DLQ targets and allow policies; enforce KMS and tight key policies.",
       "pci_dss": [
         {
@@ -41,13 +52,20 @@
       "title": "SNS to SQS injection risk via permissive queue/topic policies",
       "severity": "Medium",
       "description": "Permissive SNS/SQS policies can allow untrusted publishers to inject messages into trusted queues.",
-      "evidence_files": ["sns-topics.json", "sqs-queues.json"],
-      "check_keywords": ["sns.amazonaws.com", "SourceArn", "SQS:SendMessage"],
+      "evidence_files": [
+        "sns-topics.json",
+        "sqs-queues.json"
+      ],
+      "check_keywords": [
+        "sns.amazonaws.com",
+        "SourceArn",
+        "SQS:SendMessage"
+      ],
       "remediation": "Restrict queue policies to specific SNS topic ARNs with aws:SourceArn and aws:SourceAccount conditions.",
       "pci_dss": [
         {
-          "control": "6.4.2",
-          "reason": "Protect public-facing components and validate trusted integrations to prevent injection."
+          "control": "7.2.1",
+          "reason": "Permissive SNS/SQS policies that allow wildcard or untrusted sources violate least-privilege access control. PCI DSS 7.2.1 requires access to systems be restricted based on business need-to-know."
         }
       ]
     },
@@ -56,8 +74,13 @@
       "title": "Unmonitored message move tasks could enable DLQ data theft",
       "severity": "Medium",
       "description": "DLQ message move operations can rapidly exfiltrate accumulated messages if abused.",
-      "evidence_files": ["sqs-queues.json"],
-      "check_keywords": ["StartMessageMoveTask", "DLQ"],
+      "evidence_files": [
+        "sqs-queues.json"
+      ],
+      "check_keywords": [
+        "StartMessageMoveTask",
+        "DLQ"
+      ],
       "remediation": "Restrict SQS administrative permissions; monitor CloudTrail for message move operations; encrypt DLQs with KMS.",
       "pci_dss": [
         {
@@ -71,8 +94,16 @@
       "title": "SQS queue policy allows wildcard principal for data-plane operations",
       "severity": "Critical",
       "description": "SQS policies granting Send/Receive/Delete/ChangeVisibility to wildcard principals expose queues to unauthorized injection, theft, and disruption.",
-      "evidence_files": ["sqs-queues.json"],
-      "check_keywords": ["Principal", "*", "sqs:SendMessage", "sqs:ReceiveMessage", "sqs:DeleteMessage"],
+      "evidence_files": [
+        "sqs-queues.json"
+      ],
+      "check_keywords": [
+        "Principal",
+        "*",
+        "sqs:SendMessage",
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage"
+      ],
       "remediation": "Restrict queue policy principals explicitly and require strong conditions (SourceArn/SourceAccount) for service-to-service paths.",
       "pci_dss": [
         {
@@ -86,8 +117,13 @@
       "title": "SQS queue without encryption at rest",
       "severity": "High",
       "description": "Queues without KMS-managed or SQS-managed server-side encryption increase risk of message disclosure at rest.",
-      "evidence_files": ["sqs-queues.json"],
-      "check_keywords": ["KmsMasterKeyId", "SqsManagedSseEnabled"],
+      "evidence_files": [
+        "sqs-queues.json"
+      ],
+      "check_keywords": [
+        "KmsMasterKeyId",
+        "SqsManagedSseEnabled"
+      ],
       "remediation": "Enable SSE using KMS CMKs for sensitive queues (or SQS managed SSE where acceptable) and validate key policy constraints.",
       "pci_dss": [
         {
@@ -101,8 +137,14 @@
       "title": "SNS topic policy allows wildcard/external Subscribe",
       "severity": "High",
       "description": "Permissive sns:Subscribe grants enable unauthorized subscriptions and message exfiltration channels.",
-      "evidence_files": ["sns-topics.json"],
-      "check_keywords": ["sns:Subscribe", "Principal", "*"],
+      "evidence_files": [
+        "sns-topics.json"
+      ],
+      "check_keywords": [
+        "sns:Subscribe",
+        "Principal",
+        "*"
+      ],
       "remediation": "Allow subscriptions only from approved principals/endpoints and remove wildcard subscribe permissions.",
       "pci_dss": [
         {
@@ -116,32 +158,45 @@
       "title": "SNS topic policy allows unrestricted wildcard Publish",
       "severity": "High",
       "description": "Broad sns:Publish permissions can enable unauthorized message injection and abuse of downstream integrations.",
-      "evidence_files": ["sns-topics.json"],
-      "check_keywords": ["sns:Publish", "Principal", "*", "SourceArn", "SourceAccount"],
+      "evidence_files": [
+        "sns-topics.json"
+      ],
+      "check_keywords": [
+        "sns:Publish",
+        "Principal",
+        "*",
+        "SourceArn",
+        "SourceAccount"
+      ],
       "remediation": "Restrict publishing principals and enforce source conditions for trusted service integrations.",
       "pci_dss": [
         {
-          "control": "6.4.2",
-          "reason": "Public/integration-facing channels must validate trusted producers and prevent unauthorized input."
+          "control": "7.2.1",
+          "reason": "Permissive SNS/SQS policies that allow wildcard or untrusted sources violate least-privilege access control. PCI DSS 7.2.1 requires access to systems be restricted based on business need-to-know."
         }
       ]
-    }
-    ,{
+    },
+    {
       "id": "MSG-009",
       "title": "SNS topic policy grants administrative actions to wildcard principal",
       "severity": "Critical",
       "description": "Wildcard principals with administrative SNS actions (DeleteTopic, SetTopicAttributes, AddPermission, RemovePermission) can modify or destroy the topic and its subscriptions.",
-      "evidence_files": ["sns-topics.json"],
-      "check_keywords": ["sns:DeleteTopic", "sns:SetTopicAttributes", "sns:AddPermission", "sns:RemovePermission", "Principal", "*"],
+      "evidence_files": [
+        "sns-topics.json"
+      ],
+      "check_keywords": [
+        "sns:DeleteTopic",
+        "sns:SetTopicAttributes",
+        "sns:AddPermission",
+        "sns:RemovePermission",
+        "Principal",
+        "*"
+      ],
       "remediation": "Remove administrative actions from resource policies; restrict to specific IAM principals using conditions. Prefer IAM identity policies over resource policies for administrative operations.",
       "pci_dss": [
         {
           "control": "7.2.1",
           "reason": "Administrative access to messaging infrastructure must be restricted to authorized principals only."
-        },
-        {
-          "control": "6.1.1",
-          "reason": "Security controls must prevent unauthorized modification or destruction of communication channels."
         }
       ]
     }

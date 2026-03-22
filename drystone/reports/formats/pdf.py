@@ -171,6 +171,7 @@ class PDFFormatter(BaseFormatter):
             "REMEDIATION_TIMELINE": self._remediation_timeline_html(findings),
             "REFERENCES": self._references_html(),
             "FOOTER_NOTES": self._footer_notes_html(),
+            "PCI_DSS_ANNEX": self._pci_dss_annex_html(),
         }
 
     def _index_section_html(self, findings: List[Dict[str, Any]]) -> str:
@@ -2093,3 +2094,93 @@ class PDFFormatter(BaseFormatter):
             "<li>For questions or clarifications, contact your security team.</li>"
             "</ul>"
         )
+
+    def _pci_dss_annex_html(self) -> str:
+        """Generate PCI DSS Annex A HTML block.
+
+        Returns empty string when report_type != 'pci-dss'.
+        """
+        if getattr(self.config, "report_type", "general") != "pci-dss":
+            return ""
+
+        from drystone.reports.formats.pci_dss import build_pci_controls_map, get_requirement_name
+
+        findings = self.findings.get("findings", [])
+        skills = list(getattr(self.config, "skills", [])) or [
+            self.findings.get("skill", "unknown")
+        ]
+
+        data = build_pci_controls_map(findings, skills)
+        controls = data["controls"]
+        summary = data["summary"]
+
+        if not controls:
+            return ""
+
+        compliance_pct = (
+            f"{summary['ok'] / summary['total'] * 100:.0f}%" if summary["total"] else "N/A"
+        )
+
+        rows_html = []
+        current_req = None
+        for ctrl in controls:
+            req_num = ctrl["requirement"]
+            if req_num != current_req:
+                current_req = req_num
+                req_name = html.escape(get_requirement_name(req_num))
+                rows_html.append(
+                    f'<tr class="pci-req-header">'
+                    f'<td colspan="3"><strong>Requirement {html.escape(req_num)} · {req_name}</strong></td>'
+                    f"</tr>"
+                )
+
+            cid = html.escape(ctrl["control"])
+            if ctrl["status"] == "ko":
+                status_cell = '<td class="pci-ko">❌ KO</td>'
+                finding = ctrl["findings"][0]
+                finding_reason = None
+                for p in finding.get("pci_dss") or []:
+                    if p.get("control") == ctrl["control"]:
+                        finding_reason = p.get("reason")
+                        break
+                reason = finding_reason or ctrl.get("reason", "")
+                fid = html.escape(finding.get("id", ""))
+                ftitle = html.escape(finding.get("title", ""))
+                reason_escaped = html.escape(reason)
+                just = f"<strong>{fid}</strong>: {ftitle}. {reason_escaped}" if fid else reason_escaped
+            else:
+                status_cell = '<td class="pci-ok">✅ OK</td>'
+                check_ids = [html.escape(c["id"]) for c in ctrl.get("checks", [])]
+                ids_str = ", ".join(check_ids) if check_ids else "N/A"
+                just = ids_str
+
+            rows_html.append(
+                f"<tr>"
+                f"<td>{cid}</td>"
+                f"{status_cell}"
+                f"<td>{just}</td>"
+                f"</tr>"
+            )
+
+        rows = "\n".join(rows_html)
+        return f"""
+<div class="page-break"></div>
+<h2>Annex A: PCI DSS v4.0 Control Mapping</h2>
+<div class="card">
+  <p><strong>Compliance Rate:</strong> {summary['ok']}/{summary['total']} controls ({compliance_pct})</p>
+  <table class="pci-annex-table">
+    <thead>
+      <tr>
+        <th style="width:100px">Control</th>
+        <th style="width:80px">Status</th>
+        <th>Justification</th>
+      </tr>
+    </thead>
+    <tbody>
+{rows}
+    </tbody>
+  </table>
+  <p style="margin-top:12px;font-size:0.85em">
+    ✅ OK — No violations found &nbsp;·&nbsp; ❌ KO — Violations detected (see findings above)
+  </p>
+</div>"""

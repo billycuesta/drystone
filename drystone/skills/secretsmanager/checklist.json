@@ -11,8 +11,15 @@
       "title": "Secrets must not have public access via wildcard resource policy",
       "severity": "Critical",
       "description": "Resource policies with Principal: '*' allow public access to secrets, exposing sensitive data.",
-      "evidence_files": ["secrets.json"],
-      "check_keywords": ["ResourcePolicy", "Principal", "*", "public"],
+      "evidence_files": [
+        "secrets.json"
+      ],
+      "check_keywords": [
+        "ResourcePolicy",
+        "Principal",
+        "*",
+        "public"
+      ],
       "remediation": "Remove wildcard principals from resource policies. Use specific IAM roles/users: aws secretsmanager put-resource-policy --secret-id <ARN> --resource-policy <policy_json>",
       "pci_dss": [
         {
@@ -30,8 +37,14 @@
       "title": "Secrets must have automatic rotation enabled",
       "severity": "High",
       "description": "Automatic rotation reduces the window of opportunity if credentials are compromised. Critical for database passwords, API keys.",
-      "evidence_files": ["secrets.json"],
-      "check_keywords": ["RotationEnabled", "false", "rotation"],
+      "evidence_files": [
+        "secrets.json"
+      ],
+      "check_keywords": [
+        "RotationEnabled",
+        "false",
+        "rotation"
+      ],
       "remediation": "Enable rotation: aws secretsmanager rotate-secret --secret-id <ARN> --rotation-lambda-arn <lambda_arn> --rotation-rules AutomaticallyAfterDays=30",
       "pci_dss": [
         {
@@ -49,8 +62,14 @@
       "title": "Secrets rotation interval should not exceed 90 days",
       "severity": "High",
       "description": "Rotation intervals >90 days increase risk of credential compromise. AWS recommends 30-90 day rotation.",
-      "evidence_files": ["secrets.json"],
-      "check_keywords": ["AutomaticallyAfterDays", "90", "interval"],
+      "evidence_files": [
+        "secrets.json"
+      ],
+      "check_keywords": [
+        "AutomaticallyAfterDays",
+        "90",
+        "interval"
+      ],
       "remediation": "Update rotation rules: aws secretsmanager rotate-secret --secret-id <ARN> --rotation-rules AutomaticallyAfterDays=30",
       "pci_dss": [
         {
@@ -64,8 +83,14 @@
       "title": "Secrets should use customer-managed KMS keys for encryption",
       "severity": "High",
       "description": "Customer-managed KMS keys provide granular control over encryption, key rotation, and access policies. AWS-managed keys limit audit visibility.",
-      "evidence_files": ["secrets.json"],
-      "check_keywords": ["KmsKeyId", "aws/secretsmanager", "Default"],
+      "evidence_files": [
+        "secrets.json"
+      ],
+      "check_keywords": [
+        "KmsKeyId",
+        "aws/secretsmanager",
+        "Default"
+      ],
       "remediation": "Create customer-managed KMS key and update secret: aws secretsmanager update-secret --secret-id <ARN> --kms-key-id <customer_key_id>",
       "pci_dss": [
         {
@@ -83,8 +108,14 @@
       "title": "Secrets should not remain unrotated for more than 365 days",
       "severity": "Critical",
       "description": "Secrets not rotated for 365+ days are at high risk of being compromised. Stale credentials should be rotated immediately.",
-      "evidence_files": ["secrets.json"],
-      "check_keywords": ["LastRotatedDate", "365", "never rotated"],
+      "evidence_files": [
+        "secrets.json"
+      ],
+      "check_keywords": [
+        "LastRotatedDate",
+        "365",
+        "never rotated"
+      ],
       "remediation": "Immediately rotate stale secrets: aws secretsmanager rotate-secret --secret-id <ARN>",
       "pci_dss": [
         {
@@ -102,8 +133,14 @@
       "title": "Secrets should have descriptive tags for governance and cost tracking",
       "severity": "Low",
       "description": "Tags enable governance, cost allocation, and lifecycle management. Recommended tags: Environment, Owner, Purpose, CostCenter.",
-      "evidence_files": ["secrets.json"],
-      "check_keywords": ["Tags", "empty", "no tags"],
+      "evidence_files": [
+        "secrets.json"
+      ],
+      "check_keywords": [
+        "Tags",
+        "empty",
+        "no tags"
+      ],
       "remediation": "Add tags: aws secretsmanager tag-resource --secret-id <ARN> --tags Key=Environment,Value=Production Key=Owner,Value=SecurityTeam",
       "pci_dss": [
         {
@@ -117,8 +154,14 @@
       "title": "Secrets should have clear descriptions documenting their purpose",
       "severity": "Low",
       "description": "Descriptions improve secret discoverability and prevent accidental deletion. Include: purpose, owning application, rotation schedule.",
-      "evidence_files": ["secrets.json"],
-      "check_keywords": ["Description", "No description", "empty"],
+      "evidence_files": [
+        "secrets.json"
+      ],
+      "check_keywords": [
+        "Description",
+        "No description",
+        "empty"
+      ],
       "remediation": "Update description: aws secretsmanager update-secret --secret-id <ARN> --description 'Production DB password for app-backend'",
       "pci_dss": [
         {
@@ -132,13 +175,19 @@
       "title": "Critical secrets should be replicated to multiple regions for disaster recovery",
       "severity": "Medium",
       "description": "Replication ensures secret availability during regional outages. Recommended for production database credentials, API keys.",
-      "evidence_files": ["secrets.json"],
-      "check_keywords": ["ReplicationStatus", "empty", "no replication"],
+      "evidence_files": [
+        "secrets.json"
+      ],
+      "check_keywords": [
+        "ReplicationStatus",
+        "empty",
+        "no replication"
+      ],
       "remediation": "Enable replication: aws secretsmanager replicate-secret-to-regions --secret-id <ARN> --add-replica-regions Region=us-west-2",
       "pci_dss": [
         {
-          "control": "12.10.1",
-          "reason": "This control requires an incident response plan including business continuity. Secret replication ensures credential availability during regional disasters."
+          "control": "3.7.4",
+          "reason": "Replicating secrets to multiple regions ensures availability of cryptographic keys and secrets protecting cardholder data. PCI DSS 3.7.4 requires documented key management procedures covering key storage and backup to prevent loss."
         }
       ]
     },
@@ -147,8 +196,14 @@
       "title": "Secrets accessed frequently should have rotation interval less than 30 days",
       "severity": "Medium",
       "description": "High-access secrets (databases, APIs) should rotate more frequently to reduce compromise window. 30-day rotation recommended.",
-      "evidence_files": ["secrets.json"],
-      "check_keywords": ["AutomaticallyAfterDays", "LastAccessedDate", "30"],
+      "evidence_files": [
+        "secrets.json"
+      ],
+      "check_keywords": [
+        "AutomaticallyAfterDays",
+        "LastAccessedDate",
+        "30"
+      ],
       "remediation": "For high-traffic secrets, set 30-day rotation: aws secretsmanager rotate-secret --secret-id <ARN> --rotation-rules AutomaticallyAfterDays=30",
       "pci_dss": [
         {
@@ -162,8 +217,14 @@
       "title": "Secrets should not be accessed from Lambda functions without VPC endpoints",
       "severity": "Medium",
       "description": "Lambda functions accessing secrets over public internet expose traffic to interception. Use VPC endpoints for private access.",
-      "evidence_files": ["secrets.json"],
-      "check_keywords": ["OwningService", "lambda", "VPC"],
+      "evidence_files": [
+        "secrets.json"
+      ],
+      "check_keywords": [
+        "OwningService",
+        "lambda",
+        "VPC"
+      ],
       "remediation": "Create VPC endpoint for Secrets Manager in Lambda VPC: aws ec2 create-vpc-endpoint --vpc-id <vpc_id> --service-name com.amazonaws.<region>.secretsmanager",
       "pci_dss": [
         {
@@ -181,8 +242,14 @@
       "title": "Resource policies should require MFA for secret access",
       "severity": "High",
       "description": "MFA prevents unauthorized access even if IAM credentials are compromised. Critical for secrets containing PII or payment data.",
-      "evidence_files": ["secrets.json"],
-      "check_keywords": ["ResourcePolicy", "Condition", "aws:MultiFactorAuthPresent"],
+      "evidence_files": [
+        "secrets.json"
+      ],
+      "check_keywords": [
+        "ResourcePolicy",
+        "Condition",
+        "aws:MultiFactorAuthPresent"
+      ],
       "remediation": "Update resource policy to require MFA: Add Condition: {'Bool': {'aws:MultiFactorAuthPresent': 'true'}}",
       "pci_dss": [
         {
@@ -200,8 +267,16 @@
       "title": "Secrets rotation should not fail silently without alerting",
       "severity": "Medium",
       "description": "Failed rotation can leave stale credentials in production. Configure CloudWatch alarms for rotation failures.",
-      "evidence_files": ["secrets.json", "cloudwatch_alarms.json", "eventbridge_rules.json"],
-      "check_keywords": ["RotationEnabled", "LastRotatedDate", "alert"],
+      "evidence_files": [
+        "secrets.json",
+        "cloudwatch_alarms.json",
+        "eventbridge_rules.json"
+      ],
+      "check_keywords": [
+        "RotationEnabled",
+        "LastRotatedDate",
+        "alert"
+      ],
       "remediation": "Implement rotation failure alerting with at least one of these patterns. (A) EventBridge/CloudTrail: Create an EventBridge rule matching Secrets Manager rotation API events (RotateSecret/CancelRotateSecret) and failures, and send to SNS/Slack. Example event pattern (CloudTrail): {\"source\":[\"aws.secretsmanager\"],\"detail-type\":[\"AWS API Call via CloudTrail\"],\"detail\":{\"eventSource\":[\"secretsmanager.amazonaws.com\"],\"eventName\":[\"RotateSecret\",\"CancelRotateSecret\"]}}. (B) Lambda logs: Create CloudWatch metric filter/alarm on the rotation Lambda log group for error patterns (e.g., 'Rotation failed', 'AccessDenied', non-200). Ensure notifications go to an on-call channel (SNS -> email/ChatOps) and include runbook steps.",
       "pci_dss": [
         {
@@ -215,8 +290,15 @@
       "title": "Secrets resource policy allows external account access",
       "severity": "Critical",
       "description": "Cross-account principals in secret resource policies can expose secret values outside trusted AWS accounts when combined with KMS decrypt path.",
-      "evidence_files": ["secrets.json"],
-      "check_keywords": ["ResourcePolicy", "Principal", "arn:aws:iam::", "cross-account"],
+      "evidence_files": [
+        "secrets.json"
+      ],
+      "check_keywords": [
+        "ResourcePolicy",
+        "Principal",
+        "arn:aws:iam::",
+        "cross-account"
+      ],
       "remediation": "Restrict resource policies to approved principals/accounts only and require explicit conditions (SourceAccount/SourceArn where applicable).",
       "pci_dss": [
         {
@@ -230,8 +312,14 @@
       "title": "Secret rotation Lambda configuration can be hijacked",
       "severity": "High",
       "description": "Secrets with rotation enabled but missing strict Lambda ownership controls can be abused via RotateSecret to exfiltrate values through attacker-controlled functions.",
-      "evidence_files": ["secrets.json"],
-      "check_keywords": ["RotationEnabled", "RotationLambdaARN", "RotateSecret"],
+      "evidence_files": [
+        "secrets.json"
+      ],
+      "check_keywords": [
+        "RotationEnabled",
+        "RotationLambdaARN",
+        "RotateSecret"
+      ],
       "remediation": "Enforce approved rotation Lambda allowlist, least-privilege Lambda execution roles, and alerts for RotateSecret/UpdateSecret configuration changes.",
       "pci_dss": [
         {
@@ -245,8 +333,14 @@
       "title": "Secrets can be re-encrypted with untrusted KMS keys",
       "severity": "High",
       "description": "Ability to update secret KMS key to an attacker-controlled CMK can lock out legitimate access or create covert exfiltration path for future versions.",
-      "evidence_files": ["secrets.json"],
-      "check_keywords": ["UpdateSecret", "KmsKeyId", "cross-account KMS"],
+      "evidence_files": [
+        "secrets.json"
+      ],
+      "check_keywords": [
+        "UpdateSecret",
+        "KmsKeyId",
+        "cross-account KMS"
+      ],
       "remediation": "Allow only approved CMKs for secret encryption and detect/deny unauthorized KmsKeyId changes.",
       "pci_dss": [
         {
@@ -260,8 +354,14 @@
       "title": "Secret version stage manipulation risk (AWSCURRENT hijack)",
       "severity": "High",
       "description": "Stage manipulation can flip AWSCURRENT to attacker-controlled values and poison dependent workloads while preserving stealth.",
-      "evidence_files": ["secrets.json"],
-      "check_keywords": ["UpdateSecretVersionStage", "AWSCURRENT", "VersionStages"],
+      "evidence_files": [
+        "secrets.json"
+      ],
+      "check_keywords": [
+        "UpdateSecretVersionStage",
+        "AWSCURRENT",
+        "VersionStages"
+      ],
       "remediation": "Restrict UpdateSecretVersionStage and monitor stage transitions, especially AWSCURRENT reassignments.",
       "pci_dss": [
         {
@@ -275,13 +375,20 @@
       "title": "Cross-region replica promotion can create stealth backdoor",
       "severity": "High",
       "description": "Replication and promotion workflows can be abused to create standalone replica secrets in less-monitored regions with permissive policies.",
-      "evidence_files": ["secrets.json"],
-      "check_keywords": ["ReplicationStatus", "PrimaryRegion", "StopReplicationToReplica", "PutResourcePolicy"],
+      "evidence_files": [
+        "secrets.json"
+      ],
+      "check_keywords": [
+        "ReplicationStatus",
+        "PrimaryRegion",
+        "StopReplicationToReplica",
+        "PutResourcePolicy"
+      ],
       "remediation": "Restrict replication/promotion permissions and enforce region allowlist + policy guardrails for replica secrets.",
       "pci_dss": [
         {
-          "control": "12.10.1",
-          "reason": "Incident response and continuity controls require detection of unauthorized replication/backdoor paths."
+          "control": "3.7.5",
+          "reason": "Cross-region replica promotion can be abused to create stealth access to secrets, undermining key lifecycle controls. PCI DSS 3.7.5 requires procedures to retire or replace cryptographic keys and prevent unauthorized access to superseded keys."
         }
       ]
     }

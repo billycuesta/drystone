@@ -9,6 +9,110 @@ from typing import Dict, List
 from .base import BaseFormatter
 
 
+# ---------------------------------------------------------------------------
+# Standalone data function — importable by any formatter
+# ---------------------------------------------------------------------------
+
+_REQUIREMENT_NAMES: Dict[str, str] = {
+    "1": "Network Security Controls",
+    "2": "Secure Configurations",
+    "3": "Data Protection",
+    "4": "Transmission Security",
+    "5": "Malware Protection",
+    "6": "Secure Development",
+    "7": "Access Control",
+    "8": "Identification & Authentication",
+    "9": "Physical Access",
+    "10": "Logging & Monitoring",
+    "11": "Testing Security",
+    "12": "Security Policies",
+}
+
+
+def get_requirement_name(req_num: str) -> str:
+    """Return PCI DSS requirement name from its number."""
+    return _REQUIREMENT_NAMES.get(req_num, f"Requirement {req_num}")
+
+
+def build_pci_controls_map(findings: List[Dict], skills: List[str]) -> Dict:
+    """Build a structured map of PCI DSS controls from checklists and findings.
+
+    Args:
+        findings: List of finding dicts (each may contain a ``pci_dss`` array).
+        skills: List of skill names executed in this audit (used to locate checklists).
+
+    Returns:
+        Dict with keys:
+            ``controls`` — list of control dicts, each with:
+                - control: str  (e.g. "7.2.1")
+                - requirement: str  (e.g. "7")
+                - req_name: str  (e.g. "Access Control")
+                - reason: str   (representative reason from checklist)
+                - checks: list of {"id": str, "title": str}
+                - findings: list of finding dicts that map to this control
+                - status: "ok" | "ko"
+            ``summary`` — {"total": N, "ok": N, "ko": N}
+    """
+    # 1. Load all controls from checklists
+    all_controls: Dict[str, Dict] = {}
+    for skill_name in skills:
+        checklist_path = Path(f"drystone/skills/{skill_name}/checklist.json")
+        if not checklist_path.exists():
+            # Fallback: resolve relative to this module file
+            checklist_path = (
+                Path(__file__).parent.parent.parent / "skills" / skill_name / "checklist.json"
+            )
+        if not checklist_path.exists():
+            continue
+        try:
+            with open(checklist_path) as f:
+                checklist = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            continue
+
+        for item in checklist.get("items", []):
+            for pci in item.get("pci_dss", []):
+                cid = pci.get("control")
+                if not cid:
+                    continue
+                if cid not in all_controls:
+                    req_num = cid.split(".")[0]
+                    all_controls[cid] = {
+                        "control": cid,
+                        "requirement": req_num,
+                        "req_name": get_requirement_name(req_num),
+                        "reason": pci.get("reason", "Control mapping found in checklist."),
+                        "checks": [],
+                        "findings": [],
+                        "status": "ok",
+                    }
+                if item.get("id") and item.get("title"):
+                    all_controls[cid]["checks"].append(
+                        {"id": item["id"], "title": item["title"]}
+                    )
+
+    # 2. Map findings to controls
+    for finding in findings:
+        for pci in finding.get("pci_dss") or []:
+            cid = pci.get("control")
+            if cid and cid in all_controls:
+                all_controls[cid]["findings"].append(finding)
+                all_controls[cid]["status"] = "ko"
+
+    # 3. Sort by natural sort key
+    def _sort_key(c: Dict) -> List:
+        return [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", c["control"])]
+
+    sorted_controls = sorted(all_controls.values(), key=_sort_key)
+    ok = sum(1 for c in sorted_controls if c["status"] == "ok")
+    ko = len(sorted_controls) - ok
+
+    return {
+        "controls": sorted_controls,
+        "summary": {"total": len(sorted_controls), "ok": ok, "ko": ko},
+    }
+
+
 class PCIDSSFormatter(BaseFormatter):
     """Generate PCI DSS v4.0 compliance report."""
 
