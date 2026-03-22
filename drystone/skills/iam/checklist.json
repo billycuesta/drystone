@@ -1034,8 +1034,8 @@
           "reason": "Access to AWS roles must be restricted to authorized entities. Service trust policies without source conditions allow cross-account service abuse."
         },
         {
-          "control": "6.5.6",
-          "reason": "All public-facing components must be protected. Confused Deputy vulnerabilities in service roles expose internal infrastructure to external account abuse."
+          "control": "8.2.2",
+          "reason": "System and application accounts must be managed with controls preventing misuse. Confused Deputy vulnerabilities allow unauthorized cross-account assumption of service roles."
         }
       ]
     },
@@ -1070,9 +1070,36 @@
         }
       ]
     }
+    ,{
+      "id": "IAM-044",
+      "cis_id": "N/A",
+      "title": "Privileged and SSO roles should not have MaxSessionDuration greater than 1 hour",
+      "severity": "Medium",
+      "description": "IAM roles with AdministratorAccess, PowerUserAccess, or SSO-vended roles configured with MaxSessionDuration > 3600 seconds (1 hour) extend the exposure window when temporary credentials are leaked. A stolen STS token remains valid for up to 12 hours, giving an attacker a prolonged window to operate undetected.",
+      "evidence_files": [
+        "roles.json"
+      ],
+      "check_keywords": [
+        "MaxSessionDuration",
+        "AdministratorAccess",
+        "PowerUserAccess",
+        "AWSReservedSSO"
+      ],
+      "remediation": "Set MaxSessionDuration to 3600 (1 hour) for all privileged and SSO roles. For roles that require longer sessions for operational reasons, document the compensating control and monitor session activity via CloudTrail. Use aws iam update-role --role-name <name> --max-session-duration 3600.",
+      "pci_dss": [
+        {
+          "control": "8.3.9",
+          "reason": "Credentials used to authenticate to system components must be changed at least once every 90 days. Long session durations contradict the intent of limiting credential validity and increase breach impact."
+        },
+        {
+          "control": "8.6.1",
+          "reason": "All user IDs and authentication factors for system/application accounts must be managed per policies and procedures. Extended session tokens bypass the intended rotation/expiry controls."
+        }
+      ]
+    }
   ],
-  "version": "2.6",
-  "total_checks": 43,
-  "last_updated": "2026-03-13",
-  "notes": "Expanded checklist covers CIS AWS Foundations v1.5.0 + AWS Security Best Practices. Includes critical, high, medium, and low severity items. Mapped to PCI DSS v4.0 controls."
+  "version": "2.7",
+  "total_checks": 44,
+  "last_updated": "2026-03-22",
+  "notes": "Expanded checklist covers CIS AWS Foundations v1.5.0 + AWS Security Best Practices. Includes critical, high, medium, and low severity items. Mapped to PCI DSS v4.0 controls. v2.7: Added IAM-044 (MaxSessionDuration), fixed IAM-043 PCI DSS mapping (removed incorrect 6.5.6)."
 }

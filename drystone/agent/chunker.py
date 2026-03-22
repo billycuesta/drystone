@@ -42,34 +42,76 @@ class EvidenceChunker:
         estimated_tokens = self._estimate_tokens(evidence)
         return estimated_tokens > self.max_tokens
 
+    # Groups of related small files that provide better context when analyzed together.
+    # Each group is sent as a single chunk if the combined size fits within max_tokens.
+    # Files not listed here are sent individually (or subdivided if too large).
+    _IAM_SMALL_FILE_GROUPS = [
+        # User identity context: users + credential report + groups together give MFA/key context
+        {"users", "credential-report", "groups"},
+        # Account-level controls: password policy + account summary + SCPs
+        {"password-policy", "account-summary", "effective-scps"},
+        # Resource-based and cross-account trust context
+        {"resource-based-policies", "assumeRole-chains"},
+        # Instance profiles are lightweight and complement roles context
+        {"instance-profiles"},
+    ]
+
     def chunk_evidence(self, evidence: Dict[str, Any]) -> Iterator[EvidenceChunk]:
         """Split evidence into manageable chunks.
 
         Skips metadata keys (account-aliases, _audit_metadata) that contain
         no security-relevant data and would confuse the AI when analyzed standalone.
+
+        Small related files are grouped together so the LLM has enough cross-file
+        context to detect findings (e.g., users + credential-report + groups together
+        for MFA and key rotation checks).
         """
 
         if self.strategy == "by_file":
-            for filename, data in evidence.items():
-                # Skip metadata files that aren't security-relevant
-                if filename in self.METADATA_KEYS or str(filename).startswith("_"):
-                    continue
-
-                file_tokens = self._estimate_tokens({filename: data})
-
-                if file_tokens > self.max_tokens:
-                    # File too large → subdivide
-                    yield from self._chunk_large_file(filename, data)
-                else:
-                    # File fits in one chunk
-                    yield EvidenceChunk(
-                        chunk_id=1,
-                        total_chunks=1,
-                        evidence={filename: data},
-                        metadata={"source_file": filename},
-                    )
+            yield from self._chunk_by_file_grouped(evidence)
         elif self.strategy == "by_resource_count":
             yield from self._chunk_by_resource(evidence)  # Placeholder for now
+
+    def _chunk_by_file_grouped(self, evidence: Dict[str, Any]) -> Iterator[EvidenceChunk]:
+        """Chunk evidence grouping small related files for better LLM context."""
+        # Collect security-relevant files (skip metadata)
+        remaining: Dict[str, Any] = {
+            k: v for k, v in evidence.items()
+            if k not in self.METADATA_KEYS and not str(k).startswith("_")
+        }
+
+        emitted: set = set()
+
+        # Emit grouped chunks first
+        for group in self._IAM_SMALL_FILE_GROUPS:
+            present = {k: remaining[k] for k in group if k in remaining}
+            if not present:
+                continue
+
+            combined_tokens = self._estimate_tokens(present)
+            if combined_tokens <= self.max_tokens:
+                yield EvidenceChunk(
+                    chunk_id=1,
+                    total_chunks=1,
+                    evidence=present,
+                    metadata={"source_files": sorted(present.keys())},
+                )
+                emitted.update(present.keys())
+
+        # Emit remaining files individually (or subdivided if large)
+        for filename, data in remaining.items():
+            if filename in emitted:
+                continue
+            file_tokens = self._estimate_tokens({filename: data})
+            if file_tokens > self.max_tokens:
+                yield from self._chunk_large_file(filename, data)
+            else:
+                yield EvidenceChunk(
+                    chunk_id=1,
+                    total_chunks=1,
+                    evidence={filename: data},
+                    metadata={"source_file": filename},
+                )
 
     def _chunk_large_file(
         self, filename: str, data: Any, resources_per_chunk: int = 15

@@ -774,9 +774,10 @@ def check_iam_002(evidence: Dict[str, Any]) -> PreCheckResult:
         uname = str(u.get("UserName") or "")
         row = by_user.get(uname, {})
 
-        # Only console users need MFA (password_enabled=true in credential report)
         has_console = str(row.get("password_enabled", "false")).lower() == "true"
-        if not has_console:
+        # Users with active access keys also require MFA under PCI DSS 8.4.2
+        has_active_keys = bool(u.get("AccessKeys"))
+        if not has_console and not has_active_keys:
             continue
 
         has_mfa = bool(u.get("MFADevices"))
@@ -786,9 +787,9 @@ def check_iam_002(evidence: Dict[str, Any]) -> PreCheckResult:
 
     if affected:
         return PreCheckResult(
-            "IAM-002", "FAIL", f"{len(affected)} console user(s) without MFA", affected
+            "IAM-002", "FAIL", f"{len(affected)} user(s) without MFA (console or active access keys)", affected
         )
-    return PreCheckResult("IAM-002", "PASS", "all console users have MFA enabled", [])
+    return PreCheckResult("IAM-002", "PASS", "all users with console or active access keys have MFA enabled", [])
 
 
 @_register("iam")
@@ -1348,6 +1349,13 @@ def check_iam_043(evidence: Dict[str, Any]) -> PreCheckResult:
             continue
         role_name = str(role.get("RoleName") or "unknown")
         role_arn = str(role.get("Arn") or f"role/{role_name}")
+        role_path = str(role.get("Path") or "/")
+
+        # Service-Linked Roles are managed by AWS and cannot have conditions added.
+        # They are not actionable findings for Confused Deputy.
+        if role_path.startswith("/aws-service-role/"):
+            continue
+
         trust = role.get("AssumeRolePolicyDocument")
         if not isinstance(trust, dict):
             continue
@@ -2152,6 +2160,233 @@ def check_iam_019(evidence: Dict[str, Any]) -> PreCheckResult:
         "FAIL",
         f"RequireSymbols={require_symbols!r}",
         ["arn:aws:iam::*:account-password-policy"],
+    )
+
+
+# AWS service account IDs that are legitimately used in bucket policies by design.
+# These are documented AWS-managed accounts for services like ELB, CloudFront, etc.
+# Reference: https://docs.aws.amazon.com/elasticloadbalancing/latest/application/enable-access-logging.html
+_AWS_SERVICE_ACCOUNTS: Dict[str, str] = {
+    # ELB access logging (per-region accounts)
+    "127311923021": "ELB us-east-1",
+    "033677994240": "ELB us-east-2",
+    "027434742980": "ELB us-west-1",
+    "797873946194": "ELB us-west-2",
+    "098369216593": "ELB af-south-1",
+    "600734575887": "ELB ap-east-1",
+    "718504428378": "ELB ap-southeast-3",
+    "383597477331": "ELB ap-southeast-4",
+    "754344448648": "ELB ap-south-1",
+    "718504428378": "ELB ap-south-2",
+    "589379963580": "ELB ap-northeast-3",
+    "507241528517": "ELB ap-northeast-2",
+    "582318560864": "ELB ap-southeast-1",
+    "114774131450": "ELB ap-southeast-2",
+    "783225319266": "ELB ap-northeast-1",
+    "985666609251": "ELB ca-central-1",
+    "045080605973": "ELB cn-north-1",
+    "638102146993": "ELB cn-northwest-1",
+    "897822967062": "ELB eu-central-1",
+    "635631232610": "ELB eu-central-2",
+    "054676820928": "ELB eu-west-1",
+    "156460612806": "ELB eu-west-2",
+    "009996457667": "ELB eu-south-1",
+    "638102146993": "ELB eu-south-2",
+    "076674570225": "ELB eu-west-3",
+    "897822967062": "ELB eu-north-1",
+    "086441151436": "ELB me-south-1",
+    "076674570225": "ELB me-central-1",
+    "507936923172": "ELB sa-east-1",
+    "048591011584": "ELB us-gov-west-1",
+    "190560391635": "ELB us-gov-east-1",
+    # CloudFront access logging
+    "210479947434": "CloudFront logs",
+    "797873946194": "CloudFront logs us-west-2",
+}
+
+
+@_register("iam")
+def check_iam_030(evidence: Dict[str, Any]) -> PreCheckResult:
+    """IAM-030: Resource-based policies with cross-account access — whitelist known AWS service accounts.
+
+    Flags cross-account principals in S3/SQS/SNS/Lambda resource-based policies,
+    excluding known AWS service accounts (ELB logging, CloudFront) that are documented
+    and required by AWS for specific integrations.
+    """
+    rbp = evidence.get("resource-based-policies")
+    if not isinstance(rbp, dict):
+        return PreCheckResult("IAM-030", "SKIP", "no resource-based-policies evidence", [])
+
+    meta = evidence.get("_audit_metadata")
+    audit_account = meta.get("_account_id") if isinstance(meta, dict) else None
+
+    # Infer audit account from IAM evidence ARNs when metadata is unavailable
+    if not audit_account:
+        for src_key in ("users", "roles"):
+            for item in (evidence.get(src_key) or []):
+                arn = str(item.get("Arn") or "") if isinstance(item, dict) else ""
+                parts = arn.split(":")
+                if len(parts) > 4 and parts[4].isdigit():
+                    audit_account = parts[4]
+                    break
+            if audit_account:
+                break
+
+    def _account_from_arn(arn: str) -> str:
+        parts = arn.split(":")
+        return parts[4] if len(parts) > 4 else ""
+
+    affected: List[str] = []
+    whitelisted: List[str] = []
+
+    for service, resources in rbp.items():
+        if not isinstance(resources, list):
+            continue
+        for resource in resources:
+            if not isinstance(resource, dict):
+                continue
+            policy = resource.get("Policy") or {}
+            if not isinstance(policy, dict):
+                continue
+            resource_arn = resource.get("Arn") or ""
+            resource_account = _account_from_arn(resource_arn) if resource_arn else audit_account
+            resource_name = resource.get("Name") or resource_arn or "unknown"
+            for stmt in policy.get("Statement", []) or []:
+                if not isinstance(stmt, dict) or stmt.get("Effect") != "Allow":
+                    continue
+                principal = stmt.get("Principal")
+                if not isinstance(principal, dict):
+                    continue
+                aws_p = principal.get("AWS")
+                principals = [aws_p] if isinstance(aws_p, str) else (aws_p if isinstance(aws_p, list) else [])
+                for p in principals:
+                    if not isinstance(p, str):
+                        continue
+                    parts = p.split(":")
+                    p_account = parts[4] if len(parts) > 4 else ""
+                    if not p_account or not p_account.isdigit():
+                        continue
+                    # Same-account access is never cross-account
+                    effective_account = resource_account or audit_account
+                    if effective_account and p_account == effective_account:
+                        continue
+                    service_label = _AWS_SERVICE_ACCOUNTS.get(p_account)
+                    if service_label:
+                        whitelisted.append(f"{resource_name} → {p} ({service_label})")
+                    else:
+                        affected.append(f"{resource_name} → {p}")
+
+    if affected:
+        return PreCheckResult(
+            "IAM-030",
+            "FAIL",
+            f"{len(affected)} resource-based policy(ies) grant cross-account access to non-whitelisted accounts",
+            affected[:10],
+        )
+    if whitelisted:
+        return PreCheckResult(
+            "IAM-030",
+            "PASS",
+            f"cross-account access only to whitelisted AWS service accounts ({len(whitelisted)} entries)",
+            [],
+        )
+    return PreCheckResult("IAM-030", "PASS", "no cross-account resource-based policies", [])
+
+
+@_register("iam")
+def check_iam_026(evidence: Dict[str, Any]) -> PreCheckResult:
+    """IAM-026: IAM roles should use PermissionsBoundary to limit maximum privilege.
+
+    Flags when a significant portion of customer-managed roles lack PermissionsBoundary,
+    indicating no boundary controls on privilege escalation paths.
+    """
+    roles = evidence.get("roles")
+    if not isinstance(roles, list) or not roles:
+        return PreCheckResult("IAM-026", "SKIP", "no roles evidence", [])
+
+    customer_roles = [
+        r for r in roles
+        if isinstance(r, dict)
+        and not str(r.get("Path") or "/").startswith("/aws-service-role/")
+        and not str(r.get("RoleName") or "").startswith("AWSReserved")
+    ]
+    if not customer_roles:
+        return PreCheckResult("IAM-026", "SKIP", "no customer-managed roles found", [])
+
+    without_boundary = [
+        r for r in customer_roles
+        if not r.get("PermissionsBoundary")
+    ]
+
+    ratio = len(without_boundary) / len(customer_roles)
+
+    if ratio >= 0.5:
+        sample = [str(r.get("Arn") or r.get("RoleName") or "unknown") for r in without_boundary[:5]]
+        return PreCheckResult(
+            "IAM-026",
+            "FAIL",
+            f"{len(without_boundary)}/{len(customer_roles)} customer-managed roles lack PermissionsBoundary ({ratio:.0%})",
+            sample,
+        )
+    return PreCheckResult(
+        "IAM-026",
+        "PASS",
+        f"most customer-managed roles have PermissionsBoundary ({len(customer_roles) - len(without_boundary)}/{len(customer_roles)})",
+        [],
+    )
+
+
+@_register("iam")
+def check_iam_044(evidence: Dict[str, Any]) -> PreCheckResult:
+    """IAM-044: Privileged roles should not have MaxSessionDuration greater than 3600 seconds (1 hour).
+
+    Long session durations on privileged roles extend the window of exposure if a
+    temporary credential is leaked, violating PCI DSS 8.3.9 (credential validity).
+    """
+    roles = evidence.get("roles")
+    if not isinstance(roles, list) or not roles:
+        return PreCheckResult("IAM-044", "SKIP", "no roles evidence", [])
+
+    _PRIVILEGED_POLICY_NAMES = {"AdministratorAccess", "PowerUserAccess"}
+    _MAX_SESSION_THRESHOLD = 3600  # 1 hour
+
+    affected: List[str] = []
+    for role in roles:
+        if not isinstance(role, dict):
+            continue
+        role_path = str(role.get("Path") or "/")
+        if role_path.startswith("/aws-service-role/"):
+            continue
+
+        max_session = role.get("MaxSessionDuration")
+        if not isinstance(max_session, int) or max_session <= _MAX_SESSION_THRESHOLD:
+            continue
+
+        # Only flag roles with privileged policies attached
+        attached = role.get("AttachedPolicies") or []
+        policy_names = {str(p.get("PolicyName") or "") for p in attached if isinstance(p, dict)}
+        is_privileged = bool(policy_names & _PRIVILEGED_POLICY_NAMES)
+
+        # Also flag SSO roles (they are often privileged)
+        role_name = str(role.get("RoleName") or "")
+        is_sso = "AWSReservedSSO" in role_name
+
+        if is_privileged or is_sso:
+            arn = str(role.get("Arn") or f"role/{role_name}")
+            affected.append(f"{arn} (MaxSessionDuration={max_session}s / {max_session // 3600}h)")
+
+    if affected:
+        return PreCheckResult(
+            "IAM-044",
+            "FAIL",
+            f"{len(affected)} privileged/SSO role(s) with MaxSessionDuration > 1h",
+            affected,
+        )
+    return PreCheckResult(
+        "IAM-044",
+        "PASS",
+        "all privileged roles have MaxSessionDuration ≤ 1h",
+        [],
     )
 
 
