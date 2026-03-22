@@ -78,7 +78,8 @@ def test_arn_account_id_patched_from_audit_metadata():
     out = n.normalize([f])
     assert len(out) == 1
     assert "arn:aws:lambda:us-east-1:111111111111:function:ids_lambda" in out[0].affected_resources
-    assert out[0].title == "NET-008 title"
+    # Normalizer preserves model-provided title (does not overwrite from checklist)
+    assert out[0].title == "wrong title"
 
 
 def test_malformed_ec2_subnet_arn_is_rewritten():

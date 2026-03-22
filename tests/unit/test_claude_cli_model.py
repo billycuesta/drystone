@@ -15,7 +15,7 @@ def test_claude_cli_uses_selected_model_flag(monkeypatch):
 
     captured = {}
 
-    def fake_run(args, input, capture_output, text, timeout):
+    def fake_run(args, input, capture_output, text, timeout, **kwargs):
         captured["args"] = args
         result = Mock()
         result.returncode = 0
