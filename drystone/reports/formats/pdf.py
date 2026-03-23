@@ -2106,15 +2106,14 @@ class PDFFormatter(BaseFormatter):
         from drystone.reports.formats.pci_dss import build_pci_controls_map, get_requirement_name
 
         findings = self.findings.get("findings", [])
-        skills = list(getattr(self.config, "skills", [])) or [
-            self.findings.get("skill", "unknown")
-        ]
+        skills = list(getattr(self.config, "skills", [])) or [self.findings.get("skill", "unknown")]
 
         data = build_pci_controls_map(findings, skills)
         controls = data["controls"]
         summary = data["summary"]
 
-        if not controls:
+        ko_controls = [c for c in controls if c["status"] == "ko"]
+        if not ko_controls:
             return ""
 
         compliance_pct = (
@@ -2123,7 +2122,7 @@ class PDFFormatter(BaseFormatter):
 
         rows_html = []
         current_req = None
-        for ctrl in controls:
+        for ctrl in ko_controls:
             req_num = ctrl["requirement"]
             if req_num != current_req:
                 current_req = req_num
@@ -2135,40 +2134,29 @@ class PDFFormatter(BaseFormatter):
                 )
 
             cid = html.escape(ctrl["control"])
-            if ctrl["status"] == "ko":
-                status_cell = '<td class="pci-ko">❌ KO</td>'
-                finding = ctrl["findings"][0]
-                finding_reason = None
-                for p in finding.get("pci_dss") or []:
-                    if p.get("control") == ctrl["control"]:
-                        finding_reason = p.get("reason")
-                        break
-                reason = finding_reason or ctrl.get("reason", "")
-                fid = html.escape(finding.get("id", ""))
-                ftitle = html.escape(finding.get("title", ""))
-                reason_escaped = html.escape(reason)
-                just = f"<strong>{fid}</strong>: {ftitle}. {reason_escaped}" if fid else reason_escaped
-            else:
-                status_cell = '<td class="pci-ok">✅ OK</td>'
-                check_ids = [html.escape(c["id"]) for c in ctrl.get("checks", [])]
-                ids_str = ", ".join(check_ids) if check_ids else "N/A"
-                just = ids_str
+            finding = ctrl["findings"][0]
+            finding_reason = None
+            for p in finding.get("pci_dss") or []:
+                if p.get("control") == ctrl["control"]:
+                    finding_reason = p.get("reason")
+                    break
+            reason = finding_reason or ctrl.get("reason", "")
+            fid = html.escape(finding.get("id", ""))
+            ftitle = html.escape(finding.get("title", ""))
+            reason_escaped = html.escape(reason)
+            just = f"<strong>{fid}</strong>: {ftitle}. {reason_escaped}" if fid else reason_escaped
 
             rows_html.append(
-                f"<tr>"
-                f"<td>{cid}</td>"
-                f"{status_cell}"
-                f"<td>{just}</td>"
-                f"</tr>"
+                f'<tr><td>{cid}</td><td class="pci-ko">❌ KO</td><td>{just}</td></tr>'
             )
 
         rows = "\n".join(rows_html)
         return f"""
 <div class="page-break"></div>
 <h2>Annex A: PCI DSS v4.0 Control Mapping</h2>
-<div class="card">
-  <p><strong>Compliance Rate:</strong> {summary['ok']}/{summary['total']} controls ({compliance_pct})</p>
-  <table class="pci-annex-table">
+<div class="card pci-annex-card">
+  <p><strong>Compliance Rate:</strong> {summary["ok"]}/{summary["total"]} controls ({compliance_pct})</p>
+  <table class="findings-summary-table pci-annex-table">
     <thead>
       <tr>
         <th style="width:100px">Control</th>

@@ -1438,9 +1438,7 @@ Generated with [Drystone](https://github.com/billycuesta/drystone)
         from drystone.reports.formats.pci_dss import build_pci_controls_map, get_requirement_name
 
         findings = self.findings.get("findings", [])
-        skills = list(getattr(self.config, "skills", [])) or [
-            self.findings.get("skill", "unknown")
-        ]
+        skills = list(getattr(self.config, "skills", [])) or [self.findings.get("skill", "unknown")]
 
         data = build_pci_controls_map(findings, skills)
         controls = data["controls"]
@@ -1450,7 +1448,11 @@ Generated with [Drystone](https://github.com/billycuesta/drystone)
             return ""
 
         is_en = self._is_english_report()
-        annex_title = "Annex A: PCI DSS v4.0 Control Mapping" if is_en else "Anexo A: Mapeo de Controles PCI DSS v4.0"
+        annex_title = (
+            "Annex A: PCI DSS v4.0 Control Mapping"
+            if is_en
+            else "Anexo A: Mapeo de Controles PCI DSS v4.0"
+        )
         ok_label = "OK" if is_en else "OK"
         ko_label = "KO"
         header_control = "Control" if is_en else "Control"
@@ -1458,21 +1460,33 @@ Generated with [Drystone](https://github.com/billycuesta/drystone)
         header_just = "Justification" if is_en else "Justificación"
         compliance_label = "Compliance Rate" if is_en else "Tasa de cumplimiento"
         legend_ok = "No violations found" if is_en else "Sin incumplimientos detectados"
-        legend_ko = "Violations detected — see findings above" if is_en else "Incumplimientos detectados — ver findings arriba"
+        legend_ko = (
+            "Violations detected — see findings above"
+            if is_en
+            else "Incumplimientos detectados — ver findings arriba"
+        )
+
+        ko_controls = [c for c in controls if c["status"] == "ko"]
+        if not ko_controls:
+            return ""
 
         lines = [
             "---",
             "",
             f"## {annex_title}",
             "",
-            f"**{compliance_label}:** {summary['ok']}/{summary['total']} ({summary['ok'] / summary['total'] * 100:.0f}%)" if summary["total"] else "",
+            f"**{compliance_label}:** {summary['ok']}/{summary['total']} ({summary['ok'] / summary['total'] * 100:.0f}%)"
+            if summary["total"]
+            else "",
             "",
         ]
 
         current_req = None
-        for ctrl in controls:
+        for ctrl in ko_controls:
             req_num = ctrl["requirement"]
             if req_num != current_req:
+                if current_req is not None:
+                    lines.append("")
                 current_req = req_num
                 req_name = get_requirement_name(req_num)
                 lines.append(f"### Requirement {req_num} · {req_name}")
@@ -1481,32 +1495,24 @@ Generated with [Drystone](https://github.com/billycuesta/drystone)
                 lines.append("|---------|--------|---------------|")
 
             cid = ctrl["control"]
-            if ctrl["status"] == "ko":
-                status_icon = f"❌ {ko_label}"
-                # Pick the first finding's per-control reason
-                finding = ctrl["findings"][0]
-                finding_reason = None
-                for p in finding.get("pci_dss") or []:
-                    if p.get("control") == cid:
-                        finding_reason = p.get("reason")
-                        break
-                reason = finding_reason or ctrl.get("reason", "")
-                fid = finding.get("id", "")
-                ftitle = finding.get("title", "")
-                just = f"**{fid}**: {ftitle}. {reason}" if fid else reason
-            else:
-                status_icon = f"✅ {ok_label}"
-                check_ids = [c["id"] for c in ctrl.get("checks", [])]
-                ids_str = ", ".join(check_ids) if check_ids else "N/A"
-                just = ids_str
+            finding = ctrl["findings"][0]
+            finding_reason = None
+            for p in finding.get("pci_dss") or []:
+                if p.get("control") == cid:
+                    finding_reason = p.get("reason")
+                    break
+            reason = finding_reason or ctrl.get("reason", "")
+            fid = finding.get("id", "")
+            ftitle = finding.get("title", "")
+            just = f"**{fid}**: {ftitle}. {reason}" if fid else reason
 
             # Escape pipe chars in justification to avoid breaking Markdown table
             just = just.replace("|", "\\|")
-            lines.append(f"| {cid} | {status_icon} | {just} |")
+            lines.append(f"| {cid} | ❌ {ko_label} | {just} |")
 
         lines += [
             "",
-            f"**Legend:** ✅ {legend_ok} · ❌ {legend_ko}",
+            f"**Legend:** ❌ {legend_ko}",
             "",
         ]
 
