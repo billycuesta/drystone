@@ -2116,8 +2116,30 @@ class PDFFormatter(BaseFormatter):
         if not ko_controls:
             return ""
 
-        compliance_pct = (
-            f"{summary['ok'] / summary['total'] * 100:.0f}%" if summary["total"] else "N/A"
+        is_en = str(getattr(self.config, "report_language", "en") or "en").lower() == "en"
+        if is_en:
+            methodology_title = "Mapping methodology used in Drystone"
+            methodology_items = [
+                "Drystone loads each executed skill checklist (<code>drystone/skills/&lt;skill&gt;/checklist.json</code>) and reads the <code>pci_dss</code> array for every control check.",
+                "Each checklist check is linked to one or more PCI DSS controls (<code>control</code>) and a technical rationale (<code>reason</code>) explaining why it supports that control.",
+                "During analysis, findings inherit those mappings; if one finding is tied to a control, that control is marked as <strong>KO</strong> in this annex with evidence context.",
+                "Controls with mapped checks but without linked findings remain <strong>OK</strong>, meaning no violation was detected for evaluated evidence in this specific audit scope.",
+                "This annex is evidence-driven and scope-bounded: it reflects only executed skills, collected evidence, and controls explicitly mapped in the checklists used for this run.",
+            ]
+        else:
+            methodology_title = "Metodologia de mapeo aplicada por Drystone"
+            methodology_items = [
+                "Drystone carga los checklists de cada skill ejecutada (<code>drystone/skills/&lt;skill&gt;/checklist.json</code>) y lee el array <code>pci_dss</code> de cada check de control.",
+                "Cada check del checklist se vincula a uno o mas controles PCI DSS (<code>control</code>) y a una justificacion tecnica (<code>reason</code>) que explica por que ese check soporta dicho control.",
+                "Durante el analisis, los findings heredan ese mapeo; si un finding queda asociado a un control, ese control se marca como <strong>KO</strong> en este anexo con contexto de evidencia.",
+                "Los controles con checks mapeados pero sin findings asociados permanecen en <strong>OK</strong>, lo que indica que no se detecto incumplimiento para la evidencia evaluada en este alcance.",
+                "Este anexo es evidence-driven y acotado por alcance: refleja solo skills ejecutadas, evidencia recolectada y controles mapeados explicitamente en los checklists usados en esta corrida.",
+            ]
+
+        methodology_html = (
+            f"<div class='pci-annex-methodology'><h3>{html.escape(methodology_title)}</h3><ol>"
+            + "".join(f"<li>{item}</li>" for item in methodology_items)
+            + "</ol></div>"
         )
 
         rows_html = []
@@ -2134,28 +2156,31 @@ class PDFFormatter(BaseFormatter):
                 )
 
             cid = html.escape(ctrl["control"])
-            finding = ctrl["findings"][0]
+            findings_for_ctrl = ctrl["findings"]
+            # Extract reason from the first finding that has a per-control reason
             finding_reason = None
-            for p in finding.get("pci_dss") or []:
-                if p.get("control") == ctrl["control"]:
-                    finding_reason = p.get("reason")
+            for f in findings_for_ctrl:
+                for p in f.get("pci_dss") or []:
+                    if p.get("control") == ctrl["control"] and p.get("reason"):
+                        finding_reason = p["reason"]
+                        break
+                if finding_reason:
                     break
             reason = finding_reason or ctrl.get("reason", "")
-            fid = html.escape(finding.get("id", ""))
-            ftitle = html.escape(finding.get("title", ""))
             reason_escaped = html.escape(reason)
-            just = f"<strong>{fid}</strong>: {ftitle}. {reason_escaped}" if fid else reason_escaped
+            # List all finding IDs contributing to this KO
+            fids = [html.escape(f.get("id", "")) for f in findings_for_ctrl if f.get("id")]
+            fids_str = ", ".join(fids)
+            just = f"<strong>{fids_str}</strong>: {reason_escaped}" if fids_str else reason_escaped
 
-            rows_html.append(
-                f'<tr><td>{cid}</td><td class="pci-ko">❌ KO</td><td>{just}</td></tr>'
-            )
+            rows_html.append(f'<tr><td>{cid}</td><td class="pci-ko">❌ KO</td><td>{just}</td></tr>')
 
         rows = "\n".join(rows_html)
         return f"""
 <div class="page-break"></div>
 <h2>Annex A: PCI DSS v4.0 Control Mapping</h2>
 <div class="card pci-annex-card">
-  <p><strong>Compliance Rate:</strong> {summary["ok"]}/{summary["total"]} controls ({compliance_pct})</p>
+  {methodology_html}
   <table class="findings-summary-table pci-annex-table">
     <thead>
       <tr>
@@ -2168,7 +2193,4 @@ class PDFFormatter(BaseFormatter):
 {rows}
     </tbody>
   </table>
-  <p style="margin-top:12px;font-size:0.85em">
-    ✅ OK — No violations found &nbsp;·&nbsp; ❌ KO — Violations detected (see findings above)
-  </p>
 </div>"""

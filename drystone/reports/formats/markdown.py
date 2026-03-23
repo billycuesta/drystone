@@ -1458,13 +1458,6 @@ Generated with [Drystone](https://github.com/billycuesta/drystone)
         header_control = "Control" if is_en else "Control"
         header_status = "Status" if is_en else "Estado"
         header_just = "Justification" if is_en else "Justificación"
-        compliance_label = "Compliance Rate" if is_en else "Tasa de cumplimiento"
-        legend_ok = "No violations found" if is_en else "Sin incumplimientos detectados"
-        legend_ko = (
-            "Violations detected — see findings above"
-            if is_en
-            else "Incumplimientos detectados — ver findings arriba"
-        )
 
         ko_controls = [c for c in controls if c["status"] == "ko"]
         if not ko_controls:
@@ -1475,11 +1468,30 @@ Generated with [Drystone](https://github.com/billycuesta/drystone)
             "",
             f"## {annex_title}",
             "",
-            f"**{compliance_label}:** {summary['ok']}/{summary['total']} ({summary['ok'] / summary['total'] * 100:.0f}%)"
-            if summary["total"]
-            else "",
-            "",
         ]
+
+        if is_en:
+            lines += [
+                "**Mapping methodology used in Drystone**",
+                "",
+                "1. Drystone loads each executed skill checklist (`drystone/skills/<skill>/checklist.json`) and reads the `pci_dss` array for every control check.",
+                "2. Every checklist check is linked to one or more PCI DSS controls (`control`) and a technical rationale (`reason`) that explains why the check supports that control.",
+                "3. During analysis, findings inherit those mappings; if one finding is tied to a control, that control is marked as `KO` in this annex and includes finding evidence context.",
+                "4. Controls with mapped checks but without linked findings remain `OK`, meaning no violation was detected for the evaluated evidence in this specific audit scope.",
+                "5. This annex is evidence-driven and scope-bounded: it reflects only executed skills, collected evidence, and controls explicitly mapped in the checklists used for this run.",
+                "",
+            ]
+        else:
+            lines += [
+                "**Metodologia de mapeo aplicada por Drystone**",
+                "",
+                "1. Drystone carga los checklists de cada skill ejecutada (`drystone/skills/<skill>/checklist.json`) y lee el array `pci_dss` de cada check de control.",
+                "2. Cada check del checklist se vincula a uno o mas controles PCI DSS (`control`) y a una justificacion tecnica (`reason`) que explica por que ese check soporta dicho control.",
+                "3. Durante el analisis, los findings heredan ese mapeo; si un finding queda asociado a un control, ese control se marca como `KO` en este anexo e incluye contexto de evidencia.",
+                "4. Los controles con checks mapeados pero sin findings asociados permanecen en `OK`, lo que indica que no se detecto incumplimiento para la evidencia evaluada en este alcance.",
+                "5. Este anexo es evidence-driven y acotado por alcance: refleja solo skills ejecutadas, evidencia recolectada y controles mapeados explicitamente en los checklists usados en esta corrida.",
+                "",
+            ]
 
         current_req = None
         for ctrl in ko_controls:
@@ -1495,26 +1507,27 @@ Generated with [Drystone](https://github.com/billycuesta/drystone)
                 lines.append("|---------|--------|---------------|")
 
             cid = ctrl["control"]
-            finding = ctrl["findings"][0]
+            findings_for_ctrl = ctrl["findings"]
+            # Extract reason from the first finding that has a per-control reason
             finding_reason = None
-            for p in finding.get("pci_dss") or []:
-                if p.get("control") == cid:
-                    finding_reason = p.get("reason")
+            for f in findings_for_ctrl:
+                for p in f.get("pci_dss") or []:
+                    if p.get("control") == cid and p.get("reason"):
+                        finding_reason = p["reason"]
+                        break
+                if finding_reason:
                     break
             reason = finding_reason or ctrl.get("reason", "")
-            fid = finding.get("id", "")
-            ftitle = finding.get("title", "")
-            just = f"**{fid}**: {ftitle}. {reason}" if fid else reason
+            # List all finding IDs contributing to this KO
+            fids = [f.get("id", "") for f in findings_for_ctrl if f.get("id")]
+            fids_str = ", ".join(fids)
+            just = f"**{fids_str}**: {reason}" if fids_str else reason
 
             # Escape pipe chars in justification to avoid breaking Markdown table
             just = just.replace("|", "\\|")
             lines.append(f"| {cid} | ❌ {ko_label} | {just} |")
 
-        lines += [
-            "",
-            f"**Legend:** ❌ {legend_ko}",
-            "",
-        ]
+        lines += ["", ""]
 
         return "\n".join(lines)
 

@@ -377,7 +377,7 @@
         },
         {
           "control": "7.3.2",
-          "description": "This control requires the access control system to enforce permissions based on job classification. Group-based permissions are the technical enforcement of this policy, making the system more manageable and auditable."
+          "reason": "This control requires the access control system to enforce permissions based on job classification. Group-based permissions are the technical enforcement of this policy, making the system more manageable and auditable."
         }
       ]
     },
@@ -424,10 +424,6 @@
       ],
       "remediation": "Add ExternalId condition to trust policy: 'sts:ExternalId': 'unique-external-id'",
       "pci_dss": [
-        {
-          "control": "8.5.1",
-          "reason": "This control requires MFA systems to not be susceptible to replay attacks or bypass. The ExternalId is a crucial defense against the 'confused deputy' problem in cross-account access, which is a form of bypass. It ensures that only the intended third party in a specific context can assume the role."
-        },
         {
           "control": "7.2.1",
           "reason": "This control requires that access is based on need-to-know. Using an ExternalId ensures that cross-account role assumption is more specific and secure, preventing unauthorized principals within the trusted account from gaining access."
