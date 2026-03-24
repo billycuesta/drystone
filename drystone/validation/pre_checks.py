@@ -444,6 +444,10 @@ PRE_CHECK_ANALOGIES: Dict[str, str] = {
         "Like a building with no internal doors — once someone gets past the front entrance, "
         "they can walk freely into every room, including the vault."
     ),
+    "NET-008": (
+        "Like storing cash registers and safes in the lobby instead of behind the counter — "
+        "critical assets are directly exposed to anyone who walks through the front door."
+    ),
     "NET-007": (
         "Like removing the fence around a military base and posting signs for each building — "
         "anyone with a map can walk to any facility."
@@ -459,6 +463,11 @@ PRE_CHECK_ANALOGIES: Dict[str, str] = {
     "NET-016": (
         "Like a building with fire exits that also serve as unrestricted entrances — "
         "emergency routes become attack paths when they bypass security controls."
+    ),
+    "NET-022": (
+        "Like having an office building entrance connected directly to your vault room "
+        "without intermediate checkpoints — the entrance needs public access but valuables "
+        "should be behind secured doors in restricted zones."
     ),
     "NET-025": (
         "Like a corporate campus where every building shares the same master key — "
@@ -4516,20 +4525,26 @@ def check_net_011(evidence: Dict[str, Any]) -> PreCheckResult:
                     return True
         return False
 
+    affected: list = []
     for sg in sgs:
         if not isinstance(sg, dict):
             continue
+        sg_id = sg.get("GroupId", "unknown")
         all_rules = (sg.get("IngressRules", []) or []) + (sg.get("EgressRules", []) or [])
         for perm in all_rules:
             if isinstance(perm, dict) and _perm_matches_critical(perm) and _has_missing_desc(perm):
-                return PreCheckResult(
-                    "NET-011",
-                    "FAIL",
-                    f"SG {sg.get('GroupId')} has undescribed critical rules",
-                    [sg.get("GroupId", "unknown")],
-                )
+                if sg_id not in affected:
+                    affected.append(sg_id)
+                break
 
-    return PreCheckResult("NET-011", "PASS", "all critical rules have descriptions", [])
+    if not affected:
+        return PreCheckResult("NET-011", "PASS", "all critical rules have descriptions", [])
+    return PreCheckResult(
+        "NET-011",
+        "FAIL",
+        f"{len(affected)} SG(s) with undescribed critical rules",
+        affected[:10],
+    )
 
 
 @_register("network")
@@ -4904,18 +4919,29 @@ def check_net_008(evidence: Dict[str, Any]) -> PreCheckResult:
                 critical_in_public.append(f"lambda:{fn.get('FunctionName', 'unknown')}")
                 break
 
-    # Check RDS instances (SubnetGroup subnets may be empty but try)
+    # Check RDS instances — handle both collector formats:
+    #   1. Drystone collector: flat "SubnetIds" array (e.g. ["subnet-abc", ...])
+    #   2. Raw AWS format: "DBSubnetGroup.Subnets" array of objects
     rds_doc = evidence.get("rds-instances")
     rds_items = _items_from_doc(rds_doc)
     for db in rds_items:
         if not isinstance(db, dict):
             continue
-        sg_subnets = db.get("DBSubnetGroup", {}).get("Subnets") or []
-        for s in sg_subnets:
-            sid = s.get("SubnetIdentifier") if isinstance(s, dict) else s
-            if sid and sid in public_subnet_ids:
-                critical_in_public.append(f"rds:{db.get('DBInstanceIdentifier', 'unknown')}")
-                break
+        # Try flat SubnetIds first (Drystone collector format)
+        flat_subnets = db.get("SubnetIds") or []
+        if flat_subnets:
+            for sid in flat_subnets:
+                if sid in public_subnet_ids:
+                    critical_in_public.append(f"rds:{db.get('DBInstanceIdentifier', 'unknown')}")
+                    break
+        else:
+            # Fallback to raw AWS DBSubnetGroup format
+            sg_subnets = db.get("DBSubnetGroup", {}).get("Subnets") or []
+            for s in sg_subnets:
+                sid = s.get("SubnetIdentifier") if isinstance(s, dict) else s
+                if sid and sid in public_subnet_ids:
+                    critical_in_public.append(f"rds:{db.get('DBInstanceIdentifier', 'unknown')}")
+                    break
 
     if not critical_in_public:
         return PreCheckResult("NET-008", "PASS", "no critical workloads in public subnets", [])
@@ -5273,6 +5299,46 @@ def check_net_025(evidence: Dict[str, Any]) -> PreCheckResult:
         "FAIL",
         f"{len(missing)} subnet(s) missing classification tags (Tier/Layer)",
         missing[:8],
+    )
+
+
+@_register("network")
+def check_net_022(evidence: Dict[str, Any]) -> PreCheckResult:
+    """NET-022: Public subnets (0.0.0.0/0 to IGW) — verify no sensitive workloads deployed."""
+    rt_doc = evidence.get("route-tables")
+    rts = _items_from_doc(rt_doc)
+    subnet_doc = evidence.get("subnets")
+    subnets = _items_from_doc(subnet_doc)
+
+    if not rts:
+        return PreCheckResult("NET-022", "SKIP", "no route-tables evidence", [])
+    if not subnets:
+        return PreCheckResult("NET-022", "SKIP", "no subnets evidence", [])
+
+    # Find public subnet IDs (route tables with IGW default route)
+    public_subnet_ids: set = set()
+    for rt in rts:
+        if not isinstance(rt, dict):
+            continue
+        igw = any(
+            isinstance(r, dict)
+            and str(r.get("GatewayId", "")).startswith("igw-")
+            and r.get("DestinationCidrBlock") == "0.0.0.0/0"
+            for r in (rt.get("Routes") or [])
+        )
+        if not igw:
+            continue
+        for assoc in rt.get("Associations") or []:
+            if isinstance(assoc, dict) and assoc.get("SubnetId"):
+                public_subnet_ids.add(assoc["SubnetId"])
+
+    if not public_subnet_ids:
+        return PreCheckResult("NET-022", "PASS", "no public subnets detected", [])
+    return PreCheckResult(
+        "NET-022",
+        "FAIL",
+        f"{len(public_subnet_ids)} public subnet(s) with IGW route require workload verification",
+        sorted(public_subnet_ids)[:8],
     )
 
 

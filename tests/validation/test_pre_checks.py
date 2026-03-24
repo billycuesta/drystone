@@ -83,6 +83,7 @@ from drystone.validation.pre_checks import (
     check_net_008,
     check_net_009,
     check_net_010,
+    check_net_011,
     check_net_012,
     check_net_014,
     check_net_015,
@@ -91,6 +92,7 @@ from drystone.validation.pre_checks import (
     check_net_018,
     check_net_019,
     check_net_021,
+    check_net_022,
     check_net_025,
     check_net_027,
     check_net_029,
@@ -2743,6 +2745,49 @@ class TestNET008:
         })
         assert r.status == "PASS"
 
+    def test_fail_rds_in_public_subnet_flat_format(self):
+        """RDS with flat SubnetIds array (Drystone collector format) in public subnet."""
+        rt = self._rt_public("s-pub")
+        rds = {"DBInstanceIdentifier": "my-rds", "SubnetIds": ["s-pub", "s-priv"]}
+        r = check_net_008({
+            "route-tables": {"items": [rt]},
+            "subnets": {"items": [{"SubnetId": "s-pub"}, {"SubnetId": "s-priv"}]},
+            "rds-instances": {"items": [rds]},
+        })
+        assert r.status == "FAIL"
+        assert any("my-rds" in res for res in r.affected_resources)
+
+    def test_fail_rds_in_public_subnet_aws_format(self):
+        """RDS with DBSubnetGroup.Subnets format (raw AWS) in public subnet."""
+        rt = self._rt_public("s-pub")
+        rds = {
+            "DBInstanceIdentifier": "my-rds",
+            "DBSubnetGroup": {
+                "Subnets": [
+                    {"SubnetIdentifier": "s-pub"},
+                    {"SubnetIdentifier": "s-priv"},
+                ]
+            },
+        }
+        r = check_net_008({
+            "route-tables": {"items": [rt]},
+            "subnets": {"items": [{"SubnetId": "s-pub"}, {"SubnetId": "s-priv"}]},
+            "rds-instances": {"items": [rds]},
+        })
+        assert r.status == "FAIL"
+        assert any("my-rds" in res for res in r.affected_resources)
+
+    def test_pass_rds_in_private_subnet_only(self):
+        """RDS with flat SubnetIds only in private subnets."""
+        rt = self._rt_public("s-pub")
+        rds = {"DBInstanceIdentifier": "my-rds", "SubnetIds": ["s-priv"]}
+        r = check_net_008({
+            "route-tables": {"items": [rt]},
+            "subnets": {"items": [{"SubnetId": "s-pub"}, {"SubnetId": "s-priv"}]},
+            "rds-instances": {"items": [rds]},
+        })
+        assert r.status == "PASS"
+
 
 class TestNET010:
     def _nacl(self, nacl_id, is_default, cidr, protocol="-1", action="allow"):
@@ -3001,6 +3046,132 @@ class TestNET015:
         assert r.status == "FAIL"
         assert "sg-1" in r.affected_resources
         assert "sg-2" in r.affected_resources
+
+
+class TestNET011:
+    def _sg_with_rule(self, sg_id, protocol, from_port, to_port, description=None):
+        """Helper to build a SG with one ingress rule."""
+        ip_range = {"CidrIp": "10.0.0.0/16"}
+        if description:
+            ip_range["Description"] = description
+        return {
+            "GroupId": sg_id,
+            "IngressRules": [{
+                "IpProtocol": protocol,
+                "FromPort": from_port,
+                "ToPort": to_port,
+                "IpRanges": [ip_range],
+                "Ipv6Ranges": [],
+                "UserIdGroupPairs": [],
+            }],
+            "EgressRules": [],
+            "Tags": [{"Key": "Name", "Value": sg_id}],
+        }
+
+    def test_skip_no_evidence(self):
+        r = check_net_011({})
+        assert r.status == "SKIP"
+        assert r.check_id == "NET-011"
+
+    def test_pass_all_critical_rules_have_descriptions(self):
+        sg = self._sg_with_rule("sg-1", "tcp", 22, 22, description="SSH access from VPN")
+        r = check_net_011({"security-groups": {"items": [sg]}})
+        assert r.status == "PASS"
+
+    def test_fail_critical_rule_missing_description(self):
+        sg = self._sg_with_rule("sg-1", "tcp", 22, 22)  # no description
+        r = check_net_011({"security-groups": {"items": [sg]}})
+        assert r.status == "FAIL"
+        assert "sg-1" in r.affected_resources
+
+    def test_fail_multiple_sgs_with_missing_descriptions(self):
+        """Verify all affected SGs are reported, not just the first one."""
+        sg1 = self._sg_with_rule("sg-1", "tcp", 22, 22)  # no desc
+        sg2 = self._sg_with_rule("sg-2", "tcp", 3306, 3306)  # no desc
+        sg3 = self._sg_with_rule("sg-3", "tcp", 443, 443, description="HTTPS")  # has desc, non-critical
+        r = check_net_011({"security-groups": {"items": [sg1, sg2, sg3]}})
+        assert r.status == "FAIL"
+        assert "sg-1" in r.affected_resources
+        assert "sg-2" in r.affected_resources
+
+    def test_fail_all_traffic_rule_missing_description(self):
+        sg = {
+            "GroupId": "sg-all",
+            "IngressRules": [{
+                "IpProtocol": "-1",
+                "IpRanges": [{"CidrIp": "0.0.0.0/0"}],
+                "Ipv6Ranges": [],
+                "UserIdGroupPairs": [],
+            }],
+            "EgressRules": [],
+            "Tags": [],
+        }
+        r = check_net_011({"security-groups": {"items": [sg]}})
+        assert r.status == "FAIL"
+        assert "sg-all" in r.affected_resources
+
+    def test_pass_non_critical_port_missing_description(self):
+        """Non-critical ports (e.g., 8443) should not trigger FAIL."""
+        sg = self._sg_with_rule("sg-1", "tcp", 8443, 8443)  # no desc but not critical
+        r = check_net_011({"security-groups": {"items": [sg]}})
+        assert r.status == "PASS"
+
+
+class TestNET022:
+    def _rt_public(self, subnet_id):
+        return {
+            "RouteTableId": "rt-pub",
+            "Routes": [{"GatewayId": "igw-abc", "DestinationCidrBlock": "0.0.0.0/0", "State": "active"}],
+            "Associations": [{"SubnetId": subnet_id}],
+        }
+
+    def _rt_private(self, subnet_id):
+        return {
+            "RouteTableId": "rt-priv",
+            "Routes": [{"NatGatewayId": "nat-abc", "DestinationCidrBlock": "0.0.0.0/0", "State": "active"}],
+            "Associations": [{"SubnetId": subnet_id}],
+        }
+
+    def test_skip_no_route_tables(self):
+        r = check_net_022({"subnets": {"items": [{"SubnetId": "s-1"}]}})
+        assert r.status == "SKIP"
+        assert r.check_id == "NET-022"
+
+    def test_skip_no_subnets(self):
+        rt = self._rt_public("s-1")
+        r = check_net_022({"route-tables": {"items": [rt]}})
+        assert r.status == "SKIP"
+
+    def test_pass_no_public_subnets(self):
+        rt = self._rt_private("s-1")
+        r = check_net_022({
+            "route-tables": {"items": [rt]},
+            "subnets": {"items": [{"SubnetId": "s-1"}]},
+        })
+        assert r.status == "PASS"
+
+    def test_fail_public_subnets_detected(self):
+        rt = self._rt_public("s-pub")
+        r = check_net_022({
+            "route-tables": {"items": [rt]},
+            "subnets": {"items": [{"SubnetId": "s-pub"}, {"SubnetId": "s-priv"}]},
+        })
+        assert r.status == "FAIL"
+        assert "s-pub" in r.affected_resources
+
+    def test_fail_multiple_public_subnets(self):
+        rt = {
+            "RouteTableId": "rt-pub",
+            "Routes": [{"GatewayId": "igw-abc", "DestinationCidrBlock": "0.0.0.0/0", "State": "active"}],
+            "Associations": [{"SubnetId": "s-pub1"}, {"SubnetId": "s-pub2"}],
+        }
+        r = check_net_022({
+            "route-tables": {"items": [rt]},
+            "subnets": {"items": [{"SubnetId": "s-pub1"}, {"SubnetId": "s-pub2"}]},
+        })
+        assert r.status == "FAIL"
+        assert "s-pub1" in r.affected_resources
+        assert "s-pub2" in r.affected_resources
 
 
 class TestNET025:
