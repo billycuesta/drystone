@@ -200,7 +200,9 @@ def _analyze_resource_policy(
             "PolicyDocument": {},
         }
 
-    # Conditions that restrict the open Principal:* to a meaningful scope
+    # Conditions that restrict the open Principal:* to a meaningful scope.
+    # aws:sourceowner restricts to the account that owns the resource — same-account only,
+    # so it's a legitimate mitigating condition (not public exposure).
     _SCOPE_CONDITIONS = {
         "aws:sourceaccount",
         "aws:sourcearn",
@@ -209,6 +211,7 @@ def _analyze_resource_policy(
         "aws:sourcevpc",
         "aws:sourcevpce",
         "aws:principalaccount",
+        "aws:sourceowner",
     }
 
     risky_statements = []

@@ -3865,6 +3865,9 @@ def check_exp_015(evidence: Dict[str, Any]) -> PreCheckResult:
                         continue
                     parts = p.split(":")
                     if len(parts) > 4 and parts[4].isdigit() and parts[4] != audit_account:
+                        # Skip known AWS service accounts (e.g. ELB access logging)
+                        if parts[4] in _AWS_SERVICE_ACCOUNTS:
+                            continue
                         return PreCheckResult(
                             "EXP-015",
                             "FAIL",
@@ -4074,6 +4077,11 @@ def check_exp_023(evidence: Dict[str, Any]) -> PreCheckResult:
     high_resources = []  # Principal:* with Condition
     detailed_findings = []
 
+    # Service principals that should always have SourceArn/SourceAccount conditions.
+    # Without these conditions, any resource of that service type in any account can invoke the resource.
+    _REQUIRE_SOURCE_CONDITIONS = {"s3.amazonaws.com", "sns.amazonaws.com", "events.amazonaws.com"}
+    _SOURCE_CONDITIONS = {"aws:sourcearn", "aws:sourceaccount", "aws:sourcevpce"}
+
     for item in items:
         if not isinstance(item, dict):
             continue
@@ -4097,6 +4105,7 @@ def check_exp_023(evidence: Dict[str, Any]) -> PreCheckResult:
                 "aws:sourcevpc",
                 "aws:sourcevpce",
                 "aws:principalaccount",
+                "aws:sourceowner",
             }
 
             try:
@@ -4131,10 +4140,9 @@ def check_exp_023(evidence: Dict[str, Any]) -> PreCheckResult:
                             continue
 
                         # No restrictive condition found - this is a FAIL
-                        resource_label = f"{service}:{resource_arn}"
-                        if resource_label not in [r["resource"] for r in critical_resources]:
+                        if resource_arn not in [r["resource"] for r in critical_resources]:
                             critical_resources.append({
-                                "resource": resource_label,
+                                "resource": resource_arn,
                                 "statement": stmt.get("Sid", "Unnamed"),
                             })
 
@@ -4164,11 +4172,9 @@ def check_exp_023(evidence: Dict[str, Any]) -> PreCheckResult:
                 continue  # This is acceptable, skip to next statement
 
             # No mitigating condition - this is a FAIL
-            resource_label = f"{service}:{resource_arn}"
-
-            if resource_label not in [r["resource"] for r in critical_resources]:
+            if resource_arn not in [r["resource"] for r in critical_resources]:
                 critical_resources.append({
-                    "resource": resource_label,
+                    "resource": resource_arn,
                     "statement": stmt.get("Sid", "Unnamed"),
                 })
 
@@ -4184,6 +4190,51 @@ def check_exp_023(evidence: Dict[str, Any]) -> PreCheckResult:
                 "ReplacementPolicy": _generate_replacement_policy(resource_arn, service, stmt)
             })
             break  # one violation per resource
+
+        # Also check service principals (confused deputy) in all policy statements
+        # (Not covered by wildcard_stmts which only handles Principal:*)
+        all_policy_raw = item.get("Policy") or ""
+        try:
+            all_policy_doc = json.loads(all_policy_raw) if isinstance(all_policy_raw, str) else all_policy_raw
+            if isinstance(all_policy_doc, dict):
+                for stmt in _stmts_from_policy(all_policy_doc):
+                    if not isinstance(stmt, dict):
+                        continue
+                    if str(stmt.get("Effect", "")).upper() != "ALLOW":
+                        continue
+                    principal = stmt.get("Principal", {})
+                    svc_principal = None
+                    if isinstance(principal, dict):
+                        svc = principal.get("Service")
+                        if isinstance(svc, str):
+                            svc_principal = svc.lower()
+                        elif isinstance(svc, list):
+                            for s in svc:
+                                if str(s).lower() in _REQUIRE_SOURCE_CONDITIONS:
+                                    svc_principal = str(s).lower()
+                                    break
+                    if svc_principal and svc_principal in _REQUIRE_SOURCE_CONDITIONS:
+                        cond = stmt.get("Condition") or {}
+                        cond_text = json.dumps(cond, default=str).lower()
+                        has_source_cond = any(k in cond_text for k in _SOURCE_CONDITIONS)
+                        if not has_source_cond and resource_arn not in [r["resource"] for r in high_resources] and resource_arn not in [r["resource"] for r in critical_resources]:
+                            high_resources.append({
+                                "resource": resource_arn,
+                                "statement": stmt.get("Sid", "Unnamed"),
+                                "note": f"service principal {svc_principal} without SourceArn/SourceAccount",
+                            })
+                            detailed_findings.append({
+                                "ResourceArn": resource_arn,
+                                "Service": service,
+                                "Severity": "High",
+                                "Principal": principal,
+                                "Action": stmt.get("Action"),
+                                "Condition": stmt.get("Condition"),
+                                "Note": f"Confused deputy risk: {svc_principal} has no SourceArn condition",
+                            })
+                            break
+        except Exception:
+            pass
 
     if not critical_resources and not high_resources:
         return PreCheckResult(

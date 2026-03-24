@@ -301,31 +301,79 @@
     }
 
     .pci-annex-table {
-      width: 100%;
-      border-collapse: collapse;
       font-size: 9px;
+      table-layout: fixed;
     }
     .pci-annex-table th {
-      background: #1e3a5f;
-      color: #fff;
-      padding: 5px 8px;
-      text-align: left;
+      background: var(--accent-purple);
+      color: #ffffff;
       font-size: 9px;
+      padding: 9px 8px;
     }
     .pci-annex-table td {
-      padding: 4px 8px;
-      border-bottom: 1px solid #e5e7eb;
+      padding: 8px 8px;
       vertical-align: top;
+      word-wrap: break-word;
+      overflow-wrap: anywhere;
+      border-right: 1px solid var(--surface-border);
+    }
+    .pci-annex-table th {
+      border-right: 1px solid #aeb6de;
+    }
+    .pci-annex-table th:first-child,
+    .pci-annex-table td:first-child {
+      border-left: 1px solid var(--surface-border);
+    }
+    .pci-annex-table th:last-child,
+    .pci-annex-table td:last-child {
+      border-right: 1px solid var(--surface-border);
     }
     .pci-annex-table tr.pci-req-header td {
-      background: #f0f4f8;
+      background: #eef2f7;
       font-weight: 700;
       font-size: 9px;
-      color: #1e3a5f;
-      padding: 5px 8px;
+      color: #111827;
+      padding: 9px 8px;
+      border-bottom: 1px solid var(--surface-border);
+    }
+    .pci-annex-table th:nth-child(1),
+    .pci-annex-table th:nth-child(2),
+    .pci-annex-table td:nth-child(1),
+    .pci-annex-table td:nth-child(2) {
+      text-align: center;
+      white-space: nowrap;
     }
     .pci-annex-table .pci-ok { color: #047857; font-weight: 700; }
     .pci-annex-table .pci-ko { color: #b91c1c; font-weight: 700; }
+    .pci-annex-methodology {
+      background: var(--surface-soft);
+      border: 1px solid var(--surface-border);
+      border-left: 4px solid var(--accent-purple);
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin: 2px 0 12px 0;
+      font-size: 9.5px;
+      color: #1f2937;
+    }
+    .pci-annex-methodology h3 {
+      margin: 0 0 6px 0;
+      font-size: 10px;
+      color: #111827;
+    }
+    .pci-annex-methodology ol {
+      margin: 0;
+      padding-left: 16px;
+    }
+    .pci-annex-methodology li {
+      margin: 0 0 4px 0;
+      line-height: 1.4;
+    }
+    .pci-annex-card {
+      page-break-inside: auto;
+    }
+    .pci-annex-table tbody tr {
+      page-break-inside: avoid;
+    }
 
     .severity-critical { color: #b91c1c; font-weight: 700; }
     .severity-high { color: #b45309; font-weight: 700; }
