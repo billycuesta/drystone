@@ -250,9 +250,7 @@ class TestEvidenceValidation:
         """Test that HRD-009 is rejected if GuardDuty is disabled."""
         normalizer = FindingsNormalizer(HARDENING_CHECKLIST, "hardening")
 
-        evidence = {
-            "guardduty-detectors": []  # Empty array = no detectors
-        }
+        evidence = {"guardduty-detectors": []}  # Empty array = no detectors
         normalizer.evidence = evidence
 
         finding = make_finding("HRD-009", "High", 8.0, "GuardDuty findings", "Many")

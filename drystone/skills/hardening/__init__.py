@@ -152,11 +152,13 @@ class HardeningSkill(BaseSkill):
                                     "Normalized": sev.get("Normalized"),
                                     "Original": sev.get("Original"),
                                 },
-                                "Compliance": {
-                                    "Status": compliance.get("Status"),
-                                }
-                                if isinstance(compliance, dict)
-                                else {},
+                                "Compliance": (
+                                    {
+                                        "Status": compliance.get("Status"),
+                                    }
+                                    if isinstance(compliance, dict)
+                                    else {}
+                                ),
                                 "WorkflowState": finding.get("WorkflowState"),
                                 "RecordState": finding.get("RecordState"),
                                 "Resources": resources_out,

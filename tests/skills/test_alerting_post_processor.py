@@ -3,8 +3,6 @@
 import json
 from unittest.mock import Mock
 
-import pytest
-
 from drystone.skills.alerting.post_processor import AlertingPostProcessor
 from drystone.storage.session import AuditSession
 
@@ -25,13 +23,17 @@ class TestAlertingPostProcessorAddsArchitecture:
         evidence_dir.mkdir(parents=True)
         session = _make_session(evidence_dir)
 
-        _write_evidence(evidence_dir, "cloudtrail-trails.json", [
-            {"Name": "main", "IsMultiRegionTrail": True, "Status": {"IsLogging": True}}
-        ])
+        _write_evidence(
+            evidence_dir,
+            "cloudtrail-trails.json",
+            [{"Name": "main", "IsMultiRegionTrail": True, "Status": {"IsLogging": True}}],
+        )
         _write_evidence(evidence_dir, "cloudwatch-alarms.json", [])
-        _write_evidence(evidence_dir, "cloudwatch-log-groups.json", [
-            {"LogGroupName": "CloudtrailLogGroup", "RetentionInDays": 365}
-        ])
+        _write_evidence(
+            evidence_dir,
+            "cloudwatch-log-groups.json",
+            [{"LogGroupName": "CloudtrailLogGroup", "RetentionInDays": 365}],
+        )
         _write_evidence(evidence_dir, "cloudwatch-metric-filters.json", [])
         _write_evidence(evidence_dir, "eventbridge-rules.json", [])
         _write_evidence(evidence_dir, "sns-topics.json", [])
@@ -54,13 +56,17 @@ class TestAlertingFlowAnalysis:
         evidence_dir.mkdir(parents=True)
         session = _make_session(evidence_dir)
 
-        _write_evidence(evidence_dir, "cloudtrail-trails.json", [
-            {
-                "Name": "main",
-                "IsMultiRegionTrail": True,
-                "Status": {"IsLogging": True},
-            }
-        ])
+        _write_evidence(
+            evidence_dir,
+            "cloudtrail-trails.json",
+            [
+                {
+                    "Name": "main",
+                    "IsMultiRegionTrail": True,
+                    "Status": {"IsLogging": True},
+                }
+            ],
+        )
         _write_evidence(evidence_dir, "cloudwatch-alarms.json", [])
         _write_evidence(evidence_dir, "cloudwatch-log-groups.json", [])
         _write_evidence(evidence_dir, "cloudwatch-metric-filters.json", [])
@@ -80,12 +86,16 @@ class TestAlertingFlowAnalysis:
         evidence_dir.mkdir(parents=True)
         session = _make_session(evidence_dir)
 
-        _write_evidence(evidence_dir, "cloudtrail-trails.json", [
-            {"Name": "main", "Status": {"IsLogging": True}}
-        ])
-        _write_evidence(evidence_dir, "cloudwatch-log-groups.json", [
-            {"LogGroupName": "CloudtrailLogGroup", "RetentionInDays": 400}
-        ])
+        _write_evidence(
+            evidence_dir,
+            "cloudtrail-trails.json",
+            [{"Name": "main", "Status": {"IsLogging": True}}],
+        )
+        _write_evidence(
+            evidence_dir,
+            "cloudwatch-log-groups.json",
+            [{"LogGroupName": "CloudtrailLogGroup", "RetentionInDays": 400}],
+        )
         # Empty metric filters — cloudwatch_integration=True but no filters configured
         _write_evidence(evidence_dir, "cloudwatch-metric-filters.json", [])
         _write_evidence(evidence_dir, "cloudwatch-alarms.json", [])
@@ -107,14 +117,18 @@ class TestAlertingFlowAnalysis:
         evidence_dir.mkdir(parents=True)
         session = _make_session(evidence_dir)
 
-        _write_evidence(evidence_dir, "cloudwatch-metric-filters.json", [
-            {
-                "filterName": "ConsoleLogin",
-                "filterPattern": '{ $.eventName = "ConsoleLogin" }',
-                "logGroupName": "CloudtrailLogGroup",
-                "metricTransformations": [{"metricName": "ConsoleLoginCount"}],
-            }
-        ])
+        _write_evidence(
+            evidence_dir,
+            "cloudwatch-metric-filters.json",
+            [
+                {
+                    "filterName": "ConsoleLogin",
+                    "filterPattern": '{ $.eventName = "ConsoleLogin" }',
+                    "logGroupName": "CloudtrailLogGroup",
+                    "metricTransformations": [{"metricName": "ConsoleLoginCount"}],
+                }
+            ],
+        )
         _write_evidence(evidence_dir, "cloudtrail-trails.json", [])
         _write_evidence(evidence_dir, "cloudwatch-alarms.json", [])
         _write_evidence(evidence_dir, "cloudwatch-log-groups.json", [])
@@ -133,9 +147,11 @@ class TestAlertingFlowAnalysis:
         evidence_dir.mkdir(parents=True)
         session = _make_session(evidence_dir)
 
-        _write_evidence(evidence_dir, "cloudtrail-trails.json", [
-            {"Name": "main", "Status": {"IsLogging": True}}
-        ])
+        _write_evidence(
+            evidence_dir,
+            "cloudtrail-trails.json",
+            [{"Name": "main", "Status": {"IsLogging": True}}],
+        )
         _write_evidence(evidence_dir, "cloudwatch-alarms.json", [])
         _write_evidence(evidence_dir, "cloudwatch-log-groups.json", [])
         _write_evidence(evidence_dir, "cloudwatch-metric-filters.json", [])
@@ -155,18 +171,22 @@ class TestAlertingFlowAnalysis:
         evidence_dir.mkdir(parents=True)
         session = _make_session(evidence_dir)
 
-        _write_evidence(evidence_dir, "sns-topics.json", [
-            {
-                "TopicArn": "arn:aws:sns:us-east-1:111:alerts",
-                "Subscriptions": [
-                    {
-                        "SubscriptionArn": "arn:aws:sns:us-east-1:111:alerts:abc",
-                        "Protocol": "email",
-                        "Endpoint": "sec@example.com",
-                    }
-                ],
-            }
-        ])
+        _write_evidence(
+            evidence_dir,
+            "sns-topics.json",
+            [
+                {
+                    "TopicArn": "arn:aws:sns:us-east-1:111:alerts",
+                    "Subscriptions": [
+                        {
+                            "SubscriptionArn": "arn:aws:sns:us-east-1:111:alerts:abc",
+                            "Protocol": "email",
+                            "Endpoint": "sec@example.com",
+                        }
+                    ],
+                }
+            ],
+        )
         _write_evidence(evidence_dir, "cloudtrail-trails.json", [])
         _write_evidence(evidence_dir, "cloudwatch-alarms.json", [])
         _write_evidence(evidence_dir, "cloudwatch-log-groups.json", [])
@@ -187,52 +207,74 @@ class TestAlertingFlowAnalysis:
         evidence_dir.mkdir(parents=True)
         session = _make_session(evidence_dir)
 
-        _write_evidence(evidence_dir, "cloudtrail-trails.json", [
-            {
-                "Name": "main",
-                "IsMultiRegionTrail": True,
-                "Status": {"IsLogging": True},
-            }
-        ])
-        _write_evidence(evidence_dir, "cloudwatch-log-groups.json", [
-            {"LogGroupName": "CloudtrailLogGroup", "RetentionInDays": 365}
-        ])
-        _write_evidence(evidence_dir, "cloudwatch-metric-filters.json", [
-            {
-                "filterName": "ConsoleLogin",
-                "filterPattern": '{ $.eventName = "ConsoleLogin" }',
-                "logGroupName": "CloudtrailLogGroup",
-                "metricTransformations": [{"metricName": "ConsoleLoginCount"}],
-            }
-        ])
-        _write_evidence(evidence_dir, "cloudwatch-alarms.json", [
-            {
-                "AlarmName": "security-console-login",
-                "MetricName": "ConsoleLoginCount",
-                "AlarmActions": ["arn:aws:sns:us-east-1:111:security-alerts"],
-                "StateValue": "OK",
-            }
-        ])
-        _write_evidence(evidence_dir, "eventbridge-rules.json", [
-            {
-                "Name": "ct-stoplogging",
-                "EventPattern": '{"source":["aws.cloudtrail"]}',
-                "State": "ENABLED",
-                "Targets": [{"Arn": "arn:aws:sns:us-east-1:111:security-alerts"}],
-            }
-        ])
-        _write_evidence(evidence_dir, "sns-topics.json", [
-            {
-                "TopicArn": "arn:aws:sns:us-east-1:111:security-alerts",
-                "Subscriptions": [
-                    {
-                        "SubscriptionArn": "arn:aws:sns:us-east-1:111:security-alerts:abc",
-                        "Protocol": "email",
-                        "Endpoint": "sec@example.com",
-                    }
-                ],
-            }
-        ])
+        _write_evidence(
+            evidence_dir,
+            "cloudtrail-trails.json",
+            [
+                {
+                    "Name": "main",
+                    "IsMultiRegionTrail": True,
+                    "Status": {"IsLogging": True},
+                }
+            ],
+        )
+        _write_evidence(
+            evidence_dir,
+            "cloudwatch-log-groups.json",
+            [{"LogGroupName": "CloudtrailLogGroup", "RetentionInDays": 365}],
+        )
+        _write_evidence(
+            evidence_dir,
+            "cloudwatch-metric-filters.json",
+            [
+                {
+                    "filterName": "ConsoleLogin",
+                    "filterPattern": '{ $.eventName = "ConsoleLogin" }',
+                    "logGroupName": "CloudtrailLogGroup",
+                    "metricTransformations": [{"metricName": "ConsoleLoginCount"}],
+                }
+            ],
+        )
+        _write_evidence(
+            evidence_dir,
+            "cloudwatch-alarms.json",
+            [
+                {
+                    "AlarmName": "security-console-login",
+                    "MetricName": "ConsoleLoginCount",
+                    "AlarmActions": ["arn:aws:sns:us-east-1:111:security-alerts"],
+                    "StateValue": "OK",
+                }
+            ],
+        )
+        _write_evidence(
+            evidence_dir,
+            "eventbridge-rules.json",
+            [
+                {
+                    "Name": "ct-stoplogging",
+                    "EventPattern": '{"source":["aws.cloudtrail"]}',
+                    "State": "ENABLED",
+                    "Targets": [{"Arn": "arn:aws:sns:us-east-1:111:security-alerts"}],
+                }
+            ],
+        )
+        _write_evidence(
+            evidence_dir,
+            "sns-topics.json",
+            [
+                {
+                    "TopicArn": "arn:aws:sns:us-east-1:111:security-alerts",
+                    "Subscriptions": [
+                        {
+                            "SubscriptionArn": "arn:aws:sns:us-east-1:111:security-alerts:abc",
+                            "Protocol": "email",
+                            "Endpoint": "sec@example.com",
+                        }
+                    ],
+                }
+            ],
+        )
 
         proc = AlertingPostProcessor(session)
         evidence = proc._load_evidence()

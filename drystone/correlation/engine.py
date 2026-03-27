@@ -190,13 +190,14 @@ class CorrelationEngine:
                     source_findings_list: list = []
                     if pattern.source_finder is not None:
                         try:
-                            source_findings_list = pattern.source_finder(
-                                findings_by_skill, self._resource_index_cache, evidence_by_skill
-                            ) or []
-                        except Exception as _sf_err:
-                            logger.warning(
-                                f"source_finder for {pattern.id} failed: {_sf_err}"
+                            source_findings_list = (
+                                pattern.source_finder(
+                                    findings_by_skill, self._resource_index_cache, evidence_by_skill
+                                )
+                                or []
                             )
+                        except Exception as _sf_err:
+                            logger.warning(f"source_finder for {pattern.id} failed: {_sf_err}")
 
                     source_ids = sorted({f.id for f in source_findings_list})
                     source_refs = [
@@ -525,16 +526,12 @@ class CorrelationEngine:
             # Rule 1: All source findings must exist
             source_ids = corr.source_finding_ids or []
             if source_ids and not all(sid in all_finding_ids for sid in source_ids):
-                logger.debug(
-                    f"Dropping correlation {corr.id}: missing source findings"
-                )
+                logger.debug(f"Dropping correlation {corr.id}: missing source findings")
                 continue
 
             # Rule 2: At least 2 source findings (skip for dynamic patterns with empty sources)
             if source_ids and len(source_ids) < 2:
-                logger.debug(
-                    f"Dropping correlation {corr.id}: fewer than 2 source findings"
-                )
+                logger.debug(f"Dropping correlation {corr.id}: fewer than 2 source findings")
                 continue
 
             # Rule 3: Dedup by pattern + sources

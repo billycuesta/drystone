@@ -46,6 +46,7 @@ class TestWAFSkill:
     def test_skill_inherits_base_skill(self, skill):
         """Test WAFSkill inherits from BaseSkill."""
         from drystone.skills.base import BaseSkill
+
         assert isinstance(skill, BaseSkill)
 
     def test_save_json_to_existing_directory(self, skill, tmp_path):
@@ -103,7 +104,7 @@ class TestWAFSkill:
             {
                 "DomainName": "example.com",
                 "Id": "E123ABC",
-                "WebACLId": "arn:aws:wafv2:us-east-1:123456789012:global/webacl/test/a1234567-b890-c123-d456-e789f0123456"
+                "WebACLId": "arn:aws:wafv2:us-east-1:123456789012:global/webacl/test/a1234567-b890-c123-d456-e789f0123456",
             }
         ]
         mapping = skill._cloudfront_wafv2_association_map(dists)
@@ -113,13 +114,7 @@ class TestWAFSkill:
 
     def test_cloudfront_wafv2_association_map_with_unprotected(self, skill):
         """Test CloudFront WAFv2 association map with unprotected distribution."""
-        dists = [
-            {
-                "DomainName": "unprotected.com",
-                "Id": "E456DEF",
-                "WebACLId": ""  # No WAF
-            }
-        ]
+        dists = [{"DomainName": "unprotected.com", "Id": "E456DEF", "WebACLId": ""}]  # No WAF
         mapping = skill._cloudfront_wafv2_association_map(dists)
 
         assert isinstance(mapping, dict)
@@ -134,12 +129,7 @@ class TestWAFSkill:
 
     def test_cloudfront_classic_association_map_with_data(self, skill):
         """Test CloudFront Classic association map with distribution data."""
-        dists = [
-            {
-                "DomainName": "classic.example.com",
-                "Id": "E789GHI"
-            }
-        ]
+        dists = [{"DomainName": "classic.example.com", "Id": "E789GHI"}]
         mapping = skill._cloudfront_classic_association_map(dists)
 
         assert isinstance(mapping, dict)
@@ -147,15 +137,29 @@ class TestWAFSkill:
     def test_collect_initializes_collection_status(self, skill, mock_aws_client, mock_session):
         """Test collect() initializes collection status tracking."""
         # Mock all internal collection methods to avoid AWS calls
-        with patch.object(skill, '_collect_cloudfront_distributions', return_value=([], None)):
-            with patch.object(skill, '_collect_wafv2_web_acls_for_scope', return_value=([], None)):
-                with patch.object(skill, '_collect_wafv2_ip_sets', return_value=([], None)):
-                    with patch.object(skill, '_collect_wafv2_rule_groups', return_value=([], None)):
-                        with patch.object(skill, '_collect_wafv2_regex_pattern_sets', return_value=([], None)):
-                            with patch.object(skill, '_collect_wafv2_managed_rule_groups', return_value={}):
-                                with patch.object(skill, '_collect_alb_waf_associations', return_value=([], {})):
-                                    with patch.object(skill, '_collect_api_entrypoints_waf_associations', return_value=([], {})):
-                                        with patch.object(skill, '_collect_waf_classic_inventory', return_value=([], None)):
+        with patch.object(skill, "_collect_cloudfront_distributions", return_value=([], None)):
+            with patch.object(skill, "_collect_wafv2_web_acls_for_scope", return_value=([], None)):
+                with patch.object(skill, "_collect_wafv2_ip_sets", return_value=([], None)):
+                    with patch.object(skill, "_collect_wafv2_rule_groups", return_value=([], None)):
+                        with patch.object(
+                            skill, "_collect_wafv2_regex_pattern_sets", return_value=([], None)
+                        ):
+                            with patch.object(
+                                skill, "_collect_wafv2_managed_rule_groups", return_value={}
+                            ):
+                                with patch.object(
+                                    skill, "_collect_alb_waf_associations", return_value=([], {})
+                                ):
+                                    with patch.object(
+                                        skill,
+                                        "_collect_api_entrypoints_waf_associations",
+                                        return_value=([], {}),
+                                    ):
+                                        with patch.object(
+                                            skill,
+                                            "_collect_waf_classic_inventory",
+                                            return_value=([], None),
+                                        ):
                                             # Run collect
                                             skill.collect(mock_aws_client, mock_session)
 
@@ -169,38 +173,68 @@ class TestWAFSkill:
                 "DomainName": "d123.cloudfront.net",
                 "Id": "E123ABC",
                 "Status": "Deployed",
-                "WebACLId": ""
+                "WebACLId": "",
             }
         ]
 
         # Mock all internal collection methods
-        with patch.object(skill, '_collect_cloudfront_distributions', return_value=(cf_data, None)):
-            with patch.object(skill, '_collect_wafv2_web_acls_for_scope', return_value=([], None)):
-                with patch.object(skill, '_collect_wafv2_ip_sets', return_value=([], None)):
-                    with patch.object(skill, '_collect_wafv2_rule_groups', return_value=([], None)):
-                        with patch.object(skill, '_collect_wafv2_regex_pattern_sets', return_value=([], None)):
-                            with patch.object(skill, '_collect_wafv2_managed_rule_groups', return_value={}):
-                                with patch.object(skill, '_collect_alb_waf_associations', return_value=([], {})):
-                                    with patch.object(skill, '_collect_api_entrypoints_waf_associations', return_value=([], {})):
-                                        with patch.object(skill, '_collect_waf_classic_inventory', return_value=([], None)):
+        with patch.object(skill, "_collect_cloudfront_distributions", return_value=(cf_data, None)):
+            with patch.object(skill, "_collect_wafv2_web_acls_for_scope", return_value=([], None)):
+                with patch.object(skill, "_collect_wafv2_ip_sets", return_value=([], None)):
+                    with patch.object(skill, "_collect_wafv2_rule_groups", return_value=([], None)):
+                        with patch.object(
+                            skill, "_collect_wafv2_regex_pattern_sets", return_value=([], None)
+                        ):
+                            with patch.object(
+                                skill, "_collect_wafv2_managed_rule_groups", return_value={}
+                            ):
+                                with patch.object(
+                                    skill, "_collect_alb_waf_associations", return_value=([], {})
+                                ):
+                                    with patch.object(
+                                        skill,
+                                        "_collect_api_entrypoints_waf_associations",
+                                        return_value=([], {}),
+                                    ):
+                                        with patch.object(
+                                            skill,
+                                            "_collect_waf_classic_inventory",
+                                            return_value=([], None),
+                                        ):
                                             skill.collect(mock_aws_client, mock_session)
 
                                             # Verify session was called
-                                            evidence_path = mock_session.get_evidence_path.return_value
+                                            evidence_path = (
+                                                mock_session.get_evidence_path.return_value
+                                            )
                                             assert evidence_path is not None
 
     def test_collect_handles_empty_resources(self, skill, mock_aws_client, mock_session):
         """Test collect() handles case with no WAF resources."""
         # Mock all internal methods to return empty data
-        with patch.object(skill, '_collect_cloudfront_distributions', return_value=([], None)):
-            with patch.object(skill, '_collect_wafv2_web_acls_for_scope', return_value=([], None)):
-                with patch.object(skill, '_collect_wafv2_ip_sets', return_value=([], None)):
-                    with patch.object(skill, '_collect_wafv2_rule_groups', return_value=([], None)):
-                        with patch.object(skill, '_collect_wafv2_regex_pattern_sets', return_value=([], None)):
-                            with patch.object(skill, '_collect_wafv2_managed_rule_groups', return_value={}):
-                                with patch.object(skill, '_collect_alb_waf_associations', return_value=([], {})):
-                                    with patch.object(skill, '_collect_api_entrypoints_waf_associations', return_value=([], {})):
-                                        with patch.object(skill, '_collect_waf_classic_inventory', return_value=([], None)):
+        with patch.object(skill, "_collect_cloudfront_distributions", return_value=([], None)):
+            with patch.object(skill, "_collect_wafv2_web_acls_for_scope", return_value=([], None)):
+                with patch.object(skill, "_collect_wafv2_ip_sets", return_value=([], None)):
+                    with patch.object(skill, "_collect_wafv2_rule_groups", return_value=([], None)):
+                        with patch.object(
+                            skill, "_collect_wafv2_regex_pattern_sets", return_value=([], None)
+                        ):
+                            with patch.object(
+                                skill, "_collect_wafv2_managed_rule_groups", return_value={}
+                            ):
+                                with patch.object(
+                                    skill, "_collect_alb_waf_associations", return_value=([], {})
+                                ):
+                                    with patch.object(
+                                        skill,
+                                        "_collect_api_entrypoints_waf_associations",
+                                        return_value=([], {}),
+                                    ):
+                                        with patch.object(
+                                            skill,
+                                            "_collect_waf_classic_inventory",
+                                            return_value=([], None),
+                                        ):
                                             # This should not raise an exception
                                             skill.collect(mock_aws_client, mock_session)
                                             assert mock_session.get_evidence_path.called
@@ -208,15 +242,31 @@ class TestWAFSkill:
     def test_collect_with_client_error_handling(self, skill, mock_aws_client, mock_session):
         """Test collect() handles errors gracefully."""
         # Mock methods - CloudFront returns error
-        with patch.object(skill, '_collect_cloudfront_distributions', return_value=([], "AccessDenied")):
-            with patch.object(skill, '_collect_wafv2_web_acls_for_scope', return_value=([], None)):
-                with patch.object(skill, '_collect_wafv2_ip_sets', return_value=([], None)):
-                    with patch.object(skill, '_collect_wafv2_rule_groups', return_value=([], None)):
-                        with patch.object(skill, '_collect_wafv2_regex_pattern_sets', return_value=([], None)):
-                            with patch.object(skill, '_collect_wafv2_managed_rule_groups', return_value={}):
-                                with patch.object(skill, '_collect_alb_waf_associations', return_value=([], {})):
-                                    with patch.object(skill, '_collect_api_entrypoints_waf_associations', return_value=([], {})):
-                                        with patch.object(skill, '_collect_waf_classic_inventory', return_value=([], None)):
+        with patch.object(
+            skill, "_collect_cloudfront_distributions", return_value=([], "AccessDenied")
+        ):
+            with patch.object(skill, "_collect_wafv2_web_acls_for_scope", return_value=([], None)):
+                with patch.object(skill, "_collect_wafv2_ip_sets", return_value=([], None)):
+                    with patch.object(skill, "_collect_wafv2_rule_groups", return_value=([], None)):
+                        with patch.object(
+                            skill, "_collect_wafv2_regex_pattern_sets", return_value=([], None)
+                        ):
+                            with patch.object(
+                                skill, "_collect_wafv2_managed_rule_groups", return_value={}
+                            ):
+                                with patch.object(
+                                    skill, "_collect_alb_waf_associations", return_value=([], {})
+                                ):
+                                    with patch.object(
+                                        skill,
+                                        "_collect_api_entrypoints_waf_associations",
+                                        return_value=([], {}),
+                                    ):
+                                        with patch.object(
+                                            skill,
+                                            "_collect_waf_classic_inventory",
+                                            return_value=([], None),
+                                        ):
                                             # Should handle error and continue
                                             skill.collect(mock_aws_client, mock_session)
                                             assert mock_session.get_evidence_path.called
@@ -264,7 +314,7 @@ class TestWAFPostProcessor:
             {
                 "DomainName": "d123.cloudfront.net",
                 "Id": "E123ABC",
-                "WebACLId": "arn:aws:wafv2:us-east-1:123456789012:global/webacl/test/abc123"
+                "WebACLId": "arn:aws:wafv2:us-east-1:123456789012:global/webacl/test/abc123",
             }
         ]
         with open(evidence_path / "cloudfront-distributions.json", "w") as f:
@@ -274,7 +324,9 @@ class TestWAFPostProcessor:
         alb_data = [
             {
                 "LoadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/test/1234567890abcdef",
-                "WAFv2WebACL": {"ARN": "arn:aws:wafv2:us-east-1:123456789012:regional/webacl/test/abc123"}
+                "WAFv2WebACL": {
+                    "ARN": "arn:aws:wafv2:us-east-1:123456789012:regional/webacl/test/abc123"
+                },
             }
         ]
         with open(evidence_path / "alb-waf-associations.json", "w") as f:
@@ -306,7 +358,7 @@ class TestWAFPostProcessor:
             "cloudfront_distributions": [],
             "alb_waf_associations": [],
             "wafv2_web_acls": [],
-            "api_entrypoints": []
+            "api_entrypoints": [],
         }
 
         analysis = processor._analyze(evidence)
@@ -323,22 +375,24 @@ class TestWAFPostProcessor:
                 {
                     "DomainName": "d123.cloudfront.net",
                     "Id": "E123ABC",
-                    "WebACLId": "arn:aws:wafv2:us-east-1:123456789012:global/webacl/test/abc123"
+                    "WebACLId": "arn:aws:wafv2:us-east-1:123456789012:global/webacl/test/abc123",
                 },
                 {
                     "DomainName": "d456.cloudfront.net",
                     "Id": "E456DEF",
-                    "WebACLId": ""  # Unprotected
-                }
+                    "WebACLId": "",  # Unprotected
+                },
             ],
             "alb_waf_associations": [
                 {
                     "LoadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/test/1234567890abcdef",
-                    "WAFv2WebACL": {"ARN": "arn:aws:wafv2:us-east-1:123456789012:regional/webacl/test/abc123"}
+                    "WAFv2WebACL": {
+                        "ARN": "arn:aws:wafv2:us-east-1:123456789012:regional/webacl/test/abc123"
+                    },
                 }
             ],
             "wafv2_web_acls": [],
-            "api_entrypoints": []
+            "api_entrypoints": [],
         }
 
         analysis = processor._analyze(evidence)
@@ -356,12 +410,12 @@ class TestWAFPostProcessor:
                 {
                     "DomainName": "unprotected.cloudfront.net",
                     "Id": "E999ZZZ",
-                    "WebACLId": ""  # No protection
+                    "WebACLId": "",  # No protection
                 }
             ],
             "alb_waf_associations": [],
             "wafv2_web_acls": [],
-            "api_entrypoints": []
+            "api_entrypoints": [],
         }
 
         analysis = processor._analyze(evidence)
@@ -377,7 +431,7 @@ class TestWAFPostProcessor:
             "cloudfront_protected": 1,
             "albs_total": 1,
             "albs_protected": 0,
-            "region": "us-east-1"
+            "region": "us-east-1",
         }
 
         diagram = processor._generate_diagram(analysis)
@@ -395,7 +449,7 @@ class TestWAFPostProcessor:
             "alb_internet_facing_total": 1,
             "alb_internet_facing_protected": 1,
             "api_entrypoints_total": 0,
-            "region": "us-east-1"
+            "region": "us-east-1",
         }
 
         gaps = processor._critical_gaps(analysis)
@@ -413,7 +467,7 @@ class TestWAFPostProcessor:
             "alb_internet_facing_protected": 0,
             "api_entrypoints_total": 1,
             "api_entrypoints_protected": 0,
-            "region": "us-east-1"
+            "region": "us-east-1",
         }
 
         gaps = processor._critical_gaps(analysis)

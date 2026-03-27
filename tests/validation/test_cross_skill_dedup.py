@@ -1,9 +1,9 @@
 """Tests for cross-skill deduplication of findings."""
 
 from drystone.validation.cross_skill_dedup import (
-    deduplicate_cross_skill,
     _quality_score,
     _resource_overlap,
+    deduplicate_cross_skill,
 )
 
 

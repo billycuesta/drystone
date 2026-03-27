@@ -3,7 +3,6 @@
 from drystone.models.findings import Finding
 from drystone.validation.findings_normalizer import FindingsNormalizer
 
-
 IAM_CHECKLIST = {
     "skill": "iam",
     "items": [

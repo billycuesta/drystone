@@ -1,7 +1,5 @@
 """Tests for checklist coverage validation."""
 
-import pytest
-
 from drystone.validation.checklist_coverage import (
     get_unevaluated_checks,
     validate_checklist_coverage,

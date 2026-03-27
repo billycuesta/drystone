@@ -5,15 +5,14 @@ from pathlib import Path
 from typing import Dict, List
 
 from drystone.models.config import WizardConfig
+from drystone.pentest.exploitation_enricher import PentestExploitationEnricher
 from drystone.reports.formats import (
     JSONFormatter,
     MarkdownFormatter,
-    PCIDSSFormatter,
     PDFFormatter,
     PentestFormatter,
     PentestPDFFormatter,
 )
-from drystone.pentest.exploitation_enricher import PentestExploitationEnricher
 from drystone.storage.session import AuditSession
 from drystone.validation.cross_skill_dedup import deduplicate_cross_skill
 
@@ -78,9 +77,7 @@ class ReportGenerator:
                 findings_data["evidence_count"] = len(list(evidence_dir.glob("*.json")))
         # Always read the canonical version from the checklist file — never rely on
         # the LLM/repair-pass value which may be stale or hardcoded to "1.0".
-        checklist_path = (
-            Path(__file__).parents[1] / "skills" / expected_skill / "checklist.json"
-        )
+        checklist_path = Path(__file__).parents[1] / "skills" / expected_skill / "checklist.json"
         try:
             with open(checklist_path) as cf:
                 canonical_version = str((json.load(cf) or {}).get("version") or "1.0")

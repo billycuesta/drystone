@@ -29,9 +29,7 @@ def extract_resource_name(arn: str) -> Dict[str, str]:
     return {"service": service, "type": resource_type, "name": resource_name}
 
 
-def _arn_specific_commands(
-    affected_resources: List[str], region: str, skill: str
-) -> List[str]:
+def _arn_specific_commands(affected_resources: List[str], region: str, skill: str) -> List[str]:
     """Generate specific AWS CLI commands from affected_resources ARNs."""
     commands: List[str] = []
     seen: set = set()
@@ -296,7 +294,7 @@ def suggest_aws_cli_commands(
         if fid in ("RECON-006", "RECON-015"):
             return [
                 "aws cloudfront list-distributions",
-                f"aws cloudfront get-distribution-config --id <dist-id>",
+                "aws cloudfront get-distribution-config --id <dist-id>",
             ]
         if fid in ("RECON-007", "RECON-011"):
             return [

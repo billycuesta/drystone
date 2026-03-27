@@ -3,8 +3,8 @@
 from drystone.correlation.patterns import (
     PATTERN_REGISTRY,
     _find_sources_lambda_env_secret_leakage,
-    _find_sources_wildcard_principal,
     _find_sources_nat_egress_pivoting,
+    _find_sources_wildcard_principal,
 )
 from drystone.models.findings import Finding
 

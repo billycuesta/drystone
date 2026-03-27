@@ -3,11 +3,8 @@
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
-import pytest
-
 from drystone.skills.recon import ReconSkill
 from drystone.validation.pre_checks import run_pre_checks
-
 
 # ============================================================================
 # Collector tests
@@ -52,6 +49,7 @@ class _DummyEC2Client:
     def __getattr__(self, _name):
         def _fn(*_args, **_kwargs):
             return {}
+
         return _fn
 
 
@@ -77,8 +75,16 @@ class _DummyR53Client:
                 [
                     {
                         "ResourceRecordSets": [
-                            {"Name": "*.example.com.", "Type": "A", "ResourceRecords": [{"Value": "1.2.3.4"}]},
-                            {"Name": "www.example.com.", "Type": "A", "ResourceRecords": [{"Value": "1.2.3.4"}]},
+                            {
+                                "Name": "*.example.com.",
+                                "Type": "A",
+                                "ResourceRecords": [{"Value": "1.2.3.4"}],
+                            },
+                            {
+                                "Name": "www.example.com.",
+                                "Type": "A",
+                                "ResourceRecords": [{"Value": "1.2.3.4"}],
+                            },
                         ]
                     }
                 ]
@@ -90,14 +96,22 @@ class _DummyAPIGWClient:
     def get_paginator(self, op):
         if op == "get_rest_apis":
             return _DummyPaginator(
-                [{"items": [{"id": "abc123", "name": "MyAPI", "endpointConfiguration": {"types": ["REGIONAL"]}}]}]
+                [
+                    {
+                        "items": [
+                            {
+                                "id": "abc123",
+                                "name": "MyAPI",
+                                "endpointConfiguration": {"types": ["REGIONAL"]},
+                            }
+                        ]
+                    }
+                ]
             )
         return _DummyPaginator([{}])
 
     def get_stages(self, **_kwargs):
-        return {
-            "item": [{"stageName": "prod", "cacheClusterEnabled": False, "webAclArn": None}]
-        }
+        return {"item": [{"stageName": "prod", "cacheClusterEnabled": False, "webAclArn": None}]}
 
     def get_resources(self, **_kwargs):
         # Return empty resources by default — REST API has no unauth routes in tests
@@ -117,17 +131,31 @@ class _DummyAPIGW2Client:
 
 class _DummyLambdaClient:
     def get_paginator(self, op):
-        return _DummyPaginator([
-            {"Functions": [
-                {"FunctionName": "fn-public", "FunctionArn": "arn:aws:lambda:us-east-1:123:function:fn-public"},
-                {"FunctionName": "fn-private", "FunctionArn": "arn:aws:lambda:us-east-1:123:function:fn-private"},
-            ]}
-        ])
+        return _DummyPaginator(
+            [
+                {
+                    "Functions": [
+                        {
+                            "FunctionName": "fn-public",
+                            "FunctionArn": "arn:aws:lambda:us-east-1:123:function:fn-public",
+                        },
+                        {
+                            "FunctionName": "fn-private",
+                            "FunctionArn": "arn:aws:lambda:us-east-1:123:function:fn-private",
+                        },
+                    ]
+                }
+            ]
+        )
 
     def get_function_url_config(self, FunctionName=""):
         if FunctionName == "fn-public":
-            return {"AuthType": "NONE", "FunctionUrl": "https://fn-public.lambda-url.us-east-1.on.aws/"}
+            return {
+                "AuthType": "NONE",
+                "FunctionUrl": "https://fn-public.lambda-url.us-east-1.on.aws/",
+            }
         from botocore.exceptions import ClientError
+
         raise ClientError(
             {"Error": {"Code": "ResourceNotFoundException", "Message": "Not found"}},
             "GetFunctionUrlConfig",
@@ -136,21 +164,29 @@ class _DummyLambdaClient:
 
 class _DummyELBv2Client:
     def get_paginator(self, op):
-        return _DummyPaginator([
-            {"LoadBalancers": [
+        return _DummyPaginator(
+            [
                 {
-                    "LoadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/alb-public",
-                    "LoadBalancerName": "alb-public",
-                    "DNSName": "alb-public.us-east-1.elb.amazonaws.com",
-                    "Scheme": "internet-facing",
-                    "Type": "application",
-                    "VpcId": "vpc-001",
+                    "LoadBalancers": [
+                        {
+                            "LoadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/alb-public",
+                            "LoadBalancerName": "alb-public",
+                            "DNSName": "alb-public.us-east-1.elb.amazonaws.com",
+                            "Scheme": "internet-facing",
+                            "Type": "application",
+                            "VpcId": "vpc-001",
+                        }
+                    ]
                 }
-            ]}
-        ])
+            ]
+        )
 
     def describe_listeners(self, LoadBalancerArn=""):
-        return {"Listeners": [{"Port": 443, "Protocol": "HTTPS", "SslPolicy": "ELBSecurityPolicy-2016-08"}]}
+        return {
+            "Listeners": [
+                {"Port": 443, "Protocol": "HTTPS", "SslPolicy": "ELBSecurityPolicy-2016-08"}
+            ]
+        }
 
 
 class _DummyWAFClient:
@@ -299,9 +335,14 @@ def _base_evidence() -> dict:
             "total_apis": 1,
             "total_stages": 1,
             "unauthenticated_stages": 0,
-            "apis": [{"Id": "abc123", "Name": "API", "Type": "REST", "Stages": [
-                {"StageName": "prod", "DefaultRouteAuthorizationType": "AWS_IAM"}
-            ]}],
+            "apis": [
+                {
+                    "Id": "abc123",
+                    "Name": "API",
+                    "Type": "REST",
+                    "Stages": [{"StageName": "prod", "DefaultRouteAuthorizationType": "AWS_IAM"}],
+                }
+            ],
         },
         "lambda-urls": {
             "total_function_urls": 0,
@@ -378,7 +419,9 @@ class TestReconPreCheckRECON002:
         ev = _base_evidence()
         ev["api-gateway-stages"]["unauthenticated_stages"] = 1
         ev["api-gateway-stages"]["apis"][0]["Stages"][0]["DefaultRouteAuthorizationType"] = "NONE"
-        ev["api-gateway-stages"]["apis"][0]["Stages"][0]["InvokeURL"] = "https://abc.execute-api.us-east-1.amazonaws.com/prod"
+        ev["api-gateway-stages"]["apis"][0]["Stages"][0][
+            "InvokeURL"
+        ] = "https://abc.execute-api.us-east-1.amazonaws.com/prod"
         results = run_pre_checks("recon", ev, {})
         r002 = next((r for r in results if r.check_id == "RECON-002"), None)
         assert r002 is not None
@@ -435,7 +478,12 @@ class TestReconPreCheckRECON003:
         ev = _base_evidence()
         ev["public-endpoints"]["elastic_ip_count"] = 1
         ev["public-endpoints"]["elastic_ips"] = [
-            {"PublicIp": "1.2.3.4", "AllocationId": "eipalloc-001", "AssociatedWithInstance": True, "InstanceId": "i-001"}
+            {
+                "PublicIp": "1.2.3.4",
+                "AllocationId": "eipalloc-001",
+                "AssociatedWithInstance": True,
+                "InstanceId": "i-001",
+            }
         ]
         results = run_pre_checks("recon", ev, {})
         r003 = next((r for r in results if r.check_id == "RECON-003"), None)
@@ -686,20 +734,30 @@ class TestReconPreCheckRECON008:
 
     def test_pass_few_entry_points(self):
         ev = _base_evidence()
-        ev["attack-surface-score"].update({
-            "total_public_apis": 1, "public_load_balancers": 0,
-            "public_lambda_urls": 0, "elastic_ips": 2, "cloudfront_distributions": 0,
-        })
+        ev["attack-surface-score"].update(
+            {
+                "total_public_apis": 1,
+                "public_load_balancers": 0,
+                "public_lambda_urls": 0,
+                "elastic_ips": 2,
+                "cloudfront_distributions": 0,
+            }
+        )
         results = run_pre_checks("recon", ev, {})
         r = next((r for r in results if r.check_id == "RECON-008"), None)
         assert r is not None and r.status == "PASS"
 
     def test_fail_many_entry_points(self):
         ev = _base_evidence()
-        ev["attack-surface-score"].update({
-            "total_public_apis": 5, "public_load_balancers": 3,
-            "public_lambda_urls": 2, "elastic_ips": 2, "cloudfront_distributions": 1,
-        })
+        ev["attack-surface-score"].update(
+            {
+                "total_public_apis": 5,
+                "public_load_balancers": 3,
+                "public_lambda_urls": 2,
+                "elastic_ips": 2,
+                "cloudfront_distributions": 1,
+            }
+        )
         results = run_pre_checks("recon", ev, {})
         r = next((r for r in results if r.check_id == "RECON-008"), None)
         assert r is not None and r.status == "FAIL"
@@ -743,7 +801,9 @@ class TestReconPreCheckRECON010:
     def test_fail_nat_gw_present(self):
         ev = _base_evidence()
         ev["public-endpoints"]["nat_gateway_ip_count"] = 1
-        ev["public-endpoints"]["nat_gateway_ips"] = [{"NatGatewayId": "nat-1", "PublicIp": "1.2.3.4"}]
+        ev["public-endpoints"]["nat_gateway_ips"] = [
+            {"NatGatewayId": "nat-1", "PublicIp": "1.2.3.4"}
+        ]
         results = run_pre_checks("recon", ev, {})
         r = next((r for r in results if r.check_id == "RECON-010"), None)
         assert r is not None and r.status == "FAIL"
@@ -796,13 +856,15 @@ class TestReconPreCheckRECON016:
         """EIP associated with NAT GW should NOT trigger RECON-016."""
         ev = _base_evidence()
         ev["public-endpoints"]["elastic_ip_count"] = 1
-        ev["public-endpoints"]["elastic_ips"] = [{
-            "PublicIp": "18.209.189.16",
-            "AllocationId": "eipalloc-aaa",
-            "AssociatedWithInstance": False,
-            "InstanceId": None,
-            "NetworkInterfaceId": "eni-0e7705c6af520c01e",  # NAT GW has ENI
-        }]
+        ev["public-endpoints"]["elastic_ips"] = [
+            {
+                "PublicIp": "18.209.189.16",
+                "AllocationId": "eipalloc-aaa",
+                "AssociatedWithInstance": False,
+                "InstanceId": None,
+                "NetworkInterfaceId": "eni-0e7705c6af520c01e",  # NAT GW has ENI
+            }
+        ]
         ev["public-endpoints"]["nat_gateway_ip_count"] = 1
         ev["public-endpoints"]["nat_gateway_ips"] = [
             {"NatGatewayId": "nat-1", "PublicIp": "18.209.189.16"}
@@ -815,13 +877,15 @@ class TestReconPreCheckRECON016:
         """EIP with no NetworkInterfaceId and not a NAT GW IP should trigger."""
         ev = _base_evidence()
         ev["public-endpoints"]["elastic_ip_count"] = 1
-        ev["public-endpoints"]["elastic_ips"] = [{
-            "PublicIp": "5.6.7.8",
-            "AllocationId": "eipalloc-bbb",
-            "AssociatedWithInstance": False,
-            "InstanceId": None,
-            "NetworkInterfaceId": None,  # No ENI = truly unassociated
-        }]
+        ev["public-endpoints"]["elastic_ips"] = [
+            {
+                "PublicIp": "5.6.7.8",
+                "AllocationId": "eipalloc-bbb",
+                "AssociatedWithInstance": False,
+                "InstanceId": None,
+                "NetworkInterfaceId": None,  # No ENI = truly unassociated
+            }
+        ]
         results = run_pre_checks("recon", ev, {})
         r = next((r for r in results if r.check_id == "RECON-016"), None)
         assert r is not None and r.status == "FAIL"
@@ -848,12 +912,14 @@ class TestReconPreCheckRECON017:
         ev["load-balancer-dns"] = {
             "total_load_balancers": 1,
             "public_load_balancers": 1,
-            "load_balancers": [{
-                "Name": "alb-bad",
-                "DNSName": "alb-bad.elb.amazonaws.com",
-                "IsPublic": True,
-                "Listeners": [{"Port": 3306, "Protocol": "TCP"}],
-            }]
+            "load_balancers": [
+                {
+                    "Name": "alb-bad",
+                    "DNSName": "alb-bad.elb.amazonaws.com",
+                    "IsPublic": True,
+                    "Listeners": [{"Port": 3306, "Protocol": "TCP"}],
+                }
+            ],
         }
         results = run_pre_checks("recon", ev, {})
         r = next((r for r in results if r.check_id == "RECON-017"), None)
@@ -874,8 +940,14 @@ class TestReconPreCheckRECON018:
         ev["lambda-urls"] = {
             "total_function_urls": 1,
             "public_function_urls": 1,
-            "urls": [{"FunctionName": "fn1", "FunctionUrl": "https://fn1.lambda-url.us-east-1.on.aws/",
-                      "AuthType": "NONE", "Cors": {"AllowOrigins": ["*"]}}],
+            "urls": [
+                {
+                    "FunctionName": "fn1",
+                    "FunctionUrl": "https://fn1.lambda-url.us-east-1.on.aws/",
+                    "AuthType": "NONE",
+                    "Cors": {"AllowOrigins": ["*"]},
+                }
+            ],
         }
         results = run_pre_checks("recon", ev, {})
         r = next((r for r in results if r.check_id == "RECON-018"), None)
@@ -898,8 +970,16 @@ class TestReconPreCheckRECON004:
                     "IsPrivate": False,
                     "RecordCount": 3,
                     "Records": [
-                        {"Name": "pci.co.example.net.", "Type": "A", "AliasTarget": "d-xyz.execute-api.us-east-1.amazonaws.com."},
-                        {"Name": "pci.co.example.net.", "Type": "AAAA", "AliasTarget": "d-xyz.execute-api.us-east-1.amazonaws.com."},
+                        {
+                            "Name": "pci.co.example.net.",
+                            "Type": "A",
+                            "AliasTarget": "d-xyz.execute-api.us-east-1.amazonaws.com.",
+                        },
+                        {
+                            "Name": "pci.co.example.net.",
+                            "Type": "AAAA",
+                            "AliasTarget": "d-xyz.execute-api.us-east-1.amazonaws.com.",
+                        },
                     ],
                 },
                 {
@@ -944,7 +1024,11 @@ class TestReconPreCheckRECON004:
                     "IsPrivate": False,
                     "RecordCount": 1,
                     "Records": [
-                        {"Name": "_f2f.example.com.", "Type": "CNAME", "Values": ["_abc.acm-validations.aws."]}
+                        {
+                            "Name": "_f2f.example.com.",
+                            "Type": "CNAME",
+                            "Values": ["_abc.acm-validations.aws."],
+                        }
                     ],
                 }
             ],

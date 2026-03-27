@@ -14,7 +14,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional, cast
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,9 @@ class PreCheckResult:
     evidence_summary: str  # e.g. "AccountMFAEnabled=0"
     affected_resources: List[str] = field(default_factory=list)
     confidence: float = 1.0
-    metadata: Dict[str, Any] = field(default_factory=dict)  # structured extras (cve_details, attack_path, etc.)
+    metadata: Dict[str, Any] = field(
+        default_factory=dict
+    )  # structured extras (cve_details, attack_path, etc.)
 
 
 # Type alias for check functions
@@ -282,9 +284,7 @@ PRE_CHECK_ANALOGIES: Dict[str, str] = {
         "Like never changing the locks after giving a copy of the key to a contractor "
         "who finished their project months ago."
     ),
-    "IAM-005": (
-        "Like allowing '1234' as the combination to a safe that holds company finances."
-    ),
+    "IAM-005": ("Like allowing '1234' as the combination to a safe that holds company finances."),
     "IAM-007": (
         "Like taping handwritten permission slips directly onto employee badges instead of "
         "using a centralized access control system — impossible to audit or revoke."
@@ -796,9 +796,14 @@ def check_iam_002(evidence: Dict[str, Any]) -> PreCheckResult:
 
     if affected:
         return PreCheckResult(
-            "IAM-002", "FAIL", f"{len(affected)} user(s) without MFA (console or active access keys)", affected
+            "IAM-002",
+            "FAIL",
+            f"{len(affected)} user(s) without MFA (console or active access keys)",
+            affected,
         )
-    return PreCheckResult("IAM-002", "PASS", "all users with console or active access keys have MFA enabled", [])
+    return PreCheckResult(
+        "IAM-002", "PASS", "all users with console or active access keys have MFA enabled", []
+    )
 
 
 @_register("iam")
@@ -1381,9 +1386,9 @@ def check_iam_043(evidence: Dict[str, Any]) -> PreCheckResult:
 
             service_p = principal.get("Service")
             services: List[str] = (
-                [service_p] if isinstance(service_p, str) else service_p
-                if isinstance(service_p, list)
-                else []
+                [service_p]
+                if isinstance(service_p, str)
+                else service_p if isinstance(service_p, list) else []
             )
 
             # Filter out excluded services
@@ -1417,7 +1422,9 @@ def check_iam_043(evidence: Dict[str, Any]) -> PreCheckResult:
     count_fail = len(affected_fail)
     summary_parts = []
     if count_fail:
-        summary_parts.append(f"{count_fail} role(s) with service trust and no source-scoping condition")
+        summary_parts.append(
+            f"{count_fail} role(s) with service trust and no source-scoping condition"
+        )
     return PreCheckResult("IAM-043", "FAIL", "; ".join(summary_parts), all_affected[:10])
 
 
@@ -1890,7 +1897,7 @@ def check_iam_041(evidence: Dict[str, Any]) -> PreCheckResult:
 
         # Extract trusted principals for context
         principals: List[str] = []
-        for stmt in (trust_policy.get("Statement") or []):
+        for stmt in trust_policy.get("Statement") or []:
             p = stmt.get("Principal")
             if isinstance(p, str):
                 principals.append(p)
@@ -1901,14 +1908,16 @@ def check_iam_041(evidence: Dict[str, Any]) -> PreCheckResult:
                     elif isinstance(v, str):
                         principals.append(v)
 
-        affected_roles.append({
-            "role_name": role_name,
-            "role_type": role_type,
-            "severity": severity,
-            "access_days_ago": access_advisor_days,
-            "has_mfa_condition": has_mfa_condition,
-            "principals": principals[:2],  # Keep first 2 for display
-        })
+        affected_roles.append(
+            {
+                "role_name": role_name,
+                "role_type": role_type,
+                "severity": severity,
+                "access_days_ago": access_advisor_days,
+                "has_mfa_condition": has_mfa_condition,
+                "principals": principals[:2],  # Keep first 2 for display
+            }
+        )
 
     if not affected_roles:
         return PreCheckResult(
@@ -1922,14 +1931,16 @@ def check_iam_041(evidence: Dict[str, Any]) -> PreCheckResult:
     snippet_roles = []
     affected_labels = []
     for r in affected_roles[:10]:
-        snippet_roles.append({
-            "RoleName": r["role_name"],
-            "RoleType": r["role_type"],
-            "Severity": r["severity"],
-            "AccessAdvisorDaysAgo": r["access_days_ago"],
-            "HasMFACondition": r["has_mfa_condition"],
-            "TrustedBy": r["principals"],
-        })
+        snippet_roles.append(
+            {
+                "RoleName": r["role_name"],
+                "RoleType": r["role_type"],
+                "Severity": r["severity"],
+                "AccessAdvisorDaysAgo": r["access_days_ago"],
+                "HasMFACondition": r["has_mfa_condition"],
+                "TrustedBy": r["principals"],
+            }
+        )
         # Build label with trust context for backward compatibility
         label = r["role_name"]
         if r["principals"]:
@@ -1940,7 +1951,9 @@ def check_iam_041(evidence: Dict[str, Any]) -> PreCheckResult:
     has_critical = any(r["severity"] == "Critical" for r in affected_roles)
     overall_summary = f"{len(affected_roles)} privileged role(s) detected"
     if has_critical:
-        overall_summary += f" ({sum(1 for r in affected_roles if r['severity'] == 'Critical')} unused/zombi)"
+        overall_summary += (
+            f" ({sum(1 for r in affected_roles if r['severity'] == 'Critical')} unused/zombi)"
+        )
 
     return PreCheckResult(
         "IAM-041",
@@ -2050,14 +2063,10 @@ def check_iam_042(evidence: Dict[str, Any]) -> PreCheckResult:
             # Check if MFA condition is present
             cond = stmt.get("Condition") or {}
             cond_text = json.dumps(cond, default=str).lower()
-            has_mfa_cond = (
-                "aws:multifactorauthpresent" in cond_text and '"true"' in cond_text
-            )
+            has_mfa_cond = "aws:multifactorauthpresent" in cond_text and '"true"' in cond_text
 
             if not has_mfa_cond:
-                label = (
-                    f"{policy_arn} ({', '.join(sorted(found_escalation)[:3])})"
-                )
+                label = f"{policy_arn} ({', '.join(sorted(found_escalation)[:3])})"
                 if label not in affected:
                     affected.append(label)
                 break  # One violation per policy is enough
@@ -2232,7 +2241,7 @@ def check_iam_030(evidence: Dict[str, Any]) -> PreCheckResult:
     # Infer audit account from IAM evidence ARNs when metadata is unavailable
     if not audit_account:
         for src_key in ("users", "roles"):
-            for item in (evidence.get(src_key) or []):
+            for item in evidence.get(src_key) or []:
                 arn = str(item.get("Arn") or "") if isinstance(item, dict) else ""
                 parts = arn.split(":")
                 if len(parts) > 4 and parts[4].isdigit():
@@ -2267,7 +2276,11 @@ def check_iam_030(evidence: Dict[str, Any]) -> PreCheckResult:
                 if not isinstance(principal, dict):
                     continue
                 aws_p = principal.get("AWS")
-                principals = [aws_p] if isinstance(aws_p, str) else (aws_p if isinstance(aws_p, list) else [])
+                principals = (
+                    [aws_p]
+                    if isinstance(aws_p, str)
+                    else (aws_p if isinstance(aws_p, list) else [])
+                )
                 for p in principals:
                     if not isinstance(p, str):
                         continue
@@ -2314,7 +2327,8 @@ def check_iam_026(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("IAM-026", "SKIP", "no roles evidence", [])
 
     customer_roles = [
-        r for r in roles
+        r
+        for r in roles
         if isinstance(r, dict)
         and not str(r.get("Path") or "/").startswith("/aws-service-role/")
         and not str(r.get("RoleName") or "").startswith("AWSReserved")
@@ -2322,10 +2336,7 @@ def check_iam_026(evidence: Dict[str, Any]) -> PreCheckResult:
     if not customer_roles:
         return PreCheckResult("IAM-026", "SKIP", "no customer-managed roles found", [])
 
-    without_boundary = [
-        r for r in customer_roles
-        if not r.get("PermissionsBoundary")
-    ]
+    without_boundary = [r for r in customer_roles if not r.get("PermissionsBoundary")]
 
     ratio = len(without_boundary) / len(customer_roles)
 
@@ -4150,22 +4161,28 @@ def check_exp_023(evidence: Dict[str, Any]) -> PreCheckResult:
 
                         # No restrictive condition found - this is a FAIL
                         if resource_arn not in [r["resource"] for r in critical_resources]:
-                            critical_resources.append({
-                                "resource": resource_arn,
-                                "statement": stmt.get("Sid", "Unnamed"),
-                            })
+                            critical_resources.append(
+                                {
+                                    "resource": resource_arn,
+                                    "statement": stmt.get("Sid", "Unnamed"),
+                                }
+                            )
 
                         # Build detailed finding
-                        detailed_findings.append({
-                            "ResourceArn": resource_arn,
-                            "Service": service,
-                            "Severity": "Critical",
-                            "Principal": principal,
-                            "Action": stmt.get("Action"),
-                            "Condition": stmt.get("Condition"),
-                            "HasCondition": bool(stmt.get("Condition")),
-                            "ReplacementPolicy": _generate_replacement_policy(resource_arn, service, stmt)
-                        })
+                        detailed_findings.append(
+                            {
+                                "ResourceArn": resource_arn,
+                                "Service": service,
+                                "Severity": "Critical",
+                                "Principal": principal,
+                                "Action": stmt.get("Action"),
+                                "Condition": stmt.get("Condition"),
+                                "HasCondition": bool(stmt.get("Condition")),
+                                "ReplacementPolicy": _generate_replacement_policy(
+                                    resource_arn, service, stmt
+                                ),
+                            }
+                        )
                         break  # one violation per resource
             except Exception:
                 continue
@@ -4182,29 +4199,35 @@ def check_exp_023(evidence: Dict[str, Any]) -> PreCheckResult:
 
             # No mitigating condition - this is a FAIL
             if resource_arn not in [r["resource"] for r in critical_resources]:
-                critical_resources.append({
-                    "resource": resource_arn,
-                    "statement": stmt.get("Sid", "Unnamed"),
-                })
+                critical_resources.append(
+                    {
+                        "resource": resource_arn,
+                        "statement": stmt.get("Sid", "Unnamed"),
+                    }
+                )
 
             # Build detailed finding for snippet
-            detailed_findings.append({
-                "ResourceArn": resource_arn,
-                "Service": service,
-                "Severity": "Critical",
-                "Principal": stmt.get("Principal"),
-                "Action": stmt.get("Action"),
-                "Condition": stmt.get("Condition"),
-                "HasCondition": bool(stmt.get("Condition")),
-                "ReplacementPolicy": _generate_replacement_policy(resource_arn, service, stmt)
-            })
+            detailed_findings.append(
+                {
+                    "ResourceArn": resource_arn,
+                    "Service": service,
+                    "Severity": "Critical",
+                    "Principal": stmt.get("Principal"),
+                    "Action": stmt.get("Action"),
+                    "Condition": stmt.get("Condition"),
+                    "HasCondition": bool(stmt.get("Condition")),
+                    "ReplacementPolicy": _generate_replacement_policy(resource_arn, service, stmt),
+                }
+            )
             break  # one violation per resource
 
         # Also check service principals (confused deputy) in all policy statements
         # (Not covered by wildcard_stmts which only handles Principal:*)
         all_policy_raw = item.get("Policy") or ""
         try:
-            all_policy_doc = json.loads(all_policy_raw) if isinstance(all_policy_raw, str) else all_policy_raw
+            all_policy_doc = (
+                json.loads(all_policy_raw) if isinstance(all_policy_raw, str) else all_policy_raw
+            )
             if isinstance(all_policy_doc, dict):
                 for stmt in _stmts_from_policy(all_policy_doc):
                     if not isinstance(stmt, dict):
@@ -4226,21 +4249,29 @@ def check_exp_023(evidence: Dict[str, Any]) -> PreCheckResult:
                         cond = stmt.get("Condition") or {}
                         cond_text = json.dumps(cond, default=str).lower()
                         has_source_cond = any(k in cond_text for k in _SOURCE_CONDITIONS)
-                        if not has_source_cond and resource_arn not in [r["resource"] for r in high_resources] and resource_arn not in [r["resource"] for r in critical_resources]:
-                            high_resources.append({
-                                "resource": resource_arn,
-                                "statement": stmt.get("Sid", "Unnamed"),
-                                "note": f"service principal {svc_principal} without SourceArn/SourceAccount",
-                            })
-                            detailed_findings.append({
-                                "ResourceArn": resource_arn,
-                                "Service": service,
-                                "Severity": "High",
-                                "Principal": principal,
-                                "Action": stmt.get("Action"),
-                                "Condition": stmt.get("Condition"),
-                                "Note": f"Confused deputy risk: {svc_principal} has no SourceArn condition",
-                            })
+                        if (
+                            not has_source_cond
+                            and resource_arn not in [r["resource"] for r in high_resources]
+                            and resource_arn not in [r["resource"] for r in critical_resources]
+                        ):
+                            high_resources.append(
+                                {
+                                    "resource": resource_arn,
+                                    "statement": stmt.get("Sid", "Unnamed"),
+                                    "note": f"service principal {svc_principal} without SourceArn/SourceAccount",
+                                }
+                            )
+                            detailed_findings.append(
+                                {
+                                    "ResourceArn": resource_arn,
+                                    "Service": service,
+                                    "Severity": "High",
+                                    "Principal": principal,
+                                    "Action": stmt.get("Action"),
+                                    "Condition": stmt.get("Condition"),
+                                    "Note": f"Confused deputy risk: {svc_principal} has no SourceArn condition",
+                                }
+                            )
                             break
         except Exception:
             pass
@@ -4254,7 +4285,9 @@ def check_exp_023(evidence: Dict[str, Any]) -> PreCheckResult:
         )
 
     # Affected resources list (critical first)
-    affected_labels = [r["resource"] for r in critical_resources] + [r["resource"] for r in high_resources]
+    affected_labels = [r["resource"] for r in critical_resources] + [
+        r["resource"] for r in high_resources
+    ]
 
     # Summary
     summary_parts = []
@@ -4273,7 +4306,9 @@ def check_exp_023(evidence: Dict[str, Any]) -> PreCheckResult:
     )
 
 
-def _generate_replacement_policy(resource_arn: str, service: str, statement: Dict[str, Any]) -> Dict[str, Any]:
+def _generate_replacement_policy(
+    resource_arn: str, service: str, statement: Dict[str, Any]
+) -> Dict[str, Any]:
     """Generate a suggested replacement policy statement restricting Principal:*.
 
     Returns a sample replacement policy that scopes access to a specific role/account.
@@ -4283,9 +4318,7 @@ def _generate_replacement_policy(resource_arn: str, service: str, statement: Dic
         actions = [actions]
 
     # Suggest restricting to a service role
-    suggested_principal = {
-        "AWS": f"arn:aws:iam::ACCOUNT_ID:role/SERVICE_ROLE"  # Placeholder
-    }
+    suggested_principal = {"AWS": "arn:aws:iam::ACCOUNT_ID:role/SERVICE_ROLE"}  # Placeholder
 
     # Use the existing condition if present, otherwise suggest one
     suggested_condition = statement.get("Condition") or {
@@ -4331,8 +4364,8 @@ def check_exp_024(evidence: Dict[str, Any]) -> PreCheckResult:
         re.IGNORECASE,
     )
 
-    no_encryption: List[str] = []       # FAIL: no encryption at all
-    aes256_audit: List[str] = []        # WARN: AES256 on audit bucket (should be KMS)
+    no_encryption: List[str] = []  # FAIL: no encryption at all
+    aes256_audit: List[str] = []  # WARN: AES256 on audit bucket (should be KMS)
 
     for bucket in items:
         if not isinstance(bucket, dict):
@@ -6147,7 +6180,10 @@ def check_vuln_026(evidence: Dict[str, Any]) -> PreCheckResult:
         )
 
     return PreCheckResult(
-        "VULN-026", "PASS", "no Terraform state files with secrets detected in candidate buckets", []
+        "VULN-026",
+        "PASS",
+        "no Terraform state files with secrets detected in candidate buckets",
+        [],
     )
 
 
@@ -6551,7 +6587,7 @@ def check_sm_001(evidence: Dict[str, Any]) -> PreCheckResult:
                 return PreCheckResult(
                     "SM-001",
                     "FAIL",
-                    f"secret has Principal:*",
+                    "secret has Principal:*",
                     [s.get("ARN", s.get("Name", "unknown"))],
                 )
 
@@ -7057,7 +7093,7 @@ def check_ecr_001(evidence: Dict[str, Any]) -> PreCheckResult:
                 return PreCheckResult(
                     "ECR-001",
                     "FAIL",
-                    f"repo has Principal:*",
+                    "repo has Principal:*",
                     [r.get("RepositoryArn", r.get("repositoryName", "unknown"))],
                 )
 
@@ -7933,7 +7969,7 @@ def check_cicd_002(evidence: Dict[str, Any]) -> PreCheckResult:
             return PreCheckResult(
                 "CICD-002",
                 "FAIL",
-                f"project has insecureSsl=true",
+                "project has insecureSsl=true",
                 [p.get("arn", p.get("name", "unknown"))],
             )
         env = p.get("environment") or {}
@@ -8491,12 +8527,14 @@ def check_recon_003(evidence: Dict[str, Any]) -> PreCheckResult:
     enriched_eips = []
     for eip in public_eps.get("elastic_ips", []):
         if isinstance(eip, dict) and eip.get("AssociatedWithInstance"):
-            enriched_eips.append({
-                "PublicIp": eip.get("PublicIp"),
-                "InstanceId": eip.get("InstanceId"),
-                "InstanceName": eip.get("InstanceName", "unknown"),
-                "PermissiveSGRules": eip.get("PermissiveSGRules", []),
-            })
+            enriched_eips.append(
+                {
+                    "PublicIp": eip.get("PublicIp"),
+                    "InstanceId": eip.get("InstanceId"),
+                    "InstanceName": eip.get("InstanceName", "unknown"),
+                    "PermissiveSGRules": eip.get("PermissiveSGRules", []),
+                }
+            )
 
     return PreCheckResult(
         "RECON-003",
@@ -8998,17 +9036,18 @@ def check_recon_004(evidence: Dict[str, Any]) -> PreCheckResult:
         for zone in r53.get("zones", []):
             if not isinstance(zone, dict) or zone.get("IsPrivate"):
                 continue
-            enriched_zones.append({
-                "HostedZoneId": zone.get("Id"),
-                "ZoneName": zone.get("Name"),
-                "IsPrivate": zone.get("IsPrivate", False),
-                "RecordCount": zone.get("RecordCount", 0),
-                "SensitivityAnalysis": zone.get("SensitivityAnalysis", {}),
-                "ExposedRecords": [
-                    {"Name": r["Name"], "Type": r["Type"]}
-                    for r in zone.get("Records", [])[:5]
-                ],
-            })
+            enriched_zones.append(
+                {
+                    "HostedZoneId": zone.get("Id"),
+                    "ZoneName": zone.get("Name"),
+                    "IsPrivate": zone.get("IsPrivate", False),
+                    "RecordCount": zone.get("RecordCount", 0),
+                    "SensitivityAnalysis": zone.get("SensitivityAnalysis", {}),
+                    "ExposedRecords": [
+                        {"Name": r["Name"], "Type": r["Type"]} for r in zone.get("Records", [])[:5]
+                    ],
+                }
+            )
 
         return PreCheckResult(
             "RECON-004",
@@ -9039,12 +9078,14 @@ def check_recon_019(evidence: Dict[str, Any]) -> PreCheckResult:
             continue
         analysis = zone.get("SensitivityAnalysis", {})
         if analysis.get("SeverityBump") in ("critical", "high"):
-            critical_zones.append({
-                "ZoneName": zone.get("Name"),
-                "Keywords": analysis.get("SensitiveKeywords"),
-                "GeoPatterns": analysis.get("GeoEnvPatterns"),
-                "IsPrivate": False,
-            })
+            critical_zones.append(
+                {
+                    "ZoneName": zone.get("Name"),
+                    "Keywords": analysis.get("SensitiveKeywords"),
+                    "GeoPatterns": analysis.get("GeoEnvPatterns"),
+                    "IsPrivate": False,
+                }
+            )
 
     if critical_zones:
         return PreCheckResult(
@@ -9448,17 +9489,21 @@ def check_ser_ec2_002(evidence: Dict[str, Any]) -> PreCheckResult:
             for cve_entry in inst_data.get("cves", []):
                 if not isinstance(cve_entry, dict):
                     continue
-                enriched_cve_details.append({
-                    "id": cve_entry.get("id", ""),
-                    "package": cve_entry.get("package", ""),
-                    "inspector_severity": cve_entry.get("inspector_severity", ""),
-                    "cvss_score": cve_entry.get("cvss_score"),
-                    "description": cve_entry.get("description", ""),
-                    "attack_vector": cve_entry.get("attack_vector", ""),
-                    "exploitable_from_internet": cve_entry.get("exploitable_from_internet", False),
-                    "relevant_open_ports": cve_entry.get("relevant_open_ports", []),
-                    "resource": iid,
-                })
+                enriched_cve_details.append(
+                    {
+                        "id": cve_entry.get("id", ""),
+                        "package": cve_entry.get("package", ""),
+                        "inspector_severity": cve_entry.get("inspector_severity", ""),
+                        "cvss_score": cve_entry.get("cvss_score"),
+                        "description": cve_entry.get("description", ""),
+                        "attack_vector": cve_entry.get("attack_vector", ""),
+                        "exploitable_from_internet": cve_entry.get(
+                            "exploitable_from_internet", False
+                        ),
+                        "relevant_open_ports": cve_entry.get("relevant_open_ports", []),
+                        "resource": iid,
+                    }
+                )
             attack_path = inst_data.get("attack_path")
             if isinstance(attack_path, dict) and attack_path:
                 per_instance_attack_paths[iid] = attack_path
@@ -9584,7 +9629,10 @@ def check_ser_lmb_002(evidence: Dict[str, Any]) -> PreCheckResult:
     all_unauth = unauth + websocket_connect_unauth
     if not all_unauth:
         return PreCheckResult(
-            "SER-LMB-002", "PASS", "all API Gateway routes have authorization (OPTIONS excluded)", []
+            "SER-LMB-002",
+            "PASS",
+            "all API Gateway routes have authorization (OPTIONS excluded)",
+            [],
         )
 
     ws_count = len(websocket_connect_unauth)

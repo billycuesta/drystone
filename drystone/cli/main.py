@@ -110,7 +110,14 @@ def audit(
 
     # Determine if we should use interactive mode
     has_cli_args = bool(
-        client or region or skills or formats or min_severity != "low" or report_type or scan_depth or client_context
+        client
+        or region
+        or skills
+        or formats
+        or min_severity != "low"
+        or report_type
+        or scan_depth
+        or client_context
     )
     should_use_interactive = not non_interactive and not has_cli_args
 
@@ -370,7 +377,9 @@ def audit(
         if ctx.business_context:
             ctx_parts.append(f"  <business_context>{ctx.business_context}</business_context>")
         if ctx.compliance_reqs:
-            ctx_parts.append(f"  <compliance_requirements>{ctx.compliance_reqs}</compliance_requirements>")
+            ctx_parts.append(
+                f"  <compliance_requirements>{ctx.compliance_reqs}</compliance_requirements>"
+            )
         ctx_parts.append("</client_context>")
         agent._client_context_xml = "\n".join(ctx_parts)
 
@@ -477,6 +486,7 @@ def audit(
     if all_findings and len(all_findings) > 1:
         try:
             from drystone.correlation.engine import CorrelationEngine
+
             _engine = CorrelationEngine(session_dir=session.base_path)
             _corr_result = _engine.run()
             _n_chains = _corr_result.get("total_correlations", 0)

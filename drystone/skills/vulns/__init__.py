@@ -420,9 +420,7 @@ class VulnsSkill(BaseSkill):
 
         print("\n✅ Vulnerability collection complete")
 
-    def _collect_guardduty_status(
-        self, client_kwargs: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def _collect_guardduty_status(self, client_kwargs: Dict[str, Any]) -> Dict[str, Any]:
         """Collect GuardDuty detector status and configuration."""
         gd = boto3.client("guardduty", **client_kwargs)
         out: Dict[str, Any] = {
@@ -450,12 +448,12 @@ class VulnsSkill(BaseSkill):
                             data_sources.get("MalwareProtection", {})
                             .get("ScanEc2InstanceWithFindings", {})
                             .get("EbsVolumes", {})
-                            .get("Status") == "ENABLED"
+                            .get("Status")
+                            == "ENABLED"
                         ),
                         "KubernetesAuditLogsEnabled": (
-                            data_sources.get("Kubernetes", {})
-                            .get("AuditLogs", {})
-                            .get("Status") == "ENABLED"
+                            data_sources.get("Kubernetes", {}).get("AuditLogs", {}).get("Status")
+                            == "ENABLED"
                         ),
                     }
                     # Check for auto-archive rules (suppression rules)
@@ -743,11 +741,11 @@ class VulnsSkill(BaseSkill):
         )
         # Secret patterns commonly found in terraform.tfstate (plaintext values)
         tf_secret_patterns = [
-            re.compile(r'"secret_string"\s*:\s*"[^"]{8,}"'),   # secretsmanager secret_string
-            re.compile(r'"password"\s*:\s*"[^"]{4,}"'),          # RDS/DB passwords
-            re.compile(r'"token"\s*:\s*"[^"]{8,}"'),             # Auth tokens
-            re.compile(r'"private_key"\s*:\s*"-----BEGIN'),       # Private keys
-            re.compile(r'"access_key"\s*:\s*"AKIA[0-9A-Z]{16}"'),# AWS access keys
+            re.compile(r'"secret_string"\s*:\s*"[^"]{8,}"'),  # secretsmanager secret_string
+            re.compile(r'"password"\s*:\s*"[^"]{4,}"'),  # RDS/DB passwords
+            re.compile(r'"token"\s*:\s*"[^"]{8,}"'),  # Auth tokens
+            re.compile(r'"private_key"\s*:\s*"-----BEGIN'),  # Private keys
+            re.compile(r'"access_key"\s*:\s*"AKIA[0-9A-Z]{16}"'),  # AWS access keys
             re.compile(r'"secret_access_key"\s*:\s*"[A-Za-z0-9/+=]{30,}"'),
         ]
         try:
@@ -769,7 +767,8 @@ class VulnsSkill(BaseSkill):
                     # List objects — look for .tfstate files (max 50 to avoid throttling)
                     list_resp = s3.list_objects_v2(Bucket=bucket_name, MaxKeys=200)
                     tf_objects = [
-                        obj for obj in (list_resp.get("Contents") or [])
+                        obj
+                        for obj in (list_resp.get("Contents") or [])
                         if str(obj.get("Key", "")).endswith(".tfstate")
                         or str(obj.get("Key", "")) == "terraform.tfstate"
                     ]
@@ -788,8 +787,7 @@ class VulnsSkill(BaseSkill):
                             )
                             content = get_resp["Body"].read().decode("utf-8", errors="replace")
                             matched = [
-                                p.pattern[:60] for p in tf_secret_patterns
-                                if p.search(content)
+                                p.pattern[:60] for p in tf_secret_patterns if p.search(content)
                             ]
                             if matched:
                                 obj_entry["Patterns"] = matched
@@ -854,8 +852,7 @@ class VulnsSkill(BaseSkill):
                         sensitive_keys = [
                             e["name"]
                             for e in env_vars
-                            if isinstance(e, dict)
-                            and secret_pattern.search(e.get("name", ""))
+                            if isinstance(e, dict) and secret_pattern.search(e.get("name", ""))
                         ]
                         if sensitive_keys:
                             exposed_containers.append(
@@ -863,9 +860,7 @@ class VulnsSkill(BaseSkill):
                                     "ContainerName": container.get("name"),
                                     "SensitiveEnvKeys": sensitive_keys,
                                     # Secrets Manager refs are safe to log (not the values)
-                                    "UsesSecretsManagerRefs": bool(
-                                        container.get("secrets", [])
-                                    ),
+                                    "UsesSecretsManagerRefs": bool(container.get("secrets", [])),
                                 }
                             )
 

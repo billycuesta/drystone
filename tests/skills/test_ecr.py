@@ -55,8 +55,8 @@ class TestECRSkill:
             paginator.paginate.return_value = [{"repositories": []}]
             mock_ecr.get_paginator.return_value = paginator
 
-            mock_boto_session.return_value.client.side_effect = (
-                lambda service, **kwargs: mock_ecr if service == "ecr" else MagicMock()
+            mock_boto_session.return_value.client.side_effect = lambda service, **kwargs: (
+                mock_ecr if service == "ecr" else MagicMock()
             )
 
             skill.collect(mock_aws_client, mock_session)
@@ -98,8 +98,8 @@ class TestECRSkill:
                 return p
 
         with patch("boto3.Session") as mock_boto_session:
-            mock_boto_session.return_value.client.side_effect = (
-                lambda service, **kwargs: _ECRStub() if service == "ecr" else MagicMock()
+            mock_boto_session.return_value.client.side_effect = lambda service, **kwargs: (
+                _ECRStub() if service == "ecr" else MagicMock()
             )
 
             skill.collect(mock_aws_client, mock_session)
@@ -129,8 +129,8 @@ class TestECRSkill:
                 return p
 
         with patch("boto3.Session") as mock_boto_session:
-            mock_boto_session.return_value.client.side_effect = (
-                lambda service, **kwargs: _ECRStub() if service == "ecr" else MagicMock()
+            mock_boto_session.return_value.client.side_effect = lambda service, **kwargs: (
+                _ECRStub() if service == "ecr" else MagicMock()
             )
 
             skill.collect(mock_aws_client, mock_session)

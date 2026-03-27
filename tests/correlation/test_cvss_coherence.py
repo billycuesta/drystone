@@ -1,6 +1,5 @@
 """Tests for CVSS score coherence (Fix 2)."""
 
-import pytest
 from unittest.mock import MagicMock
 
 from drystone.correlation.engine import CorrelationEngine

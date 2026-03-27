@@ -23,11 +23,13 @@ class EvidenceChunker:
 
     # Evidence keys that are metadata/non-security and should be skipped during chunking.
     # These files don't contain security-relevant data and confuse the AI when sent standalone.
-    METADATA_KEYS = frozenset({
-        "account-aliases",
-        "_audit_metadata",
-        "wafv2-managed-rule-groups",  # AWS catalog data (available managed groups), not config state
-    })
+    METADATA_KEYS = frozenset(
+        {
+            "account-aliases",
+            "_audit_metadata",
+            "wafv2-managed-rule-groups",  # AWS catalog data (available managed groups), not config state
+        }
+    )
 
     def __init__(
         self,
@@ -76,7 +78,8 @@ class EvidenceChunker:
         """Chunk evidence grouping small related files for better LLM context."""
         # Collect security-relevant files (skip metadata)
         remaining: Dict[str, Any] = {
-            k: v for k, v in evidence.items()
+            k: v
+            for k, v in evidence.items()
             if k not in self.METADATA_KEYS and not str(k).startswith("_")
         }
 

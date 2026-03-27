@@ -599,10 +599,10 @@ class PDFFormatter(BaseFormatter):
             + f"{findings_text}</p>"
             + risk_bar
             + f"<div class='assessment-rating {rating_class}'>"
-            + f"<span class='rating-label'>Overall Assessment:</span> "
+            + "<span class='rating-label'>Overall Assessment:</span> "
             + f"<span class='rating-value'>{html.escape(rating_label)}</span>"
             + f"<p class='rating-desc'>{html.escape(rating_desc)}</p>"
-            + f"</div>"
+            + "</div>"
             + top_recs_html
         )
 

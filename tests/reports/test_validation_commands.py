@@ -105,6 +105,7 @@ def test_arn_specific_commands_take_priority_over_generic():
 
 # ── G2: Per-finding-id helpers ────────────────────────────────────────────────
 
+
 def test_iam_iam001_suggests_root_mfa_commands():
     """IAM-001 → root MFA verification commands."""
     commands = suggest_aws_cli_commands(

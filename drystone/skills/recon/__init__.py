@@ -101,7 +101,9 @@ class ReconSkill(BaseSkill):
 
     def _collect_route53(self, client_kwargs: Dict[str, Any]) -> Dict[str, Any]:
         """Collect hosted zones and public DNS records."""
-        r53 = boto3.client("route53", **{k: v for k, v in client_kwargs.items() if k != "region_name"})
+        r53 = boto3.client(
+            "route53", **{k: v for k, v in client_kwargs.items() if k != "region_name"}
+        )
         zones: List[Dict[str, Any]] = []
         try:
             paginator = r53.get_paginator("list_hosted_zones")
@@ -148,10 +150,10 @@ class ReconSkill(BaseSkill):
 
         # Enrich zones with semantic analysis
         import re
+
         for zone in zones:
             zone["SensitivityAnalysis"] = self._classify_dns_sensitivity(
-                zone_name=zone.get("Name", ""),
-                records=zone.get("Records", [])
+                zone_name=zone.get("Name", ""), records=zone.get("Records", [])
             )
 
         public_zones = [z for z in zones if not z.get("IsPrivate")]
@@ -212,7 +214,9 @@ class ReconSkill(BaseSkill):
                         unauth_rest_routes: List[Dict[str, Any]] = []
                         for resource in resources_resp.get("items", []):
                             path = resource.get("path", "")
-                            for method, method_cfg in (resource.get("resourceMethods") or {}).items():
+                            for method, method_cfg in (
+                                resource.get("resourceMethods") or {}
+                            ).items():
                                 if method.upper() == "OPTIONS":
                                     continue
                                 auth_type = method_cfg.get("authorizationType", "NONE")
@@ -246,9 +250,7 @@ class ReconSkill(BaseSkill):
                         stages_resp = apigw2.get_stages(ApiId=api_id)
                         for stage in stages_resp.get("Items", []):
                             stage_name = stage.get("StageName", "$default")
-                            invoke_url = (
-                                f"https://{api_id}.execute-api.{client_kwargs.get('region_name')}.amazonaws.com"
-                            )
+                            invoke_url = f"https://{api_id}.execute-api.{client_kwargs.get('region_name')}.amazonaws.com"
                             if stage_name != "$default":
                                 invoke_url += f"/{stage_name}"
                             stage_entry = {
@@ -293,8 +295,7 @@ class ReconSkill(BaseSkill):
             1
             for a in apis
             for s in a.get("Stages", [])
-            if a.get("Type") != "REST"
-            and s.get("DefaultRouteAuthorizationType") in {"NONE", None}
+            if a.get("Type") != "REST" and s.get("DefaultRouteAuthorizationType") in {"NONE", None}
         )
         # Add REST APIs that have at least one unauthenticated non-OPTIONS route
         rest_unauth_apis = sum(
@@ -369,7 +370,7 @@ class ReconSkill(BaseSkill):
                         "Name": lb.get("LoadBalancerName"),
                         "DNSName": lb.get("DNSName"),
                         "Scheme": lb.get("Scheme"),  # internet-facing | internal
-                        "Type": lb.get("Type"),       # application | network
+                        "Type": lb.get("Type"),  # application | network
                         "IsPublic": lb.get("Scheme") == "internet-facing",
                         "VpcId": lb.get("VpcId"),
                         "Listeners": [],
@@ -480,8 +481,7 @@ class ReconSkill(BaseSkill):
             resp = ec2_client.describe_instances(InstanceIds=[instance_id])
             instance = resp["Reservations"][0]["Instances"][0]
             name_tag = next(
-                (t["Value"] for t in instance.get("Tags", []) if t["Key"] == "Name"),
-                instance_id
+                (t["Value"] for t in instance.get("Tags", []) if t["Key"] == "Name"), instance_id
             )
             sg_ids = [sg["GroupId"] for sg in instance.get("SecurityGroups", [])]
 
@@ -492,16 +492,20 @@ class ReconSkill(BaseSkill):
                 for rule in sg.get("IpPermissions", []):
                     cidr_ranges = rule.get("IpRanges", []) + rule.get("Ipv6Ranges", [])
                     for cidr in cidr_ranges:
-                        if cidr.get("CidrIp") in ("0.0.0.0/0", "::/0") or \
-                           cidr.get("CidrIpv6") == "::/0":
-                            permissive_rules.append({
-                                "SecurityGroupId": sg["GroupId"],
-                                "SecurityGroupName": sg["GroupName"],
-                                "Protocol": rule.get("IpProtocol", "-1"),
-                                "FromPort": rule.get("FromPort"),
-                                "ToPort": rule.get("ToPort"),
-                                "Cidr": cidr.get("CidrIp") or cidr.get("CidrIpv6"),
-                            })
+                        if (
+                            cidr.get("CidrIp") in ("0.0.0.0/0", "::/0")
+                            or cidr.get("CidrIpv6") == "::/0"
+                        ):
+                            permissive_rules.append(
+                                {
+                                    "SecurityGroupId": sg["GroupId"],
+                                    "SecurityGroupName": sg["GroupName"],
+                                    "Protocol": rule.get("IpProtocol", "-1"),
+                                    "FromPort": rule.get("FromPort"),
+                                    "ToPort": rule.get("ToPort"),
+                                    "Cidr": cidr.get("CidrIp") or cidr.get("CidrIpv6"),
+                                }
+                            )
 
             eip["InstanceName"] = name_tag
             eip["PermissiveSGRules"] = permissive_rules  # list of culpable rules
@@ -516,8 +520,8 @@ class ReconSkill(BaseSkill):
 
         SENSITIVE_KEYWORDS = {
             "critical": ["pci", "cardholder", "payment", "cde"],
-            "high":     ["admin", "internal", "mgmt", "management", "prod", "production"],
-            "medium":   ["db", "database", "stage", "staging", "dev", "vpn", "bastion"],
+            "high": ["admin", "internal", "mgmt", "management", "prod", "production"],
+            "medium": ["db", "database", "stage", "staging", "dev", "vpn", "bastion"],
         }
 
         GEO_ENV_PATTERNS = [
@@ -545,9 +549,11 @@ class ReconSkill(BaseSkill):
 
         # Record-level analysis
         sensitive_records = [
-            r for r in records
-            if any(kw in r.get("Name", "").lower()
-                   for kws in SENSITIVE_KEYWORDS.values() for kw in kws)
+            r
+            for r in records
+            if any(
+                kw in r.get("Name", "").lower() for kws in SENSITIVE_KEYWORDS.values() for kw in kws
+            )
         ]
 
         return {

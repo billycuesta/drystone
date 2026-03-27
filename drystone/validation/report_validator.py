@@ -91,9 +91,7 @@ def validate_report_completeness(
     # Calculate coverage
     total_findings = len(findings)
     findings_coverage = (
-        (referenced_findings / total_findings * 100)
-        if total_findings > 0
-        else 100.0
+        (referenced_findings / total_findings * 100) if total_findings > 0 else 100.0
     )
 
     # Build summary
@@ -191,14 +189,10 @@ def suggest_report_fixes(
     suggestions = []
 
     for section in validation_result["missing_sections"]:
-        suggestions.append(
-            f"Add '## {section.title()}' section with relevant content"
-        )
+        suggestions.append(f"Add '## {section.title()}' section with relevant content")
 
     for finding_id in validation_result["unreferenced_findings"]:
-        suggestions.append(
-            f"Add finding {finding_id} to Findings section in report"
-        )
+        suggestions.append(f"Add finding {finding_id} to Findings section in report")
 
     if not validation_result["report_valid"]:
         suggestions.append("Run validation again after fixing issues")

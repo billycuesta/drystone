@@ -19,20 +19,20 @@ import logging
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any, List
 
 from drystone.logging import CrashSafeLogger, MetricsTracker
 
-logging.basicConfig(level=logging.INFO, format='%(message)s')
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
 # ANSI colors for terminal output
-GREEN = '\033[92m'
-YELLOW = '\033[93m'
-RED = '\033[91m'
-BLUE = '\033[94m'
-BOLD = '\033[1m'
-RESET = '\033[0m'
+GREEN = "\033[92m"
+YELLOW = "\033[93m"
+RED = "\033[91m"
+BLUE = "\033[94m"
+BOLD = "\033[1m"
+RESET = "\033[0m"
 
 
 class ProductionValidator:
@@ -84,7 +84,7 @@ class ProductionValidator:
         events = logger_obj.read_events()
         test1a = len(events) == 2
         results.append(test1a)
-        self.print_test("Append-only property", test1a, f"2 events recorded, file not truncated")
+        self.print_test("Append-only property", test1a, "2 events recorded, file not truncated")
 
         # Test 1b: Events have required fields
         event1 = events[0]
@@ -109,10 +109,16 @@ class ProductionValidator:
         events_after_reopen = logger_obj2.read_events()
         test1d = len(events_after_reopen) == 4  # All 4 events still there
         results.append(test1d)
-        self.print_test("Persistence (survives crash)", test1d, f"4 events still in file after re-open")
+        self.print_test(
+            "Persistence (survives crash)", test1d, "4 events still in file after re-open"
+        )
 
         passed = all(results)
-        self.results["crash_safe_logging"] = {"passed": passed, "tests": 4, "passed_count": sum(results)}
+        self.results["crash_safe_logging"] = {
+            "passed": passed,
+            "tests": 4,
+            "passed_count": sum(results),
+        }
         return passed
 
     # ===========================================================================
@@ -142,11 +148,13 @@ class ProductionValidator:
         tracker.record_skill_complete("iam", validation_passed=True)
 
         iam_metrics = tracker.get_skill_metrics("iam")
-        test2b = (iam_metrics is not None and
-                 iam_metrics.get("findings") == 5 and
-                 iam_metrics.get("risk_score") == 7.0)
+        test2b = (
+            iam_metrics is not None
+            and iam_metrics.get("findings") == 5
+            and iam_metrics.get("risk_score") == 7.0
+        )
         results.append(test2b)
-        self.print_test("Skill metric recording", test2b, f"IAM: 5 findings, 7.0 risk_score")
+        self.print_test("Skill metric recording", test2b, "IAM: 5 findings, 7.0 risk_score")
 
         # Test 2c: Aggregation of totals
         tracker.record_skill_start("network")
@@ -156,8 +164,11 @@ class ProductionValidator:
         metrics = tracker.get_metrics()
         test2c = metrics["total_findings"] == 8 and metrics["total_risk_score"] == 12.0
         results.append(test2c)
-        self.print_test("Metrics aggregation", test2c,
-                       f"Total: {metrics['total_findings']} findings, {metrics['total_risk_score']} risk_score")
+        self.print_test(
+            "Metrics aggregation",
+            test2c,
+            f"Total: {metrics['total_findings']} findings, {metrics['total_risk_score']} risk_score",
+        )
 
         # Test 2d: Validation failure tracking
         tracker.record_skill_start("exposure")
@@ -166,7 +177,7 @@ class ProductionValidator:
         metrics = tracker.get_metrics()
         test2d = metrics["validation_failures"] == 1
         results.append(test2d)
-        self.print_test("Validation failure tracking", test2d, f"1 failure recorded")
+        self.print_test("Validation failure tracking", test2d, "1 failure recorded")
 
         # Test 2e: Summary generation
         summary = tracker.get_summary()
@@ -174,10 +185,16 @@ class ProductionValidator:
         has_elapsed = "elapsed_time" in summary
         test2e = has_completion_rate and has_elapsed
         results.append(test2e)
-        self.print_test("Summary generation", test2e, f"Completion: {summary.get('completion_rate')}")
+        self.print_test(
+            "Summary generation", test2e, f"Completion: {summary.get('completion_rate')}"
+        )
 
         passed = all(results)
-        self.results["metrics_tracker"] = {"passed": passed, "tests": 5, "passed_count": sum(results)}
+        self.results["metrics_tracker"] = {
+            "passed": passed,
+            "tests": 5,
+            "passed_count": sum(results),
+        }
         return passed
 
     # ===========================================================================
@@ -196,7 +213,9 @@ class ProductionValidator:
             "findings_high": [{"severity": "HIGH"} for _ in range(3)],
             "findings_medium": [{"severity": "MEDIUM"} for _ in range(5)],
             "findings_low": [{"severity": "LOW"} for _ in range(20)],  # Lots of noise
-            "findings_informational": [{"severity": "INFORMATIONAL"} for _ in range(15)],  # More noise
+            "findings_informational": [
+                {"severity": "INFORMATIONAL"} for _ in range(15)
+            ],  # More noise
         }
 
         # Count total before filtering
@@ -226,16 +245,22 @@ class ProductionValidator:
         severities_in_filtered = {f.get("severity") for f in all_findings}
         test3b = severities_in_filtered.issubset(allowed_severities)
         results.append(test3b)
-        self.print_test("Severity filtering", test3b,
-                       f"Only CRITICAL/HIGH/MEDIUM present: {severities_in_filtered}")
+        self.print_test(
+            "Severity filtering",
+            test3b,
+            f"Only CRITICAL/HIGH/MEDIUM present: {severities_in_filtered}",
+        )
 
         # Test 3c: No data loss in important findings
         critical_before = len(evidence_unfiltered["findings_critical"])
         critical_after = len(evidence_filtered["findings_critical"])
         test3c = critical_before == critical_after
         results.append(test3c)
-        self.print_test("Critical findings preserved", test3c,
-                       f"Before: {critical_before}, After: {critical_after}")
+        self.print_test(
+            "Critical findings preserved",
+            test3c,
+            f"Before: {critical_before}, After: {critical_after}",
+        )
 
         print(f"\n{GREEN}Reduction Details:{RESET}")
         print(f"  Before: {total_before} findings")
@@ -243,7 +268,11 @@ class ProductionValidator:
         print(f"  Removed: {total_before - total_after} (LOW + INFORMATIONAL)")
 
         passed = all(results)
-        self.results["severity_filtering"] = {"passed": passed, "tests": 3, "passed_count": sum(results)}
+        self.results["severity_filtering"] = {
+            "passed": passed,
+            "tests": 3,
+            "passed_count": sum(results),
+        }
         return passed
 
     # ===========================================================================
@@ -277,10 +306,8 @@ class ProductionValidator:
                 {"severity": "Low", "title": "Finding 9"},
                 {"severity": "Low", "title": "Finding 10"},
                 # ... only 16 actual findings but claimed 18
-            ] + [
-                {"severity": "Medium", "title": f"Finding {i}"}
-                for i in range(11, 17)  # Total 16
             ]
+            + [{"severity": "Medium", "title": f"Finding {i}"} for i in range(11, 17)],  # Total 16
         }
 
         actual_count = len(response_from_claude["findings"])
@@ -289,21 +316,27 @@ class ProductionValidator:
         # Test 4a: Detect the discrepancy
         test4a = estimated_count != actual_count
         results.append(test4a)
-        self.print_test("Discrepancy detection", test4a,
-                       f"Estimated: {estimated_count}, Actual: {actual_count}")
+        self.print_test(
+            "Discrepancy detection", test4a, f"Estimated: {estimated_count}, Actual: {actual_count}"
+        )
 
         # Test 4b: Reconciliation would trust actual array
         reconciled_total = actual_count  # Trust findings array
         # Recalculate severity breakdown from actual
-        reconciled_critical = sum(1 for f in response_from_claude["findings"]
-                                 if f["severity"].lower() == "critical")
-        reconciled_high = sum(1 for f in response_from_claude["findings"]
-                             if f["severity"].lower() == "high")
+        reconciled_critical = sum(
+            1 for f in response_from_claude["findings"] if f["severity"].lower() == "critical"
+        )
+        reconciled_high = sum(
+            1 for f in response_from_claude["findings"] if f["severity"].lower() == "high"
+        )
 
         test4b = reconciled_total == 16 and reconciled_critical == 1
         results.append(test4b)
-        self.print_test("Reconciliation success", test4b,
-                       f"Reconciled total: {reconciled_total}, Critical: {reconciled_critical}")
+        self.print_test(
+            "Reconciliation success",
+            test4b,
+            f"Reconciled total: {reconciled_total}, Critical: {reconciled_critical}",
+        )
 
         # Test 4c: Validator robustness (doesn't reject on count mismatch)
         # Even though we have 18 vs 16 (discrepancy of 2), new validator never rejects
@@ -313,12 +346,19 @@ class ProductionValidator:
 
         test4c = new_validator_never_rejects
         results.append(test4c)
-        self.print_test("Validator robustness", test4c,
-                       f"Reconciliation handles all discrepancies without rejection")
+        self.print_test(
+            "Validator robustness",
+            test4c,
+            "Reconciliation handles all discrepancies without rejection",
+        )
         print(f"   {GREEN}→ New approach: RECONCILE & PASS (discrepancy={discrepancy}){RESET}")
 
         passed = all(results)
-        self.results["data_reconciliation"] = {"passed": passed, "tests": 3, "passed_count": sum(results)}
+        self.results["data_reconciliation"] = {
+            "passed": passed,
+            "tests": 3,
+            "passed_count": sum(results),
+        }
         return passed
 
     # ===========================================================================
@@ -336,7 +376,7 @@ class ProductionValidator:
             {
                 "id": "HRD-001",
                 "title": "Security Hub Not Enabled",
-                "affected_resources": ["arn:aws:securityhub:us-east-1:123456789012:hub/default"]
+                "affected_resources": ["arn:aws:securityhub:us-east-1:123456789012:hub/default"],
             }
         ]
 
@@ -344,7 +384,7 @@ class ProductionValidator:
             {
                 "id": "HRD-006",
                 "title": "CIS Standards Not Enabled",
-                "affected_resources": ["arn:aws:securityhub:us-east-1:123456789012:hub/default"]
+                "affected_resources": ["arn:aws:securityhub:us-east-1:123456789012:hub/default"],
             }
         ]
 
@@ -355,13 +395,18 @@ class ProductionValidator:
         affected_resources_with_counts = {}
         for finding in all_findings:
             for resource in finding.get("affected_resources", []):
-                affected_resources_with_counts[resource] = affected_resources_with_counts.get(resource, 0) + 1
+                affected_resources_with_counts[resource] = (
+                    affected_resources_with_counts.get(resource, 0) + 1
+                )
 
         has_duplicates = any(count > 1 for count in affected_resources_with_counts.values())
         test5a = has_duplicates  # We SHOULD detect the duplicate
         results.append(test5a)
-        self.print_test("Duplicate detection", test5a,
-                       f"Found {len([c for c in affected_resources_with_counts.values() if c > 1])} duplicate resources")
+        self.print_test(
+            "Duplicate detection",
+            test5a,
+            f"Found {len([c for c in affected_resources_with_counts.values() if c > 1])} duplicate resources",
+        )
 
         # Test 5b: Deduplication would keep only one
         deduplicated = {}
@@ -372,15 +417,17 @@ class ProductionValidator:
 
         test5b = len(deduplicated) == 1  # Only one unique resource
         results.append(test5b)
-        self.print_test("Deduplication success", test5b,
-                       f"Deduplicated from {len(all_findings)} to {len(deduplicated)}")
+        self.print_test(
+            "Deduplication success",
+            test5b,
+            f"Deduplicated from {len(all_findings)} to {len(deduplicated)}",
+        )
 
         # Test 5c: Kept the more specific finding
         finding_kept = list(deduplicated.values())[0]
         test5c = finding_kept["id"] in ["HRD-001", "HRD-006"]  # Either is fine
         results.append(test5c)
-        self.print_test("Deduplication strategy", test5c,
-                       f"Kept finding: {finding_kept['id']}")
+        self.print_test("Deduplication strategy", test5c, f"Kept finding: {finding_kept['id']}")
 
         passed = all(results)
         self.results["deduplication"] = {"passed": passed, "tests": 3, "passed_count": sum(results)}
@@ -417,10 +464,14 @@ class ProductionValidator:
 
         test6b = actual_speedup > 1.0
         results.append(test6b)
-        self.print_test("Parallelism benefit", test6b, f"Parallel faster than sequential")
+        self.print_test("Parallelism benefit", test6b, "Parallel faster than sequential")
 
         passed = all(results)
-        self.results["parallel_execution"] = {"passed": passed, "tests": 2, "passed_count": sum(results)}
+        self.results["parallel_execution"] = {
+            "passed": passed,
+            "tests": 2,
+            "passed_count": sum(results),
+        }
         return passed
 
     # ===========================================================================
@@ -436,17 +487,24 @@ class ProductionValidator:
         results = []
 
         # Test 7a: Templates exist for all skills
-        required_templates = ["base_audit.xml", "iam_audit.xml", "network_audit.xml",
-                             "exposure_audit.xml", "vulns_audit.xml", "hardening_audit.xml",
-                             "alerting_audit.xml"]
+        required_templates = [
+            "base_audit.xml",
+            "iam_audit.xml",
+            "network_audit.xml",
+            "exposure_audit.xml",
+            "vulns_audit.xml",
+            "hardening_audit.xml",
+            "alerting_audit.xml",
+        ]
 
         templates_dir = Path("drystone/prompts/templates")
         existing_templates = [f.name for f in templates_dir.glob("*.xml")]
 
         test7a = all(t in existing_templates for t in required_templates)
         results.append(test7a)
-        self.print_test("Templates coverage", test7a,
-                       f"All {len(required_templates)} templates present")
+        self.print_test(
+            "Templates coverage", test7a, f"All {len(required_templates)} templates present"
+        )
 
         # Test 7b: Template loading works
         try:
@@ -460,7 +518,11 @@ class ProductionValidator:
             print(f"   {RED}Error loading template: {e}{RESET}")
 
         results.append(test7b)
-        self.print_test("Template loading", test7b, f"IAM template loaded ({len(iam_template) if test7b else 0} chars)")
+        self.print_test(
+            "Template loading",
+            test7b,
+            f"IAM template loaded ({len(iam_template) if test7b else 0} chars)",
+        )
 
         # Test 7c: Fallback mechanism works
         # If template doesn't exist, should fall back gracefully
@@ -474,7 +536,11 @@ class ProductionValidator:
             print(f"  {status} {template}")
 
         passed = all(results)
-        self.results["structured_prompts"] = {"passed": passed, "tests": 3, "passed_count": sum(results)}
+        self.results["structured_prompts"] = {
+            "passed": passed,
+            "tests": 3,
+            "passed_count": sum(results),
+        }
         return passed
 
     # ===========================================================================
@@ -516,7 +582,9 @@ class ProductionValidator:
         print(f"\n{BOLD}Results by Component:{RESET}")
         for component, result in self.results.items():
             status = f"{GREEN}✅ PASS{RESET}" if result["passed"] else f"{RED}❌ FAIL{RESET}"
-            print(f"  {status} {component.replace('_', ' ').title()}: {result['passed_count']}/{result['tests']} tests")
+            print(
+                f"  {status} {component.replace('_', ' ').title()}: {result['passed_count']}/{result['tests']} tests"
+            )
 
         # Overall verdict
         print(f"\n{BOLD}Overall Verdict:{RESET}")
@@ -554,10 +622,10 @@ class ProductionValidator:
             "timestamp": datetime.now().isoformat(),
             "total_tests": total_tests,
             "passed_tests": passed_tests,
-            "success_rate": (passed_tests/total_tests)*100,
+            "success_rate": (passed_tests / total_tests) * 100,
             "elapsed_time": elapsed,
             "results": self.results,
-            "verdict": "PASS" if passed_tests == total_tests else "REVIEW"
+            "verdict": "PASS" if passed_tests == total_tests else "REVIEW",
         }
 
         with open(report_file, "w") as f:

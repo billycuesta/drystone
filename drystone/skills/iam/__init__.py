@@ -461,7 +461,7 @@ class IAMSkill(BaseSkill):
 
         for arn in privileged_arns:
             if time.time() > deadline:
-                logger.debug(f"Access Advisor timeout reached, stopping queries")
+                logger.debug("Access Advisor timeout reached, stopping queries")
                 break
 
             try:
@@ -730,10 +730,7 @@ class IAMSkill(BaseSkill):
                     # Get policy document
                     try:
                         detail = org_client.describe_policy(PolicyId=policy_id)
-                        doc_raw = (
-                            detail.get("Policy", {})
-                            .get("Content", "{}")
-                        )
+                        doc_raw = detail.get("Policy", {}).get("Content", "{}")
                         try:
                             entry["PolicyDocument"] = json.loads(doc_raw)
                         except (json.JSONDecodeError, TypeError):
@@ -743,9 +740,7 @@ class IAMSkill(BaseSkill):
 
                     # Get targets (accounts/OUs this SCP applies to)
                     try:
-                        target_paginator = org_client.get_paginator(
-                            "list_targets_for_policy"
-                        )
+                        target_paginator = org_client.get_paginator("list_targets_for_policy")
                         for t_page in target_paginator.paginate(PolicyId=policy_id):
                             for target in t_page.get("Targets", []) or []:
                                 entry["Targets"].append(

@@ -83,7 +83,6 @@ class BaseSkill(ABC):
         """
         import json
         from pathlib import Path
-        from typing import List, Set
 
         print("  Reading evidence files...")
 
@@ -117,12 +116,12 @@ class BaseSkill(ABC):
         print(f"    Loaded {len(checklist['items'])} security checks")
 
         # 2b. Tier 1: Run deterministic pre-checks
+        from drystone.agent.budget import get_budget_policy
         from drystone.analysis.distiller import distill_evidence
         from drystone.analysis.router import route_checklist_for_llm
-        from drystone.agent.budget import get_budget_policy
         from drystone.models.findings import FindingsSummary, SkillFindings
-        from drystone.validation.pre_checks import run_pre_checks
         from drystone.validation.confidence import compute_skill_confidence
+        from drystone.validation.pre_checks import run_pre_checks
 
         pre_check_results = run_pre_checks(self.name, evidence, checklist)
         pass_ids = {r.check_id for r in pre_check_results if r.status == "PASS"}
@@ -231,7 +230,9 @@ class BaseSkill(ABC):
                     f"AI analysis failed for {self.name}: {ai_error}. "
                     f"Falling back to pre-check results only."
                 )
-                print(f"  ⚠️  AI analysis failed ({type(ai_error).__name__}). Using pre-check results.")
+                print(
+                    f"  ⚠️  AI analysis failed ({type(ai_error).__name__}). Using pre-check results."
+                )
                 findings = SkillFindings(
                     skill=self.name,
                     findings=[],
@@ -430,16 +431,17 @@ class BaseSkill(ABC):
                     evidence_line = (result.evidence_summary or "").strip()
                     if checklist_desc and evidence_line:
                         precheck_description = (
-                            f"{checklist_desc}\n\n"
-                            f"**Detected:** {evidence_line}"
+                            f"{checklist_desc}\n\n" f"**Detected:** {evidence_line}"
                         )
                     elif checklist_desc:
                         precheck_description = checklist_desc
                     else:
                         precheck_description = evidence_line or check_id
 
-                    from drystone.validation.pre_checks import PRE_CHECK_IMPACTS
-                    from drystone.validation.pre_checks import PRE_CHECK_ANALOGIES
+                    from drystone.validation.pre_checks import (
+                        PRE_CHECK_ANALOGIES,
+                        PRE_CHECK_IMPACTS,
+                    )
 
                     analogy = PRE_CHECK_ANALOGIES.get(check_id)
 
@@ -602,14 +604,16 @@ class BaseSkill(ABC):
                 key = f"{api_id} {method} {path}".strip()
                 ws_key = f"{api_id} (WebSocket API: $connect unauthenticated)"
                 if key in affected or ws_key in affected or api_id in affected:
-                    matched.append({
-                        "ApiId": route.get("ApiId"),
-                        "ApiType": route.get("ApiType"),
-                        "Method": route.get("Method"),
-                        "Path": route.get("Path"),
-                        "AuthorizationType": route.get("AuthorizationType"),
-                        "ApiKeyRequired": route.get("ApiKeyRequired"),
-                    })
+                    matched.append(
+                        {
+                            "ApiId": route.get("ApiId"),
+                            "ApiType": route.get("ApiType"),
+                            "Method": route.get("Method"),
+                            "Path": route.get("Path"),
+                            "AuthorizationType": route.get("AuthorizationType"),
+                            "ApiKeyRequired": route.get("ApiKeyRequired"),
+                        }
+                    )
             if matched:
                 return (
                     ["front-doors.json#/api_gateway_routes"],
@@ -617,7 +621,8 @@ class BaseSkill(ABC):
                 )
             # Fallback: return all unauth routes from evidence
             unauth_routes = [
-                r for r in routes
+                r
+                for r in routes
                 if isinstance(r, dict)
                 and str(r.get("AuthorizationType") or "").upper() in ("NONE", "")
                 and str(r.get("Method") or "").upper() not in ("OPTIONS", "$DISCONNECT", "$DEFAULT")
@@ -625,13 +630,18 @@ class BaseSkill(ABC):
             if unauth_routes:
                 return (
                     ["front-doors.json#/api_gateway_routes"],
-                    {"api_gateway_routes": [{
-                        "ApiId": r.get("ApiId"),
-                        "ApiType": r.get("ApiType"),
-                        "Method": r.get("Method"),
-                        "Path": r.get("Path"),
-                        "AuthorizationType": r.get("AuthorizationType"),
-                    } for r in unauth_routes[:5]]},
+                    {
+                        "api_gateway_routes": [
+                            {
+                                "ApiId": r.get("ApiId"),
+                                "ApiType": r.get("ApiType"),
+                                "Method": r.get("Method"),
+                                "Path": r.get("Path"),
+                                "AuthorizationType": r.get("AuthorizationType"),
+                            }
+                            for r in unauth_routes[:5]
+                        ]
+                    },
                 )
             return [], {"evidence_summary": getattr(result, "evidence_summary", "pre-check fail")}
 
