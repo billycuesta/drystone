@@ -219,7 +219,7 @@ class ParallelBenchmark:
 
         # Theoretical max
         max_individual = max(
-            times := {
+            {
                 "iam": 5.0,
                 "exposure": 4.0,
                 "network": 3.0,

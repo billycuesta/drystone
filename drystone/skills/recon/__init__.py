@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
 import boto3
 from botocore.exceptions import ClientError
@@ -11,9 +11,6 @@ from drystone.cloud.aws.client import AWSClient
 from drystone.skills.base import BaseSkill
 from drystone.storage.session import AuditSession
 from drystone.utils.logging import get_logger
-
-if TYPE_CHECKING:
-    from drystone.agent.client import AgentClient
 
 logger = get_logger(__name__)
 
@@ -149,8 +146,6 @@ class ReconSkill(BaseSkill):
             logger.error(f"Could not list hosted zones: {e}")
 
         # Enrich zones with semantic analysis
-        import re
-
         for zone in zones:
             zone["SensitivityAnalysis"] = self._classify_dns_sensitivity(
                 zone_name=zone.get("Name", ""), records=zone.get("Records", [])
@@ -518,13 +513,13 @@ class ReconSkill(BaseSkill):
         """Return sensitivity classification for a public DNS zone."""
         import re
 
-        SENSITIVE_KEYWORDS = {
+        sensitive_keywords = {
             "critical": ["pci", "cardholder", "payment", "cde"],
             "high": ["admin", "internal", "mgmt", "management", "prod", "production"],
             "medium": ["db", "database", "stage", "staging", "dev", "vpn", "bastion"],
         }
 
-        GEO_ENV_PATTERNS = [
+        geo_env_patterns = [
             r"\b(pci|prod)\.(mx|co|br|ar|cl)\b",  # pci.mx.ejemplo.com
             r"\b(internal|db)\.(us|eu|ap)-\w+\b",  # internal.us-east.ejemplo.com
         ]
@@ -534,7 +529,7 @@ class ReconSkill(BaseSkill):
         # Keyword detection
         matched_keywords = []
         severity_bump = None
-        for sev, kws in SENSITIVE_KEYWORDS.items():
+        for sev, kws in sensitive_keywords.items():
             for kw in kws:
                 if kw in name_lower:
                     matched_keywords.append(kw)
@@ -543,7 +538,7 @@ class ReconSkill(BaseSkill):
 
         # Geographic/environment pattern detection
         geo_matches = []
-        for pattern in GEO_ENV_PATTERNS:
+        for pattern in geo_env_patterns:
             if re.search(pattern, name_lower):
                 geo_matches.append(pattern)
 
@@ -552,7 +547,7 @@ class ReconSkill(BaseSkill):
             r
             for r in records
             if any(
-                kw in r.get("Name", "").lower() for kws in SENSITIVE_KEYWORDS.values() for kw in kws
+                kw in r.get("Name", "").lower() for kws in sensitive_keywords.values() for kw in kws
             )
         ]
 

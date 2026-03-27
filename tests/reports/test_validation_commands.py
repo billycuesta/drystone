@@ -1,6 +1,6 @@
 """Tests for AWS CLI validation command suggestions."""
 
-from drystone.reports.validation_commands import suggest_aws_cli_commands
+from drystone.reports.validation_commands import extract_resource_name, suggest_aws_cli_commands
 
 
 def test_secretsmanager_sm002_prefers_describe_secret_commands():
@@ -39,9 +39,6 @@ def test_secretsmanager_without_finding_id_keeps_file_based_fallback():
 
     assert commands
     assert commands[0] == "aws secretsmanager list-secrets --region us-east-1"
-
-
-from drystone.reports.validation_commands import extract_resource_name
 
 
 def test_extract_resource_name_iam_role():

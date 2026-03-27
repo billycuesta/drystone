@@ -148,7 +148,7 @@ class _DummyLambdaClient:
             ]
         )
 
-    def get_function_url_config(self, FunctionName=""):
+    def get_function_url_config(self, FunctionName=""):  # noqa: N803
         if FunctionName == "fn-public":
             return {
                 "AuthType": "NONE",
@@ -181,7 +181,7 @@ class _DummyELBv2Client:
             ]
         )
 
-    def describe_listeners(self, LoadBalancerArn=""):
+    def describe_listeners(self, LoadBalancerArn=""):  # noqa: N803
         return {
             "Listeners": [
                 {"Port": 443, "Protocol": "HTTPS", "SslPolicy": "ELBSecurityPolicy-2016-08"}
@@ -190,7 +190,7 @@ class _DummyELBv2Client:
 
 
 class _DummyWAFClient:
-    def get_web_acl_for_resource(self, ResourceArn=""):
+    def get_web_acl_for_resource(self, ResourceArn=""):  # noqa: N803
         return {}  # No WAF
 
 

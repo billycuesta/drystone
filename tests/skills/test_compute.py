@@ -112,7 +112,7 @@ class _DummyEC2Client:
             ]
         )
 
-    def describe_instance_attribute(self, InstanceId: str, Attribute: str):
+    def describe_instance_attribute(self, InstanceId: str, Attribute: str):  # noqa: N803
         assert InstanceId and Attribute == "userData"
         return {"UserData": {"Value": "IyEvYmluL2Jhc2gKZWNobyBoZWxsbwo="}}
 
@@ -134,7 +134,7 @@ class _DummyLambdaClient:
             ]
         )
 
-    def get_function_url_config(self, FunctionName: str):
+    def get_function_url_config(self, FunctionName: str):  # noqa: N803
         assert FunctionName
         return {
             "FunctionUrl": "https://abc.lambda-url.us-east-1.on.aws/",
@@ -143,7 +143,7 @@ class _DummyLambdaClient:
 
 
 class _DummyIAMClient:
-    def list_attached_role_policies(self, RoleName: str):
+    def list_attached_role_policies(self, RoleName: str):  # noqa: N803
         assert RoleName
         return {"AttachedPolicies": [{"PolicyName": "AdministratorAccess"}]}
 

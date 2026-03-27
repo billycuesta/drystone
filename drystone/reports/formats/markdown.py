@@ -1442,7 +1442,6 @@ Generated with [Drystone](https://github.com/billycuesta/drystone)
 
         data = build_pci_controls_map(findings, skills)
         controls = data["controls"]
-        summary = data["summary"]
 
         if not controls:
             return ""
@@ -1453,7 +1452,6 @@ Generated with [Drystone](https://github.com/billycuesta/drystone)
             if is_en
             else "Anexo A: Mapeo de Controles PCI DSS v4.0"
         )
-        ok_label = "OK" if is_en else "OK"
         ko_label = "KO"
         header_control = "Control" if is_en else "Control"
         header_status = "Status" if is_en else "Estado"

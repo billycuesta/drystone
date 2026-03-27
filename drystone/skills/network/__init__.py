@@ -3,7 +3,7 @@
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import Any, Dict, List
 
 import boto3
 from botocore.exceptions import ClientError
@@ -11,9 +11,6 @@ from botocore.exceptions import ClientError
 from drystone.cloud.aws.client import AWSClient
 from drystone.skills.base import BaseSkill
 from drystone.storage.session import AuditSession
-
-if TYPE_CHECKING:
-    from drystone.agent.client import AgentClient
 
 
 class NetworkSkill(BaseSkill):

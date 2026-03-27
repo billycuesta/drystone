@@ -245,7 +245,7 @@ class AgentClient:
             # Claude CLI can occasionally return explanatory prose instead of strict JSON.
             # Detect interactive-session contamination early: if the response looks like
             # the Claude Code welcome message, raise immediately (repair would be useless).
-            _INTERACTIVE_MARKERS = (
+            _interactive_markers = (
                 "I'm ready to help",
                 "What's next?",
                 "Link to a failing test",
@@ -258,7 +258,7 @@ class AgentClient:
                 "/roth-init",
                 "/roth-session-start",
             )
-            if any(marker in response_text for marker in _INTERACTIVE_MARKERS):
+            if any(marker in response_text for marker in _interactive_markers):
                 raise AgentError(
                     f"Claude CLI returned an interactive session response instead of JSON "
                     f"for {skill_name}. This usually means the CLI binary is in agent-mode. "

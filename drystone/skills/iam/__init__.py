@@ -4,7 +4,7 @@ import json
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import boto3
 from botocore.exceptions import ClientError
@@ -13,9 +13,6 @@ from drystone.cloud.aws.client import AWSClient
 from drystone.skills.base import BaseSkill
 from drystone.storage.session import AuditSession
 from drystone.utils.logging import get_logger
-
-if TYPE_CHECKING:
-    from drystone.agent.client import AgentClient
 
 logger = get_logger(__name__)
 
@@ -758,7 +755,6 @@ class IAMSkill(BaseSkill):
             return out, None
 
         except ClientError as e:
-            code = e.response.get("Error", {}).get("Code", "")
             # AWSOrganizationsNotInUseException or AccessDenied are expected
             return [], str(e.response.get("Error", {}).get("Message", str(e)))
         except Exception as e:
