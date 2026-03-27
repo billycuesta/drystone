@@ -326,10 +326,6 @@ class ProductionValidator:
         reconciled_critical = sum(
             1 for f in response_from_claude["findings"] if f["severity"].lower() == "critical"
         )
-        reconciled_high = sum(
-            1 for f in response_from_claude["findings"] if f["severity"].lower() == "high"
-        )
-
         test4b = reconciled_total == 16 and reconciled_critical == 1
         results.append(test4b)
         self.print_test(

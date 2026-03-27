@@ -205,7 +205,7 @@ def _analyze_resource_policy(
     # Conditions that restrict the open Principal:* to a meaningful scope.
     # aws:sourceowner restricts to the account that owns the resource — same-account only,
     # so it's a legitimate mitigating condition (not public exposure).
-    _SCOPE_CONDITIONS = {
+    _scope_conditions = {
         "aws:sourceaccount",
         "aws:sourcearn",
         "aws:principalorgid",
@@ -235,7 +235,7 @@ def _analyze_resource_policy(
         # Check if there's a SCOPE-RESTRICTING Condition clause
         cond = stmt.get("Condition") or {}
         cond_text = json.dumps(cond, default=str).lower()
-        has_mitigating_cond = any(k in cond_text for k in _SCOPE_CONDITIONS)
+        has_mitigating_cond = any(k in cond_text for k in _scope_conditions)
 
         risky_statements.append(
             {

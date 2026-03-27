@@ -4,7 +4,7 @@ import base64
 import json
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import boto3
 from botocore.exceptions import ClientError
@@ -13,9 +13,6 @@ from drystone.cloud.aws.client import AWSClient
 from drystone.skills.base import BaseSkill
 from drystone.storage.session import AuditSession
 from drystone.utils.logging import get_logger
-
-if TYPE_CHECKING:
-    from drystone.agent.client import AgentClient
 
 logger = get_logger(__name__)
 

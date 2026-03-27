@@ -804,7 +804,7 @@ def check_iam_010(evidence: Dict[str, Any]) -> PreCheckResult:
     if not isinstance(users, list) or not users:
         return PreCheckResult("IAM-010", "SKIP", "no users evidence", [])
 
-    _ADMIN_POLICY_NAMES = {"AdministratorAccess", "PowerUserAccess"}
+    _admin_policy_names = {"AdministratorAccess", "PowerUserAccess"}
 
     affected: List[str] = []
     for u in users:
@@ -816,7 +816,7 @@ def check_iam_010(evidence: Dict[str, Any]) -> PreCheckResult:
         if not isinstance(attached, list):
             continue
         policy_names = {str(p.get("PolicyName") or "") for p in attached if isinstance(p, dict)}
-        is_admin = bool(policy_names & _ADMIN_POLICY_NAMES)
+        is_admin = bool(policy_names & _admin_policy_names)
         if not is_admin:
             continue
 
@@ -971,7 +971,6 @@ def check_iam_012(evidence: Dict[str, Any]) -> PreCheckResult:
     if not isinstance(users, list) or not users:
         return PreCheckResult("IAM-012", "SKIP", "no users evidence", [])
 
-    now = datetime.now(timezone.utc)
     inactive = []
     for u in users:
         if not isinstance(u, dict):
@@ -1071,7 +1070,7 @@ def check_iam_029(evidence: Dict[str, Any]) -> PreCheckResult:
     if not isinstance(roles, list) or not roles:
         return PreCheckResult("IAM-029", "SKIP", "no roles evidence", [])
 
-    _ADMIN_POLICIES = {"AdministratorAccess", "PowerUserAccess"}
+    _admin_policies = {"AdministratorAccess", "PowerUserAccess"}
 
     # Build a map: role ARN → attached policy names
     role_policies: Dict[str, set] = {}
@@ -1081,8 +1080,6 @@ def check_iam_029(evidence: Dict[str, Any]) -> PreCheckResult:
         arn = str(r.get("Arn") or "")
         attached = r.get("AttachedPolicies") or []
         pnames = {str(p.get("PolicyName") or "") for p in attached if isinstance(p, dict)}
-        # Also check InlinePolicies for wildcard iam actions
-        inline = r.get("InlinePolicies") or []
         role_policies[arn] = pnames
 
     affected: List[str] = []
@@ -1092,7 +1089,7 @@ def check_iam_029(evidence: Dict[str, Any]) -> PreCheckResult:
         role_arn = str(r.get("Arn") or "")
 
         # Does this role have admin-level policies?
-        if not (role_policies.get(role_arn, set()) & _ADMIN_POLICIES):
+        if not (role_policies.get(role_arn, set()) & _admin_policies):
             continue
 
         # Is it trusted by another IAM role (not an AWS service)?
@@ -1288,7 +1285,7 @@ def check_iam_033(evidence: Dict[str, Any]) -> PreCheckResult:
                 # Check for alternative strong-scoping conditions that mitigate
                 # confused-deputy without sts:ExternalId (e.g. PrincipalArn scope,
                 # SourceAccount, PrincipalOrgID).
-                _STRONG_CONDS = {
+                _strong_conds = {
                     "aws:principalarn",
                     "aws:sourceaccount",
                     "aws:principalorgid",
@@ -1296,7 +1293,7 @@ def check_iam_033(evidence: Dict[str, Any]) -> PreCheckResult:
                     "aws:sourceorgid",
                 }
                 cond_lower = cond_text.lower()
-                if any(c in cond_lower for c in _STRONG_CONDS):
+                if any(c in cond_lower for c in _strong_conds):
                     continue  # alternative confused-deputy protection present
                 affected.append(role_arn or f"role/{role_name or 'unknown'}")
                 break  # one violation per role is enough; move to next role
@@ -1330,7 +1327,7 @@ def check_iam_043(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("IAM-043", "SKIP", "no roles evidence", [])
 
     # Services where Confused Deputy condition is not applicable by design
-    _EXCLUDED_SERVICES = {
+    _excluded_services = {
         "ec2.amazonaws.com",
         "ecs-tasks.amazonaws.com",
         "eks.amazonaws.com",
@@ -1339,7 +1336,7 @@ def check_iam_043(evidence: Dict[str, Any]) -> PreCheckResult:
     }
 
     # Conditions that scope the service call to a specific origin (mitigate confused deputy)
-    _SOURCE_CONDITIONS = {
+    _source_conditions = {
         "aws:sourceaccount",
         "aws:sourcearn",
         "aws:sourceorgid",
@@ -1383,15 +1380,14 @@ def check_iam_043(evidence: Dict[str, Any]) -> PreCheckResult:
             )
 
             # Filter out excluded services
-            relevant = [s for s in services if s not in _EXCLUDED_SERVICES]
+            relevant = [s for s in services if s not in _excluded_services]
             if not relevant:
                 continue
 
             cond = stmt.get("Condition") or {}
             cond_text = json.dumps(cond, default=str).lower()
 
-            has_source_cond = any(k in cond_text for k in _SOURCE_CONDITIONS)
-            has_account_cond = "aws:sourceaccount" in cond_text
+            has_source_cond = any(k in cond_text for k in _source_conditions)
 
             if not has_source_cond:
                 # No scope restriction at all → Confused Deputy risk
@@ -1986,7 +1982,7 @@ def check_iam_042(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("IAM-042", "SKIP", "no policies evidence", [])
 
     # Escalation permissions — must be checked with broad Resource scope
-    _ESCALATION_PERMS = {
+    _escalation_perms = {
         "iam:createaccesskey",
         "iam:createloginprofile",
         "iam:updateloginprofile",
@@ -2045,7 +2041,7 @@ def check_iam_042(evidence: Dict[str, Any]) -> PreCheckResult:
             for act in actions_lower:
                 if act == "*" or act == "iam:*":
                     found_escalation.add(act)
-                elif act in _ESCALATION_PERMS:
+                elif act in _escalation_perms:
                     found_escalation.add(act)
 
             if not found_escalation:
@@ -2180,13 +2176,12 @@ _AWS_SERVICE_ACCOUNTS: Dict[str, str] = {
     "127311923021": "ELB us-east-1",
     "033677994240": "ELB us-east-2",
     "027434742980": "ELB us-west-1",
-    "797873946194": "ELB us-west-2",
+    "797873946194": "ELB us-west-2/CloudFront logs",
     "098369216593": "ELB af-south-1",
     "600734575887": "ELB ap-east-1",
-    "718504428378": "ELB ap-southeast-3",
+    "718504428378": "ELB ap-southeast-3/ap-south-2",
     "383597477331": "ELB ap-southeast-4",
     "754344448648": "ELB ap-south-1",
-    "718504428378": "ELB ap-south-2",
     "589379963580": "ELB ap-northeast-3",
     "507241528517": "ELB ap-northeast-2",
     "582318560864": "ELB ap-southeast-1",
@@ -2194,23 +2189,19 @@ _AWS_SERVICE_ACCOUNTS: Dict[str, str] = {
     "783225319266": "ELB ap-northeast-1",
     "985666609251": "ELB ca-central-1",
     "045080605973": "ELB cn-north-1",
-    "638102146993": "ELB cn-northwest-1",
-    "897822967062": "ELB eu-central-1",
+    "638102146993": "ELB cn-northwest-1/eu-south-2",
+    "897822967062": "ELB eu-central-1/eu-north-1",
     "635631232610": "ELB eu-central-2",
     "054676820928": "ELB eu-west-1",
     "156460612806": "ELB eu-west-2",
     "009996457667": "ELB eu-south-1",
-    "638102146993": "ELB eu-south-2",
-    "076674570225": "ELB eu-west-3",
-    "897822967062": "ELB eu-north-1",
+    "076674570225": "ELB eu-west-3/me-central-1",
     "086441151436": "ELB me-south-1",
-    "076674570225": "ELB me-central-1",
     "507936923172": "ELB sa-east-1",
     "048591011584": "ELB us-gov-west-1",
     "190560391635": "ELB us-gov-east-1",
     # CloudFront access logging
     "210479947434": "CloudFront logs",
-    "797873946194": "CloudFront logs us-west-2",
 }
 
 
@@ -2358,8 +2349,8 @@ def check_iam_044(evidence: Dict[str, Any]) -> PreCheckResult:
     if not isinstance(roles, list) or not roles:
         return PreCheckResult("IAM-044", "SKIP", "no roles evidence", [])
 
-    _PRIVILEGED_POLICY_NAMES = {"AdministratorAccess", "PowerUserAccess"}
-    _MAX_SESSION_THRESHOLD = 3600  # 1 hour
+    _privileged_policy_names = {"AdministratorAccess", "PowerUserAccess"}
+    _max_session_threshold = 3600  # 1 hour
 
     affected: List[str] = []
     for role in roles:
@@ -2370,13 +2361,13 @@ def check_iam_044(evidence: Dict[str, Any]) -> PreCheckResult:
             continue
 
         max_session = role.get("MaxSessionDuration")
-        if not isinstance(max_session, int) or max_session <= _MAX_SESSION_THRESHOLD:
+        if not isinstance(max_session, int) or max_session <= _max_session_threshold:
             continue
 
         # Only flag roles with privileged policies attached
         attached = role.get("AttachedPolicies") or []
         policy_names = {str(p.get("PolicyName") or "") for p in attached if isinstance(p, dict)}
-        is_privileged = bool(policy_names & _PRIVILEGED_POLICY_NAMES)
+        is_privileged = bool(policy_names & _privileged_policy_names)
 
         # Also flag SSO roles (they are often privileged)
         role_name = str(role.get("RoleName") or "")
@@ -3375,7 +3366,7 @@ def check_alrt_011(evidence: Dict[str, Any]) -> PreCheckResult:
         )
 
     # Authorized publishers: CloudWatch Alarms and EventBridge services
-    _AUTHORIZED_SERVICE_PRINCIPALS = {
+    _authorized_service_principals = {
         "cloudwatch.amazonaws.com",
         "events.amazonaws.com",
         "lambda.amazonaws.com",
@@ -3411,7 +3402,7 @@ def check_alrt_011(evidence: Dict[str, Any]) -> PreCheckResult:
                     if isinstance(service, str)
                     else (service if isinstance(service, list) else [])
                 )
-                if all(str(s) in _AUTHORIZED_SERVICE_PRINCIPALS for s in services if s):
+                if all(str(s) in _authorized_service_principals for s in services if s):
                     continue
             # PASS: same-account restriction (Principal:* + SourceOwner condition) is
             # the AWS default policy. We only flag it if there is NO condition at all
@@ -3444,7 +3435,7 @@ def check_alrt_015(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("ALRT-015", "SKIP", "no cloudwatch-metric-filters evidence", [])
     # Empty list = no filters at all = IAM events not monitored
 
-    _IAM_EVENTS = [
+    _iam_events = [
         "putuseropolicy",
         "attachuserpolicy",
         "attachgrouppolicy",
@@ -3459,7 +3450,7 @@ def check_alrt_015(evidence: Dict[str, Any]) -> PreCheckResult:
         if not isinstance(mf, dict):
             continue
         pattern = str(mf.get("filterPattern") or "").lower()
-        if any(event in pattern for event in _IAM_EVENTS):
+        if any(event in pattern for event in _iam_events):
             return PreCheckResult("ALRT-015", "PASS", "metric filter covers IAM change events", [])
 
     return PreCheckResult(
@@ -3478,7 +3469,7 @@ def check_alrt_016(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("ALRT-016", "SKIP", "no cloudwatch-metric-filters evidence", [])
     # Empty list = no filters at all = SG events not monitored
 
-    _SG_EVENTS = [
+    _sg_events = [
         "authorizesecuritygroupingress",
         "authorizesecuritygroupegress",
         "revokesecuritygroupingress",
@@ -3491,7 +3482,7 @@ def check_alrt_016(evidence: Dict[str, Any]) -> PreCheckResult:
         if not isinstance(mf, dict):
             continue
         pattern = str(mf.get("filterPattern") or "").lower()
-        if any(event in pattern for event in _SG_EVENTS):
+        if any(event in pattern for event in _sg_events):
             return PreCheckResult(
                 "ALRT-016", "PASS", "metric filter covers Security Group change events", []
             )
@@ -3514,7 +3505,7 @@ def check_alrt_012(evidence: Dict[str, Any]) -> PreCheckResult:
     if not isinstance(metric_filters, list) and not isinstance(rules, list):
         return PreCheckResult("ALRT-012", "SKIP", "no metric-filter or eventbridge evidence", [])
 
-    _CRITICAL_EVENTS = ["consolelogin", "createuser", "stoplogging"]
+    _critical_events = ["consolelogin", "createuser", "stoplogging"]
 
     # Check metric filters for coverage
     if isinstance(metric_filters, list):
@@ -3522,7 +3513,7 @@ def check_alrt_012(evidence: Dict[str, Any]) -> PreCheckResult:
             if not isinstance(mf, dict):
                 continue
             pattern = str(mf.get("filterPattern") or "").lower()
-            if any(evt in pattern for evt in _CRITICAL_EVENTS):
+            if any(evt in pattern for evt in _critical_events):
                 return PreCheckResult(
                     "ALRT-012",
                     "PASS",
@@ -3541,7 +3532,7 @@ def check_alrt_012(evidence: Dict[str, Any]) -> PreCheckResult:
             if str(r.get("State") or "").upper() != "ENABLED":
                 continue
             pattern = str(r.get("EventPattern") or "").lower()
-            if any(evt in pattern for evt in _CRITICAL_EVENTS):
+            if any(evt in pattern for evt in _critical_events):
                 return PreCheckResult(
                     "ALRT-012",
                     "PASS",
@@ -3923,7 +3914,7 @@ def check_exp_004(evidence: Dict[str, Any]) -> PreCheckResult:
     if not sgs:
         return PreCheckResult("EXP-004", "SKIP", "no security-groups evidence", [])
 
-    MGMT_PORTS = {22, 3389, 3306, 5432, 1433}
+    mgmt_ports = {22, 3389, 3306, 5432, 1433}
 
     risky: List[str] = []
     for sg in sgs:
@@ -3933,7 +3924,7 @@ def check_exp_004(evidence: Dict[str, Any]) -> PreCheckResult:
         for perm in sg.get("IngressRules", []) or []:
             if not isinstance(perm, dict):
                 continue
-            if any(_sg_allows_world(perm, port=p) for p in MGMT_PORTS):
+            if any(_sg_allows_world(perm, port=p) for p in mgmt_ports):
                 risky.append(sg_id)
                 break
 
@@ -4090,8 +4081,8 @@ def check_exp_023(evidence: Dict[str, Any]) -> PreCheckResult:
 
     # Service principals that should always have SourceArn/SourceAccount conditions.
     # Without these conditions, any resource of that service type in any account can invoke the resource.
-    _REQUIRE_SOURCE_CONDITIONS = {"s3.amazonaws.com", "sns.amazonaws.com", "events.amazonaws.com"}
-    _SOURCE_CONDITIONS = {"aws:sourcearn", "aws:sourceaccount", "aws:sourcevpce"}
+    _require_source_conditions = {"s3.amazonaws.com", "sns.amazonaws.com", "events.amazonaws.com"}
+    _source_conditions_rbp = {"aws:sourcearn", "aws:sourceaccount", "aws:sourcevpce"}
 
     for item in items:
         if not isinstance(item, dict):
@@ -4108,7 +4099,7 @@ def check_exp_023(evidence: Dict[str, Any]) -> PreCheckResult:
         if not wildcard_stmts:
             policy_raw = item.get("Policy") or ""
             # Conditions that restrict the open Principal:* to a meaningful scope
-            _SCOPE_CONDITIONS = {
+            _scope_conditions_rbp = {
                 "aws:sourceaccount",
                 "aws:sourcearn",
                 "aws:principalorgid",
@@ -4144,7 +4135,7 @@ def check_exp_023(evidence: Dict[str, Any]) -> PreCheckResult:
                         # Check for scope-restricting conditions (PASS if found)
                         cond = stmt.get("Condition") or {}
                         cond_text = json.dumps(cond, default=str).lower()
-                        has_scope_cond = any(k in cond_text for k in _SCOPE_CONDITIONS)
+                        has_scope_cond = any(k in cond_text for k in _scope_conditions_rbp)
 
                         if has_scope_cond:
                             # If there's a restrictive condition, skip it (it's OK)
@@ -4233,13 +4224,13 @@ def check_exp_023(evidence: Dict[str, Any]) -> PreCheckResult:
                             svc_principal = svc.lower()
                         elif isinstance(svc, list):
                             for s in svc:
-                                if str(s).lower() in _REQUIRE_SOURCE_CONDITIONS:
+                                if str(s).lower() in _require_source_conditions:
                                     svc_principal = str(s).lower()
                                     break
-                    if svc_principal and svc_principal in _REQUIRE_SOURCE_CONDITIONS:
+                    if svc_principal and svc_principal in _require_source_conditions:
                         cond = stmt.get("Condition") or {}
                         cond_text = json.dumps(cond, default=str).lower()
-                        has_source_cond = any(k in cond_text for k in _SOURCE_CONDITIONS)
+                        has_source_cond = any(k in cond_text for k in _source_conditions_rbp)
                         if (
                             not has_source_cond
                             and resource_arn not in [r["resource"] for r in high_resources]
@@ -4350,7 +4341,7 @@ def check_exp_024(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("EXP-024", "SKIP", "no s3-buckets evidence", [])
 
     # Heuristic: bucket names suggesting audit/logging/compliance data
-    _AUDIT_PATTERN = re.compile(
+    _audit_pattern = re.compile(
         r"(?i)(log|audit|cloudtrail|config|compliance|security|siem|flow|access[_\-]log)",
         re.IGNORECASE,
     )
@@ -4369,7 +4360,7 @@ def check_exp_024(evidence: Dict[str, Any]) -> PreCheckResult:
             no_encryption.append(name)
         elif algorithm == "AES256":
             # AES256 is fine for most buckets, but audit buckets should use KMS
-            if _AUDIT_PATTERN.search(name):
+            if _audit_pattern.search(name):
                 aes256_audit.append(name)
         # aws:kms → compliant, no action needed
 
@@ -4430,13 +4421,13 @@ def check_exp_006(evidence: Dict[str, Any]) -> PreCheckResult:
     if not routes:
         return PreCheckResult("EXP-006", "SKIP", "no api-gateway-routes evidence", [])
 
-    _NON_DATA_METHODS = {"OPTIONS", "HEAD"}
+    _non_data_methods = {"OPTIONS", "HEAD"}
     risky: List[str] = []
     for r in routes:
         if not isinstance(r, dict):
             continue
         method = str(r.get("Method") or "").upper()
-        if method in _NON_DATA_METHODS:
+        if method in _non_data_methods:
             continue  # skip preflight/head-only routes
         auth = str(r.get("AuthorizationType") or "").upper()
         if auth in {"NONE", ""}:
@@ -5463,7 +5454,7 @@ def check_waf_003(evidence: Dict[str, Any]) -> PreCheckResult:
 @_register("waf")
 def check_waf_004(evidence: Dict[str, Any]) -> PreCheckResult:
     """WAF logging RedactedFields should cover sensitive headers."""
-    _SENSITIVE_HEADERS = {"cookie", "x-api-key", "authorization", "x-auth-token"}
+    _sensitive_headers = {"cookie", "x-api-key", "authorization", "x-auth-token"}
     if _waf_collection_has_failures(evidence):
         return PreCheckResult("WAF-004", "SKIP", "WAF collection failures", [])
     web_acls = evidence.get("wafv2-web-acls")
@@ -5479,7 +5470,7 @@ def check_waf_004(evidence: Dict[str, Any]) -> PreCheckResult:
             (r.get("SingleHeader") or {}).get("Name", "").lower()
             for r in (logging_cfg.get("RedactedFields") or [])
         }
-        missing = _SENSITIVE_HEADERS - redacted
+        missing = _sensitive_headers - redacted
         if missing:
             all_missing |= missing
             incomplete.append(acl.get("ARN") or acl.get("Name", "unknown"))
@@ -5608,7 +5599,7 @@ def check_waf_008(evidence: Dict[str, Any]) -> PreCheckResult:
 @_register("waf")
 def check_waf_009(evidence: Dict[str, Any]) -> PreCheckResult:
     """WAF IP sets should not contain overly broad CIDRs (0.0.0.0/0 or ::/0)."""
-    _BROAD_CIDRS = {"0.0.0.0/0", "::/0"}
+    _broad_cidrs = {"0.0.0.0/0", "::/0"}
     if _waf_collection_has_failures(evidence):
         return PreCheckResult("WAF-009", "SKIP", "WAF collection failures", [])
     ip_sets = evidence.get("wafv2-ip-sets")
@@ -5617,7 +5608,7 @@ def check_waf_009(evidence: Dict[str, Any]) -> PreCheckResult:
     broad = [
         ip_set.get("Name", "unknown")
         for ip_set in ip_sets
-        if _BROAD_CIDRS & set(ip_set.get("Addresses", []))
+        if _broad_cidrs & set(ip_set.get("Addresses", []))
     ]
     if broad:
         return PreCheckResult(
@@ -6295,9 +6286,9 @@ def check_vuln_005(evidence: Dict[str, Any]) -> PreCheckResult:
     #       Active Directory resources use AWS Directory Service → detected by "directory".
     # IMPORTANT: Use word-boundary matching to avoid false positives like "cards" matching "rds"
     # or "sandbox" matching "db". ECR image ARNs (ecr:.../sha256:...) are explicitly excluded.
-    _CRIT_KEYWORDS = {"rds", "database", "db", "vpn", "directory", "ldap", "aurora"}
-    _CRIT_PATTERN = re.compile(
-        r"(?<![a-z])(" + "|".join(re.escape(k) for k in sorted(_CRIT_KEYWORDS)) + r")(?![a-z])"
+    _crit_keywords = {"rds", "database", "db", "vpn", "directory", "ldap", "aurora"}
+    _crit_pattern = re.compile(
+        r"(?<![a-z])(" + "|".join(re.escape(k) for k in sorted(_crit_keywords)) + r")(?![a-z])"
     )
 
     def _is_ecr_image(resource_id: str) -> bool:
@@ -6321,7 +6312,7 @@ def check_vuln_005(evidence: Dict[str, Any]) -> PreCheckResult:
             tags = res.get("tags") or {}
             service_tag = str(tags.get("Service") or tags.get("service") or "").lower()
             # Use word-boundary regex to avoid substring false positives (e.g. "cards" ≠ "rds")
-            if _CRIT_PATTERN.search(rid) or _CRIT_PATTERN.search(service_tag):
+            if _crit_pattern.search(rid) or _crit_pattern.search(service_tag):
                 if resource_id not in affected:
                     affected.append(resource_id)
 
@@ -7830,7 +7821,7 @@ def check_msg_008(evidence: Dict[str, Any]) -> PreCheckResult:
 def check_msg_009(evidence: Dict[str, Any]) -> PreCheckResult:
     """SNS topic policy grants administrative actions (DeleteTopic, SetTopicAttributes,
     AddPermission, RemovePermission) to a wildcard principal."""
-    _ADMIN_ACTIONS = {
+    _admin_actions = {
         "sns:deletetopic",
         "sns:settopicattributes",
         "sns:addpermission",
@@ -7856,7 +7847,7 @@ def check_msg_009(evidence: Dict[str, Any]) -> PreCheckResult:
             if not isinstance(st, dict) or str(st.get("Effect") or "").upper() != "ALLOW":
                 continue
             actions = {str(a).lower() for a in _actions_from_stmt(st)}
-            matched = _ADMIN_ACTIONS & actions
+            matched = _admin_actions & actions
             if not matched:
                 continue
             if _principal_is_wildcard_any(
@@ -8163,7 +8154,7 @@ def check_comp_ecs_005(evidence: Dict[str, Any]) -> PreCheckResult:
     if not isinstance(tdefs, list) or not tdefs:
         return PreCheckResult("COMP-ECS-005", "SKIP", "no ecs-inventory evidence", [])
 
-    _SECRET_KEYWORDS = _re.compile(
+    _secret_keywords = _re.compile(
         r"(pass(word)?|secret|api[_\-]?key|token|credential|private[_\-]?key|auth)",
         _re.IGNORECASE,
     )
@@ -8190,7 +8181,7 @@ def check_comp_ecs_005(evidence: Dict[str, Any]) -> PreCheckResult:
                     continue
                 name = str(env.get("name") or "")
                 value = str(env.get("value") or "")
-                if _SECRET_KEYWORDS.search(name) and len(value) > 4:
+                if _secret_keywords.search(name) and len(value) > 4:
                     affected.append(arn)
                     seen.add(arn)
                     break  # one hit per task definition is enough
@@ -8879,7 +8870,7 @@ def check_recon_017(evidence: Dict[str, Any]) -> PreCheckResult:
     if public_lbs == 0:
         return PreCheckResult("RECON-017", "SKIP", "no internet-facing load balancers", [])
 
-    HIGH_RISK_PORTS = {3306, 5432, 27017, 1521, 8443, 8080}
+    high_risk_ports = {3306, 5432, 27017, 1521, 8443, 8080}
     risky = []
     for lb in lb_data.get("load_balancers", []):
         if not isinstance(lb, dict) or not lb.get("IsPublic"):
@@ -8888,7 +8879,7 @@ def check_recon_017(evidence: Dict[str, Any]) -> PreCheckResult:
             if not isinstance(listener, dict):
                 continue
             port = int(listener.get("Port", 0) or 0)
-            if port in HIGH_RISK_PORTS:
+            if port in high_risk_ports:
                 risky.append(f"{lb.get('DNSName', '?')}:{port}")
 
     if risky:
@@ -9519,7 +9510,7 @@ def check_ser_lmb_002(evidence: Dict[str, Any]) -> PreCheckResult:
     # $disconnect and $default only execute after connection is established.
     # Flagging $disconnect/$default as separate issues inflates the count and
     # misleads remediation — the fix is always on $connect.
-    _WEBSOCKET_POST_CONNECT = {"$DISCONNECT", "$DEFAULT"}
+    _websocket_post_connect = {"$DISCONNECT", "$DEFAULT"}
 
     unauth: List[str] = []
     websocket_connect_unauth: List[str] = []  # Track WebSocket APIs missing auth on $connect
@@ -9536,13 +9527,11 @@ def check_ser_lmb_002(evidence: Dict[str, Any]) -> PreCheckResult:
         auth = str(route.get("AuthorizationType") or "").upper()
         api_id = str(route.get("ApiId") or "")
         path = str(route.get("Path") or "")
-        api_type = str(route.get("ApiType") or "").upper()
-
         # Detect WebSocket APIs by route method names ($connect/$disconnect/$default)
         # even when ApiType is not labelled as WEBSOCKET in the collector output.
         is_websocket_route = method in {"$CONNECT", "$DISCONNECT", "$DEFAULT"}
 
-        if is_websocket_route and method in _WEBSOCKET_POST_CONNECT:
+        if is_websocket_route and method in _websocket_post_connect:
             # Post-connect routes are only reachable after $connect authenticates;
             # skip them to avoid counting a single WebSocket issue 3× times.
             continue

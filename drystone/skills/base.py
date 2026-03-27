@@ -470,10 +470,10 @@ class BaseSkill(ABC):
         # The LLM sometimes generates wrong resource identifiers (e.g. EXP-015 using the
         # audited account root instead of the actual cross-account principal). Pre-checks
         # produce authoritative, evidence-derived resource lists — use them to override.
-        _RESOURCE_AUTHORITATIVE_CHECKS = {"EXP-015"}
+        _resource_authoritative_checks = {"EXP-015"}
         corrected = 0
         for check_id, result in fail_results.items():
-            if check_id not in _RESOURCE_AUTHORITATIVE_CHECKS:
+            if check_id not in _resource_authoritative_checks:
                 continue
             if check_id not in existing_ids or not result.affected_resources:
                 continue

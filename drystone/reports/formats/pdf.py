@@ -5,7 +5,7 @@ from __future__ import annotations
 import html
 import json
 import re
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # noqa: N817
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
@@ -1895,8 +1895,6 @@ class PDFFormatter(BaseFormatter):
             header = "Risk Scale"
             col_headers = ("Level", "Range", "Required Action")
 
-        # Calculate indicator position (0-100%)
-        indicator_pct = min(max(risk_score / 10.0 * 100, 0), 100)
         # Map to the correct segment (5 segments, each 20%)
         segment_idx = 0
         if risk_score > 0:
@@ -2110,7 +2108,6 @@ class PDFFormatter(BaseFormatter):
 
         data = build_pci_controls_map(findings, skills)
         controls = data["controls"]
-        summary = data["summary"]
 
         ko_controls = [c for c in controls if c["status"] == "ko"]
         if not ko_controls:
