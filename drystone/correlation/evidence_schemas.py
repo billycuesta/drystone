@@ -2,12 +2,14 @@
 
 These are NOT enforced, but document expected structures for pattern matching.
 """
+
 from typing import List, Optional, TypedDict
 
 
 # IAM Evidence Snippets
 class IAMUserSnippet(TypedDict, total=False):
     """Evidence for IAM user findings."""
+
     UserName: str
     Arn: str
     MFADevices: List[dict]  # Empty = no MFA
@@ -17,6 +19,7 @@ class IAMUserSnippet(TypedDict, total=False):
 
 class IAMRoleSnippet(TypedDict, total=False):
     """Evidence for IAM role findings."""
+
     RoleName: str
     Arn: str
     AssumeRolePolicyDocument: dict
@@ -25,6 +28,7 @@ class IAMRoleSnippet(TypedDict, total=False):
 # Network Evidence Snippets
 class NetworkSGSnippet(TypedDict, total=False):
     """Evidence for security group findings."""
+
     GroupId: str
     GroupName: str
     IpPermissions: List[dict]  # [{IpProtocol, FromPort, ToPort, IpRanges}]
@@ -34,6 +38,7 @@ class NetworkSGSnippet(TypedDict, total=False):
 # Exposure Evidence Snippets
 class ExposureS3Snippet(TypedDict, total=False):
     """Evidence for S3 exposure findings."""
+
     Bucket: str
     PublicAccessBlockConfiguration: dict
     BucketPolicy: Optional[dict]
@@ -41,6 +46,7 @@ class ExposureS3Snippet(TypedDict, total=False):
 
 class ExposureRDSSnippet(TypedDict, total=False):
     """Evidence for RDS exposure findings."""
+
     DBInstanceIdentifier: str
     PubliclyAccessible: bool
     VpcSecurityGroups: List[dict]
@@ -49,6 +55,7 @@ class ExposureRDSSnippet(TypedDict, total=False):
 # Vulns Evidence Snippets
 class VulnsInspectorSnippet(TypedDict, total=False):
     """Evidence for vulnerability findings."""
+
     FindingArn: str
     Severity: str  # CRITICAL, HIGH, MEDIUM
     PackageVulnerabilityDetails: dict  # {VulnerabilityId, VulnerablePackages}
@@ -57,6 +64,7 @@ class VulnsInspectorSnippet(TypedDict, total=False):
 # Hardening Evidence Snippets
 class HardeningConfigSnippet(TypedDict, total=False):
     """Evidence for hardening findings."""
+
     Service: str
     Configuration: dict
     Status: str  # ENABLED, DISABLED

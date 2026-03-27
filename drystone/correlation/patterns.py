@@ -32,7 +32,9 @@ class DynamicCorrelationPattern:
     # source_finding_ids, source_findings, and affected_resources.
     # Evidence-based patterns leave this as None (source_finding_ids stays []).
     source_finder: Optional[
-        Callable[[Dict[str, List[Finding]], Dict[str, List[Finding]], Dict[str, Any]], List[Finding]]
+        Callable[
+            [Dict[str, List[Finding]], Dict[str, List[Finding]], Dict[str, Any]], List[Finding]
+        ]
     ] = None
 
 
@@ -2274,7 +2276,11 @@ def _find_sources_wildcard_principal(
         if f.id in ("IAM-030",) or "wildcard" in f.title.lower() or "principal" in f.title.lower():
             sources.append(f)
     for f in findings_by_skill.get("exposure", []):
-        if f.id in ("EXP-023",) or "wildcard" in f.title.lower() or "resource policy" in f.title.lower():
+        if (
+            f.id in ("EXP-023",)
+            or "wildcard" in f.title.lower()
+            or "resource policy" in f.title.lower()
+        ):
             sources.append(f)
     return sources
 
@@ -2681,10 +2687,7 @@ def _find_exposure_api_unauth_mutation(
     resource_index: Dict[str, List[Finding]],
     evidence_by_skill: Dict[str, Any],
 ) -> List[Finding]:
-    return [
-        f for f in findings_by_skill.get("exposure", [])
-        if f.id in {"EXP-021", "EXP-022"}
-    ]
+    return [f for f in findings_by_skill.get("exposure", []) if f.id in {"EXP-021", "EXP-022"}]
 
 
 PATTERN_REGISTRY.register(
@@ -3093,8 +3096,7 @@ def _match_recon_apigw_unauth_to_data_exfil(
         for f in recon_findings
     )
     has_sensitive_data = any(
-        f.id.startswith("EXP-") and f.severity in {"Critical", "High"}
-        for f in exposure_findings
+        f.id.startswith("EXP-") and f.severity in {"Critical", "High"} for f in exposure_findings
     )
     return has_unauth_api and has_sensitive_data
 
@@ -3123,11 +3125,13 @@ def _find_recon_apigw_unauth_to_data_exfil(
     evidence_by_skill: Dict[str, Any],
 ) -> List[Finding]:
     trigger_recon = [
-        f for f in findings_by_skill.get("recon", [])
+        f
+        for f in findings_by_skill.get("recon", [])
         if f.id in {"RECON-002", "RECON-014"} or "unauthenticated" in f.title.lower()
     ]
     trigger_exposure = [
-        f for f in findings_by_skill.get("exposure", [])
+        f
+        for f in findings_by_skill.get("exposure", [])
         if f.id.startswith("EXP-") and f.severity in {"Critical", "High"}
     ]
     return trigger_recon + trigger_exposure
@@ -3179,8 +3183,7 @@ def _match_cross_account_admin_no_externalid(
     iam_findings = findings_by_skill.get("iam", [])
     has_cross_account_no_ext = any(f.id == "IAM-033" for f in iam_findings)
     has_admin_policy = any(
-        f.id in {"IAM-015", "IAM-016"} or "administrator" in f.title.lower()
-        for f in iam_findings
+        f.id in {"IAM-015", "IAM-016"} or "administrator" in f.title.lower() for f in iam_findings
     )
     return has_cross_account_no_ext and has_admin_policy
 
@@ -3249,15 +3252,12 @@ def _match_lambda_secrets_public_url_chain(
     recon_findings = findings_by_skill.get("recon", [])
     exposure_findings = findings_by_skill.get("exposure", [])
     has_lambda_secrets = any(
-        f.id in {"VULN-024", "VULN-025"} or (
-            "lambda" in f.title.lower() and "secret" in f.title.lower()
-        )
+        f.id in {"VULN-024", "VULN-025"}
+        or ("lambda" in f.title.lower() and "secret" in f.title.lower())
         for f in vulns_findings
     )
     has_public_lambda_url = any(
-        f.id == "RECON-005" or (
-            "lambda" in f.title.lower() and "public" in f.title.lower()
-        )
+        f.id == "RECON-005" or ("lambda" in f.title.lower() and "public" in f.title.lower())
         for f in recon_findings + exposure_findings
     )
     return has_lambda_secrets and has_public_lambda_url
@@ -3326,8 +3326,7 @@ def _match_compute_unrestricted_egress_exfil(
     network_findings = findings_by_skill.get("network", [])
     exposure_findings = findings_by_skill.get("exposure", [])
     has_unrestricted_egress = any(
-        f.id == "NET-EGR-001" or "egress" in f.title.lower()
-        for f in network_findings
+        f.id == "NET-EGR-001" or "egress" in f.title.lower() for f in network_findings
     )
     has_sensitive_exposure = any(f.severity in {"Critical", "High"} for f in exposure_findings)
     return has_unrestricted_egress and has_sensitive_exposure
@@ -3398,8 +3397,7 @@ def _match_guardduty_disabled_cover(
         return False
     all_findings = [f for findings in findings_by_skill.values() for f in findings]
     other_high = sum(
-        1 for f in all_findings
-        if f.severity in {"Critical", "High"} and f.id != "VULN-GD-001"
+        1 for f in all_findings if f.severity in {"Critical", "High"} and f.id != "VULN-GD-001"
     )
     return other_high >= 2
 
@@ -3532,9 +3530,7 @@ def _match_recon_public_ip_no_firewall_lateral(
     recon_findings = findings_by_skill.get("recon", [])
     network_findings = findings_by_skill.get("network", [])
     has_public_instance_ip = any(
-        f.id == "RECON-003" or (
-            "elastic" in f.title.lower() and "ip" in f.title.lower()
-        )
+        f.id == "RECON-003" or ("elastic" in f.title.lower() and "ip" in f.title.lower())
         for f in recon_findings
     )
     has_no_firewall = any(
@@ -3568,13 +3564,13 @@ def _find_recon_public_ip_no_firewall_lateral(
     evidence_by_skill: Dict[str, Any],
 ) -> List[Finding]:
     trigger_recon = [
-        f for f in findings_by_skill.get("recon", [])
-        if f.id == "RECON-003" or (
-            "elastic" in f.title.lower() and "ip" in f.title.lower()
-        )
+        f
+        for f in findings_by_skill.get("recon", [])
+        if f.id == "RECON-003" or ("elastic" in f.title.lower() and "ip" in f.title.lower())
     ]
     trigger_network = [
-        f for f in findings_by_skill.get("network", [])
+        f
+        for f in findings_by_skill.get("network", [])
         if f.id in {"NET-007", "NET-EGR-001"} or "firewall" in f.title.lower()
     ]
     return trigger_recon + trigger_network
@@ -3626,13 +3622,11 @@ def _match_snapshot_persistence_exfil(
     exposure_findings = findings_by_skill.get("exposure", [])
     vulns_findings = findings_by_skill.get("vulns", [])
     has_public_snapshot = any(
-        f.id in {"EXP-028", "EXP-029"} or "snapshot" in f.title.lower()
-        for f in exposure_findings
+        f.id in {"EXP-028", "EXP-029"} or "snapshot" in f.title.lower() for f in exposure_findings
     )
     has_public_ebs = any(f.id == "VULN-028" for f in vulns_findings)
     has_cves = any(
-        f.id.startswith("VULN-") and "cve" in f.description.lower()
-        for f in vulns_findings
+        f.id.startswith("VULN-") and "cve" in f.description.lower() for f in vulns_findings
     )
     return (has_public_snapshot or has_public_ebs) and has_cves
 
@@ -3689,4 +3683,3 @@ PATTERN_REGISTRY.register(
         amplification_factor=1.9,
     )
 )
-

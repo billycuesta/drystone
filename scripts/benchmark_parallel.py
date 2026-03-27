@@ -9,11 +9,11 @@ Usage:
 
 import json
 import logging
-import time
 import sys
+import time
 from datetime import datetime
-from pathlib import Path
 from typing import Dict, List, Tuple
+
 import click
 
 # Configure logging
@@ -148,12 +148,12 @@ class ParallelBenchmark:
         print("Benchmark: Sequential vs Parallel Evidence Extraction")
         print("=" * 70)
 
-        print(f"\nConfiguration:")
+        print("\nConfiguration:")
         print(f"  Skills: {len(self.skills)} ({', '.join(self.skills)})")
         print(f"  Iterations: {self.iterations}")
         print(f"  Max workers: {len(self.skills)}")
 
-        print(f"\nRunning benchmarks...")
+        print("\nRunning benchmarks...")
         print()
 
         for i in range(self.iterations):
@@ -161,12 +161,12 @@ class ParallelBenchmark:
 
             # Run sequential
             print(f"Iteration {i + 1}:")
-            print(f"  [1/2] Sequential...", end=" ", flush=True)
+            print("  [1/2] Sequential...", end=" ", flush=True)
             result.sequential_time = self.run_sequential()
             print(f"✓ {result.sequential_time:.1f}s")
 
             # Run parallel
-            print(f"  [2/2] Parallel...", end=" ", flush=True)
+            print("  [2/2] Parallel...", end=" ", flush=True)
             result.parallel_time = self.run_parallel()
             print(f"✓ {result.parallel_time:.1f}s")
 
@@ -194,7 +194,7 @@ class ParallelBenchmark:
         max_speedup = max(speedups) if speedups else 0
         variance = max_speedup - min_speedup
 
-        print(f"\nResults:")
+        print("\nResults:")
         print(f"  Average Speedup: {avg_speedup:.2f}x")
         print(f"  Min Speedup: {min_speedup:.2f}x")
         print(f"  Max Speedup: {max_speedup:.2f}x")
@@ -207,30 +207,34 @@ class ParallelBenchmark:
         avg_par = sum(par_times) / len(par_times) if par_times else 0
         time_saved = avg_seq - avg_par
 
-        print(f"\nExecution Times:")
+        print("\nExecution Times:")
         print(f"  Average Sequential: {avg_seq:.1f}s")
         print(f"  Average Parallel: {avg_par:.1f}s")
         print(f"  Time Saved: {time_saved:.1f}s ({time_saved/avg_seq*100:.1f}%)")
 
         # Memory (simulated)
-        print(f"\nResource Usage:")
-        print(f"  Memory Overhead: ~8.2MB (negligible)")
+        print("\nResource Usage:")
+        print("  Memory Overhead: ~8.2MB (negligible)")
         print(f"  Threads: {len(self.skills)} concurrent")
 
         # Theoretical max
-        max_individual = max(times := {
-            "iam": 5.0,
-            "exposure": 4.0,
-            "network": 3.0,
-            "vulns": 4.0,
-            "alerting": 3.0,
-            "hardening": 5.0,
-        }.values())
+        max_individual = max(
+            times := {
+                "iam": 5.0,
+                "exposure": 4.0,
+                "network": 3.0,
+                "vulns": 4.0,
+                "alerting": 3.0,
+                "hardening": 5.0,
+            }.values()
+        )
         theoretical_speedup = avg_seq / max_individual
 
-        print(f"\nTheoretical Analysis:")
+        print("\nTheoretical Analysis:")
         print(f"  Theoretical Speedup: {theoretical_speedup:.2f}x")
-        print(f"  Achieved: {avg_speedup:.2f}x ({avg_speedup/theoretical_speedup*100:.1f}% of theoretical)")
+        print(
+            f"  Achieved: {avg_speedup:.2f}x ({avg_speedup/theoretical_speedup*100:.1f}% of theoretical)"
+        )
 
         print()
 
@@ -262,14 +266,18 @@ def main(skills: Tuple[str], iterations: int, output: str) -> None:
     Example:
         python scripts/benchmark_parallel.py --skills iam exposure network --iterations 3
     """
-    skills_list = list(skills) if skills else [
-        "iam",
-        "exposure",
-        "network",
-        "vulns",
-        "alerting",
-        "hardening",
-    ]
+    skills_list = (
+        list(skills)
+        if skills
+        else [
+            "iam",
+            "exposure",
+            "network",
+            "vulns",
+            "alerting",
+            "hardening",
+        ]
+    )
 
     benchmark = ParallelBenchmark(skills=skills_list, iterations=iterations)
 
@@ -290,9 +298,7 @@ def main(skills: Tuple[str], iterations: int, output: str) -> None:
             },
             "results": [r.to_dict() for r in results],
             "summary": {
-                "average_speedup": round(
-                    sum(r.speedup for r in results) / len(results), 2
-                ),
+                "average_speedup": round(sum(r.speedup for r in results) / len(results), 2),
                 "min_speedup": round(min(r.speedup for r in results), 2),
                 "max_speedup": round(max(r.speedup for r in results), 2),
             },

@@ -10,9 +10,9 @@ from typing import Any, Callable, Dict, Optional
 
 import anthropic
 
-from drystone.agent.chunker import EvidenceChunker, FindingsAggregator
 from drystone.agent.budget import get_budget_policy
 from drystone.agent.cache import FindingsCache
+from drystone.agent.chunker import EvidenceChunker, FindingsAggregator
 from drystone.agent.retry import analyze_with_retry
 from drystone.analysis.prioritizer import score_chunk
 from drystone.logging import CrashSafeLogger
@@ -268,6 +268,7 @@ class AgentClient:
             # the required JSON schema.
             try:
                 from datetime import datetime as _dt
+
                 _now = _dt.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
                 repaired = self._repair_response_to_json(
                     response_text,
@@ -577,6 +578,7 @@ class AgentClient:
         """
         try:
             import tempfile as _tempfile
+
             result = subprocess.run(
                 [self.claude_cli_path, "--model", self.model, "-p", prompt],
                 input="",  # Empty stdin
@@ -590,9 +592,7 @@ class AgentClient:
                 error_msg = (
                     result.stderr
                     if result.stderr
-                    else result.stdout
-                    if result.stdout
-                    else "(no error message)"
+                    else result.stdout if result.stdout else "(no error message)"
                 )
                 raise AgentError(
                     f"Claude CLI error (exit code {result.returncode}): {error_msg[:500]}\n"
@@ -653,6 +653,7 @@ CRITICAL OUTPUT REQUIREMENTS:
 
             # Call Claude CLI with combined prompt
             import tempfile as _tempfile
+
             result = subprocess.run(
                 [self.claude_cli_path, "--model", self.model, "-p", meta_prompt],
                 input="",
@@ -666,9 +667,7 @@ CRITICAL OUTPUT REQUIREMENTS:
                 error_msg = (
                     result.stderr
                     if result.stderr
-                    else result.stdout
-                    if result.stdout
-                    else "(no error message)"
+                    else result.stdout if result.stdout else "(no error message)"
                 )
                 raise AgentError(
                     f"Claude CLI error (exit code {result.returncode}): {error_msg[:500]}\n"

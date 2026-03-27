@@ -126,9 +126,7 @@ class AlertingPostProcessor:
         if log_groups:
             # Look for CloudTrail-related log groups
             cloudtrail_logs = [
-                lg
-                for lg in log_groups
-                if "cloudtrail" in lg.get("LogGroupName", "").lower()
+                lg for lg in log_groups if "cloudtrail" in lg.get("LogGroupName", "").lower()
             ]
             if cloudtrail_logs:
                 analysis["cloudwatch_integration"] = True
@@ -186,8 +184,7 @@ class AlertingPostProcessor:
 
                     # Check if any subscriptions are confirmed
                     confirmed = any(
-                        sub.get("SubscriptionArn") != "PendingConfirmation"
-                        for sub in subscriptions
+                        sub.get("SubscriptionArn") != "PendingConfirmation" for sub in subscriptions
                     )
                     if confirmed:
                         analysis["subscriptions_confirmed"] = True
@@ -209,6 +206,7 @@ class AlertingPostProcessor:
         Returns:
             ASCII diagram as string
         """
+
         # Helper function to get status symbol
         def status_icon(value: bool) -> str:
             return "✅" if value else "❌"
@@ -301,22 +299,14 @@ LEGEND:
             gaps.append("CloudTrail is not enabled or not logging events")
 
         # Critical: CloudTrail without CloudWatch integration
-        if (
-            flow_analysis["cloudtrail_enabled"]
-            and not flow_analysis["cloudwatch_integration"]
-        ):
-            gaps.append(
-                "CloudTrail not integrated with CloudWatch Logs (events not monitored)"
-            )
+        if flow_analysis["cloudtrail_enabled"] and not flow_analysis["cloudwatch_integration"]:
+            gaps.append("CloudTrail not integrated with CloudWatch Logs (events not monitored)")
 
         # Critical: CloudWatch without metric filters
         # Note: metric_filters_exist is always True if cloudwatch_integration is True
         # in our current logic, so this gap only triggers if CloudWatch exists but
         # we explicitly detect no metric filters (future enhancement)
-        if (
-            flow_analysis["cloudwatch_integration"]
-            and not flow_analysis["metric_filters_exist"]
-        ):
+        if flow_analysis["cloudwatch_integration"] and not flow_analysis["metric_filters_exist"]:
             gaps.append("No metric filters configured for security events")
 
         # Critical: No alarms
@@ -325,39 +315,22 @@ LEGEND:
 
         # High: No SNS topics
         if not flow_analysis["sns_topics_exist"]:
-            gaps.append(
-                "No SNS topics configured for alerting (notifications disabled)"
-            )
+            gaps.append("No SNS topics configured for alerting (notifications disabled)")
 
         # High: SNS without subscribers
-        if (
-            flow_analysis["sns_topics_exist"]
-            and not flow_analysis["sns_has_subscribers"]
-        ):
+        if flow_analysis["sns_topics_exist"] and not flow_analysis["sns_has_subscribers"]:
             gaps.append("SNS topics exist but have no active subscriptions")
 
         # High: SNS subscriptions not confirmed
-        if (
-            flow_analysis["sns_has_subscribers"]
-            and not flow_analysis["subscriptions_confirmed"]
-        ):
-            gaps.append(
-                "SNS subscriptions exist but are not confirmed (pending)"
-            )
+        if flow_analysis["sns_has_subscribers"] and not flow_analysis["subscriptions_confirmed"]:
+            gaps.append("SNS subscriptions exist but are not confirmed (pending)")
 
         # Warning: Single-region CloudTrail
-        if (
-            flow_analysis["cloudtrail_enabled"]
-            and not flow_analysis["cloudtrail_multi_region"]
-        ):
-            gaps.append(
-                "CloudTrail is single-region only (multi-region recommended)"
-            )
+        if flow_analysis["cloudtrail_enabled"] and not flow_analysis["cloudtrail_multi_region"]:
+            gaps.append("CloudTrail is single-region only (multi-region recommended)")
 
         # Warning: EventBridge rules not configured
         if not flow_analysis["eventbridge_rules_exist"]:
-            gaps.append(
-                "EventBridge rules not configured (alternative alerting path unused)"
-            )
+            gaps.append("EventBridge rules not configured (alternative alerting path unused)")
 
         return gaps

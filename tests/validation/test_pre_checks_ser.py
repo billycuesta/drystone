@@ -392,9 +392,7 @@ class TestSerEc2002Metadata:
                         "severity": "CRITICAL",
                         "status": "ACTIVE",
                         "title": "CVE-2024-26130 cryptography",
-                        "resources": [
-                            {"id": "i-abc", "type": "AWS_EC2_INSTANCE"}
-                        ],
+                        "resources": [{"id": "i-abc", "type": "AWS_EC2_INSTANCE"}],
                     }
                 ]
             },
@@ -438,9 +436,7 @@ class TestSerEc2002Metadata:
                     ],
                     "attack_path": {
                         "narrative": "Test narrative",
-                        "steps": [
-                            {"step": 1, "action": "Reach port 22", "technique": "T1595.001"}
-                        ],
+                        "steps": [{"step": 1, "action": "Reach port 22", "technique": "T1595.001"}],
                     },
                 }
             }

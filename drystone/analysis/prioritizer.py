@@ -2,7 +2,6 @@
 
 from typing import Any, Dict
 
-
 FILE_PRIORITY = {
     "inspector-findings": 100,
     "security-groups": 95,

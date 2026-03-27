@@ -137,9 +137,7 @@ class JSONFormatter(BaseFormatter):
             for resource in finding.get("affected_resources", []):
                 resource_counts[resource] = resource_counts.get(resource, 0) + 1
 
-        top_resources = sorted(
-            resource_counts.items(), key=lambda x: x[1], reverse=True
-        )[:10]
+        top_resources = sorted(resource_counts.items(), key=lambda x: x[1], reverse=True)[:10]
 
         return {
             "risk_distribution": risk_distribution,
@@ -148,7 +146,5 @@ class JSONFormatter(BaseFormatter):
             ],
             "average_risk_score": summary.get("overall_risk_score", 0),
             "remediation_count": len([f for f in findings if f.get("remediation")]),
-            "cis_referenced": len(
-                [f for f in findings if f.get("cis_reference")]
-            ),
+            "cis_referenced": len([f for f in findings if f.get("cis_reference")]),
         }

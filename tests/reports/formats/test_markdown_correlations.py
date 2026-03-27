@@ -41,11 +41,7 @@ class TestCorrelationSection:
     @pytest.fixture
     def formatter(self, mock_session, mock_config):
         """Create formatter instance."""
-        findings = {
-            "skill": "iam",
-            "findings": [],
-            "summary": {"total_findings": 0}
-        }
+        findings = {"skill": "iam", "findings": [], "summary": {"total_findings": 0}}
         formatter = MarkdownFormatter(findings, mock_session, mock_config)
         return formatter
 
@@ -57,11 +53,8 @@ class TestCorrelationSection:
     def test_empty_correlations_array(self, formatter):
         """Test when correlated.json exists but has no correlations."""
         corr_file = formatter.session.base_path / "findings" / "correlated.json"
-        corr_data = {
-            "correlations": [],
-            "metadata": {"skills_analyzed": ["iam", "network"]}
-        }
-        with open(corr_file, 'w') as f:
+        corr_data = {"correlations": [], "metadata": {"skills_analyzed": ["iam", "network"]}}
+        with open(corr_file, "w") as f:
             json.dump(corr_data, f)
 
         result = formatter._correlation_section()
@@ -71,7 +64,7 @@ class TestCorrelationSection:
     def test_malformed_json(self, formatter):
         """Test when correlated.json is invalid JSON."""
         corr_file = formatter.session.base_path / "findings" / "correlated.json"
-        with open(corr_file, 'w') as f:
+        with open(corr_file, "w") as f:
             f.write("{ invalid json }")
 
         result = formatter._correlation_section()
@@ -92,7 +85,7 @@ class TestCorrelationSection:
                         "Attacker discovers open SSH port",
                         "Attempts brute force attack",
                         "Gains access with weak password",
-                        "Escalates privileges"
+                        "Escalates privileges",
                     ],
                     "source_findings": [
                         {
@@ -100,31 +93,31 @@ class TestCorrelationSection:
                             "id": "IAM-001",
                             "title": "Weak password policy",
                             "severity": "High",
-                            "risk_score": 8.0
+                            "risk_score": 8.0,
                         },
                         {
                             "skill": "network",
                             "id": "NET-001",
                             "title": "SSH 0.0.0.0/0",
                             "severity": "Critical",
-                            "risk_score": 9.0
-                        }
+                            "risk_score": 9.0,
+                        },
                     ],
                     "affected_resources": [
                         "arn:aws:ec2:us-east-1:123456789012:instance/i-001",
-                        "arn:aws:ec2:us-east-1:123456789012:instance/i-002"
+                        "arn:aws:ec2:us-east-1:123456789012:instance/i-002",
                     ],
                     "remediation_priority": "Immediate",
                     "remediation_steps": [
                         "1. Enable MFA on all IAM users",
                         "2. Restrict SSH to bastion host only",
-                        "3. Enforce strong password policy"
-                    ]
+                        "3. Enforce strong password policy",
+                    ],
                 }
             ],
-            "metadata": {"skills_analyzed": ["iam", "network"]}
+            "metadata": {"skills_analyzed": ["iam", "network"]},
         }
-        with open(corr_file, 'w') as f:
+        with open(corr_file, "w") as f:
             json.dump(corr_data, f)
 
         result = formatter._correlation_section()
@@ -154,7 +147,7 @@ class TestCorrelationSection:
                     "source_findings": [],
                     "affected_resources": [],
                     "remediation_priority": "Low",
-                    "remediation_steps": []
+                    "remediation_steps": [],
                 },
                 {
                     "id": "CORR-002",
@@ -166,7 +159,7 @@ class TestCorrelationSection:
                     "source_findings": [],
                     "affected_resources": [],
                     "remediation_priority": "Immediate",
-                    "remediation_steps": []
+                    "remediation_steps": [],
                 },
                 {
                     "id": "CORR-003",
@@ -178,12 +171,12 @@ class TestCorrelationSection:
                     "source_findings": [],
                     "affected_resources": [],
                     "remediation_priority": "Short-term",
-                    "remediation_steps": []
-                }
+                    "remediation_steps": [],
+                },
             ],
-            "metadata": {"skills_analyzed": ["iam", "network"]}
+            "metadata": {"skills_analyzed": ["iam", "network"]},
         }
-        with open(corr_file, 'w') as f:
+        with open(corr_file, "w") as f:
             json.dump(corr_data, f)
 
         result = formatter._correlation_section()
@@ -202,24 +195,26 @@ class TestCorrelationSection:
         # Create 15 correlations
         correlations = []
         for i in range(15, 0, -1):
-            correlations.append({
-                "id": f"CORR-{i:03d}",
-                "title": f"Pattern {i}",
-                "severity": "High" if i % 2 == 0 else "Critical",
-                "compound_risk_score": float(i),
-                "description": f"Pattern {i}",
-                "attack_path": [],
-                "source_findings": [],
-                "affected_resources": [],
-                "remediation_priority": "Medium",
-                "remediation_steps": []
-            })
+            correlations.append(
+                {
+                    "id": f"CORR-{i:03d}",
+                    "title": f"Pattern {i}",
+                    "severity": "High" if i % 2 == 0 else "Critical",
+                    "compound_risk_score": float(i),
+                    "description": f"Pattern {i}",
+                    "attack_path": [],
+                    "source_findings": [],
+                    "affected_resources": [],
+                    "remediation_priority": "Medium",
+                    "remediation_steps": [],
+                }
+            )
 
         corr_data = {
             "correlations": correlations,
-            "metadata": {"skills_analyzed": ["iam", "network"]}
+            "metadata": {"skills_analyzed": ["iam", "network"]},
         }
-        with open(corr_file, 'w') as f:
+        with open(corr_file, "w") as f:
             json.dump(corr_data, f)
 
         result = formatter._correlation_section()
@@ -252,11 +247,7 @@ class TestFormatCorrelation:
         config = Mock()
         config.report_type = "general"
 
-        findings = {
-            "skill": "iam",
-            "findings": [],
-            "summary": {"total_findings": 0}
-        }
+        findings = {"skill": "iam", "findings": [], "summary": {"total_findings": 0}}
         return MarkdownFormatter(findings, session, config)
 
     def test_attack_path_numbering(self, formatter):
@@ -270,12 +261,12 @@ class TestFormatCorrelation:
             "attack_path": [
                 "Step 1: Initial access",
                 "Step 2: Privilege escalation",
-                "Step 3: Data exfiltration"
+                "Step 3: Data exfiltration",
             ],
             "source_findings": [],
             "affected_resources": [],
             "remediation_priority": "Immediate",
-            "remediation_steps": []
+            "remediation_steps": [],
         }
 
         result = formatter._format_correlation(corr, 1)
@@ -299,19 +290,19 @@ class TestFormatCorrelation:
                     "id": "IAM-001",
                     "title": "Root has active access keys",
                     "severity": "Critical",
-                    "risk_score": 9.5
+                    "risk_score": 9.5,
                 },
                 {
                     "skill": "network",
                     "id": "NET-001",
                     "title": "SSH open to internet",
                     "severity": "Critical",
-                    "risk_score": 9.0
-                }
+                    "risk_score": 9.0,
+                },
             ],
             "affected_resources": [],
             "remediation_priority": "Immediate",
-            "remediation_steps": []
+            "remediation_steps": [],
         }
 
         result = formatter._format_correlation(corr, 1)
@@ -340,7 +331,7 @@ class TestFormatCorrelation:
                 "arn:aws:ec2:us-east-1:123456789012:instance/i-005",
             ],
             "remediation_priority": "Immediate",
-            "remediation_steps": []
+            "remediation_steps": [],
         }
 
         result = formatter._format_correlation(corr, 1)
@@ -367,8 +358,8 @@ class TestFormatCorrelation:
             "remediation_steps": [
                 "Enable MFA on all IAM users",
                 "Restrict SSH to bastion host",
-                "Implement intrusion detection"
-            ]
+                "Implement intrusion detection",
+            ],
         }
 
         result = formatter._format_correlation(corr, 1)
@@ -395,11 +386,7 @@ class TestGetSkillEmoji:
         config = Mock()
         config.report_type = "general"
 
-        findings = {
-            "skill": "iam",
-            "findings": [],
-            "summary": {"total_findings": 0}
-        }
+        findings = {"skill": "iam", "findings": [], "summary": {"total_findings": 0}}
         return MarkdownFormatter(findings, session, config)
 
     def test_skill_emojis_mapped(self, formatter):
@@ -454,47 +441,69 @@ class TestIntegrationFullReport:
                         "Network: Port 22 open to 0.0.0.0/0",
                         "IAM: Weak password policy allows brute force",
                         "IAM: No MFA required on root account",
-                        "Result: Attacker gains full AWS access"
+                        "Result: Attacker gains full AWS access",
                     ],
                     "source_findings": [
-                        {"skill": "network", "id": "NET-001", "title": "SSH Open", "severity": "Critical", "risk_score": 9.0},
-                        {"skill": "iam", "id": "IAM-001", "title": "No MFA on root", "severity": "Critical", "risk_score": 9.5}
+                        {
+                            "skill": "network",
+                            "id": "NET-001",
+                            "title": "SSH Open",
+                            "severity": "Critical",
+                            "risk_score": 9.0,
+                        },
+                        {
+                            "skill": "iam",
+                            "id": "IAM-001",
+                            "title": "No MFA on root",
+                            "severity": "Critical",
+                            "risk_score": 9.5,
+                        },
                     ],
                     "affected_resources": ["arn:aws:iam::123456789012:root"],
                     "remediation_priority": "Immediate",
                     "remediation_steps": [
                         "1. Enable MFA on root account",
-                        "2. Restrict SSH to bastion hosts"
-                    ]
+                        "2. Restrict SSH to bastion hosts",
+                    ],
                 }
             ],
-            "metadata": {"skills_analyzed": ["iam", "network"]}
+            "metadata": {"skills_analyzed": ["iam", "network"]},
         }
-        with open(corr_file, 'w') as f:
+        with open(corr_file, "w") as f:
             json.dump(corr_data, f)
 
         config = Mock()
         config.report_type = "general"
 
-        findings = {
-            "skill": "iam",
-            "findings": [],
-            "summary": {"total_findings": 0}
-        }
+        findings = {"skill": "iam", "findings": [], "summary": {"total_findings": 0}}
 
         return MarkdownFormatter(findings, session, config)
 
     def test_correlation_section_appears_in_report(self, formatter_with_data):
         """Test correlation section is included in markdown output."""
         # Mock the other sections to return empty
-        with patch.object(formatter_with_data, '_header', return_value="# Header\n"):
-            with patch.object(formatter_with_data, '_executive_summary', return_value="## Summary\n"):
-                with patch.object(formatter_with_data, '_architecture_diagram', return_value=""):
-                    with patch.object(formatter_with_data, '_remediation_timeline', return_value="## Timeline\n"):
-                        with patch.object(formatter_with_data, '_findings_by_severity', return_value="## Findings\n"):
-                            with patch.object(formatter_with_data, '_observations', return_value=""):
-                                with patch.object(formatter_with_data, '_references', return_value=""):
-                                    with patch.object(formatter_with_data, '_footer', return_value=""):
+        with patch.object(formatter_with_data, "_header", return_value="# Header\n"):
+            with patch.object(
+                formatter_with_data, "_executive_summary", return_value="## Summary\n"
+            ):
+                with patch.object(formatter_with_data, "_architecture_diagram", return_value=""):
+                    with patch.object(
+                        formatter_with_data, "_remediation_timeline", return_value="## Timeline\n"
+                    ):
+                        with patch.object(
+                            formatter_with_data,
+                            "_findings_by_severity",
+                            return_value="## Findings\n",
+                        ):
+                            with patch.object(
+                                formatter_with_data, "_observations", return_value=""
+                            ):
+                                with patch.object(
+                                    formatter_with_data, "_references", return_value=""
+                                ):
+                                    with patch.object(
+                                        formatter_with_data, "_footer", return_value=""
+                                    ):
                                         report = formatter_with_data._build_markdown()
 
         assert "## 🔗 Cross-Skill Correlations" in report

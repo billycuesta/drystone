@@ -1,7 +1,7 @@
 """Tests for severity/risk_score alignment and impact fallback (Fix 8, Fix 9)."""
 
-from drystone.validation.findings_normalizer import FindingsNormalizer
 from drystone.models.findings import Finding
+from drystone.validation.findings_normalizer import FindingsNormalizer
 
 
 def _make_normalizer(checklist_items=None):

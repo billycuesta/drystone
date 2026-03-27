@@ -8,7 +8,6 @@ from typing import Dict, List
 
 from .base import BaseFormatter
 
-
 # ---------------------------------------------------------------------------
 # Standalone data function — importable by any formatter
 # ---------------------------------------------------------------------------
@@ -87,9 +86,7 @@ def build_pci_controls_map(findings: List[Dict], skills: List[str]) -> Dict:
                         "status": "ok",
                     }
                 if item.get("id") and item.get("title"):
-                    all_controls[cid]["checks"].append(
-                        {"id": item["id"], "title": item["title"]}
-                    )
+                    all_controls[cid]["checks"].append({"id": item["id"], "title": item["title"]})
 
     # 2. Map findings to controls
     for finding in findings:

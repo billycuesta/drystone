@@ -430,6 +430,7 @@ def validate_cicd_findings(findings: SkillFindings) -> bool:
             return False
 
         import re as _re
+
         _cicd_id_pattern = _re.compile(r"^CICD-\d{3}$")
 
         for finding in findings.findings:
@@ -451,9 +452,7 @@ def validate_cicd_findings(findings: SkillFindings) -> bool:
                 return False
 
             if finding.risk_score is None or not (0.0 <= float(finding.risk_score) <= 10.0):
-                logger.error(
-                    f"CICD finding {finding.id} invalid risk_score: {finding.risk_score}"
-                )
+                logger.error(f"CICD finding {finding.id} invalid risk_score: {finding.risk_score}")
                 return False
 
         _reconcile_summary(findings, "CICD")
@@ -495,9 +494,7 @@ def validate_compute_findings(findings: SkillFindings) -> bool:
                 return False
 
             if finding.severity not in ["Critical", "High", "Medium", "Low"]:
-                logger.error(
-                    f"Compute finding {finding.id} invalid severity: {finding.severity}"
-                )
+                logger.error(f"Compute finding {finding.id} invalid severity: {finding.severity}")
                 return False
 
             if finding.risk_score is None or not (0.0 <= float(finding.risk_score) <= 10.0):
@@ -554,9 +551,7 @@ def validate_recon_findings(findings: SkillFindings) -> bool:
                 return False
 
             if finding.risk_score is None or not (0.0 <= float(finding.risk_score) <= 10.0):
-                logger.error(
-                    f"Recon finding {finding.id} invalid risk_score: {finding.risk_score}"
-                )
+                logger.error(f"Recon finding {finding.id} invalid risk_score: {finding.risk_score}")
                 return False
 
         _reconcile_summary(findings, "Recon")

@@ -1,6 +1,5 @@
 """Tests for PDF professionalism enhancements (GAPs 2-7)."""
 
-import html
 from unittest.mock import MagicMock
 
 import pytest

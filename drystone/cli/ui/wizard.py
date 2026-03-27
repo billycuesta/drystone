@@ -196,9 +196,7 @@ def display_config_summary(project_config: dict, ai_config: dict) -> None:
         "compute": "Compute",
     }
     skills_display = (
-        ", ".join(
-            _skill_display_names.get(s, s.capitalize()) for s in project_config["skills"]
-        )
+        ", ".join(_skill_display_names.get(s, s.capitalize()) for s in project_config["skills"])
         if project_config["skills"]
         else "None"
     )

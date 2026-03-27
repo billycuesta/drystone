@@ -17,9 +17,9 @@ logger = logging.getLogger(__name__)
 
 # Cross-skill pairs where dedup applies, with minimum resource overlap threshold
 CROSS_SKILL_DEDUP_RULES: List[Tuple[str, str, float]] = [
-    ("RECON-", "EXP-", 0.8),   # Recon vs Exposure (same public endpoints)
-    ("IAM-", "EXP-", 0.8),     # IAM vs Exposure (cross-account resources)
-    ("SM-", "SM-", 0.9),       # Within-skill semantic dedup (rotation variants)
+    ("RECON-", "EXP-", 0.8),  # Recon vs Exposure (same public endpoints)
+    ("IAM-", "EXP-", 0.8),  # IAM vs Exposure (cross-account resources)
+    ("SM-", "SM-", 0.9),  # Within-skill semantic dedup (rotation variants)
 ]
 
 # Skill priority: when quality is tied, prefer the more authoritative skill
@@ -44,8 +44,16 @@ def _resource_set(finding: Dict[str, Any]) -> Set[str]:
 def _quality_score(finding: Dict[str, Any]) -> int:
     """Score how complete a finding is (more fields = higher quality)."""
     score = 0
-    for field in ("description", "impact", "remediation", "evidence_snippet",
-                  "evidence_refs", "pci_dss", "cis_reference", "affected_resources"):
+    for field in (
+        "description",
+        "impact",
+        "remediation",
+        "evidence_snippet",
+        "evidence_refs",
+        "pci_dss",
+        "cis_reference",
+        "affected_resources",
+    ):
         val = finding.get(field)
         if val:
             if isinstance(val, list) and len(val) > 0:
@@ -67,8 +75,9 @@ def _resource_overlap(set_a: Set[str], set_b: Set[str]) -> float:
 def _matches_rule(id_a: str, id_b: str) -> float:
     """Return the overlap threshold if the pair matches a dedup rule, else 0."""
     for prefix_a, prefix_b, threshold in CROSS_SKILL_DEDUP_RULES:
-        if (id_a.startswith(prefix_a) and id_b.startswith(prefix_b)) or \
-           (id_a.startswith(prefix_b) and id_b.startswith(prefix_a)):
+        if (id_a.startswith(prefix_a) and id_b.startswith(prefix_b)) or (
+            id_a.startswith(prefix_b) and id_b.startswith(prefix_a)
+        ):
             return threshold
     return 0.0
 

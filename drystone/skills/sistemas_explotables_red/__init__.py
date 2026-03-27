@@ -7,8 +7,8 @@ signals for compute assets (EC2/ECS/Lambda/RDS) without active scanning.
 from __future__ import annotations
 
 import json
-import urllib.request
 import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -429,7 +429,8 @@ class SistemasExplotablesRedSkill(BaseSkill):
                 proto = str(perm.get("IpProtocol", "") or "")
                 proto_str = "all" if proto == "-1" else proto
                 port_str = (
-                    "all" if proto == "-1"
+                    "all"
+                    if proto == "-1"
                     else (str(from_port) if from_port == to_port else f"{from_port}-{to_port}")
                 )
                 ranges = perm.get("IpRanges", []) or []
@@ -438,24 +439,37 @@ class SistemasExplotablesRedSkill(BaseSkill):
                     cidr = str(r.get("CidrIp") or "")
                     if cidr:
                         all_rules.append(
-                            {"port": port_str, "protocol": proto_str, "source": cidr, "type": "cidr"}
+                            {
+                                "port": port_str,
+                                "protocol": proto_str,
+                                "source": cidr,
+                                "type": "cidr",
+                            }
                         )
                 for r in ipv6_ranges:
                     cidr = str(r.get("CidrIpv6") or "")
                     if cidr:
                         all_rules.append(
-                            {"port": port_str, "protocol": proto_str, "source": cidr, "type": "cidr_ipv6"}
+                            {
+                                "port": port_str,
+                                "protocol": proto_str,
+                                "source": cidr,
+                                "type": "cidr_ipv6",
+                            }
                         )
                 for r in perm.get("UserIdGroupPairs", []) or []:
                     ref_id = str(r.get("GroupId") or "")
                     if ref_id:
                         all_rules.append(
-                            {"port": port_str, "protocol": proto_str, "source": ref_id, "type": "security_group"}
+                            {
+                                "port": port_str,
+                                "protocol": proto_str,
+                                "source": ref_id,
+                                "type": "security_group",
+                            }
                         )
                 # Determine if internet-accessible for sg_open_ports
-                is_internet = any(
-                    str(r.get("CidrIp", "")).startswith("0.") for r in ranges
-                ) or any(
+                is_internet = any(str(r.get("CidrIp", "")).startswith("0.") for r in ranges) or any(
                     str(r.get("CidrIpv6", "")).startswith("::/") for r in ipv6_ranges
                 )
                 if is_internet:
@@ -540,8 +554,13 @@ class SistemasExplotablesRedSkill(BaseSkill):
                         break
                 descriptions_list = cve_data.get("descriptions", [])
                 cve_description = next(
-                    (d.get("value", "") for d in descriptions_list
-                     if isinstance(d, dict) and d.get("lang") == "en"), "")
+                    (
+                        d.get("value", "")
+                        for d in descriptions_list
+                        if isinstance(d, dict) and d.get("lang") == "en"
+                    ),
+                    "",
+                )
                 nvd_cache[cve_id] = {
                     "cvss_score": cvss_score,
                     "cvss_vector": cvss_vector,
@@ -566,23 +585,23 @@ class SistemasExplotablesRedSkill(BaseSkill):
                     attack_vector = "NETWORK"
                     exploitable = True
                 else:
-                    attack_vector = "NETWORK" if "AV:N" in vector else (
-                        "LOCAL" if "AV:L" in vector else ""
+                    attack_vector = (
+                        "NETWORK" if "AV:N" in vector else ("LOCAL" if "AV:L" in vector else "")
                     )
-                    exploitable = (
-                        attack_vector == "NETWORK" and len(open_port_nums) > 0
-                    )
-                enriched_cves.append({
-                    "id": cve_id,
-                    "package": entry.get("package", ""),
-                    "inspector_severity": entry.get("severity", ""),
-                    "cvss_score": nvd.get("cvss_score"),
-                    "cvss_vector": vector or None,
-                    "description": nvd.get("description", ""),
-                    "attack_vector": attack_vector or "UNKNOWN",
-                    "exploitable_from_internet": exploitable,
-                    "relevant_open_ports": open_port_nums[:5],
-                })
+                    exploitable = attack_vector == "NETWORK" and len(open_port_nums) > 0
+                enriched_cves.append(
+                    {
+                        "id": cve_id,
+                        "package": entry.get("package", ""),
+                        "inspector_severity": entry.get("severity", ""),
+                        "cvss_score": nvd.get("cvss_score"),
+                        "cvss_vector": vector or None,
+                        "description": nvd.get("description", ""),
+                        "attack_vector": attack_vector or "UNKNOWN",
+                        "exploitable_from_internet": exploitable,
+                        "relevant_open_ports": open_port_nums[:5],
+                    }
+                )
 
             attack_path = self._build_instance_attack_path(iid, enriched_cves, open_ports)
 
@@ -618,11 +637,13 @@ class SistemasExplotablesRedSkill(BaseSkill):
             port_info = open_ports[0]
             port = port_info.get("port", "?")
             svc = port_info.get("service", "Unknown")
-            steps.append({
-                "step": step_num,
-                "action": f"Reach port {port}/TCP from internet (SG allows 0.0.0.0/0) — {svc}",
-                "technique": "T1595.001",
-            })
+            steps.append(
+                {
+                    "step": step_num,
+                    "action": f"Reach port {port}/TCP from internet (SG allows 0.0.0.0/0) — {svc}",
+                    "technique": "T1595.001",
+                }
+            )
             step_num += 1
 
         # Step 2: Exploit network-reachable CVE
@@ -632,35 +653,43 @@ class SistemasExplotablesRedSkill(BaseSkill):
             cve_id = top_cve.get("id", "CVE-unknown")
             pkg = top_cve.get("package", "")
             pkg_str = f" in {pkg}" if pkg else ""
-            steps.append({
-                "step": step_num,
-                "action": f"Exploit {cve_id}{pkg_str} via network-accessible service",
-                "technique": "T1190",
-            })
+            steps.append(
+                {
+                    "step": step_num,
+                    "action": f"Exploit {cve_id}{pkg_str} via network-accessible service",
+                    "technique": "T1190",
+                }
+            )
             step_num += 1
 
         # Step 3: Code execution
-        steps.append({
-            "step": step_num,
-            "action": "Achieve code execution or denial of service on target service",
-            "technique": "T1059",
-        })
+        steps.append(
+            {
+                "step": step_num,
+                "action": "Achieve code execution or denial of service on target service",
+                "technique": "T1059",
+            }
+        )
         step_num += 1
 
         # Step 4: IMDS credential theft
-        steps.append({
-            "step": step_num,
-            "action": "Query EC2 Instance Metadata Service (IMDS) for IAM role credentials",
-            "technique": "T1552.005",
-        })
+        steps.append(
+            {
+                "step": step_num,
+                "action": "Query EC2 Instance Metadata Service (IMDS) for IAM role credentials",
+                "technique": "T1552.005",
+            }
+        )
         step_num += 1
 
         # Step 5: Lateral movement
-        steps.append({
-            "step": step_num,
-            "action": "Use harvested role credentials for lateral movement or data exfiltration",
-            "technique": "T1078.004",
-        })
+        steps.append(
+            {
+                "step": step_num,
+                "action": "Use harvested role credentials for lateral movement or data exfiltration",
+                "technique": "T1078.004",
+            }
+        )
 
         narrative = (
             f"Instance {iid} is reachable from the internet"

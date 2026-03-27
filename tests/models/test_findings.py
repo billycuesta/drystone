@@ -1,7 +1,8 @@
 """Tests for Finding model with security_analogy field."""
 
 import json
-from drystone.models.findings import Finding, FindingsSummary, PCIDSSControl
+
+from drystone.models.findings import Finding, PCIDSSControl
 
 
 def test_finding_with_security_analogy():
@@ -19,8 +20,10 @@ def test_finding_with_security_analogy():
         remediation="Enable MFA on root account.",
         security_analogy="Like leaving the master key in the front door of a bank vault.",
     )
-    
-    assert finding.security_analogy == "Like leaving the master key in the front door of a bank vault."
+
+    assert (
+        finding.security_analogy == "Like leaving the master key in the front door of a bank vault."
+    )
     assert finding.id == "IAM-001"
 
 
@@ -38,7 +41,7 @@ def test_finding_without_security_analogy():
         affected_resources=["arn:aws:iam::123456789012:user/alice"],
         remediation="Rotate the access key.",
     )
-    
+
     assert finding.security_analogy is None
     assert finding.id == "IAM-002"
 
@@ -53,15 +56,21 @@ def test_finding_serialization_with_analogy():
         description="S3 bucket allows public GetObject.",
         impact="Public data exposure.",
         evidence_refs=["evidence/s3-buckets.json#bucket1"],
-        evidence_snippet={"BucketName": "test-bucket", "PublicAccessBlockConfiguration": {"BlockPublicAcls": False}},
+        evidence_snippet={
+            "BucketName": "test-bucket",
+            "PublicAccessBlockConfiguration": {"BlockPublicAcls": False},
+        },
         affected_resources=["arn:aws:s3:::test-bucket"],
         remediation="Enable BlockPublicAcls.",
         security_analogy="Like leaving sensitive documents on a public park bench.",
     )
-    
+
     finding_dict = json.loads(finding.model_dump_json())
     assert "security_analogy" in finding_dict
-    assert finding_dict["security_analogy"] == "Like leaving sensitive documents on a public park bench."
+    assert (
+        finding_dict["security_analogy"]
+        == "Like leaving sensitive documents on a public park bench."
+    )
 
 
 def test_finding_with_pci_dss_and_analogy():
@@ -78,15 +87,10 @@ def test_finding_with_pci_dss_and_analogy():
         affected_resources=["arn:aws:iam::123456789012:user/admin"],
         remediation="Enable MFA.",
         cis_reference="1.5",
-        pci_dss=[
-            PCIDSSControl(
-                control="8.4.1",
-                reason="MFA required for admin access"
-            )
-        ],
+        pci_dss=[PCIDSSControl(control="8.4.1", reason="MFA required for admin access")],
         security_analogy="Like requiring a PIN at an ATM alongside your debit card.",
     )
-    
+
     assert finding.security_analogy is not None
     assert len(finding.pci_dss) > 0
     assert finding.cis_reference == "1.5"

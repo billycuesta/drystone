@@ -331,7 +331,10 @@ class TestCollectCveIntelligence:
             compute_inventory={},
         )
         assert len(result["enrichment_errors"]) >= 1
-        assert "NVD" in result["enrichment_errors"][0] or "unreachable" in result["enrichment_errors"][0]
+        assert (
+            "NVD" in result["enrichment_errors"][0]
+            or "unreachable" in result["enrichment_errors"][0]
+        )
 
     def test_attack_path_generated_for_public_ec2(self) -> None:
         skill = self._make_skill()

@@ -233,9 +233,11 @@ class NetworkSkill(BaseSkill):
                                         else None
                                     )
                                 ),
-                                "State": (inst.get("State") or {}).get("Name")
-                                if isinstance(inst.get("State"), dict)
-                                else None,
+                                "State": (
+                                    (inst.get("State") or {}).get("Name")
+                                    if isinstance(inst.get("State"), dict)
+                                    else None
+                                ),
                                 "Tags": inst.get("Tags", []),
                                 "SecurityGroups": inst.get("SecurityGroups", []),
                             }
@@ -272,9 +274,11 @@ class NetworkSkill(BaseSkill):
                             "Engine": db.get("Engine"),
                             "DBInstanceClass": db.get("DBInstanceClass"),
                             "PubliclyAccessible": db.get("PubliclyAccessible"),
-                            "VpcId": db.get("DBSubnetGroup", {}).get("VpcId")
-                            if isinstance(db.get("DBSubnetGroup"), dict)
-                            else None,
+                            "VpcId": (
+                                db.get("DBSubnetGroup", {}).get("VpcId")
+                                if isinstance(db.get("DBSubnetGroup"), dict)
+                                else None
+                            ),
                             "SubnetIds": subnet_ids,
                             "VpcSecurityGroups": db.get("VpcSecurityGroups", []),
                         }
@@ -303,12 +307,16 @@ class NetworkSkill(BaseSkill):
                             "FunctionName": fn.get("FunctionName"),
                             "Runtime": fn.get("Runtime"),
                             "VpcConfig": vpc_cfg,
-                            "SubnetIds": (vpc_cfg.get("SubnetIds") or [])
-                            if isinstance(vpc_cfg, dict)
-                            else [],
-                            "SecurityGroupIds": (vpc_cfg.get("SecurityGroupIds") or [])
-                            if isinstance(vpc_cfg, dict)
-                            else [],
+                            "SubnetIds": (
+                                (vpc_cfg.get("SubnetIds") or [])
+                                if isinstance(vpc_cfg, dict)
+                                else []
+                            ),
+                            "SecurityGroupIds": (
+                                (vpc_cfg.get("SecurityGroupIds") or [])
+                                if isinstance(vpc_cfg, dict)
+                                else []
+                            ),
                         }
                     )
 

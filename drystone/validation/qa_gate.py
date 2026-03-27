@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List
 
-
 PLACEHOLDER_PATTERNS = [
     "will be listed here",
     "to be completed",

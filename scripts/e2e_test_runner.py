@@ -28,7 +28,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Iterable, List, Literal, Optional, Sequence, Tuple, cast
+from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Sequence, Tuple, cast
 
 import click
 
@@ -623,7 +623,7 @@ def generate_summary_report(results: List[TestResult], output_dir: Path) -> None
 
     # Markdown report
     lines: List[str] = []
-    lines.append(f"# Drystone E2E Test Results")
+    lines.append("# Drystone E2E Test Results")
     lines.append("")
     lines.append(f"- Timestamp: `{payload['timestamp']}`")
     lines.append(f"- Total: {total}")
@@ -739,10 +739,10 @@ def _run_with_progress(
     if _rich_available():
         from rich.console import Console
         from rich.progress import (
+            BarColumn,
             Progress,
             SpinnerColumn,
             TextColumn,
-            BarColumn,
             TimeElapsedColumn,
             TimeRemainingColumn,
         )

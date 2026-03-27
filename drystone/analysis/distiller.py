@@ -2,7 +2,6 @@
 
 from typing import Any, Dict, List, Tuple
 
-
 FILE_ALLOWLIST_FIELDS = {
     "vpcs": {"VpcId", "CidrBlock", "State", "IsDefault", "Tags"},
     "security-groups": {
@@ -19,7 +18,7 @@ FILE_ALLOWLIST_FIELDS = {
         "Arn",
         "RoleName",
         "AssumeRolePolicyDocument",
-        "AttachedPolicies",   # actual field name (was wrongly "AttachedManagedPolicies")
+        "AttachedPolicies",  # actual field name (was wrongly "AttachedManagedPolicies")
         "InlinePolicies",
         "Path",
     },
@@ -29,7 +28,7 @@ FILE_ALLOWLIST_FIELDS = {
         "DefaultVersionId",
         "AttachmentCount",
         "IsAttachable",
-        "PolicyDocument",     # policy content needed for LLM checks (IAM-007, -008, etc.)
+        "PolicyDocument",  # policy content needed for LLM checks (IAM-007, -008, etc.)
     },
     "inspector-findings": {
         "findingArn",

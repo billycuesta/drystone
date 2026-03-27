@@ -1,4 +1,5 @@
 """Sample findings for correlation engine testing."""
+
 from typing import Dict, List
 
 from drystone.models.findings import Finding
@@ -17,12 +18,12 @@ def get_iam_no_mfa_findings() -> List[Finding]:
             evidence_snippet={
                 "UserName": "root",
                 "Arn": "arn:aws:iam::123456789012:root",
-                "MFADevices": []
+                "MFADevices": [],
             },
             affected_resources=["arn:aws:iam::123456789012:root"],
             remediation="Enable MFA on root account",
             cis_reference="1.5",
-            pci_dss=[{"control": "8.4.1", "reason": "MFA required"}]
+            pci_dss=[{"control": "8.4.1", "reason": "MFA required"}],
         ),
         Finding(
             id="IAM-007",
@@ -35,12 +36,12 @@ def get_iam_no_mfa_findings() -> List[Finding]:
                 "UserName": "admin",
                 "Arn": "arn:aws:iam::123456789012:user/admin",
                 "AccessKeys": [{"AccessKeyId": "AKIA...", "Status": "Active"}],
-                "MFADevices": []
+                "MFADevices": [],
             },
             affected_resources=["arn:aws:iam::123456789012:user/admin"],
             remediation="Enable MFA on user admin",
             cis_reference="1.7",
-            pci_dss=[]
+            pci_dss=[],
         ),
         Finding(
             id="IAM-008",
@@ -52,12 +53,12 @@ def get_iam_no_mfa_findings() -> List[Finding]:
             evidence_snippet={
                 "UserName": "developer",
                 "Arn": "arn:aws:iam::123456789012:user/developer",
-                "MFADevices": []
+                "MFADevices": [],
             },
             affected_resources=["arn:aws:iam::123456789012:user/developer"],
             remediation="Enable MFA on user",
-            cis_reference=None
-        )
+            cis_reference=None,
+        ),
     ]
 
 
@@ -79,13 +80,13 @@ def get_network_ssh_findings() -> List[Finding]:
                         "IpProtocol": "tcp",
                         "FromPort": 22,
                         "ToPort": 22,
-                        "IpRanges": [{"CidrIp": "0.0.0.0/0", "Description": "SSH"}]
+                        "IpRanges": [{"CidrIp": "0.0.0.0/0", "Description": "SSH"}],
                     }
-                ]
+                ],
             },
             affected_resources=["arn:aws:ec2:us-east-1:123456789012:security-group/sg-123"],
             remediation="Restrict SSH to bastion host IPs only",
-            cis_reference="4.1"
+            cis_reference="4.1",
         ),
         Finding(
             id="NET-012",
@@ -101,14 +102,14 @@ def get_network_ssh_findings() -> List[Finding]:
                         "IpProtocol": "tcp",
                         "FromPort": 22,
                         "ToPort": 22,
-                        "IpRanges": [{"CidrIp": "0.0.0.0/0"}]
+                        "IpRanges": [{"CidrIp": "0.0.0.0/0"}],
                     }
-                ]
+                ],
             },
             affected_resources=["arn:aws:ec2:us-east-1:123456789012:security-group/sg-456"],
             remediation="Restrict source CIDR",
-            cis_reference=None
-        )
+            cis_reference=None,
+        ),
     ]
 
 
@@ -128,12 +129,12 @@ def get_exposure_public_s3_findings() -> List[Finding]:
                     "BlockPublicAcls": False,
                     "IgnorePublicAcls": False,
                     "BlockPublicPolicy": False,
-                    "RestrictPublicBuckets": False
-                }
+                    "RestrictPublicBuckets": False,
+                },
             },
             affected_resources=["arn:aws:s3:::sensitive-data-bucket"],
             remediation="Enable Block Public Access",
-            cis_reference="3.1"
+            cis_reference="3.1",
         )
     ]
 
@@ -152,18 +153,12 @@ def get_exposure_overprivileged_iam() -> List[Finding]:
                 "RoleName": "lambda-executor",
                 "AssumeRolePolicyDocument": {},
                 "PolicyDocument": {
-                    "Statement": [
-                        {
-                            "Effect": "Allow",
-                            "Action": "s3:*",
-                            "Resource": "*"
-                        }
-                    ]
-                }
+                    "Statement": [{"Effect": "Allow", "Action": "s3:*", "Resource": "*"}]
+                },
             },
             affected_resources=["arn:aws:iam::123456789012:role/lambda-executor"],
             remediation="Restrict to specific S3 actions and buckets",
-            cis_reference=None
+            cis_reference=None,
         )
     ]
 
@@ -183,14 +178,12 @@ def get_vulns_critical_findings() -> List[Finding]:
                 "Severity": "CRITICAL",
                 "PackageVulnerabilityDetails": {
                     "VulnerabilityId": "CVE-2024-12345",
-                    "VulnerablePackages": [
-                        {"Name": "openssh-server", "Version": "7.4"}
-                    ]
-                }
+                    "VulnerablePackages": [{"Name": "openssh-server", "Version": "7.4"}],
+                },
             },
             affected_resources=["arn:aws:ec2:us-east-1:123456789012:instance/i-12345"],
             remediation="Update openssh-server to latest version",
-            cis_reference=None
+            cis_reference=None,
         )
     ]
 
@@ -208,11 +201,11 @@ def get_hardening_no_patch_manager() -> List[Finding]:
             evidence_snippet={
                 "Service": "Systems Manager",
                 "Configuration": "Patch Manager",
-                "Status": "DISABLED"
+                "Status": "DISABLED",
             },
             affected_resources=[],  # Account-level
             remediation="Enable Systems Manager Patch Manager",
-            cis_reference=None
+            cis_reference=None,
         )
     ]
 
@@ -224,5 +217,5 @@ def get_all_sample_findings() -> Dict[str, List[Finding]]:
         "network": get_network_ssh_findings(),
         "exposure": get_exposure_public_s3_findings(),
         "vulns": get_vulns_critical_findings(),
-        "hardening": get_hardening_no_patch_manager()
+        "hardening": get_hardening_no_patch_manager(),
     }

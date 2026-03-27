@@ -539,9 +539,11 @@ class WAFSkill(BaseSkill):
                                 "Id": detail.get("Id"),
                                 "ARN": detail.get("ARN"),
                                 "Scope": scope,
-                                "Region": "Global"
-                                if scope == "CLOUDFRONT"
-                                else client_kwargs.get("region_name"),
+                                "Region": (
+                                    "Global"
+                                    if scope == "CLOUDFRONT"
+                                    else client_kwargs.get("region_name")
+                                ),
                                 "Description": detail.get("Description"),
                                 "IPAddressVersion": detail.get("IPAddressVersion"),
                                 "Addresses": detail.get("Addresses", []),
@@ -590,9 +592,11 @@ class WAFSkill(BaseSkill):
                                 "Id": detail.get("Id"),
                                 "ARN": detail.get("ARN"),
                                 "Scope": scope,
-                                "Region": "Global"
-                                if scope == "CLOUDFRONT"
-                                else client_kwargs.get("region_name"),
+                                "Region": (
+                                    "Global"
+                                    if scope == "CLOUDFRONT"
+                                    else client_kwargs.get("region_name")
+                                ),
                                 "Capacity": detail.get("Capacity"),
                                 "Description": detail.get("Description"),
                                 "Rules": detail.get("Rules"),
@@ -641,9 +645,11 @@ class WAFSkill(BaseSkill):
                                 "Id": detail.get("Id"),
                                 "ARN": detail.get("ARN"),
                                 "Scope": scope,
-                                "Region": "Global"
-                                if scope == "CLOUDFRONT"
-                                else client_kwargs.get("region_name"),
+                                "Region": (
+                                    "Global"
+                                    if scope == "CLOUDFRONT"
+                                    else client_kwargs.get("region_name")
+                                ),
                                 "Description": detail.get("Description"),
                                 "RegularExpressionList": detail.get("RegularExpressionList", []),
                             }

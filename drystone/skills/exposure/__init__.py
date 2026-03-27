@@ -29,9 +29,11 @@ def _collect_resource_based_policies(client_kwargs: Dict[str, Any]) -> List[Dict
     try:
         sqs = boto3.client("sqs", **client_kwargs)
         queues_resp = sqs.list_queues()
-        for url in (queues_resp.get("QueueUrls") or []):
+        for url in queues_resp.get("QueueUrls") or []:
             try:
-                attrs = sqs.get_queue_attributes(QueueUrl=url, AttributeNames=["QueueArn", "Policy"])
+                attrs = sqs.get_queue_attributes(
+                    QueueUrl=url, AttributeNames=["QueueArn", "Policy"]
+                )
                 policy = attrs.get("Attributes", {}).get("Policy")
                 if policy:
                     arn = attrs.get("Attributes", {}).get("QueueArn", url)
@@ -54,7 +56,7 @@ def _collect_resource_based_policies(client_kwargs: Dict[str, Any]) -> List[Dict
         sns = boto3.client("sns", **client_kwargs)
         paginator = sns.get_paginator("list_topics")
         for page in paginator.paginate():
-            for topic in (page.get("Topics") or []):
+            for topic in page.get("Topics") or []:
                 arn = topic.get("TopicArn", "")
                 try:
                     attrs = sns.get_topic_attributes(TopicArn=arn)
@@ -79,7 +81,7 @@ def _collect_resource_based_policies(client_kwargs: Dict[str, Any]) -> List[Dict
         sm = boto3.client("secretsmanager", **client_kwargs)
         paginator = sm.get_paginator("list_secrets")
         for page in paginator.paginate():
-            for secret in (page.get("SecretList") or []):
+            for secret in page.get("SecretList") or []:
                 arn = secret.get("ARN", "")
                 name = secret.get("Name", "")
                 try:
@@ -107,7 +109,7 @@ def _collect_resource_based_policies(client_kwargs: Dict[str, Any]) -> List[Dict
         ecr = boto3.client("ecr", **client_kwargs)
         paginator = ecr.get_paginator("describe_repositories")
         for page in paginator.paginate():
-            for repo in (page.get("repositories") or []):
+            for repo in page.get("repositories") or []:
                 arn = repo.get("repositoryArn", "")
                 name = repo.get("repositoryName", "")
                 try:
@@ -134,7 +136,7 @@ def _collect_resource_based_policies(client_kwargs: Dict[str, Any]) -> List[Dict
     try:
         os_client = boto3.client("opensearch", **client_kwargs)
         names_resp = os_client.list_domain_names()
-        for entry in (names_resp.get("DomainNames") or []):
+        for entry in names_resp.get("DomainNames") or []:
             dn = entry.get("DomainName", "")
             try:
                 detail = os_client.describe_domain(DomainName=dn).get("DomainStatus", {})
@@ -235,15 +237,17 @@ def _analyze_resource_policy(
         cond_text = json.dumps(cond, default=str).lower()
         has_mitigating_cond = any(k in cond_text for k in _SCOPE_CONDITIONS)
 
-        risky_statements.append({
-            "Sid": stmt.get("Sid"),
-            "Effect": stmt.get("Effect"),
-            "Principal": principal,
-            "Action": stmt.get("Action"),
-            "Condition": cond if cond else None,  # None if no Condition
-            "HasMitigatingCondition": has_mitigating_cond,  # True only if has scope-restricting Condition
-            "MaxSeverity": "Low" if has_mitigating_cond else "Critical",
-        })
+        risky_statements.append(
+            {
+                "Sid": stmt.get("Sid"),
+                "Effect": stmt.get("Effect"),
+                "Principal": principal,
+                "Action": stmt.get("Action"),
+                "Condition": cond if cond else None,  # None if no Condition
+                "HasMitigatingCondition": has_mitigating_cond,  # True only if has scope-restricting Condition
+                "MaxSeverity": "Low" if has_mitigating_cond else "Critical",
+            }
+        )
 
     return {
         "ResourceArn": resource_arn,
@@ -883,7 +887,9 @@ class ExposureSkill(BaseSkill):
             print(f"    Warning: Could not collect Elasticsearch/OpenSearch domains: {e}")
 
         # === RESOURCE-BASED POLICIES ===
-        print("  Collecting resource-based policies (SQS, SNS, OpenSearch, ECR, Secrets Manager)...")
+        print(
+            "  Collecting resource-based policies (SQS, SNS, OpenSearch, ECR, Secrets Manager)..."
+        )
         try:
             rbp_items = _collect_resource_based_policies(client_kwargs)
             _save(evidence_path / "resource-based-policies.json", {"items": rbp_items})
@@ -925,9 +931,7 @@ class ExposureSkill(BaseSkill):
 
         return findings_path
 
-    def _apply_exposure_post_processing(
-        self, session: AuditSession, findings_path: Path
-    ) -> None:
+    def _apply_exposure_post_processing(self, session: AuditSession, findings_path: Path) -> None:
         """Inject deterministic S3 findings and patch ':unknown:' region ARNs.
 
         Reads the saved findings JSON, applies _generate_deterministic_findings()
@@ -969,9 +973,7 @@ class ExposureSkill(BaseSkill):
             deterministic = self._generate_deterministic_findings(evidence, checklist)
             if deterministic:
                 merged: Dict[str, Any] = {
-                    str(f["id"]): f
-                    for f in current_findings
-                    if isinstance(f, dict) and f.get("id")
+                    str(f["id"]): f for f in current_findings if isinstance(f, dict) and f.get("id")
                 }
                 for df in deterministic:
                     merged[df.id] = df.model_dump(mode="json")
