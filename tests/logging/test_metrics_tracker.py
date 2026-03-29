@@ -307,3 +307,164 @@ class TestMetricsTracker:
 
             assert metrics_file.parent.exists()
             assert metrics_file.exists()
+
+
+# ── Additional branch coverage ────────────────────────────────────────────────
+
+
+class TestBranchCoverage:
+    """Target the specific uncovered branches reported by coverage."""
+
+    def test_read_metrics_recovers_after_file_deleted(self, tmp_path):
+        """_read_metrics: FileNotFoundError branch re-creates the file."""
+        path = tmp_path / "m.json"
+        tracker = MetricsTracker(path)
+        path.unlink()
+        result = tracker._read_metrics()
+        assert isinstance(result, dict)
+
+    def test_read_metrics_returns_empty_dict_on_corrupt_json(self, tmp_path):
+        """_read_metrics: general Exception path returns {}."""
+        path = tmp_path / "m.json"
+        tracker = MetricsTracker(path)
+        path.write_text("NOT JSON{{")
+        result = tracker._read_metrics()
+        assert result == {}
+
+    def test_record_skill_start_creates_skills_key_if_absent(self, tmp_path):
+        """record_skill_start: 'if skills not in metrics' branch."""
+        path = tmp_path / "m.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('{"start_time": "2026-01-01T00:00:00"}')
+        tracker = MetricsTracker(path)
+        tracker.record_skill_start("iam")
+        import json as _json
+
+        data = _json.loads(path.read_text())
+        assert "iam" in data["skills"]
+
+    def test_record_token_usage_creates_skill_entry_if_missing(self, tmp_path):
+        """record_token_usage: 'if skill_name not in' branch."""
+        path = tmp_path / "m.json"
+        tracker = MetricsTracker(path)
+        tracker.record_token_usage("network", 300, 150)
+        import json as _json
+
+        data = _json.loads(path.read_text())
+        assert data["skills"]["network"]["prompt_tokens_est"] == 300
+
+    def test_record_skill_provider_stores_provider(self, tmp_path):
+        """record_skill_provider (entire function was uncovered)."""
+        path = tmp_path / "m.json"
+        tracker = MetricsTracker(path)
+        tracker.record_skill_start("iam")
+        tracker.record_skill_provider("iam", "claude-api")
+        import json as _json
+
+        data = _json.loads(path.read_text())
+        assert data["skills"]["iam"]["provider"] == "claude-api"
+
+    def test_record_skill_provider_creates_entry_if_missing(self, tmp_path):
+        path = tmp_path / "m.json"
+        tracker = MetricsTracker(path)
+        tracker.record_skill_provider("vulns", "claude-cli")
+        import json as _json
+
+        data = _json.loads(path.read_text())
+        assert "vulns" in data["skills"]
+
+    def test_record_skill_quality_stores_metrics(self, tmp_path):
+        """record_skill_quality (entire function was uncovered)."""
+        import json as _json
+
+        path = tmp_path / "m.json"
+        tracker = MetricsTracker(path)
+        tracker.record_skill_start("iam")
+        tracker.record_skill_quality("iam", 0.9, "CONFIDENT", llm_skipped=False)
+        data = _json.loads(path.read_text())
+        assert abs(data["skills"]["iam"]["confidence_score"] - 0.9) < 1e-6
+        assert data["skills"]["iam"]["llm_skipped"] is False
+
+    def test_record_skill_quality_creates_entry_if_missing(self, tmp_path):
+        import json as _json
+
+        path = tmp_path / "m.json"
+        tracker = MetricsTracker(path)
+        tracker.record_skill_quality("exposure", 0.7, "UNCERTAIN", llm_skipped=True)
+        data = _json.loads(path.read_text())
+        assert data["skills"]["exposure"]["llm_skipped"] is True
+
+    def test_record_llm_budget_stores_metrics(self, tmp_path):
+        """record_llm_budget (entire function was uncovered)."""
+        import json as _json
+
+        path = tmp_path / "m.json"
+        tracker = MetricsTracker(path)
+        tracker.record_skill_start("iam")
+        tracker.record_llm_budget(
+            "iam", llm_checks=5, deterministic_checks=10, distilled_files=2, items_removed=40
+        )
+        data = _json.loads(path.read_text())
+        assert data["skills"]["iam"]["llm_checks"] == 5
+        assert data["skills"]["iam"]["evidence_items_removed"] == 40
+
+    def test_record_llm_budget_creates_entry_if_missing(self, tmp_path):
+        import json as _json
+
+        path = tmp_path / "m.json"
+        tracker = MetricsTracker(path)
+        tracker.record_llm_budget(
+            "waf", llm_checks=3, deterministic_checks=7, distilled_files=0, items_removed=0
+        )
+        data = _json.loads(path.read_text())
+        assert "waf" in data["skills"]
+
+    def test_record_skill_findings_creates_entry_if_missing(self, tmp_path):
+        """record_skill_findings: 'if skill_name not in' branch."""
+        import json as _json
+
+        path = tmp_path / "m.json"
+        tracker = MetricsTracker(path)
+        tracker.record_skill_findings("network", 2, 6.0)
+        data = _json.loads(path.read_text())
+        assert "network" in data["skills"]
+
+    def test_record_skill_complete_creates_entry_if_missing(self, tmp_path):
+        """record_skill_complete: 'if skill_name not in' branch."""
+        import json as _json
+
+        path = tmp_path / "m.json"
+        tracker = MetricsTracker(path)
+        tracker.record_skill_complete("vulns", True)
+        data = _json.loads(path.read_text())
+        assert "vulns" in data["skills"]
+
+    def test_record_retry_attempt_creates_entry_if_missing(self, tmp_path):
+        """record_retry_attempt: 'if skill_name not in' branch."""
+        import json as _json
+
+        path = tmp_path / "m.json"
+        tracker = MetricsTracker(path)
+        tracker.record_retry_attempt("waf", 1, "rate_limit")
+        data = _json.loads(path.read_text())
+        assert "waf" in data["skills"]
+
+    def test_calculate_elapsed_time_returns_none_when_no_start_time(self, tmp_path):
+        """_calculate_elapsed_time: start_time missing or not string."""
+        path = tmp_path / "m.json"
+        tracker = MetricsTracker(path)
+        assert tracker._calculate_elapsed_time({}) is None
+        assert tracker._calculate_elapsed_time({"start_time": None}) is None
+        assert tracker._calculate_elapsed_time({"start_time": 12345}) is None
+
+    def test_calculate_elapsed_time_returns_none_on_invalid_date(self, tmp_path):
+        """_calculate_elapsed_time: Exception branch."""
+        path = tmp_path / "m.json"
+        tracker = MetricsTracker(path)
+        result = tracker._calculate_elapsed_time({"start_time": "NOT-A-DATE"})
+        assert result is None
+
+    def test_get_skill_metrics_returns_none_for_unknown(self, tmp_path):
+        path = tmp_path / "m.json"
+        tracker = MetricsTracker(path)
+        assert tracker.get_skill_metrics("unknown") is None
