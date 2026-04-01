@@ -22,7 +22,8 @@
           "control": "10.6.1",
           "reason": "Monitoring of security events is required. Without logs in CloudWatch, it's impossible to create metric filters and alarms for proactive monitoring."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     },
     {
       "id": "ALRT-002",
@@ -35,7 +36,8 @@
           "control": "10.6.1",
           "reason": "EventBridge can act as a crucial part of the security event monitoring and alerting pipeline, enabling real-time response. Lack of integration hinders proactive event management."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     },
     {
       "id": "ALRT-003",
@@ -48,7 +50,8 @@
           "control": "10.6.1",
           "reason": "This control explicitly requires generating alerts when security events are detected. Metric filters without alarms fail to generate these alerts, leaving critical events unnoticed."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     },
     {
       "id": "ALRT-004",
@@ -61,7 +64,8 @@
           "control": "10.6.1",
           "reason": "For EventBridge rules that handle security events, the lack of an SNS target means no alert is generated or personnel notified, directly violating this control."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "ALRT-005",
@@ -74,7 +78,8 @@
           "control": "10.6.1",
           "reason": "Without active subscribers, notifications cannot reach responsible personnel, rendering the entire alerting mechanism ineffective and violating the requirement for notifying personnel."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     },
     {
       "id": "ALRT-006",
@@ -87,7 +92,8 @@
           "control": "10.6.1",
           "reason": "Notifications are not actively delivered to 'PendingConfirmation' endpoints, which means responsible personnel are not receiving alerts, thus failing the notification requirement."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "ALRT-007",
@@ -104,7 +110,8 @@
           "control": "10.2.1.2",
           "reason": "Failing to alert on administrative actions (like ConsoleLogin, CreateUser) or audit log tampering (StopLogging, DeleteTrail) means these critical events are not being effectively monitored."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "ALRT-008",
@@ -117,7 +124,8 @@
           "control": "10.2.1",
           "reason": "This control requires audit logs for ALL system components. A single-region trail will miss events in other regions, resulting in incomplete audit logs."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     },
     {
       "id": "ALRT-009",
@@ -130,7 +138,8 @@
           "control": "10.6.1",
           "reason": "Metric filters are the foundation for detecting security events within logs. Without them, specific security events cannot be effectively monitored or trigger alerts."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "ALRT-010",
@@ -143,7 +152,8 @@
           "control": "10.6.1",
           "reason": "Alarms in 'INSUFFICIENT_DATA' state cannot reliably generate alerts for security events, creating a blind spot in real-time monitoring."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     },
     {
       "id": "ALRT-011",
@@ -156,7 +166,8 @@
           "control": "7.2.1",
           "reason": "This control requires access to be based on the principle of least privilege. An open SNS topic policy violates this by allowing excessive access."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "ALRT-012",
@@ -173,7 +184,8 @@
           "control": "10.2.1.2",
           "reason": "These events represent administrative actions (ConsoleLogin, CreateUser) or tampering with audit logs (StopLogging) that are explicitly required to be logged and monitored."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     },
     {
       "id": "ALRT-013",
@@ -186,7 +198,8 @@
           "control": "10.5.5",
           "reason": "This control requires protecting audit logs from alteration. Log File Validation provides cryptographic proof of log integrity, directly supporting this requirement."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "ALRT-014",
@@ -199,7 +212,8 @@
           "control": "3.5.1",
           "reason": "While CloudTrail logs are not cardholder data, the principle of encrypting sensitive data at rest applies. Encrypting logs with KMS adds a layer of protection against unauthorized disclosure."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     },
     {
       "id": "ALRT-015",
@@ -216,7 +230,8 @@
           "control": "10.6.1",
           "reason": "Alerting on IAM changes is crucial for detecting potential privilege escalation or unauthorized access modifications."
         }
-      ]
+      ],
+      "qsa_visibility": "deep"
     },
     {
       "id": "ALRT-016",
@@ -233,7 +248,8 @@
           "control": "10.6.1",
           "reason": "Monitoring and alerting on changes to network access rules is a fundamental security practice."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "ALRT-017",
@@ -246,7 +262,8 @@
           "control": "10.5.1",
           "reason": "This control requires audit logs to be retained for a minimum of one year. A retention policy of less than 90 days is a clear violation for PCI DSS scope."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "ALRT-018",
@@ -259,7 +276,8 @@
           "control": "10.6.1",
           "reason": "While not a direct technical security control, clear alarm descriptions are crucial for responsible personnel to promptly investigate and respond to security events, supporting the objective of this control."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "ALRT-019",
@@ -272,7 +290,8 @@
           "control": "12.5.1",
           "reason": "Good naming conventions contribute to maintaining an accurate inventory of system components and understanding their function, which is required for effective management and auditing."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "ALRT-020",
@@ -285,7 +304,8 @@
           "control": "12.5.1",
           "reason": "Tags are critical for identifying and managing in-scope system components, supporting the requirement for maintaining a clear inventory."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "ALRT-021",
@@ -298,7 +318,8 @@
           "control": "10.5.1",
           "reason": "While not directly about log retention, ensuring reliable delivery of security alerts contributes to the overall objective of having complete and actionable security event data, which could indirectly relate to audit trail completeness."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "ALRT-022",
@@ -311,7 +332,8 @@
           "control": "10.6.1",
           "reason": "Alerting pipelines must remain trustworthy; unauthorized publishing can corrupt or mask security signal quality."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "ALRT-023",
@@ -324,7 +346,8 @@
           "control": "7.2.1",
           "reason": "Access to security notifications must follow least privilege and explicit authorization."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "ALRT-024",
@@ -337,7 +360,8 @@
           "control": "10.6.1",
           "reason": "Alert delivery channels must be reliable and controlled to ensure security personnel are properly notified."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "ALRT-025",
@@ -350,7 +374,8 @@
           "control": "10.6.1",
           "reason": "Critical security events must trigger notifications to responsible personnel in near real-time."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     }
   ],
   "version": "1.1",

@@ -27,7 +27,8 @@
           "control": "3.6.1",
           "reason": "Cryptographic keys must be protected from unauthorized access and misuse."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "KMS-002",
@@ -48,7 +49,8 @@
           "control": "10.2.1",
           "reason": "Use audit logs to detect unauthorized changes and access attempts."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "KMS-003",
@@ -68,7 +70,8 @@
           "control": "7.2.1",
           "reason": "Least privilege principle for access to sensitive systems and cryptographic controls."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "KMS-004",
@@ -87,7 +90,8 @@
           "control": "3.6.4",
           "reason": "Cryptographic key management processes should include rotation as appropriate."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "KMS-005",
@@ -110,7 +114,8 @@
           "control": "3.7.5",
           "reason": "KMS policies allowing destructive actions (key deletion, disabling) can result in permanent loss of cryptographic keys protecting cardholder data. PCI DSS 3.7.5 requires procedures to retire or replace cryptographic keys when integrity is weakened, including controls preventing unauthorized key destruction."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "KMS-006",
@@ -131,7 +136,8 @@
           "control": "3.6.1",
           "reason": "Cryptographic keys must remain available and protected from unauthorized lifecycle operations."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "KMS-007",
@@ -152,7 +158,8 @@
           "control": "7.2.1",
           "reason": "Least privilege must be enforced for cryptographic control delegation."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     }
   ],
   "notes": "KMS is region-scoped. Findings must be backed by policy/grant evidence references."

@@ -30,7 +30,8 @@
           "control": "3.5.1",
           "reason": "This control mandates that cryptographic keys are accessible only to the fewest number of custodians necessary. Public access via wildcard principals exposes encryption keys to unauthorized users."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "SM-002",
@@ -55,7 +56,8 @@
           "control": "3.6.1.1",
           "reason": "This control demands key-management procedures for cryptographic keys. Automatic rotation is a key management best practice to limit exposure windows."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "SM-003",
@@ -76,7 +78,8 @@
           "control": "8.3.9",
           "reason": "This control mandates password/passphrase changes at least every 90 days. A rotation interval exceeding 90 days fails to comply with this requirement."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "SM-004",
@@ -101,7 +104,8 @@
           "control": "3.6.1.2",
           "reason": "This control mandates that only the fewest custodians have access to cryptographic keys. Customer-managed keys allow fine-grained IAM policies to restrict custodian access."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "SM-005",
@@ -126,7 +130,8 @@
           "control": "8.2.6",
           "reason": "This control requires removing or disabling inactive accounts within 90 days. Stale secrets (>365 days) represent dormant credentials that should be rotated or removed."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "SM-006",
@@ -147,7 +152,8 @@
           "control": "12.3.1",
           "reason": "This control requires a data retention and disposal policy. Tags enable tracking of secret lifecycle and facilitate automated disposal based on governance policies."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "SM-007",
@@ -168,7 +174,8 @@
           "control": "12.3.1",
           "reason": "This control requires documented data retention policies. Clear descriptions facilitate identification of secrets subject to retention requirements."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "SM-008",
@@ -189,7 +196,8 @@
           "control": "3.7.4",
           "reason": "Replicating secrets to multiple regions ensures availability of cryptographic keys and secrets protecting cardholder data. PCI DSS 3.7.4 requires documented key management procedures covering key storage and backup to prevent loss."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "SM-009",
@@ -210,7 +218,8 @@
           "control": "8.3.9",
           "reason": "This control mandates password changes every 90 days. For high-value secrets, a 30-day interval exceeds compliance and enhances security."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "SM-010",
@@ -235,7 +244,8 @@
           "control": "1.3.1",
           "reason": "This control mandates restricting inbound and outbound traffic to the CDE. VPC endpoints keep secret traffic within private networks."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "SM-011",
@@ -260,7 +270,8 @@
           "control": "8.5.1",
           "reason": "This control specifies MFA using two or more independent factor types. Requiring MFA in resource policies enforces this requirement."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "SM-012",
@@ -283,7 +294,8 @@
           "control": "10.7.2",
           "reason": "This control requires detection and reporting of failures of critical security systems. Rotation failures are critical security events requiring alerting."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "SM-013",
@@ -305,7 +317,8 @@
           "control": "7.2.2",
           "reason": "Access to secrets must be denied by default except for explicitly authorized entities."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "SM-014",
@@ -326,7 +339,8 @@
           "control": "10.2.1",
           "reason": "Security-relevant changes to secret rotation configuration must be monitored and controlled."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "SM-015",
@@ -347,7 +361,8 @@
           "control": "3.6.1",
           "reason": "Key management operations must prevent unauthorized cryptographic key substitution."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "SM-016",
@@ -368,7 +383,8 @@
           "control": "10.2.1",
           "reason": "Changes affecting authentication secrets must be logged and detected as high-risk events."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "SM-017",
@@ -390,7 +406,8 @@
           "control": "3.7.5",
           "reason": "Cross-region replica promotion can be abused to create stealth access to secrets, undermining key lifecycle controls. PCI DSS 3.7.5 requires procedures to retire or replace cryptographic keys and prevent unauthorized access to superseded keys."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     }
   ],
   "notes": "Checklist covers AWS Secrets Manager best practices with comprehensive PCI-DSS v4.0 mapping. Focuses on rotation policies (Req 8.x), encryption (Req 3.x), and access control (Req 7.x). All checks mapped to specific PCI controls with justifications."

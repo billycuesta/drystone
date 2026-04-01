@@ -22,7 +22,8 @@
           "control": "12.5.1",
           "reason": "Maintaining an accurate inventory of in-scope system components is critical. AWS Config provides continuous inventory of resources, which is vital for this control."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "HRD-002",
@@ -39,7 +40,8 @@
           "control": "6.3.1",
           "reason": "This control requires processes to identify and manage security vulnerabilities. Security Hub aggregates findings from various security checks, providing a consolidated view of vulnerabilities."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "HRD-003",
@@ -56,7 +58,8 @@
           "control": "6.3.1",
           "reason": "Identifying security vulnerabilities requires evaluation against industry-recognized benchmarks, which Security Hub's enabled standards provide."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "HRD-004",
@@ -69,7 +72,8 @@
           "control": "12.2.1",
           "reason": "A low compliance score is a direct indicator of inadequate implementation of security controls, thus reflecting a weak risk management program."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "HRD-005",
@@ -86,7 +90,8 @@
           "control": "12.5.2",
           "reason": "Requires addressing security incidents and identified weaknesses. Unremediated critical findings represent significant security weaknesses."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "HRD-006",
@@ -103,7 +108,8 @@
           "control": "12.5.1",
           "reason": "Lack of full inventory coverage due to partial Config enablement impacts the ability to maintain an accurate and complete inventory of in-scope system components."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "HRD-007",
@@ -120,7 +126,8 @@
           "control": "6.3.1",
           "reason": "Identifying vulnerabilities relevant to PCI DSS requires active monitoring against the standard, which is missing in this case."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "HRD-008",
@@ -133,7 +140,8 @@
           "control": "12.2.1",
           "reason": "A compliance score in this range signifies considerable gaps in the implementation of security controls, necessitating a more robust risk management approach."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "HRD-009",
@@ -150,7 +158,8 @@
           "control": "12.5.2",
           "reason": "Requires timely addressing of identified security weaknesses to prevent potential incidents."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "HRD-010",
@@ -163,7 +172,8 @@
           "control": "12.2.1",
           "reason": "Conformance Packs provide automated continuous compliance checks, directly supporting and enhancing the risk management program's effectiveness."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "HRD-011",
@@ -176,7 +186,8 @@
           "control": "12.2.1",
           "reason": "While better, this score still points to areas where the risk management program and implemented controls can be strengthened to achieve higher compliance."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "HRD-012",
@@ -193,7 +204,8 @@
           "control": "12.5.2",
           "reason": "Accumulation of unaddressed medium findings represents a failure to effectively manage and address identified security weaknesses."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "HRD-013",
@@ -206,7 +218,8 @@
           "control": "6.3.1.a",
           "reason": "Requires that security vulnerabilities are identified using industry-recognized sources and that processes are updated as new vulnerability issues are identified. Using outdated standards means the process is not fully up-to-date."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "HRD-014",
@@ -219,7 +232,8 @@
           "control": "10.6.1",
           "reason": "This control requires monitoring security events and alerting personnel. Lack of integration with an alerting system directly impacts the effectiveness of security event monitoring."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "HRD-015",
@@ -232,7 +246,8 @@
           "control": "12.2.1",
           "reason": "Even with a high compliance score, continuous monitoring and review are necessary to maintain and improve the security posture."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "HRD-016",
@@ -245,7 +260,8 @@
           "control": "6.3.3.b",
           "reason": "While not high-priority, all identified vulnerabilities, regardless of severity, should eventually be addressed according to an entity's vulnerability management policy."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "HRD-017",
@@ -258,7 +274,8 @@
           "control": "12.5.1",
           "reason": "Consistent tagging is crucial for maintaining an accurate inventory of system components, especially those in-scope for PCI DSS. It enables easier identification and management of relevant resources."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "HRD-018",
@@ -295,7 +312,8 @@
           "control": "7.1.1",
           "reason": "Requires documented security policies and procedures for restricting access to system components and cardholder data by business need-to-know."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     }
   ],
   "version": "1.0",

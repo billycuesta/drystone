@@ -115,6 +115,19 @@ class BaseSkill(ABC):
 
         print(f"    Loaded {len(checklist['items'])} security checks")
 
+        # 2a. Filter checklist by QSA depth (before any pipeline processing)
+        qsa_depth = getattr(agent_client, "config", {}).get("qsa_depth", "standard")
+        _depth_order = {"obvious": 0, "standard": 1, "deep": 2}
+        _max_depth = _depth_order.get(qsa_depth, 1)
+        original_count = len(checklist.get("items", []))
+        checklist["items"] = [
+            item for item in checklist.get("items", [])
+            if _depth_order.get(item.get("qsa_visibility", "standard"), 1) <= _max_depth
+        ]
+        filtered_count = len(checklist.get("items", []))
+        if filtered_count < original_count:
+            print(f"    Filtered by QSA depth '{qsa_depth}': {original_count} → {filtered_count} checks")
+
         # 2b. Tier 1: Run deterministic pre-checks
         from drystone.agent.budget import get_budget_policy
         from drystone.analysis.distiller import distill_evidence

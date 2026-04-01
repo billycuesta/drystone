@@ -11,68 +11,103 @@
       "title": "EventBridge rules trigger ECS tasks on a schedule (persistence indicator)",
       "severity": "High",
       "description": "Scheduled ECS tasks can be used to maintain persistence or execute unauthorized workloads.",
-      "evidence_files": ["eventbridge-rules.json", "ecs-inventory.json"],
-      "check_keywords": ["ScheduleExpression", "ECS", "Targets"],
+      "evidence_files": [
+        "eventbridge-rules.json",
+        "ecs-inventory.json"
+      ],
+      "check_keywords": [
+        "ScheduleExpression",
+        "ECS",
+        "Targets"
+      ],
       "remediation": "Review EventBridge rules/targets; restrict who can create/update rules and RunTask; monitor for unexpected scheduled executions.",
       "pci_dss": [
         {
           "control": "10.2.1",
           "reason": "Monitoring scheduled execution changes reduces persistence dwell time."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "COMP-ECS-002",
       "title": "ECS task definitions show drift / unexpected containers",
       "severity": "Medium",
       "description": "Unexpected containers or task definition changes can indicate backdoored workloads.",
-      "evidence_files": ["ecs-inventory.json"],
-      "check_keywords": ["containerDefinitions", "image"],
+      "evidence_files": [
+        "ecs-inventory.json"
+      ],
+      "check_keywords": [
+        "containerDefinitions",
+        "image"
+      ],
       "remediation": "Enforce IaC and immutable deployments; restrict RegisterTaskDefinition/UpdateService; review diffs and approvals.",
       "pci_dss": [
         {
           "control": "6.3.2",
           "reason": "Change control helps prevent unauthorized modifications to workloads."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "COMP-ECS-003",
       "title": "ECS workloads lack centralized logging",
       "severity": "Medium",
       "description": "Missing logs reduce detection and incident response capabilities.",
-      "evidence_files": ["ecs-inventory.json"],
-      "check_keywords": ["logConfiguration", "awslogs"],
+      "evidence_files": [
+        "ecs-inventory.json"
+      ],
+      "check_keywords": [
+        "logConfiguration",
+        "awslogs"
+      ],
       "remediation": "Enable CloudWatch Logs for ECS tasks/services and enforce logging in task definition baselines.",
       "pci_dss": [
         {
           "control": "10.2.1",
           "reason": "Logging supports detection of suspicious activity."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "COMP-ECS-004",
       "title": "ECS task roles or execution roles appear overly permissive",
       "severity": "High",
       "description": "Excessive IAM rights assigned to workloads amplify impact of initial access.",
-      "evidence_files": ["ecs-inventory.json"],
-      "check_keywords": ["taskRoleArn", "executionRoleArn", "*"],
+      "evidence_files": [
+        "ecs-inventory.json"
+      ],
+      "check_keywords": [
+        "taskRoleArn",
+        "executionRoleArn",
+        "*"
+      ],
       "remediation": "Apply least privilege to task roles; use permission boundaries and scope resource ARNs.",
       "pci_dss": [
         {
           "control": "7.2.1",
           "reason": "Least privilege reduces blast radius of workload compromise."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "COMP-ECS-005",
       "title": "ECS task definitions contain plaintext credentials in environment variables",
       "severity": "Critical",
       "description": "Hardcoded secrets in ECS environment variables expose credentials to anyone with DescribeTaskDefinition permissions and violate PCI DSS secrets management requirements.",
-      "evidence_files": ["ecs-inventory.json"],
-      "check_keywords": ["environment", "password", "secret", "token", "credential"],
+      "evidence_files": [
+        "ecs-inventory.json"
+      ],
+      "check_keywords": [
+        "environment",
+        "password",
+        "secret",
+        "token",
+        "credential"
+      ],
       "remediation": "Remove plaintext secrets from task definition environment variables. Use AWS Secrets Manager or SSM Parameter Store with secretOptions/valueFrom references instead.",
       "pci_dss": [
         {
@@ -83,97 +118,140 @@
           "control": "8.3.1",
           "reason": "All individual non-consumer user IDs and authentication factors must be managed via a secrets management solution."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "COMP-EKS-001",
       "title": "EKS cluster endpoint is public without strong restrictions",
       "severity": "High",
       "description": "Public EKS endpoints expand attack surface and increase likelihood of credential brute/abuse paths.",
-      "evidence_files": ["eks-inventory.json"],
-      "check_keywords": ["resourcesVpcConfig", "endpointPublicAccess"],
+      "evidence_files": [
+        "eks-inventory.json"
+      ],
+      "check_keywords": [
+        "resourcesVpcConfig",
+        "endpointPublicAccess"
+      ],
       "remediation": "Disable public endpoint access or restrict CIDRs; enforce private endpoint where possible and use strong auth controls.",
       "pci_dss": [
         {
           "control": "1.2.1",
           "reason": "Limit inbound access to system components to only authorized sources."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "COMP-EKS-002",
       "title": "EKS control-plane logging is not fully enabled",
       "severity": "Medium",
       "description": "Missing EKS logging reduces detection for authentication and API misuse.",
-      "evidence_files": ["eks-inventory.json"],
-      "check_keywords": ["logging", "enabled"],
+      "evidence_files": [
+        "eks-inventory.json"
+      ],
+      "check_keywords": [
+        "logging",
+        "enabled"
+      ],
       "remediation": "Enable EKS control plane logs (api, audit, authenticator, controllerManager, scheduler) and ship to centralized SIEM.",
       "pci_dss": [
         {
           "control": "10.2.1",
           "reason": "Audit logs provide visibility into administrative access and security events."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "COMP-EC2-001",
       "title": "EC2 instances with IMDSv1 and instance profile attached",
       "severity": "High",
       "description": "Instances allowing IMDSv1 while exposing IAM role credentials via instance profiles increase SSRF-to-credential-theft risk.",
-      "evidence_files": ["ec2-inventory.json"],
-      "check_keywords": ["MetadataOptions", "HttpTokens", "IamInstanceProfile"],
+      "evidence_files": [
+        "ec2-inventory.json"
+      ],
+      "check_keywords": [
+        "MetadataOptions",
+        "HttpTokens",
+        "IamInstanceProfile"
+      ],
       "remediation": "Require IMDSv2 (HttpTokens=require), review SSRF exposure paths, and minimize privileges in instance profile roles.",
       "pci_dss": [
         {
           "control": "2.2.1",
           "reason": "Hardening compute metadata access reduces known abuse vectors for credential theft."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "COMP-EC2-002",
       "title": "EC2 user-data contains credential or remote bootstrap risk patterns",
       "severity": "High",
       "description": "User-data scripts containing secrets or uncontrolled remote script execution increase post-exploitation persistence and lateral movement risk.",
-      "evidence_files": ["ec2-inventory.json"],
-      "check_keywords": ["UserData", "ContainsSecrets", "curl", "wget"],
+      "evidence_files": [
+        "ec2-inventory.json"
+      ],
+      "check_keywords": [
+        "UserData",
+        "ContainsSecrets",
+        "curl",
+        "wget"
+      ],
       "remediation": "Remove embedded secrets, avoid unpinned remote script execution, and move bootstrap secrets to managed secret services.",
       "pci_dss": [
         {
           "control": "6.2.3",
           "reason": "Secure deployment and configuration practices must prevent credential leakage in bootstrap artifacts."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "COMP-LMB-001",
       "title": "Lambda function URLs exposed without authentication",
       "severity": "Critical",
       "description": "Lambda Function URLs with AuthType=NONE create unauthenticated invocation paths from internet.",
-      "evidence_files": ["lambda-inventory.json"],
-      "check_keywords": ["FunctionUrl", "AuthType", "NONE"],
+      "evidence_files": [
+        "lambda-inventory.json"
+      ],
+      "check_keywords": [
+        "FunctionUrl",
+        "AuthType",
+        "NONE"
+      ],
       "remediation": "Set Function URL AuthType to AWS_IAM or place function behind API Gateway with robust authN/authZ controls.",
       "pci_dss": [
         {
           "control": "8.1.1",
           "reason": "Access to system components must require unique identity and authentication."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "COMP-LMB-002",
       "title": "Lambda execution roles appear over-privileged",
       "severity": "High",
       "description": "Broad permissions in Lambda execution roles amplify impact of code compromise and enable lateral movement.",
-      "evidence_files": ["lambda-inventory.json"],
-      "check_keywords": ["Role", "AttachedPolicies", "AdministratorAccess", "*"],
+      "evidence_files": [
+        "lambda-inventory.json"
+      ],
+      "check_keywords": [
+        "Role",
+        "AttachedPolicies",
+        "AdministratorAccess",
+        "*"
+      ],
       "remediation": "Apply least privilege to Lambda execution roles and restrict wildcard/resource-agnostic permissions.",
       "pci_dss": [
         {
           "control": "7.2.1",
           "reason": "Execution identities must be constrained to business-required privileges only."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     }
   ],
   "notes": "Compute skill is scoped to ECS/EKS in the selected region. Evidence must remain passive (no active exploitation)."

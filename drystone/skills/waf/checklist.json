@@ -8,38 +8,59 @@
       "title": "Internet-facing ALBs should be protected by AWS WAF",
       "severity": "Critical",
       "description": "Internet-facing Application Load Balancers without an associated WAF Web ACL increase exposure to common web attacks. For PCI DSS in-scope public-facing web apps, a WAF is required.",
-      "evidence_files": ["alb-waf-associations.json"],
-      "check_keywords": ["internet-facing", "application", "get_web_acl_for_resource", "missing web acl"],
+      "evidence_files": [
+        "alb-waf-associations.json"
+      ],
+      "check_keywords": [
+        "internet-facing",
+        "application",
+        "get_web_acl_for_resource",
+        "missing web acl"
+      ],
       "remediation": "Associate a WAFv2 Web ACL to each internet-facing ALB hosting public applications. Start with AWS Managed Rules (CommonRuleSet, SQLi) and add rate-based rules.",
       "pci_dss": [
         {
           "control": "6.4.2",
           "reason": "Public-facing web applications must be protected by an automated technical solution that detects and prevents web-based attacks (e.g., WAF)."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "WAF-002",
       "title": "CloudFront distributions serving public applications should be protected by AWS WAF",
       "severity": "Critical",
       "description": "CloudFront distributions with no WebACL association are not protected by AWS WAF at the edge.",
-      "evidence_files": ["cloudfront-distributions.json"],
-      "check_keywords": ["CloudFront", "WebACLId", "missing"],
+      "evidence_files": [
+        "cloudfront-distributions.json"
+      ],
+      "check_keywords": [
+        "CloudFront",
+        "WebACLId",
+        "missing"
+      ],
       "remediation": "Create/associate a WAFv2 Web ACL (Scope=CLOUDFRONT) to CloudFront distributions for public applications. Enable AWS Managed Rules and tune false positives using Count mode before enforcing Block.",
       "pci_dss": [
         {
           "control": "6.4.2",
           "reason": "A WAF in front of public-facing web applications is a direct requirement of PCI DSS v4.0."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "WAF-003",
       "title": "WAFv2 Web ACL logging should be enabled",
       "severity": "High",
       "description": "Without WAF logging, attack investigation, tuning, and forensic review are limited. Logging should be enabled to an approved destination (Kinesis Firehose, S3, CloudWatch Logs).",
-      "evidence_files": ["wafv2-web-acls.json"],
-      "check_keywords": ["get_logging_configuration", "LogDestinationConfigs", "enabled"],
+      "evidence_files": [
+        "wafv2-web-acls.json"
+      ],
+      "check_keywords": [
+        "get_logging_configuration",
+        "LogDestinationConfigs",
+        "enabled"
+      ],
       "remediation": "Enable WAF logging for each Web ACL. Configure secure destinations and retention (e.g., S3 with object lock/lifecycle).",
       "pci_dss": [
         {
@@ -48,17 +69,25 @@
         },
         {
           "control": "10.4.1",
-          "reason": "Logs must include sufficient detail and be protected. Centralized WAF logging supports completeness and integrity." 
+          "reason": "Logs must include sufficient detail and be protected. Centralized WAF logging supports completeness and integrity."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "WAF-004",
       "title": "WAF logs should redact sensitive request components",
       "severity": "High",
       "description": "WAF logs may include sensitive data (e.g., Authorization headers, cookies, query strings). Redaction reduces risk of logging secrets or PAN-related data.",
-      "evidence_files": ["wafv2-web-acls.json"],
-      "check_keywords": ["RedactedFields", "Header", "Cookie", "Authorization"],
+      "evidence_files": [
+        "wafv2-web-acls.json"
+      ],
+      "check_keywords": [
+        "RedactedFields",
+        "Header",
+        "Cookie",
+        "Authorization"
+      ],
       "remediation": "Configure WAF log redaction for sensitive headers and fields (Authorization, Cookie, X-Api-Key, etc.). Review application-specific sensitive parameters.",
       "pci_dss": [
         {
@@ -69,30 +98,46 @@
           "control": "10.3.1",
           "reason": "Audit logs must be secured and limited to what is necessary. Redaction reduces exposure in audit trails."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "WAF-005",
       "title": "WAF Web ACLs should have visibility metrics enabled",
       "severity": "Medium",
       "description": "VisibilityConfig should enable CloudWatch metrics and sampled requests to support tuning and incident response.",
-      "evidence_files": ["wafv2-web-acls.json"],
-      "check_keywords": ["VisibilityConfig", "CloudWatchMetricsEnabled", "SampledRequestsEnabled"],
+      "evidence_files": [
+        "wafv2-web-acls.json"
+      ],
+      "check_keywords": [
+        "VisibilityConfig",
+        "CloudWatchMetricsEnabled",
+        "SampledRequestsEnabled"
+      ],
       "remediation": "Enable CloudWatch metrics and sampled requests for Web ACLs and critical rules. Use metrics to identify noisy rules and tune.",
       "pci_dss": [
         {
           "control": "10.7.1",
-          "reason": "Monitoring and alerting requires telemetry. Visibility metrics enable detection and response workflows." 
+          "reason": "Monitoring and alerting requires telemetry. Visibility metrics enable detection and response workflows."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "WAF-006",
       "title": "WAF Web ACLs should include AWS Managed Rules for common threats",
       "severity": "High",
       "description": "Web ACLs without baseline managed rules are typically ineffective against common web vulnerabilities (OWASP Top 10 classes).",
-      "evidence_files": ["wafv2-web-acls.json", "wafv2-managed-rule-groups.json"],
-      "check_keywords": ["ManagedRuleGroupStatement", "AWSManagedRulesCommonRuleSet", "SQLi", "KnownBadInputs"],
+      "evidence_files": [
+        "wafv2-web-acls.json",
+        "wafv2-managed-rule-groups.json"
+      ],
+      "check_keywords": [
+        "ManagedRuleGroupStatement",
+        "AWSManagedRulesCommonRuleSet",
+        "SQLi",
+        "KnownBadInputs"
+      ],
       "remediation": "Add AWS Managed Rules such as CommonRuleSet, SQLiRuleSet, KnownBadInputs, AmazonIpReputationList. Validate with Count mode then enforce Block.",
       "pci_dss": [
         {
@@ -103,157 +148,231 @@
           "control": "6.4.2",
           "reason": "A WAF solution must be configured to detect and prevent attacks; managed rules are a baseline configuration capability."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "WAF-007",
       "title": "WAF rules should not remain in Count-only mode for production protection",
       "severity": "High",
       "description": "Count actions are useful for tuning, but leaving critical protections permanently in Count-only mode reduces actual prevention effectiveness.",
-      "evidence_files": ["wafv2-web-acls.json"],
-      "check_keywords": ["Count", "OverrideAction", "Action"],
+      "evidence_files": [
+        "wafv2-web-acls.json"
+      ],
+      "check_keywords": [
+        "Count",
+        "OverrideAction",
+        "Action"
+      ],
       "remediation": "After tuning and validating false positives, switch key rules from Count to Block/Challenge/Captcha. Document exceptions.",
       "pci_dss": [
         {
           "control": "6.4.2",
           "reason": "The control requires prevention (not only detection). Count-only rules may not prevent web-based attacks."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "WAF-008",
       "title": "Rate-based rules should be used to mitigate abuse and L7 DoS",
       "severity": "Medium",
       "description": "Rate-based rules help mitigate brute force, credential stuffing, scraping, and L7 DoS patterns.",
-      "evidence_files": ["wafv2-web-acls.json"],
-      "check_keywords": ["RateBasedStatement", "Limit", "AggregateKeyType"],
+      "evidence_files": [
+        "wafv2-web-acls.json"
+      ],
+      "check_keywords": [
+        "RateBasedStatement",
+        "Limit",
+        "AggregateKeyType"
+      ],
       "remediation": "Add rate-based rules (per-IP or custom keys). Start with conservative limits and tune using metrics and sampled requests.",
       "pci_dss": [
         {
           "control": "12.10.6",
           "reason": "Organizations must be able to respond to and manage DoS attacks. Rate-based protections are preventative controls supporting this requirement."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "WAF-009",
       "title": "IP sets should not include overly broad ranges (0.0.0.0/0 or ::/0)",
       "severity": "High",
       "description": "Overly broad IP allow/deny sets can accidentally allowlist the entire internet or block legitimate traffic unpredictably.",
-      "evidence_files": ["wafv2-ip-sets.json"],
-      "check_keywords": ["0.0.0.0/0", "::/0", "Addresses"],
+      "evidence_files": [
+        "wafv2-ip-sets.json"
+      ],
+      "check_keywords": [
+        "0.0.0.0/0",
+        "::/0",
+        "Addresses"
+      ],
       "remediation": "Review IP sets for broad ranges. Replace with specific CIDRs. Use separate allowlists for admin portals and ensure change control for modifications.",
       "pci_dss": [
         {
           "control": "1.2.5",
           "reason": "Access to system components should be restricted. Overly broad allowlists undermine network-level and application-level access restrictions."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "WAF-010",
       "title": "WAF Classic should be migrated to WAFv2",
       "severity": "Medium",
       "description": "WAF Classic is legacy and lacks modern capabilities and consistent APIs. Migrating to WAFv2 improves control quality and maintainability.",
-      "evidence_files": ["waf-classic.json", "cloudfront-classic-associations.json"],
-      "check_keywords": ["waf", "waf-regional", "Classic"],
+      "evidence_files": [
+        "waf-classic.json",
+        "cloudfront-classic-associations.json"
+      ],
+      "check_keywords": [
+        "waf",
+        "waf-regional",
+        "Classic"
+      ],
       "remediation": "Plan migration of Classic Web ACLs to WAFv2. Validate behavior using Count mode and staged deployment. Remove legacy ACLs after cutover.",
       "pci_dss": [
         {
           "control": "2.2.1",
           "reason": "Secure configurations should follow industry-accepted standards. Using legacy/obsolete security controls can create gaps in hardening and monitoring."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "WAF-011",
       "title": "Unused or unassociated Web ACLs should be reviewed",
       "severity": "Low",
       "description": "Unassociated Web ACLs indicate configuration drift and reduce audit clarity.",
-      "evidence_files": ["wafv2-web-acls.json"],
-      "check_keywords": ["AssociatedResourceArns", "empty"],
+      "evidence_files": [
+        "wafv2-web-acls.json"
+      ],
+      "check_keywords": [
+        "AssociatedResourceArns",
+        "empty"
+      ],
       "remediation": "Review unassociated Web ACLs. Delete unused ACLs or document intended future use. Ensure naming and tagging standards.",
       "pci_dss": [
         {
           "control": "12.5.1",
           "reason": "Maintaining an accurate inventory of in-scope components includes security controls and their scope/associations."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "WAF-012",
       "title": "WAF rule group reuse should be standardized",
       "severity": "Low",
       "description": "Standardized reusable rule groups reduce configuration drift and support consistent protection across applications.",
-      "evidence_files": ["wafv2-rule-groups.json", "wafv2-web-acls.json"],
-      "check_keywords": ["RuleGroupReferenceStatement", "RuleGroups"],
+      "evidence_files": [
+        "wafv2-rule-groups.json",
+        "wafv2-web-acls.json"
+      ],
+      "check_keywords": [
+        "RuleGroupReferenceStatement",
+        "RuleGroups"
+      ],
       "remediation": "Define reusable rule groups for baseline protections and apply them consistently across Web ACLs. Use IaC and change control.",
       "pci_dss": [
         {
           "control": "6.5.1",
           "reason": "Standardization supports change control and consistent implementation of security controls across environments."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "WAF-013",
       "title": "WAF evidence collection is incomplete (cannot verify posture)",
       "severity": "Low",
       "description": "If AWS APIs required for WAF posture evaluation fail (permissions, throttling, unsupported operations), the audit cannot reliably conclude coverage or configuration status. This should be treated as an evidence-quality issue, not as a confirmed security misconfiguration.",
-      "evidence_files": ["waf-collection-status.json"],
-      "check_keywords": ["collection", "error", "ok", "wafv2"],
+      "evidence_files": [
+        "waf-collection-status.json"
+      ],
+      "check_keywords": [
+        "collection",
+        "error",
+        "ok",
+        "wafv2"
+      ],
       "remediation": "Fix evidence collection errors first: ensure the audit principal has WAFv2 read permissions (wafv2:List*, wafv2:Get*, wafv2:ListResourcesForWebACL) and required service read permissions (CloudFront list distributions, ELBv2 describe load balancers, API Gateway/AppSync/Cognito list resources). Re-run the audit to obtain complete evidence.",
       "pci_dss": [
         {
           "control": "12.11.1",
           "reason": "Security testing and verification processes require reliable evidence. Collection gaps undermine the ability to validate required controls."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "WAF-014",
       "title": "Public API Gateway stages should be protected by AWS WAF",
       "severity": "High",
       "description": "Public API Gateway endpoints are common internet entry points. Where APIs are in-scope for security/compliance, they should be protected by AWS WAF (REGIONAL) using Web ACL associations to stages.",
-      "evidence_files": ["api-entrypoints-waf-associations.json"],
-      "check_keywords": ["apigateway", "stage", "get_web_acl_for_resource", "REGIONAL"],
+      "evidence_files": [
+        "api-entrypoints-waf-associations.json"
+      ],
+      "check_keywords": [
+        "apigateway",
+        "stage",
+        "get_web_acl_for_resource",
+        "REGIONAL"
+      ],
       "remediation": "Identify public REST/HTTP API stages and associate a WAFv2 Web ACL (REGIONAL). Start with AWS Managed Rules (CommonRuleSet/SQLi/BadInputs) and add rate-based rules tuned to expected traffic.",
       "pci_dss": [
         {
           "control": "6.4.2",
           "reason": "Public-facing application endpoints must be protected by an automated technical solution that detects and prevents web-based attacks (e.g., WAF)."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "WAF-015",
       "title": "AppSync GraphQL APIs should be protected by AWS WAF",
       "severity": "Medium",
       "description": "If AppSync GraphQL APIs are public/in-scope, they should be protected by WAF (REGIONAL). Lack of WAF increases exposure to common API and web-layer attacks.",
-      "evidence_files": ["api-entrypoints-waf-associations.json"],
-      "check_keywords": ["appsync", "graphql", "get_web_acl_for_resource"],
+      "evidence_files": [
+        "api-entrypoints-waf-associations.json"
+      ],
+      "check_keywords": [
+        "appsync",
+        "graphql",
+        "get_web_acl_for_resource"
+      ],
       "remediation": "Associate a WAFv2 Web ACL (REGIONAL) to in-scope AppSync APIs. Enable logging/metrics and tune rules using Count mode before enforcing Block.",
       "pci_dss": [
         {
           "control": "6.4.2",
           "reason": "WAF protections are required for in-scope public-facing application components, including API endpoints."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "WAF-016",
       "title": "Cognito User Pools should be protected by AWS WAF when exposed publicly",
       "severity": "Medium",
       "description": "Cognito User Pools used for public authentication endpoints can be protected by AWS WAF to mitigate abuse and credential attacks. If these endpoints are in-scope, ensure WAF association and rate-based protections.",
-      "evidence_files": ["api-entrypoints-waf-associations.json"],
-      "check_keywords": ["cognito", "userpool", "get_web_acl_for_resource", "rate"],
+      "evidence_files": [
+        "api-entrypoints-waf-associations.json"
+      ],
+      "check_keywords": [
+        "cognito",
+        "userpool",
+        "get_web_acl_for_resource",
+        "rate"
+      ],
       "remediation": "Associate a WAFv2 Web ACL (REGIONAL) to in-scope Cognito User Pools, enable logging/metrics, and configure rate-based protections for sign-in/sign-up endpoints.",
       "pci_dss": [
         {
           "control": "6.2.4",
           "reason": "Security controls should address common software attacks; protecting authentication endpoints is a critical part of that posture."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     }
   ],
   "version": "1.1",

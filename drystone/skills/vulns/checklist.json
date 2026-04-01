@@ -22,7 +22,8 @@
           "control": "12.2.1",
           "reason": "The absence of a foundational vulnerability management tool like Inspector v2 significantly weakens the overall risk management program."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-002",
@@ -39,7 +40,8 @@
           "control": "12.5.2",
           "reason": "This control mandates that all identified security vulnerabilities and weaknesses are addressed promptly. Unremediated critical findings directly violate this."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-003",
@@ -56,7 +58,8 @@
           "control": "6.4.2",
           "reason": "Public-facing web applications require an automated technical solution (e.g., WAF) to detect and prevent web-based attacks. Vulnerabilities on such resources indicate a heightened need for this protection."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-004",
@@ -73,7 +76,8 @@
           "control": "6.2.4",
           "reason": "This control requires preventing common software attacks. CVEs with known exploits represent immediately exploitable attacks that must be mitigated."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-005",
@@ -90,7 +94,8 @@
           "control": "2.2.1",
           "reason": "Hardening standards apply most rigorously to critical systems. Vulnerabilities in these systems indicate a failure in maintaining secure configurations."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-006",
@@ -107,7 +112,8 @@
           "control": "6.3.1.b",
           "reason": "Prevents the effective identification of security vulnerabilities on EC2 instances."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-007",
@@ -124,7 +130,8 @@
           "control": "6.2.1",
           "reason": "Secure development practices (Requirement 6) extend to ensuring container images are free of known vulnerabilities before deployment."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-008",
@@ -141,7 +148,8 @@
           "control": "12.5.2",
           "reason": "Requires addressing all identified security vulnerabilities and weaknesses. A lack of a remediation plan indicates a gap in this process."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-009",
@@ -154,7 +162,8 @@
           "control": "6.3.1.b",
           "reason": "Risk ranking of vulnerabilities should consider cumulative impact. A resource with multiple CVEs has a higher cumulative impact and should be prioritized for remediation."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-010",
@@ -167,7 +176,8 @@
           "control": "7.2.1",
           "reason": "Access to system components is based on need-to-know and least privilege. Vulnerabilities in critical service components undermine the security of these sensitive areas."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-011",
@@ -180,7 +190,8 @@
           "control": "6.3.2.a",
           "reason": "Requires maintaining an inventory of software components and addressing vulnerabilities. Unscanned ECR images create a gap in this process."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-012",
@@ -193,7 +204,8 @@
           "control": "6.2.3.a",
           "reason": "Bespoke and custom software (which Lambda code often is) must be reviewed for vulnerabilities prior to release. Disabling scanning creates a blind spot."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-013",
@@ -210,7 +222,8 @@
           "control": "12.5.2",
           "reason": "Requires addressing all identified security vulnerabilities and weaknesses in a timely manner."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-014",
@@ -223,7 +236,8 @@
           "control": "6.3.3.a",
           "reason": "This control explicitly requires critical or high-security patches/updates to be installed within one month of release. Exceeding 30 days for any vulnerability, especially high-severity, violates this."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-015",
@@ -236,7 +250,8 @@
           "control": "6.3.3.a",
           "reason": "All applicable security patches/updates must be installed within an appropriate timeframe. Lack of a timeline hinders this process."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-016",
@@ -249,7 +264,8 @@
           "control": "10.6.1",
           "reason": "Requires monitoring security events and alerting personnel. Automated reporting ensures that findings are visible and actionable."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-017",
@@ -262,7 +278,8 @@
           "control": "10.6.1",
           "reason": "Alerting for security events is crucial. Lack of notifications directly impacts the ability to respond to new vulnerabilities."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-018",
@@ -275,7 +292,8 @@
           "control": "12.5.1",
           "reason": "Maintaining an accurate inventory of in-scope system components and understanding why certain components are not monitored is essential for compliance and risk management."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-019",
@@ -288,7 +306,8 @@
           "control": "6.3.3.a",
           "reason": "While higher priorities exist, the control implies all applicable security updates should be addressed within an appropriate timeframe, including lower-severity ones."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-020",
@@ -301,7 +320,8 @@
           "control": "6.3.1.b",
           "reason": "Efficiently identifying and managing security vulnerabilities involves understanding patterns like duplicated findings to address root causes effectively."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-021",
@@ -314,7 +334,8 @@
           "control": "6.3.3.b",
           "reason": "Even if a direct patch isn't immediately deployable, the requirement for addressing vulnerabilities means a plan must be in place, or compensating controls justified, for such scenarios."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-022",
@@ -331,7 +352,8 @@
           "control": "7.2.1",
           "reason": "Compromised metadata credentials can bypass least-privilege boundaries and expose broader access paths."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-023",
@@ -348,7 +370,8 @@
           "control": "8.2.1",
           "reason": "Credential management requires controlled issuance and storage, not plaintext bootstrap scripts."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-024",
@@ -365,7 +388,8 @@
           "control": "6.2.3.a",
           "reason": "Secure coding and deployment practices must avoid embedding secrets in application configuration."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-025",
@@ -382,7 +406,8 @@
           "control": "7.2.2",
           "reason": "Privileges assigned to system accounts must align with explicit job-function requirements."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-028",
@@ -399,15 +424,24 @@
           "control": "7.2.1",
           "reason": "Snapshot restoration rights must be limited to authorized identities only."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-026",
       "title": "Terraform state files in S3 containing plaintext secrets",
       "severity": "Critical",
       "description": "S3 buckets with names suggesting Terraform state storage (terraform, tfstate, tf-state) contain .tfstate files with plaintext secrets: Secrets Manager secret_string values, RDS passwords, private keys, and AWS access keys. Any entity with s3:GetObject on these buckets obtains credentials for all managed resources.",
-      "evidence_files": ["terraform-state-scan.json"],
-      "check_keywords": ["tfstate", "secret_string", "password", "private_key", "terraform"],
+      "evidence_files": [
+        "terraform-state-scan.json"
+      ],
+      "check_keywords": [
+        "tfstate",
+        "secret_string",
+        "password",
+        "private_key",
+        "terraform"
+      ],
       "remediation": "Enable S3 server-side encryption (KMS) and block public access on state buckets. Rotate all credentials found in state files. Migrate to remote state backends with encryption at rest. Consider using Vault or AWS Secrets Manager for sensitive values to avoid storing them in state.",
       "pci_dss": [
         {
@@ -422,15 +456,25 @@
           "control": "8.2.1",
           "reason": "All system accounts and application credentials must be controlled. Credentials in state files are uncontrolled copies that persist even after rotation."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "VULN-029",
       "title": "ECS task definitions with hardcoded secrets in environment variables",
       "severity": "High",
       "description": "ECS task definitions store sensitive configuration (passwords, tokens, API keys, credentials) as plaintext environment variables in the containerDefinitions.environment block. Any entity with ecs:DescribeTaskDefinition permission can read these values, and they appear in CloudTrail logs and AWS console.",
-      "evidence_files": ["ecs-task-env-secrets.json"],
-      "check_keywords": ["environment", "sensitive", "secret", "password", "token", "api_key"],
+      "evidence_files": [
+        "ecs-task-env-secrets.json"
+      ],
+      "check_keywords": [
+        "environment",
+        "sensitive",
+        "secret",
+        "password",
+        "token",
+        "api_key"
+      ],
       "remediation": "Replace plaintext environment variables with AWS Secrets Manager or SSM Parameter Store references using the containerDefinitions.secrets block. Rotate all exposed credentials immediately.",
       "pci_dss": [
         {
@@ -445,7 +489,8 @@
           "control": "8.2.1",
           "reason": "Credential management requires controlled issuance and secure storage, not plaintext values in compute configuration."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     }
   ],
   "version": "1.5",

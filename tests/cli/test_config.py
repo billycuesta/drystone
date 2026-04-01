@@ -183,3 +183,66 @@ class TestRoundTrip:
         data = json.loads(last_run.read_text())
         assert "aws_access_key_id" not in data
         assert "aws_secret_access_key" not in data
+
+
+# ── QSA Depth Tests ──────────────────────────────────────────────────────────
+
+
+class TestQSADepth:
+    def test_qsa_depth_defaults_to_standard(self, sample_config):
+        """Verify qsa_depth field defaults to 'standard'."""
+        assert sample_config.qsa_depth == "standard"
+
+    def test_qsa_depth_accepts_obvious(self):
+        """Verify qsa_depth accepts 'obvious' value."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+            qsa_depth="obvious",
+        )
+        assert config.qsa_depth == "obvious"
+
+    def test_qsa_depth_accepts_standard(self):
+        """Verify qsa_depth accepts 'standard' value."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+            qsa_depth="standard",
+        )
+        assert config.qsa_depth == "standard"
+
+    def test_qsa_depth_accepts_deep(self):
+        """Verify qsa_depth accepts 'deep' value."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+            qsa_depth="deep",
+        )
+        assert config.qsa_depth == "deep"
+
+    def test_qsa_depth_rejects_invalid_value(self):
+        """Verify qsa_depth rejects invalid values."""
+        with pytest.raises(Exception):  # Pydantic validation error
+            WizardConfig(
+                client_name="Test",
+                aws_region="us-east-1",
+                skills=["iam"],
+                qsa_depth="invalid",
+            )
+
+    def test_qsa_depth_preserved_in_round_trip(self, tmp_config_dir):
+        """Verify qsa_depth is preserved through save/load cycle."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_profile="my-profile",
+            aws_region="us-east-1",
+            skills=["iam"],
+            qsa_depth="deep",
+        )
+        save_config(config)
+        loaded = load_last_config()
+        assert loaded is not None
+        assert loaded.qsa_depth == "deep"

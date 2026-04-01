@@ -361,6 +361,7 @@ def audit(
         "api_key": config.ai_api_key,
         "model": config.claude_cli_model,
         "scan_depth": getattr(config, "scan_depth", "normal"),
+        "qsa_depth": getattr(config, "qsa_depth", "standard"),
     }
 
     agent = AgentClient(provider_config=provider_config)

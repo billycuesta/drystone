@@ -25,7 +25,8 @@
           "control": "7.2.1",
           "reason": "This control requires access to be based on the principle of least privilege. Making a bucket public is the antithesis of least privilege, granting maximum possible privilege to the entire internet."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "EXP-015",
@@ -38,7 +39,8 @@
           "control": "7.2.1",
           "reason": "Access must be restricted by least privilege. Cross-account access without strong scoping/conditions expands privilege beyond the required boundary."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "EXP-002",
@@ -59,7 +61,8 @@
           "control": "7.2.1",
           "reason": "Exposing a database to the world violates the principle of least privilege. Access should be restricted to only specific, authorized application components."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "EXP-003",
@@ -80,7 +83,8 @@
           "control": "8.4.1",
           "reason": "This finding relates to securing the entry point for non-console administrative access, for which MFA is required. A wide-open port is a failure to adequately protect the administrative interface where MFA would be challenged."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "EXP-004",
@@ -97,7 +101,8 @@
           "control": "2.2.4.b",
           "reason": "This control requires disabling unnecessary functionality. While the service (e.g., SSH, MySQL) may be necessary for the server, exposing it via an open port is an unnecessary and insecure function."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "EXP-005",
@@ -118,7 +123,8 @@
           "control": "8.1.1",
           "reason": "This control requires that all access to system components and cardholder data is assigned to an individual and authenticated. A Lambda URL with no authentication fails to meet this requirement."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "EXP-006",
@@ -139,7 +145,8 @@
           "control": "6.4.2",
           "reason": "While API Gateway itself isn't a WAF, the lack of authentication and rate limiting makes it vulnerable to web-based attacks like business logic abuse and denial of service, which this control aims to prevent."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "EXP-007",
@@ -152,7 +159,8 @@
           "control": "6.4.2",
           "reason": "This control requires an automated technical solution (like a WAF) to be installed in front of public-facing web applications to detect and prevent web-based attacks. This finding is a direct violation."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "EXP-009",
@@ -165,7 +173,8 @@
           "control": "6.4.2",
           "reason": "CloudFront without AWS Shield DDoS protection leaves public-facing cardholder data environment endpoints vulnerable to availability attacks. PCI DSS 6.4.2 requires the use of network-based controls to protect internet-facing web applications."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "EXP-010",
@@ -182,7 +191,8 @@
           "control": "2.2.7.d",
           "reason": "This control requires implementing strong cryptography according to industry best practices. Using deprecated TLS versions is a direct violation of this."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "EXP-011",
@@ -199,7 +209,8 @@
           "control": "1.3.1.b",
           "reason": "Allowing object listing is a form of information leakage that is not strictly necessary for the functioning of most applications and should be denied as part of restricting traffic/access to only what is essential."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "EXP-013",
@@ -212,7 +223,8 @@
           "control": "4.2.1.b",
           "reason": "Strong cryptography must be used for transmission of sensitive data. Enforcing aws:SecureTransport helps ensure TLS is used for S3 access."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "EXP-014",
@@ -225,7 +237,8 @@
           "control": "10.5.1",
           "reason": "Audit logs must be protected from unauthorized modification. Versioning helps preserve historical copies and supports integrity controls."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "EXP-012",
@@ -242,7 +255,8 @@
           "control": "6.2.4",
           "reason": "This control requires mitigating common software attacks. While the vulnerability is in the infrastructure, it is often exploited via application-level SSRF flaws. Enforcing IMDSv2 is a defense-in-depth control that mitigates the impact of such application vulnerabilities."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "EXP-016",
@@ -263,7 +277,8 @@
           "control": "6.5.10",
           "reason": "Unauthenticated function invocation enables access-control bypass paths in public-facing application logic."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "EXP-017",
@@ -283,7 +298,8 @@
           "control": "6.4.2",
           "reason": "Public-facing APIs should have automated controls to detect and prevent web-layer attacks."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "EXP-018",
@@ -304,7 +320,8 @@
           "control": "1.3.1.b",
           "reason": "Ingress should be restricted to strictly necessary traffic paths from untrusted networks."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "EXP-019",
@@ -325,7 +342,8 @@
           "control": "7.2.1",
           "reason": "Data-store access must be constrained to authorized principals under least privilege."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "EXP-020",
@@ -352,7 +370,8 @@
           "control": "7.2.1",
           "reason": "Origin access should be restricted to explicit service principals and least-privilege paths."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "EXP-021",
@@ -380,7 +399,8 @@
           "control": "6.2.4",
           "reason": "Unauthenticated mutation paths are a common API security weakness enabling abuse and unauthorized actions."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "EXP-022",
@@ -402,7 +422,8 @@
           "control": "7.2.1",
           "reason": "Broad wildcard routing without authentication violates least privilege and increases unauthorized-access paths."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "EXP-024",
@@ -428,13 +449,14 @@
           "control": "3.5.1",
           "reason": "Storage of sensitive authentication and audit data requires strong cryptography with auditable key management."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "EXP-023",
       "title": "Resource-based policies with unrestricted Principal:* (SQS, SNS, OpenSearch, ECR, Secrets Manager)",
       "severity": "Critical",
-      "description": "Managed AWS services (SQS queues, SNS topics, OpenSearch domains, ECR repositories, Secrets Manager secrets) with resource-based policies that allow any AWS identity (Principal: *) without conditions scoping access to a specific account, VPC, or organization are effectively public. Any AWS identity — including from other accounts — can perform the allowed actions.",
+      "description": "Managed AWS services (SQS queues, SNS topics, OpenSearch domains, ECR repositories, Secrets Manager secrets) with resource-based policies that allow any AWS identity (Principal: *) without conditions scoping access to a specific account, VPC, or organization are effectively public. Any AWS identity \u2014 including from other accounts \u2014 can perform the allowed actions.",
       "evidence_files": [
         "resource-based-policies.json"
       ],
@@ -459,7 +481,8 @@
           "control": "1.3.2",
           "reason": "Inbound traffic to sensitive system components must be restricted to authorized sources. Resource-based policies with Principal:* bypass network controls."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     }
   ],
   "notes": "Generated based on aws-exposure-checklist.md and mapped against PCI DSS v4.0 controls."

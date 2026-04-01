@@ -86,6 +86,11 @@ class WizardConfig(BaseModel):
         description="Scan depth controlling chunk budget and analysis coverage",
     )
 
+    qsa_depth: Literal["obvious", "standard", "deep"] = Field(
+        default="standard",
+        description="QSA visibility level: obvious=only self-evident, standard=normal scope, deep=all checks",
+    )
+
     # Report language
     report_language: Literal["en", "es"] = Field(
         default="en",

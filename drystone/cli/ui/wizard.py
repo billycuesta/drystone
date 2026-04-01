@@ -202,6 +202,7 @@ def display_config_summary(project_config: dict, ai_config: dict) -> None:
     )
     print(f"   Security Skills: {skills_display}")
     print(f"   Scan Depth: {project_config.get('scan_depth', 'normal')}")
+    print(f"   QSA Depth: {project_config.get('qsa_depth', 'standard')}")
 
     # Output formats
     formats_display = (
@@ -469,6 +470,20 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
     if scan_depth is None:
         raise KeyboardInterrupt("Wizard cancelled")
 
+    # ── Step 5b: QSA Depth ────────────────────────────────────────
+    current_qsa_depth = defaults.get("qsa_depth", "standard")
+    qsa_depth = questionary.select(
+        "QSA Visibility Level:",
+        choices=[
+            questionary.Choice("Obvious — Only self-evident findings (MFA, root keys, S3 public)", "obvious"),
+            questionary.Choice("Standard — Normal QSA scope (key rotation, policies, CloudTrail)", "standard"),
+            questionary.Choice("Deep — All checks including advanced analysis (AssumeRole chains, etc.)", "deep"),
+        ],
+        default=current_qsa_depth,
+    ).ask()
+    if qsa_depth is None:
+        raise KeyboardInterrupt("Wizard cancelled")
+
     # ── Step 6: Output Formats ────────────────────────────────────
     current_formats = defaults.get("output_formats", ["markdown"])
     output_formats = questionary.checkbox(
@@ -516,6 +531,7 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
         "aws_region": aws_region,
         "skills": skills,
         "scan_depth": scan_depth,
+        "qsa_depth": qsa_depth,
         "output_formats": output_formats,
         "report_type": report_type,
     }

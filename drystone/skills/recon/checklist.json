@@ -11,23 +11,36 @@
       "title": "DNS wildcard records exposing internal services",
       "severity": "Critical",
       "description": "Wildcard DNS records (*.domain.com) can expose internal services and reveal architecture. Attackers enumerate subdomains using wildcard to map internal infrastructure.",
-      "evidence_files": ["route53-zones.json"],
-      "check_keywords": ["wildcard", "*."],
+      "evidence_files": [
+        "route53-zones.json"
+      ],
+      "check_keywords": [
+        "wildcard",
+        "*."
+      ],
       "remediation": "Remove wildcard DNS records. Use explicit A/CNAME records for each service. Implement DNS monitoring for unauthorized record creation.",
       "pci_dss": [
         {
           "control": "1.2.1",
           "reason": "Inbound and outbound traffic restricted to what is necessary for the CDE"
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "RECON-002",
       "title": "API Gateway stages without authentication in production",
       "severity": "Critical",
       "description": "API Gateway stages deployed without authentication allow unauthenticated access to backend services. Attackers can invoke endpoints directly without credentials.",
-      "evidence_files": ["api-gateway-stages.json"],
-      "check_keywords": ["AuthorizationType", "NONE", "stage", "unauthenticated"],
+      "evidence_files": [
+        "api-gateway-stages.json"
+      ],
+      "check_keywords": [
+        "AuthorizationType",
+        "NONE",
+        "stage",
+        "unauthenticated"
+      ],
       "remediation": "Require authentication on all API Gateway stages. Use Cognito User Pools, IAM authorization, or Lambda authorizers. Enable API keys for rate limiting at minimum.",
       "pci_dss": [
         {
@@ -38,272 +51,410 @@
           "control": "8.3.1",
           "reason": "All user IDs and authentication factors managed"
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "RECON-003",
       "title": "Elastic IPs assigned to instances without restrictive Security Groups",
       "severity": "High",
       "description": "Elastic IPs provide fixed public addresses. Instances with EIPs and permissive Security Groups are directly reachable from the internet.",
-      "evidence_files": ["public-endpoints.json"],
-      "check_keywords": ["ElasticIp", "PublicIp", "AllocationId"],
+      "evidence_files": [
+        "public-endpoints.json"
+      ],
+      "check_keywords": [
+        "ElasticIp",
+        "PublicIp",
+        "AllocationId"
+      ],
       "remediation": "Audit Security Groups attached to instances with Elastic IPs. Restrict inbound to specific ports and source CIDRs. Consider using a bastion host or VPN instead.",
       "pci_dss": [
         {
           "control": "1.3.1",
           "reason": "Inbound traffic to the CDE restricted to that which is necessary"
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "RECON-004",
       "title": "Route53 public zones with records revealing internal architecture",
       "severity": "High",
       "description": "Public DNS zones expose service names, IP ranges, and internal hostname patterns. Attackers use DNS enumeration to map the environment before exploitation.",
-      "evidence_files": ["route53-zones.json"],
-      "check_keywords": ["A", "CNAME", "public", "hosted-zone"],
+      "evidence_files": [
+        "route53-zones.json"
+      ],
+      "check_keywords": [
+        "A",
+        "CNAME",
+        "public",
+        "hosted-zone"
+      ],
       "remediation": "Audit public DNS records. Remove records that reveal internal infrastructure naming. Use generic public-facing names. Split-horizon DNS to serve different records internally vs externally.",
       "pci_dss": [
         {
           "control": "2.2.1",
           "reason": "Configuration standards address changing of all vendor-supplied defaults"
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "RECON-005",
       "title": "Lambda Function URLs publicly accessible without authentication",
       "severity": "High",
       "description": "Lambda Function URLs with AuthType=NONE are publicly accessible without any credentials. Attackers can invoke them directly from the internet.",
-      "evidence_files": ["lambda-urls.json"],
-      "check_keywords": ["FunctionUrl", "AuthType", "NONE", "public"],
+      "evidence_files": [
+        "lambda-urls.json"
+      ],
+      "check_keywords": [
+        "FunctionUrl",
+        "AuthType",
+        "NONE",
+        "public"
+      ],
       "remediation": "Set AuthType to AWS_IAM for Lambda Function URLs that should not be public. If public access is required, implement application-level authentication within the function.",
       "pci_dss": [
         {
           "control": "8.3.1",
           "reason": "All user IDs and authentication factors managed and tracked"
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "RECON-006",
       "title": "CloudFront distributions without logging enabled",
       "severity": "Medium",
       "description": "CloudFront distributions without access logging cannot detect reconnaissance, scraping, or attack patterns from the internet.",
-      "evidence_files": ["cloudfront-origins.json"],
-      "check_keywords": ["LoggingEnabled", "CloudFront", "distribution"],
+      "evidence_files": [
+        "cloudfront-origins.json"
+      ],
+      "check_keywords": [
+        "LoggingEnabled",
+        "CloudFront",
+        "distribution"
+      ],
       "remediation": "Enable CloudFront access logging to S3. Configure log retention and alerting for suspicious patterns. Consider enabling AWS WAF on distributions.",
       "pci_dss": [
         {
           "control": "10.2.1",
           "reason": "Audit logs capture all individual user access to cardholder data"
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "RECON-007",
       "title": "Internet-facing Load Balancers without WAF",
       "severity": "Medium",
       "description": "Internet-facing ALBs without AWS WAF are exposed to OWASP Top 10 attacks (SQLi, XSS, SSRF). WAF provides a first line of defense for public endpoints.",
-      "evidence_files": ["load-balancer-dns.json"],
-      "check_keywords": ["internet-facing", "WafWebAclArn", "ALB", "load-balancer"],
+      "evidence_files": [
+        "load-balancer-dns.json"
+      ],
+      "check_keywords": [
+        "internet-facing",
+        "WafWebAclArn",
+        "ALB",
+        "load-balancer"
+      ],
       "remediation": "Associate AWS WAF Web ACL with all internet-facing ALBs. Enable managed rule groups (AWSManagedRulesCommonRuleSet). Configure rate limiting rules.",
       "pci_dss": [
         {
           "control": "6.4.2",
           "reason": "Automated technical solution deployed that can detect and prevent web-based attacks"
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "RECON-008",
       "title": "Large external attack surface (many entry points)",
       "severity": "Medium",
       "description": "More than 10 internet-facing entry points significantly increases the attack surface. Each additional endpoint is a potential vector for compromise.",
-      "evidence_files": ["attack-surface-score.json"],
-      "check_keywords": ["score", "entry_points", "attack_surface"],
+      "evidence_files": [
+        "attack-surface-score.json"
+      ],
+      "check_keywords": [
+        "score",
+        "entry_points",
+        "attack_surface"
+      ],
       "remediation": "Inventory and review all public-facing endpoints. Consolidate behind API Gateway or ALB where possible. Implement centralized WAF and monitoring.",
       "pci_dss": [
         {
           "control": "12.3.2",
           "reason": "Targeted risk analysis performed for each PCI DSS requirement"
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "RECON-009",
       "title": "REST API Gateway stages without access logging",
       "severity": "Medium",
       "description": "API Gateway stages without access logging cannot detect abuse, enumeration, or unauthorized access attempts.",
-      "evidence_files": ["api-gateway-stages.json"],
-      "check_keywords": ["AccessLogEnabled", "accessLogSettings", "stage"],
+      "evidence_files": [
+        "api-gateway-stages.json"
+      ],
+      "check_keywords": [
+        "AccessLogEnabled",
+        "accessLogSettings",
+        "stage"
+      ],
       "remediation": "Enable access logging on all API Gateway stages. Send logs to CloudWatch Logs. Create alarms for 4xx/5xx error rate spikes.",
       "pci_dss": [
         {
           "control": "10.3.3",
           "reason": "Audit logs are protected from destruction and unauthorized modifications"
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "RECON-010",
       "title": "NAT Gateway IPs add to public IP inventory",
       "severity": "Low",
       "description": "NAT Gateway IPs appear in egress traffic from the VPC. They should be tracked and whitelisted in partner/vendor allow lists. Unexpected NAT GW IPs indicate infrastructure sprawl.",
-      "evidence_files": ["public-endpoints.json"],
-      "check_keywords": ["NatGateway", "PublicIp", "nat_gateway_ips"],
+      "evidence_files": [
+        "public-endpoints.json"
+      ],
+      "check_keywords": [
+        "NatGateway",
+        "PublicIp",
+        "nat_gateway_ips"
+      ],
       "remediation": "Document all NAT Gateway public IPs. Update egress IP allow lists at third-party vendors. Monitor for unrecognized NAT GW creation.",
       "pci_dss": [
         {
           "control": "1.1.1",
           "reason": "Formal process for approving and testing all network connections"
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "RECON-011",
       "title": "HTTP (non-HTTPS) listeners on public Load Balancers",
       "severity": "High",
       "description": "HTTP listeners on internet-facing ALBs transmit data in plaintext, enabling eavesdropping and man-in-the-middle attacks.",
-      "evidence_files": ["load-balancer-dns.json"],
-      "check_keywords": ["Protocol", "HTTP", "Port", "80", "listener", "internet-facing"],
-      "remediation": "Configure HTTP-to-HTTPS redirect on ALB listener (port 80 → 443). Enforce TLS 1.2+ with strong cipher suites. Use ACM certificates.",
+      "evidence_files": [
+        "load-balancer-dns.json"
+      ],
+      "check_keywords": [
+        "Protocol",
+        "HTTP",
+        "Port",
+        "80",
+        "listener",
+        "internet-facing"
+      ],
+      "remediation": "Configure HTTP-to-HTTPS redirect on ALB listener (port 80 \u2192 443). Enforce TLS 1.2+ with strong cipher suites. Use ACM certificates.",
       "pci_dss": [
         {
           "control": "4.2.1",
           "reason": "Strong cryptography used to safeguard PAN during transmission"
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "RECON-012",
       "title": "CloudFront distributions without WAF",
       "severity": "Medium",
       "description": "CloudFront distributions without WAF pass all requests directly to origins. Attackers can bypass CloudFront and target origin IPs directly if discovered.",
-      "evidence_files": ["cloudfront-origins.json"],
-      "check_keywords": ["WebAclId", "CloudFront", "distribution"],
+      "evidence_files": [
+        "cloudfront-origins.json"
+      ],
+      "check_keywords": [
+        "WebAclId",
+        "CloudFront",
+        "distribution"
+      ],
       "remediation": "Associate AWS WAF (us-east-1 scope) with CloudFront distributions. Enable AWS managed rule groups. Restrict origin access so only CloudFront can reach origins.",
       "pci_dss": [
         {
           "control": "6.4.2",
           "reason": "Automated technical solution deployed to detect and prevent web-based attacks"
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "RECON-013",
       "title": "Public Route53 zone count exceeds threshold (broad DNS footprint)",
       "severity": "Low",
       "description": "More than 5 public hosted zones creates a broad DNS footprint. Each zone is enumerable and reveals organizational structure to attackers.",
-      "evidence_files": ["route53-zones.json"],
-      "check_keywords": ["public_zones", "hosted_zones"],
+      "evidence_files": [
+        "route53-zones.json"
+      ],
+      "check_keywords": [
+        "public_zones",
+        "hosted_zones"
+      ],
       "remediation": "Review all public hosted zones. Consolidate where possible. Ensure zones not in active use are deleted. Monitor for unauthorized zone creation.",
       "pci_dss": [
         {
           "control": "12.3.2",
           "reason": "Targeted risk analysis identifies assets requiring protection"
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "RECON-014",
       "title": "API Gateway has more than 5 unauthenticated endpoints",
       "severity": "High",
       "description": "Multiple unauthenticated API endpoints significantly increase unauthorized access risk. Each endpoint is an independent attack vector.",
-      "evidence_files": ["api-gateway-stages.json"],
-      "check_keywords": ["unauthenticated_stages", "NONE", "AuthorizationType"],
+      "evidence_files": [
+        "api-gateway-stages.json"
+      ],
+      "check_keywords": [
+        "unauthenticated_stages",
+        "NONE",
+        "AuthorizationType"
+      ],
       "remediation": "Review all API Gateway routes. Require authentication on routes serving sensitive data. Use Cognito, IAM, or Lambda authorizers. Implement API keys for rate limiting.",
       "pci_dss": [
         {
           "control": "8.3.1",
           "reason": "All user IDs and authentication factors managed"
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "RECON-015",
       "title": "Attack surface score is HIGH or CRITICAL",
       "severity": "High",
-      "description": "The computed attack surface score (≥5.0/10) indicates a broad external exposure. Multiple public entry points increase the probability of successful initial compromise.",
-      "evidence_files": ["attack-surface-score.json"],
-      "check_keywords": ["score", "rating", "HIGH", "CRITICAL"],
+      "description": "The computed attack surface score (\u22655.0/10) indicates a broad external exposure. Multiple public entry points increase the probability of successful initial compromise.",
+      "evidence_files": [
+        "attack-surface-score.json"
+      ],
+      "check_keywords": [
+        "score",
+        "rating",
+        "HIGH",
+        "CRITICAL"
+      ],
       "remediation": "Reduce attack surface by: (1) adding WAF to all public endpoints, (2) requiring auth on API/Lambda endpoints, (3) removing unused Elastic IPs, (4) consolidating public entry points.",
       "pci_dss": [
         {
           "control": "1.1.1",
           "reason": "Formal process for approving all network connections and changes"
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "RECON-016",
       "title": "Unassociated Elastic IPs (unused but billed and visible)",
       "severity": "Low",
       "description": "Unassociated Elastic IPs are discoverable but not attached to resources. They waste budget and may be reassigned to attacker resources if released.",
-      "evidence_files": ["public-endpoints.json"],
-      "check_keywords": ["ElasticIp", "AssociatedWithInstance", "AllocationId"],
+      "evidence_files": [
+        "public-endpoints.json"
+      ],
+      "check_keywords": [
+        "ElasticIp",
+        "AssociatedWithInstance",
+        "AllocationId"
+      ],
       "remediation": "Release Elastic IPs not actively associated with resources. Implement tagging policy for EIP ownership. Monitor for unplanned EIP allocation.",
       "pci_dss": [
         {
           "control": "2.3.1",
           "reason": "Wireless access points managed and documented"
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "RECON-017",
       "title": "Load Balancer exposes non-standard high-risk ports",
       "severity": "High",
       "description": "Load Balancers with listeners on database ports (3306, 5432, 27017) or admin ports (8443, 8080) expose backend services directly to the internet.",
-      "evidence_files": ["load-balancer-dns.json"],
-      "check_keywords": ["Port", "3306", "5432", "27017", "8443", "8080", "listener"],
+      "evidence_files": [
+        "load-balancer-dns.json"
+      ],
+      "check_keywords": [
+        "Port",
+        "3306",
+        "5432",
+        "27017",
+        "8443",
+        "8080",
+        "listener"
+      ],
       "remediation": "Remove non-standard port listeners from internet-facing load balancers. Database ports should never be exposed via public-facing load balancers.",
       "pci_dss": [
         {
           "control": "1.3.2",
           "reason": "Outbound traffic from the CDE restricted to what is necessary"
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "RECON-018",
       "title": "Lambda Function URLs with CORS allowing all origins",
       "severity": "Medium",
       "description": "Lambda Function URLs with CORS AllowOrigins=['*'] allow cross-origin requests from any domain, enabling CSRF and data theft from browser contexts.",
-      "evidence_files": ["lambda-urls.json"],
-      "check_keywords": ["Cors", "AllowOrigins", "*", "FunctionUrl"],
+      "evidence_files": [
+        "lambda-urls.json"
+      ],
+      "check_keywords": [
+        "Cors",
+        "AllowOrigins",
+        "*",
+        "FunctionUrl"
+      ],
       "remediation": "Restrict CORS AllowOrigins to specific trusted domains. Never use '*' for endpoints handling authenticated data or mutations.",
       "pci_dss": [
         {
           "control": "6.4.1",
           "reason": "Public-facing web applications protected against known attacks"
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "RECON-019",
       "title": "Multiple CloudFront distributions sharing the same origin",
       "severity": "Low",
       "description": "Multiple CloudFront distributions pointing to the same origin can bypass per-distribution WAF rules and create inconsistent security postures.",
-      "evidence_files": ["cloudfront-origins.json"],
-      "check_keywords": ["Origins", "DomainName", "distribution"],
+      "evidence_files": [
+        "cloudfront-origins.json"
+      ],
+      "check_keywords": [
+        "Origins",
+        "DomainName",
+        "distribution"
+      ],
       "remediation": "Review CloudFront distributions for shared origins. Ensure WAF policies are consistent across all distributions serving the same origin.",
       "pci_dss": [
         {
           "control": "6.4.2",
           "reason": "Automated technical solution deployed to detect and prevent web-based attacks"
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "RECON-020",
       "title": "No public entry points detected (minimal attack surface)",
       "severity": "Low",
       "description": "No significant public entry points detected. This may indicate a private/internal architecture or incomplete evidence collection.",
-      "evidence_files": ["attack-surface-score.json"],
-      "check_keywords": ["score", "rating", "LOW"],
+      "evidence_files": [
+        "attack-surface-score.json"
+      ],
+      "check_keywords": [
+        "score",
+        "rating",
+        "LOW"
+      ],
       "remediation": "No action required. Verify evidence collection was complete. If architecture is intentionally private, document this as a security control.",
-      "pci_dss": []
+      "pci_dss": [],
+      "qsa_visibility": "standard"
     }
   ],
   "notes": "Reconnaissance checks map the external attack surface before technical analysis. These checks identify what an attacker sees from the internet before any credentials are required. Mapped to PTES Phase 1 (Intelligence Gathering) and OWASP Cloud Top 10."

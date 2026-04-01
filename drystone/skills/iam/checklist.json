@@ -19,7 +19,7 @@
         "MFA",
         "multi-factor"
       ],
-      "remediation": "Enable MFA on root account via AWS Console → Account Settings → Multi-factor Authentication",
+      "remediation": "Enable MFA on root account via AWS Console \u2192 Account Settings \u2192 Multi-factor Authentication",
       "pci_dss": [
         {
           "control": "8.4.1",
@@ -29,7 +29,8 @@
           "control": "7.2.1",
           "reason": "This control demands access to be based on job classification and function, following the principle of least privilege. Securing the root account with MFA ensures that only the true owner can perform the unrestricted actions associated with this unique, highly-privileged role."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     },
     {
       "id": "IAM-002",
@@ -56,7 +57,8 @@
           "control": "8.5.1",
           "reason": "This control specifies that MFA must use at least two different factor types and that success of all is required for access. Enabling MFA for IAM users is the first step in implementing a compliant MFA system."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     },
     {
       "id": "IAM-003",
@@ -79,7 +81,8 @@
           "control": "8.2.6",
           "reason": "This control requires that inactive user accounts are removed or disabled within 90 days. This IAM check directly enforces this rule for credentials, reducing the risk of dormant accounts being compromised."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "IAM-004",
@@ -97,13 +100,14 @@
         "rotation",
         "age"
       ],
-      "remediation": "Implement automated key rotation. Create new key → Update applications → Delete old key after verification.",
+      "remediation": "Implement automated key rotation. Create new key \u2192 Update applications \u2192 Delete old key after verification.",
       "pci_dss": [
         {
           "control": "8.3.9",
           "reason": "This control requires changing passwords/passphrases at least every 90 days for single-factor authentication. While access keys are not passwords, they are authentication factors, and rotating them every 90 days applies the same security principle to programmatic access."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "IAM-005",
@@ -125,7 +129,8 @@
           "control": "8.3.6",
           "reason": "This control requires passwords/passphrases to have a minimum length of 12 characters. Enforcing a length of 14+ characters exceeds this minimum requirement, strengthening security against brute-force attacks."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     },
     {
       "id": "IAM-006",
@@ -147,7 +152,8 @@
           "control": "8.3.7",
           "reason": "This control mandates that new passwords/passphrases cannot be the same as the four previously used ones. Configuring a reuse prevention of 24 significantly exceeds this requirement, enhancing password history protection."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "IAM-007",
@@ -171,7 +177,8 @@
           "control": "7.2.2",
           "reason": "This control requires assigning access based on job classification and least privilege. Managed policies facilitate this by creating reusable sets of permissions for specific job functions, making access control more standardized, auditable, and less prone to error than managing numerous inline policies."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     },
     {
       "id": "IAM-008",
@@ -201,7 +208,8 @@
           "control": "7.3.3",
           "reason": "This control requires access control systems to be set to 'deny all' by default. Granting '*:*' permissions effectively sets the default to 'allow all', directly contravening this foundational security principle."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "IAM-009",
@@ -229,7 +237,8 @@
           "control": "7.2.1",
           "reason": "The root account should not be used for daily operational tasks. Prohibiting access keys for the root account enforces the principle of least privilege by forcing the use of IAM roles and users with specific, limited permissions for programmatic access."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "IAM-010",
@@ -253,7 +262,8 @@
           "control": "8.4.1",
           "reason": "This is a direct mapping. The control requires MFA for all non-console administrative access into the CDE. This IAM check ensures that AWS administrators, who have privileged access, are protected by MFA."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     },
     {
       "id": "IAM-011",
@@ -279,7 +289,8 @@
           "control": "1.3.1",
           "reason": "This control requires restricting inbound traffic to only what is necessary and denying all other traffic. A public IAM role is analogous to an open door in the firewall, allowing unnecessary and untrusted access into the environment."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     },
     {
       "id": "IAM-012",
@@ -302,7 +313,8 @@
           "control": "8.2.6",
           "reason": "This control explicitly requires that inactive user accounts are removed or disabled within 90 days. This IAM check is a direct implementation of that requirement."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "IAM-013",
@@ -329,7 +341,8 @@
           "control": "8.2.6",
           "reason": "While this control specifies 90 days for user accounts, the principle of removing inactive credentials applies. Unused keys represent a form of inactive account that should be disabled or removed to prevent potential misuse."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "IAM-014",
@@ -352,7 +365,8 @@
           "control": "8.2.1",
           "reason": "This control requires that all users are assigned a unique ID. While multiple keys are tied to one user ID, minimizing the number of active credentials per user simplifies auditing and strengthens the association between an action and a specific credential, supporting the goal of unique identification."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     },
     {
       "id": "IAM-015",
@@ -379,7 +393,8 @@
           "control": "7.3.2",
           "reason": "This control requires the access control system to enforce permissions based on job classification. Group-based permissions are the technical enforcement of this policy, making the system more manageable and auditable."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     },
     {
       "id": "IAM-016",
@@ -406,7 +421,8 @@
           "control": "8.6.1",
           "reason": "This control governs the interactive use of application and system accounts. While roles are typically for programmatic access, replacing user-based service accounts with roles helps prevent their misuse for interactive logins and ensures their privileges are strictly for application needs."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     },
     {
       "id": "IAM-017",
@@ -428,7 +444,8 @@
           "control": "7.2.1",
           "reason": "This control requires that access is based on need-to-know. Using an ExternalId ensures that cross-account role assumption is more specific and secure, preventing unauthorized principals within the trusted account from gaining access."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     },
     {
       "id": "IAM-018",
@@ -450,7 +467,8 @@
           "control": "8.3.9",
           "reason": "This control explicitly requires that passwords/passphrases are changed at least once every 90 days for single-factor authentication implementations. Setting a maximum password age directly enforces this requirement."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "IAM-019",
@@ -472,7 +490,8 @@
           "control": "8.3.6",
           "reason": "This control mandates password complexity, including the use of both numeric and alphabetic characters. While symbols are not explicitly required by the base control, they are a recommended industry best practice for strong passwords and significantly enhance password complexity, aligning with the spirit of the requirement."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     },
     {
       "id": "IAM-020",
@@ -495,7 +514,8 @@
           "control": "7.2.1",
           "reason": "This control mandates access based on job classification. A user without a group assignment likely has no defined role or has permissions attached directly, making it difficult to audit and manage access based on their function. Ensuring all users are in groups helps enforce this."
         }
-      ]
+      ],
+      "qsa_visibility": "deep"
     },
     {
       "id": "IAM-021",
@@ -517,7 +537,8 @@
           "control": "12.5.1",
           "reason": "This control requires maintaining an accurate inventory of in-scope system components. While an IAM group is not a server, it is a component of the access control system. Removing empty, unused groups simplifies the environment and contributes to a cleaner, more accurate, and less confusing inventory of access control elements."
         }
-      ]
+      ],
+      "qsa_visibility": "deep"
     },
     {
       "id": "IAM-022",
@@ -544,7 +565,8 @@
           "control": "8.2.6",
           "reason": "This control requires removing or disabling inactive user accounts within 90 days. The same principle applies to roles; an unused role is an inactive identity that increases the attack surface and should be removed."
         }
-      ]
+      ],
+      "qsa_visibility": "deep"
     },
     {
       "id": "IAM-023",
@@ -575,7 +597,8 @@
           "control": "10.2.1.5",
           "reason": "This control requires that changes to identification and authentication credentials (like creating accounts or elevating privileges) are logged. IAM API events are precisely these types of changes."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "IAM-024",
@@ -597,7 +620,8 @@
           "control": "7.2.4",
           "reason": "This control requires a periodic review of user accounts and privileges. Access Analyzer automates a critical part of this review by continuously monitoring and reporting on which resources are accessible to external principals, helping to ensure access remains appropriate."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     },
     {
       "id": "IAM-025",
@@ -620,7 +644,8 @@
           "control": "7.2.5.1",
           "reason": "Customer-managed policies duplicating AWS managed policies indicate lack of formal access policy governance. PCI DSS 7.2.5.1 requires all user accounts and access rights to be reviewed at least once every six months; redundant duplicate policies complicate this governance."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "IAM-026",
@@ -647,7 +672,8 @@
           "control": "7.2.2",
           "reason": "This control mandates that privileges assigned are based on job classification. Permission boundaries help enforce this by ensuring that even if a delegated admin tries to grant themselves more power, they cannot exceed the 'boundary' set for their job function."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "IAM-027",
@@ -669,7 +695,8 @@
           "control": "12.1.3",
           "reason": "This check has a weak but plausible link to security. The control requires that information security roles and responsibilities are clearly defined. An account alias makes the login URL clearer and more recognizable (e.g., 'my-company.signin.aws.amazon.com'), which can help prevent users from accidentally logging into the wrong account or being phished with a fake URL that uses the account number."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     },
     {
       "id": "IAM-028",
@@ -692,7 +719,8 @@
           "control": "12.5.1",
           "reason": "This control requires maintaining an inventory of all in-scope system components. While tags are not the inventory itself, they are a critical mechanism for identifying and managing that inventory. For example, a 'pci-scope=true' tag allows for easy identification, automation, and reporting on all components relevant to the CDE."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "IAM-029",
@@ -715,7 +743,8 @@
           "control": "7.2.1",
           "reason": "Least-privilege access must be enforced; unrestricted trust chains violate access boundary requirements."
         }
-      ]
+      ],
+      "qsa_visibility": "deep"
     },
     {
       "id": "IAM-030",
@@ -738,7 +767,8 @@
           "control": "7.2.1",
           "reason": "Access to resources must be restricted to explicitly authorized principals."
         }
-      ]
+      ],
+      "qsa_visibility": "deep"
     },
     {
       "id": "IAM-031",
@@ -761,7 +791,8 @@
           "control": "7.2.1",
           "reason": "Compute identities must operate with least privilege to reduce blast radius if compromised."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "IAM-032",
@@ -784,7 +815,8 @@
           "control": "7.2.1",
           "reason": "Federated role assumption must be limited to explicit workload identities following least privilege."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "IAM-033",
@@ -807,7 +839,8 @@
           "control": "8.5.1",
           "reason": "Context-bound access controls reduce role assumption abuse and authorization bypass risks."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "IAM-034",
@@ -830,7 +863,8 @@
           "control": "7.2.2",
           "reason": "High-impact federation administration must be strictly limited to authorized roles with explicit business justification."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "IAM-035",
@@ -853,7 +887,8 @@
           "control": "7.2.1",
           "reason": "Policy version mutation can bypass least-privilege boundaries and must be tightly controlled."
         }
-      ]
+      ],
+      "qsa_visibility": "deep"
     },
     {
       "id": "IAM-036",
@@ -876,7 +911,8 @@
           "control": "7.2.1",
           "reason": "Credential issuance operations must be constrained to least privilege to prevent unauthorized access expansion."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "IAM-037",
@@ -899,7 +935,8 @@
           "control": "8.4.1",
           "reason": "MFA control integrity is critical; unauthorized MFA device operations can subvert authentication protections."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "IAM-038",
@@ -922,7 +959,8 @@
           "control": "7.2.2",
           "reason": "Destructive identity and authorization actions must be granted only to explicitly authorized personnel with defined responsibilities."
         }
-      ]
+      ],
+      "qsa_visibility": "deep"
     },
     {
       "id": "IAM-040",
@@ -940,13 +978,14 @@
         "Deny",
         "FullAWSAccess"
       ],
-      "remediation": "Implement at least one Deny-based SCP at the account or OU level to restrict sensitive actions (e.g., restrict IAM root usage, prevent disabling CloudTrail, limit to approved regions). Use AWS Organizations console → Policies → Service Control Policies.",
+      "remediation": "Implement at least one Deny-based SCP at the account or OU level to restrict sensitive actions (e.g., restrict IAM root usage, prevent disabling CloudTrail, limit to approved regions). Use AWS Organizations console \u2192 Policies \u2192 Service Control Policies.",
       "pci_dss": [
         {
           "control": "7.2.1",
           "reason": "SCPs enforce org-level least-privilege boundaries preventing principals from exceeding approved access even if IAM policies are misconfigured."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "IAM-039",
@@ -969,7 +1008,8 @@
           "control": "7.2.1",
           "reason": "Allowing broad detachment or deletion of IAM policies undermines the principle of least privilege. PCI DSS 7.2.1 requires access control systems that restrict access based on business need-to-know and least privilege."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     },
     {
       "id": "IAM-042",
@@ -1002,7 +1042,8 @@
           "control": "10.2.1.3",
           "reason": "Privilege escalation events must be detectable. Policies without MFA gates allow silent escalation that may not trigger alerting."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "IAM-043",
@@ -1029,7 +1070,8 @@
           "control": "8.2.2",
           "reason": "System and application accounts must be managed with controls preventing misuse. Confused Deputy vulnerabilities allow unauthorized cross-account assumption of service roles."
         }
-      ]
+      ],
+      "qsa_visibility": "deep"
     },
     {
       "id": "IAM-041",
@@ -1060,7 +1102,8 @@
           "control": "8.2.2",
           "reason": "System/application accounts must be managed with controls that prevent misuse. Over-privileged roles are a primary vector for privilege escalation attacks."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "IAM-044",
@@ -1087,7 +1130,8 @@
           "control": "8.6.1",
           "reason": "All user IDs and authentication factors for system/application accounts must be managed per policies and procedures. Extended session tokens bypass the intended rotation/expiry controls."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     }
   ],
   "version": "2.7",

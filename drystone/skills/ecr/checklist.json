@@ -26,7 +26,8 @@
           "control": "7.2.2",
           "reason": "Access to system components and data must be restricted by default. Public principals violate least privilege."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "ECR-002",
@@ -46,7 +47,8 @@
           "control": "6.4.3",
           "reason": "Change control requires integrity and traceability of deployed components. Immutable tags support controlled, auditable changes."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "ECR-003",
@@ -67,7 +69,8 @@
           "control": "6.3.3",
           "reason": "Vulnerability management is required for system components. Scanning supports identification of vulnerabilities in container images."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "ECR-004",
@@ -88,7 +91,8 @@
           "control": "6.3.3",
           "reason": "A formal vulnerability identification process improves coverage and repeatability."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "ECR-005",
@@ -108,7 +112,8 @@
           "control": "3.5.1",
           "reason": "Cryptographic mechanisms must be protected; CMKs provide finer control over key access and governance."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "ECR-006",
@@ -128,7 +133,8 @@
           "control": "2.2.6",
           "reason": "Unused components increase risk. Lifecycle hygiene supports reducing unnecessary artifacts."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "ECR-007",
@@ -149,7 +155,8 @@
           "control": "7.2.2",
           "reason": "Least privilege requires limiting access to only necessary principals, including external accounts."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "ECR-008",
@@ -164,7 +171,8 @@
         "rules"
       ],
       "remediation": "If required, configure ECR replication to secondary regions/accounts. Validate with: aws ecr describe-registry.",
-      "pci_dss": []
+      "pci_dss": [],
+      "qsa_visibility": "standard"
     },
     {
       "id": "ECR-009",
@@ -185,7 +193,8 @@
           "control": "7.2.2",
           "reason": "Least privilege requires limiting actions to the minimum required."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "ECR-010",
@@ -200,7 +209,8 @@
         "AccessDenied"
       ],
       "remediation": "Ensure the audit role has permissions for: ecr:DescribeRegistry, ecr:DescribeRegistryScanningConfiguration, ecr:GetRegistryPolicy.",
-      "pci_dss": []
+      "pci_dss": [],
+      "qsa_visibility": "standard"
     }
   ],
   "notes": "This checklist is guidance-oriented; PCI DSS mappings are indicative and may require adaptation based on environment scope and CDE definition."

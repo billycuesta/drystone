@@ -2,8 +2,8 @@
   "skill": "network",
   "framework": "AWS VPC Security Best Practices + PCI DSS v4.0 Mapping",
   "description": "Checklist for auditing AWS network policies and connectivity, including Security Groups, NACLs, Route Tables, VPC Peering, Transit Gateway, and Network Firewall, with mappings to relevant PCI DSS controls.",
-  "version": "1.1",
-  "last_updated": "2026-02-10",
+  "version": "1.0",
+  "last_updated": "2026-01-23",
   "items": [
     {
       "id": "NET-001",
@@ -24,7 +24,8 @@
           "control": "7.2.1",
           "reason": "Access to system components must be based on the principle of least privilege. Unrestricted inbound access to sensitive ports violates this by granting maximum privilege from any source."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-002",
@@ -41,7 +42,8 @@
           "control": "7.3.3",
           "reason": "Access control systems must be set to 'deny all' by default. This rule effectively creates an 'allow all' scenario, contravening this principle."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-003",
@@ -58,7 +60,8 @@
           "control": "7.3.3",
           "reason": "Access control systems (NACLs) must be set to 'deny all' by default. An explicit 'ALLOW ALL' rule bypasses this security principle."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-004",
@@ -75,7 +78,8 @@
           "control": "2.2.1",
           "reason": "This violates industry-accepted system hardening standards, which dictate that sensitive resources should always reside in private subnets without direct internet routing."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-022",
@@ -92,7 +96,8 @@
           "control": "1.4.4.b",
           "reason": "System components storing cardholder data must not be directly accessible from untrusted networks. Public subnet routing requires validation that sensitive components are not exposed."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-005",
@@ -109,7 +114,8 @@
           "control": "7.2.1",
           "reason": "Access between VPCs should be controlled with least privilege. Wide-open peering routes fail this principle."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-006",
@@ -126,7 +132,8 @@
           "control": "7.2.1",
           "reason": "This practice makes it difficult to enforce least privilege, as the permissions granted depend on configurations in another, potentially less controlled, account."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-007",
@@ -143,7 +150,8 @@
           "control": "6.4.2",
           "reason": "For public-facing web applications, an automated technical solution that detects and prevents web-based attacks is required. Network Firewall can provide this layer of defense."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-008",
@@ -156,7 +164,8 @@
           "control": "1.4.4.b",
           "reason": "System components storing cardholder data must not be directly accessible from untrusted networks. Deploying critical resources into public subnets is a direct violation of this requirement."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-009",
@@ -173,7 +182,8 @@
           "control": "7.2.1",
           "reason": "Least privilege principle requires granting only necessary access. Broad IP ranges grant more access than typically needed."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-010",
@@ -190,7 +200,8 @@
           "control": "7.3.3",
           "reason": "Access control systems must deny all by default. Default permissive NACLs contradict this."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-011",
@@ -207,7 +218,8 @@
           "control": "12.5.1",
           "reason": "Maintaining an accurate inventory of components is aided by clear descriptions of security configurations."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-012",
@@ -220,7 +232,8 @@
           "control": "1.1.4",
           "reason": "Firewalls are required to be implemented between network segments with differing trust levels. TGW without Network Firewall bypasses this requirement for inter-VPC traffic."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-013",
@@ -233,7 +246,8 @@
           "control": "1.3.4",
           "reason": "This control (in v4.0) encourages keeping traffic within trusted networks. Using VPC Endpoints is a key mechanism for reducing exposure by not routing sensitive traffic over the public internet."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-014",
@@ -246,7 +260,8 @@
           "control": "1.2.1.b",
           "reason": "Route tables are configuration settings for NSCs. Unexpected blackhole routes can indicate non-compliance with intended network configurations and create security gaps."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-015",
@@ -259,7 +274,8 @@
           "control": "1.2.1.a",
           "reason": "Configuration standards for NSCs (Security Groups) should be defined and maintained. Redundant rules make the configuration harder to maintain and audit against defined standards."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-016",
@@ -272,7 +288,8 @@
           "control": "1.3.1.b",
           "reason": "The default NACL's 'allow all' behavior fails to implement the required traffic restriction for inbound traffic, creating a significant security weakness."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-017",
@@ -285,7 +302,8 @@
           "control": "1.4.4.b",
           "reason": "This directly violates the requirement that system components storing cardholder data are not directly accessible from untrusted networks. A route to IGW compromises privacy."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-018",
@@ -302,7 +320,8 @@
           "control": "10.6.1",
           "reason": "Monitoring network events is crucial. Without Flow Logs, real-time monitoring of network traffic for anomalies and security events is impossible."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-019",
@@ -319,7 +338,8 @@
           "control": "12.5.1",
           "reason": "Complexity hinders the ability to maintain an accurate inventory and understand the security posture of network components."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-020",
@@ -332,7 +352,8 @@
           "control": "1.2.1.a",
           "reason": "Maintaining clear and organized configuration standards for NSCs is important. Non-sequential rule numbers make it harder to enforce and audit these standards."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-021",
@@ -345,7 +366,8 @@
           "control": "12.5.1",
           "reason": "Orphaned Security Groups contribute to configuration clutter and can complicate maintaining an accurate and clean inventory of active network security controls."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-032",
@@ -358,7 +380,8 @@
           "control": "1.2.1.b",
           "reason": "Ambiguous routing configurations can lead to unexpected traffic flows, compromising network segmentation and traffic control requirements."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-023",
@@ -371,7 +394,8 @@
           "control": "12.5.1",
           "reason": "Maintaining an accurate inventory of in-scope system components is crucial. Tags facilitate this by clearly identifying the purpose and ownership of network connections."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-024",
@@ -384,7 +408,8 @@
           "control": "12.5.1",
           "reason": "Clear naming conventions aid in maintaining an accurate inventory and understanding the role of each network component, supporting compliance efforts."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-025",
@@ -397,7 +422,8 @@
           "control": "12.5.1",
           "reason": "Classification tags on subnets help in clearly defining network segments and their associated security requirements, contributing to an accurate inventory and segmentation strategy."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-026",
@@ -410,7 +436,8 @@
           "control": "6.3.3.b",
           "reason": "Overly restrictive egress rules can prevent systems from receiving critical security patches and updates, hindering vulnerability management efforts."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-027",
@@ -423,7 +450,8 @@
           "control": "12.5.1",
           "reason": "Tags are critical for maintaining an accurate inventory of system components, which includes network security controls like Security Groups."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-028",
@@ -436,7 +464,8 @@
           "control": "1.2.1.a",
           "reason": "Clear and maintainable configuration standards for NSCs are important. Cluttered configurations can lead to errors or misunderstandings."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-029",
@@ -449,7 +478,8 @@
           "control": "1.2.3.a",
           "reason": "An accurate network diagram is required. Overlapping CIDR blocks can complicate understanding the network architecture and potential routing conflicts, affecting the accuracy of network diagrams."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-030",
@@ -462,7 +492,8 @@
           "control": "1.2.1.a",
           "reason": "Configuration standards for NSCs should be well-defined and maintained. Manual static routes can be less reliable and harder to maintain than automated propagation, increasing the risk of misconfiguration."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "NET-031",
@@ -475,11 +506,10 @@
           "control": "12.5.1",
           "reason": "Proper DNS functionality is critical for the operational accuracy and visibility of system components, supporting the maintenance of an accurate inventory and understanding of the environment."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     }
   ],
-  "version": "1.0",
   "total_checks": 31,
-  "last_updated": "2026-01-23",
   "notes": "Generated based on aws-networkpolicies-skill.md and mapped against PCI DSS v4.0 controls."
 }
