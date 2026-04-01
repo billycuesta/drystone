@@ -1310,6 +1310,69 @@ class TestALRT002:
         # Managed rule skipped → no matching rules → FAIL
         assert r.status == "FAIL"
 
+    def test_fail_with_alternative_coverage_message_when_metric_filters_present(self):
+        """No EventBridge but CW Logs + metric filters cover the gap → FAIL with alternative coverage message."""
+        r = check_alrt_002(
+            {
+                "eventbridge-rules": [],
+                "cloudtrail-trails": [
+                    {
+                        "Name": "MainTrail",
+                        "CloudWatchLogsLogGroupArn": "arn:aws:logs:eu-west-1:111:log-group:ct-logs:*",
+                    }
+                ],
+                "cloudwatch-metric-filters": [
+                    {"logGroupName": "ct-logs", "filterName": "UnauthorizedApiCalls"},
+                    {"logGroupName": "ct-logs", "filterName": "RootAccountUsage"},
+                    {"logGroupName": "ct-logs", "filterName": "ConsoleLogin"},
+                ],
+            }
+        )
+        assert r.status == "FAIL"
+        assert "alternative coverage" in r.evidence_summary
+        assert "3" in r.evidence_summary
+
+    def test_fail_no_alternative_coverage_message_when_fewer_than_3_filters(self):
+        """Less than 3 metric filters → standard FAIL message (no alternative coverage)."""
+        r = check_alrt_002(
+            {
+                "eventbridge-rules": [],
+                "cloudtrail-trails": [
+                    {
+                        "Name": "MainTrail",
+                        "CloudWatchLogsLogGroupArn": "arn:aws:logs:eu-west-1:111:log-group:ct-logs:*",
+                    }
+                ],
+                "cloudwatch-metric-filters": [
+                    {"logGroupName": "ct-logs", "filterName": "UnauthorizedApiCalls"},
+                    {"logGroupName": "ct-logs", "filterName": "RootAccountUsage"},
+                ],
+            }
+        )
+        assert r.status == "FAIL"
+        assert "alternative coverage" not in r.evidence_summary
+
+    def test_fail_when_metric_filters_on_different_log_group(self):
+        """Metric filters exist but on a different log group than the CloudTrail one → no coverage."""
+        r = check_alrt_002(
+            {
+                "eventbridge-rules": [],
+                "cloudtrail-trails": [
+                    {
+                        "Name": "MainTrail",
+                        "CloudWatchLogsLogGroupArn": "arn:aws:logs:eu-west-1:111:log-group:ct-logs:*",
+                    }
+                ],
+                "cloudwatch-metric-filters": [
+                    {"logGroupName": "other-log-group", "filterName": "SomeFilter"},
+                    {"logGroupName": "other-log-group", "filterName": "AnotherFilter"},
+                    {"logGroupName": "other-log-group", "filterName": "ThirdFilter"},
+                ],
+            }
+        )
+        assert r.status == "FAIL"
+        assert "alternative coverage" not in r.evidence_summary
+
 
 class TestALRT003:
     def test_pass_when_all_filters_have_alarms(self):

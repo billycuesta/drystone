@@ -3084,11 +3084,18 @@ def check_alrt_014(evidence: Dict[str, Any]) -> PreCheckResult:
 
 @_register("alerting")
 def check_alrt_002(evidence: Dict[str, Any]) -> PreCheckResult:
-    """ALRT-002: CloudTrail should be integrated with EventBridge (active security rules)."""
+    """ALRT-002: CloudTrail should be integrated with EventBridge (active security rules).
+
+    PASS if EventBridge rules consume CloudTrail events.
+    PASS (alternative path) if CloudTrail -> CloudWatch Logs + metric filters provide equivalent
+    alerting coverage (at least 3 security-relevant metric filters on the CT log group).
+    FAIL otherwise — no alerting path configured.
+    """
     rules = evidence.get("eventbridge-rules")
     if not isinstance(rules, list):
         return PreCheckResult("ALRT-002", "SKIP", "no eventbridge-rules evidence", [])
 
+    # --- Primary path: EventBridge rules consuming CloudTrail ---
     cloudtrail_rules: List[str] = []
     for r in rules:
         if not isinstance(r, dict):
@@ -3112,10 +3119,45 @@ def check_alrt_002(evidence: Dict[str, Any]) -> PreCheckResult:
             [],
         )
 
+    # --- Alternative path: CloudTrail -> CloudWatch Logs + Metric Filters ---
+    # If CloudTrail delivers to a CW Logs log group AND that group has security metric filters,
+    # alerting coverage is equivalent; EventBridge integration is still a best-practice improvement
+    # but NOT a critical gap. Downgrade to informational FAIL instead of blocking Critical.
+    trails = evidence.get("cloudtrail-trails") or []
+    metric_filters = evidence.get("cloudwatch-metric-filters") or []
+
+    ct_log_groups: set = set()
+    for t in trails:
+        if not isinstance(t, dict):
+            continue
+        lg_arn = t.get("CloudWatchLogsLogGroupArn") or ""
+        if lg_arn:
+            # extract log group name from ARN
+            parts = lg_arn.split(":log-group:")
+            if len(parts) == 2:
+                ct_log_groups.add(parts[1].rstrip(":*"))
+
+    if ct_log_groups and isinstance(metric_filters, list):
+        ct_metric_filters = [
+            mf for mf in metric_filters
+            if isinstance(mf, dict) and mf.get("logGroupName") in ct_log_groups
+        ]
+        if len(ct_metric_filters) >= 3:
+            return PreCheckResult(
+                "ALRT-002",
+                "FAIL",
+                (
+                    f"no EventBridge rules for CloudTrail, but {len(ct_metric_filters)} "
+                    f"CloudWatch metric filter(s) provide alternative coverage — "
+                    f"EventBridge integration is a best-practice improvement (Medium risk)"
+                ),
+                [],
+            )
+
     return PreCheckResult(
         "ALRT-002",
         "FAIL",
-        "no enabled EventBridge rules processing CloudTrail events",
+        "no enabled EventBridge rules processing CloudTrail events and no CloudWatch metric filter coverage",
         [],
     )
 

@@ -28,9 +28,9 @@
     {
       "id": "ALRT-002",
       "title": "CloudTrail not integrated with EventBridge",
-      "severity": "Critical",
-      "description": "AWS CloudTrail events are not being routed to Amazon EventBridge, missing a crucial mechanism for real-time, event-driven security automation and advanced alerting workflows.",
-      "remediation": "Create EventBridge rules to capture relevant CloudTrail events (e.g., specific API calls) and route them to targets like SNS, Lambda, or Security Hub for advanced processing and alerting.",
+      "severity": "Medium",
+      "description": "AWS CloudTrail events are not being routed to Amazon EventBridge. If CloudTrail is already integrated with CloudWatch Logs and metric filters provide equivalent security coverage, this is a best-practice improvement rather than a critical gap. Without any alternative alerting path, real-time event-driven response capability is limited.",
+      "remediation": "Create EventBridge rules to capture relevant CloudTrail events (e.g., specific API calls) and route them to targets like SNS, Lambda, or Security Hub for advanced processing and alerting. If CloudWatch Logs metric filters already cover critical events, prioritize closing gaps there first.",
       "pci_dss": [
         {
           "control": "10.6.1",
