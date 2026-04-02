@@ -632,7 +632,20 @@ python -c "from anthropic import Anthropic; print('OK')"
 ruff check drystone/
 ```
 
-## Recent Context (Last 3 Sessions)
+## Recent Context (Last 4 Sessions)
+
+**2026-04-02 (Session 22):** CloudTrail Events Skill Planning - Design Complete, User Validated
+- Completed exploit enrichment feature (commit d2ef454) with 35 new tests
+- Launched parallel Explore agents → confirmed gap: no skill queries CloudTrail lookup_events
+- Received comprehensive design from Plan agent: 7-phase implementation (14-19h)
+- Validated with user: MVP scope (8-10 checks), scan_depth config, single-region, timeline viz
+- All 4 design decisions finalized, user confirmed
+- Status: Ready for Phase 5 (plan finalization) tomorrow
+- Plan mode ACTIVE - will write final plan and ExitPlanMode tomorrow
+- Files: drystone/cli/main.py, drystone/cli/ui/wizard.py, drystone/skills/sistemas_explotables_red/*, drystone/validation/pre_checks.py, drystone/reports/formats/markdown.py, tests/skills/test_sistemas_explotables_red.py
+- Commit: d2ef454
+
+**2026-03-16 (Session 21):** PDF Report Professionalism Complete — 7 Gaps Closed → 8.5+/10 Rating
 
 **2026-03-16 (Session 21):** PDF Report Professionalism Complete — 7 Gaps Closed → 8.5+/10 Rating
 - Closed final 7 PDF professionalism gaps vs. manual pentest reports

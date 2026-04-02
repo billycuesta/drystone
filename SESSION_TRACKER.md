@@ -564,4 +564,117 @@ None - all changes committed and pushed
 
 ---
 
-*Last Updated: 2026-02-13*
+## Session: 2026-04-02 Session 22 - CloudTrail Events Skill Planning
+**Date:** 2026-04-02
+**Branch:** main
+**Objective:** Plan implementation of new CloudTrail security events detection skill (MVP scope)
+
+### Results
+- ✅ Completed Exploit Enrichment feature (commit d2ef454) - 35 tests, all 1846 passing
+- ✅ Launched parallel Explore agents: confirmed gap (no skill queries CloudTrail events)
+- ✅ Received comprehensive design from Plan agent: 7-phase implementation (14-19h)
+- ✅ Validated all 4 user decisions for scope, time range, multi-region, visualization
+
+### Work Phases
+
+**Phase 1: Exploit Enrichment (COMPLETED)**
+- Commit: d2ef454
+- Integrated 3 public exploit sources (CISA KEV, Exploit-DB, NVD PoC)
+- Enhanced markdown reports with exploit columns
+- Updated checklist to v1.3 with qsa_visibility fields
+- 35 new tests, 1846/1846 passing
+
+**Phase 2: Initial Understanding (COMPLETED)**
+- Read user's CloudTrail monitoring playbook (13 event categories)
+- Explored existing skills architecture (15 skills, 3-tier validation)
+- Confirmed: Alerting skill audits CloudTrail config only (no lookup_events)
+- **Key finding:** NO skill currently queries historical events → gap identified
+
+**Phase 3: Design (COMPLETED)**
+- Received comprehensive plan from Plan agent
+- Covers: architecture, event collection, pre-checks, checklist, evidence, token budget, testing
+- 7-phase implementation (Phase 1 core collection through Phase 7 integration)
+- Detailed analysis of token budget optimization (distillation strategy)
+
+**Phase 4: Review (COMPLETED)**
+- Validated plan against existing code patterns
+- Confirmed alerting skill structure (boto3 pagination patterns)
+- Confirmed pre-check registry pattern (@_register decorator)
+- No blockers identified
+
+**Phase 4a: User Validation (COMPLETED)**
+Asked 4 clarifying questions; user provided decisions:
+1. **Scope:** MVP rápido (8-10 critical checks) ✅
+2. **Time range:** Via scan_depth (shallow=7d, normal=30d, deep=90d, very-deep=180d) ✅
+3. **Multi-región:** Solo región auditada (no multi-region complexity) ✅
+4. **Visualization:** Sí, timeline + top users + event distribution ✅
+
+### Key Decisions
+- **Skill name:** cloudtrail_events
+- **MVP scope:** 8-10 deterministic checks (root use, failed logins, audit tampering, privilege escalation, etc.)
+- **Evidence collection:** 13 category files (one per event type from playbook)
+- **Time range:** scan_depth config (no new wizard step needed)
+- **Region strategy:** Audit region only (no multi-region grid)
+- **Visualization:** Timeline + top users + event distribution in post-processor
+- **Token budget:** Distillation to keep under 120K for normal scan
+
+### Implementation Plan Summary
+**Files to create:**
+- drystone/skills/cloudtrail_events/__init__.py
+- drystone/skills/cloudtrail_events/checklist.json
+- drystone/skills/cloudtrail_events/post_processor.py
+
+**Files to modify:**
+- drystone/validation/pre_checks.py (8-10 @_register functions)
+- drystone/models/config.py (add to valid_skills)
+- drystone/cli/ui/wizard.py (add to skills list)
+- drystone/cli/main.py (skills_map registration)
+
+**7-phase timeline:** 13-17 hours total
+- Phase 1: Core collection (boto3 lookup_events, pagination) - 3-4h
+- Phase 2: Event distillation (prioritize errors/root/deletions) - 2h
+- Phase 3: Pre-checks (8-10 @_register functions) - 2-3h
+- Phase 4: Checklist (8-10 checks with PCI mappings) - 1-2h
+- Phase 5: Post-processor (timeline viz) - 2h
+- Phase 6: Testing (unit + integration) - 2-3h
+- Phase 7: Integration (registry, config) - 1h
+
+### Status
+- ✅ Phase 1: Exploit enrichment complete
+- ✅ Phase 2: Initial understanding complete
+- ✅ Phase 3: Design complete (Plan agent output)
+- ✅ Phase 4: Review complete
+- ✅ Phase 4a: User validation complete (all 4 decisions)
+- ⏸️ Phase 5: Final plan writing (NOT YET - user requested only session doc tonight)
+
+### Commits
+- d2ef454 - feat: add exploit enrichment and QSA depth filtering
+
+### Files Modified
+- drystone/cli/main.py (exploit description, scan_depth help)
+- drystone/cli/ui/wizard.py (improved UI descriptions)
+- drystone/skills/sistemas_explotables_red/__init__.py (exploit sources)
+- drystone/skills/sistemas_explotables_red/checklist.json (v1.3)
+- drystone/reports/formats/markdown.py (exploit columns)
+- tests/skills/test_sistemas_explotables_red.py (35 new tests)
+- drystone/validation/pre_checks.py (SER-CVE-001 pre-check)
+
+### Test Results
+- Total tests: 1846/1846 passing (100%)
+- New tests: 35
+- Coverage: sistemas_explotables_red skill now fully covered
+
+### Blockers
+None - All design decisions finalized, user validated
+
+### Next Session
+Tomorrow at Phase 5:
+1. Write final plan to `/Users/gcuesta/.claude/plans/mutable-skipping-knuth.md`
+2. Call ExitPlanMode to present plan to user for approval
+3. If approved: Begin implementation Phase 1 (core collection)
+
+**Plan mode status:** ACTIVE (will resume tomorrow)
+
+---
+
+*Last Updated: 2026-04-02*
