@@ -9522,21 +9522,23 @@ def check_ser_ec2_002(evidence: Dict[str, Any]) -> PreCheckResult:
             for cve_entry in inst_data.get("cves", []):
                 if not isinstance(cve_entry, dict):
                     continue
-                enriched_cve_details.append(
-                    {
-                        "id": cve_entry.get("id", ""),
-                        "package": cve_entry.get("package", ""),
-                        "inspector_severity": cve_entry.get("inspector_severity", ""),
-                        "cvss_score": cve_entry.get("cvss_score"),
-                        "description": cve_entry.get("description", ""),
-                        "attack_vector": cve_entry.get("attack_vector", ""),
-                        "exploitable_from_internet": cve_entry.get(
-                            "exploitable_from_internet", False
-                        ),
-                        "relevant_open_ports": cve_entry.get("relevant_open_ports", []),
-                        "resource": iid,
-                    }
-                )
+                entry: Dict[str, Any] = {
+                    "id": cve_entry.get("id", ""),
+                    "package": cve_entry.get("package", ""),
+                    "inspector_severity": cve_entry.get("inspector_severity", ""),
+                    "cvss_score": cve_entry.get("cvss_score"),
+                    "description": cve_entry.get("description", ""),
+                    "attack_vector": cve_entry.get("attack_vector", ""),
+                    "exploitable_from_internet": cve_entry.get(
+                        "exploitable_from_internet", False
+                    ),
+                    "relevant_open_ports": cve_entry.get("relevant_open_ports", []),
+                    "resource": iid,
+                }
+                # Propagate exploit_intel from cve-intelligence enrichment
+                if cve_entry.get("exploit_intel"):
+                    entry["exploit_intel"] = cve_entry["exploit_intel"]
+                enriched_cve_details.append(entry)
             attack_path = inst_data.get("attack_path")
             if isinstance(attack_path, dict) and attack_path:
                 per_instance_attack_paths[iid] = attack_path
@@ -9679,4 +9681,45 @@ def check_ser_lmb_002(evidence: Dict[str, Any]) -> PreCheckResult:
         "FAIL",
         "; ".join(parts),
         all_unauth[:20],
+    )
+
+
+@_register("sistemas_explotables_red")
+def check_ser_cve_001(evidence: Dict[str, Any]) -> PreCheckResult:
+    """SER-CVE-001: Internet-exposed instance with CISA KEV vulnerability."""
+    cve_intel = evidence.get("cve-intelligence")
+    if not isinstance(cve_intel, dict):
+        return PreCheckResult("SER-CVE-001", "SKIP", "no cve-intelligence evidence", [])
+
+    instances = cve_intel.get("instances")
+    if not isinstance(instances, dict) or not instances:
+        return PreCheckResult("SER-CVE-001", "SKIP", "no instances in cve-intelligence", [])
+
+    affected: List[str] = []
+    for iid, intel in instances.items():
+        if not isinstance(intel, dict):
+            continue
+        for cve in intel.get("cves", []):
+            if not isinstance(cve, dict):
+                continue
+            if not cve.get("exploitable_from_internet"):
+                continue
+            exploit_intel = cve.get("exploit_intel") or {}
+            kev = exploit_intel.get("cisa_kev") or {}
+            if kev.get("listed"):
+                affected.append(f"{iid}:{cve.get('id', '?')}")
+                break  # one KEV CVE per instance is enough
+
+    if not affected:
+        return PreCheckResult(
+            "SER-CVE-001",
+            "PASS",
+            "no internet-exposed instances with CISA KEV vulnerabilities",
+            [],
+        )
+    return PreCheckResult(
+        "SER-CVE-001",
+        "FAIL",
+        f"{len(affected)} instance(s) internet-exposed with CISA KEV vulnerability (actively exploited in wild)",
+        affected[:20],
     )

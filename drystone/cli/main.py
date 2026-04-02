@@ -409,14 +409,16 @@ def audit(
         with chunk_lock:
             if stage == "start":
                 chunk_state[skill_name] = {"current": 0, "total": max(1, total)}
-                click.echo(f"   📦 {skill_name}: chunking started (0/{max(1, total)})")
+                _sdn = skill_display_names.get(skill_name, skill_name)
+                click.echo(f"   📦 {_sdn}: chunking started (0/{max(1, total)})")
             elif stage in {"advance", "done"}:
                 safe_total = max(1, total)
                 safe_current = min(max(0, current), safe_total)
                 prev = chunk_state.get(skill_name, {}).get("current", -1)
                 if safe_current != prev:
                     chunk_state[skill_name] = {"current": safe_current, "total": safe_total}
-                    click.echo(f"   📦 {skill_name}: chunks {safe_current}/{safe_total}")
+                    _sdn = skill_display_names.get(skill_name, skill_name)
+                    click.echo(f"   📦 {_sdn}: chunks {safe_current}/{safe_total}")
 
     agent.progress_callback = _on_chunk_progress
 
@@ -451,7 +453,7 @@ def audit(
                     float(summary.get("overall_risk_score", 0.0)),
                 )
                 metrics_tracker.record_skill_complete(skill_name, True)
-                click.echo(f"   ✅ {skill_name.capitalize()}:")
+                click.echo(f"   ✅ {skill_display_names.get(skill_name, skill_name.capitalize())}:")
                 click.echo(
                     f"      Total: {summary['total_findings']} | "
                     f"Critical: {summary['critical']} | "
@@ -528,7 +530,7 @@ def audit(
                         skill_name, [str(f) for f in config.output_formats]
                     )
 
-                    click.echo(f"   {skill_name.capitalize()} Reports:")
+                    click.echo(f"   {skill_display_names.get(skill_name, skill_name.capitalize())} Reports:")
                     for format_name, report_path in generated_reports.items():
                         size_kb = report_path.stat().st_size / 1024
                         click.echo(

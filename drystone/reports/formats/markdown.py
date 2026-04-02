@@ -911,23 +911,49 @@ These correlations represent multi-stage attack scenarios where findings from di
         section = "\n#### Exploitability Analysis\n\n"
 
         if cve_details:
-            section += "| CVE / Advisory | Package | CVSS | Attack Vector | Open Ports | Exploitability |\n"
-            section += "|----------------|---------|------|---------------|------------|----------------|\n"
+            section += "| CVE / Advisory | Package | CVSS | Attack Vector | Open Ports | Public Exploit | CISA KEV |\n"
+            section += "|----------------|---------|------|---------------|------------|----------------|----------|\n"
             for cve in cve_details[:15]:
                 cve_id = cve.get("id", "—")
-                package = cve.get("package", "—")
+                package = cve.get("package", "—") or "—"
                 cvss = cve.get("cvss_score")
                 sev = cve.get("inspector_severity", "")
                 cvss_str = f"{cvss:.1f} ({sev})" if cvss is not None else "—"
                 av = cve.get("attack_vector", "—")
                 ports = cve.get("relevant_open_ports", [])
                 ports_str = ", ".join(str(p) for p in ports[:3]) if ports else "—"
-                exploitable = cve.get("exploitable_from_internet", False)
-                exploit_str = "Reachable" if exploitable else "Indirect risk"
+                ei = cve.get("exploit_intel") or {}
+                has_exploit = ei.get("has_public_exploit", False)
+                exploit_str = "✅ Yes" if has_exploit else "No"
+                kev = ei.get("cisa_kev") or {}
+                kev_str = "⚠️ **KEV**" if kev.get("listed") else "No"
                 section += (
-                    f"| {cve_id} | {package} | {cvss_str} | {av} | {ports_str} | {exploit_str} |\n"
+                    f"| {cve_id} | {package} | {cvss_str} | {av} | {ports_str} | {exploit_str} | {kev_str} |\n"
                 )
             section += "\n"
+
+            # Surface PoC URLs for CVEs that have them
+            poc_lines = []
+            for cve in cve_details[:15]:
+                ei = cve.get("exploit_intel") or {}
+                poc_urls = ei.get("poc_urls") or []
+                edb = ei.get("exploit_db") or {}
+                kev = ei.get("cisa_kev") or {}
+                cve_id = cve.get("id", "")
+                notes = []
+                if kev.get("listed"):
+                    date = kev.get("date_added", "")
+                    rw = kev.get("ransomware_use", "")
+                    notes.append(f"CISA KEV (added {date}" + (f", ransomware: {rw}" if rw and rw != "Unknown" else "") + ")")
+                if edb.get("id"):
+                    notes.append(f"[Exploit-DB #{edb['id']}](https://www.exploit-db.com/exploits/{edb['id']}) — {edb.get('type','?')} / {edb.get('platform','?')}")
+                for url in poc_urls[:3]:
+                    notes.append(f"[PoC]({url})")
+                if notes:
+                    poc_lines.append(f"- **`{cve_id}`**: " + " · ".join(notes))
+            if poc_lines:
+                section += "**Public exploit references:**\n\n"
+                section += "\n".join(poc_lines) + "\n\n"
 
         return section
 

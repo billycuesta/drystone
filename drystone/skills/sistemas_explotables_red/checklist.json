@@ -2,9 +2,9 @@
   "skill": "sistemas_explotables_red",
   "framework": "AWS Security Best Practices + Passive Pentest Correlation",
   "description": "Detection of potentially network-exploitable systems without active scanning",
-  "version": "1.1",
-  "total_checks": 7,
-  "last_updated": "2026-03-06",
+  "version": "1.3",
+  "total_checks": 8,
+  "last_updated": "2026-04-02",
   "items": [
     {
       "id": "SER-EC2-001",
@@ -19,7 +19,8 @@
           "control": "1.2.1",
           "reason": "Limit inbound traffic to authorized sources only."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     },
     {
       "id": "SER-EC2-002",
@@ -34,7 +35,8 @@
           "control": "6.3.3",
           "reason": "Vulnerabilities with high exploitability on exposed components must be mitigated as a priority."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "SER-ECS-001",
@@ -49,7 +51,8 @@
           "control": "1.3.2",
           "reason": "Traffic from the internet to the CDE must be limited to authorized components."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "SER-LMB-001",
@@ -64,7 +67,8 @@
           "control": "8.1.1",
           "reason": "Access to system components must require authentication."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     },
     {
       "id": "SER-LMB-002",
@@ -79,7 +83,8 @@
           "control": "8.2.1",
           "reason": "Access to system components must require identification and authentication."
         }
-      ]
+      ],
+      "qsa_visibility": "standard"
     },
     {
       "id": "SER-RDS-001",
@@ -94,7 +99,8 @@
           "control": "1.4.1",
           "reason": "CDE components must not be directly exposed to the internet."
         }
-      ]
+      ],
+      "qsa_visibility": "obvious"
     },
     {
       "id": "SER-COR-003",
@@ -109,8 +115,29 @@
           "control": "6.4.3",
           "reason": "High risks must be prioritized with compensating controls and timely remediation."
         }
-      ]
+      ],
+      "qsa_visibility": "deep"
+    },
+    {
+      "id": "SER-CVE-001",
+      "title": "Internet-exposed instance with CISA KEV vulnerability",
+      "severity": "Critical",
+      "description": "An EC2 instance exposed to the internet has a vulnerability listed in CISA's Known Exploited Vulnerabilities catalog, indicating active exploitation in the wild.",
+      "evidence_files": ["cve-intelligence.json"],
+      "check_keywords": ["cisa_kev", "exploitable_from_internet", "has_public_exploit"],
+      "remediation": "Immediately patch the affected CVE. If a patch is unavailable, isolate the instance by restricting security group ingress and disabling public IP or removing IGW route.",
+      "pci_dss": [
+        {
+          "control": "6.3.3",
+          "reason": "Known exploited vulnerabilities on internet-exposed components must be remediated as highest priority."
+        },
+        {
+          "control": "11.3.1",
+          "reason": "Vulnerabilities actively exploited in the wild represent the highest risk to the CDE."
+        }
+      ],
+      "qsa_visibility": "obvious"
     }
   ],
-  "notes": "v1.1: added SER-ECS-001 (ECS via ALB) and SER-LMB-002 (API GW unauth, OPTIONS excluded). SER-EC2-001 verifies IGW route to reduce false positives on private subnets."
+  "notes": "v1.3: added qsa_visibility to all items. v1.2: added SER-CVE-001 (CISA KEV + internet exposure). v1.1: added SER-ECS-001 (ECS via ALB) and SER-LMB-002 (API GW unauth, OPTIONS excluded). SER-EC2-001 verifies IGW route to reduce false positives on private subnets."
 }

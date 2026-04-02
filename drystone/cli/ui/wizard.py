@@ -456,14 +456,18 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
         raise KeyboardInterrupt("Wizard cancelled")
 
     # ── Step 5: Scan Depth ────────────────────────────────────────
+    print()
+    print("  Scan Depth controls how much evidence is sent to the AI per skill.")
+    print("  Higher depth = more chunks analyzed = broader coverage but more tokens/time.")
+    print()
     current_depth = defaults.get("scan_depth", "normal")
     scan_depth = questionary.select(
         "Scan Depth:",
         choices=[
-            questionary.Choice("Shallow (faster, lower token usage)", "shallow"),
-            questionary.Choice("Normal (recommended)", "normal"),
-            questionary.Choice("Deep (more coverage)", "deep"),
-            questionary.Choice("Very deep (max coverage, higher tokens)", "very-deep"),
+            questionary.Choice("Shallow  — Fast scan, minimal chunks. Quick checks or cost-sensitive runs", "shallow"),
+            questionary.Choice("Normal   — Balanced coverage. Recommended for most audits", "normal"),
+            questionary.Choice("Deep     — Extended analysis with more evidence chunks per skill", "deep"),
+            questionary.Choice("Very deep — Maximum coverage. All available evidence. Higher token usage", "very-deep"),
         ],
         default=current_depth,
     ).ask()
@@ -471,13 +475,17 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
         raise KeyboardInterrupt("Wizard cancelled")
 
     # ── Step 5b: QSA Depth ────────────────────────────────────────
+    print()
+    print("  QSA Depth filters which checks are executed based on auditor visibility.")
+    print("  Lower depth = only obvious issues. Higher depth = subtle and advanced checks.")
+    print()
     current_qsa_depth = defaults.get("qsa_depth", "standard")
     qsa_depth = questionary.select(
         "QSA Visibility Level:",
         choices=[
-            questionary.Choice("Obvious — Only self-evident findings (MFA, root keys, S3 public)", "obvious"),
-            questionary.Choice("Standard — Normal QSA scope (key rotation, policies, CloudTrail)", "standard"),
-            questionary.Choice("Deep — All checks including advanced analysis (AssumeRole chains, etc.)", "deep"),
+            questionary.Choice("Obvious  — Self-evident findings only (MFA, root keys, public S3)", "obvious"),
+            questionary.Choice("Standard — Normal QSA audit scope (key rotation, policies, CloudTrail)", "standard"),
+            questionary.Choice("Deep     — All checks incl. advanced analysis (AssumeRole chains, trust policies)", "deep"),
         ],
         default=current_qsa_depth,
     ).ask()

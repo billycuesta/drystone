@@ -6,7 +6,10 @@ signals for compute assets (EC2/ECS/Lambda/RDS) without active scanning.
 
 from __future__ import annotations
 
+import csv
+import io
 import json
+import logging
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -19,6 +22,8 @@ from botocore.exceptions import ClientError
 from drystone.cloud.aws.client import AWSClient
 from drystone.skills.base import BaseSkill
 from drystone.storage.session import AuditSession
+
+logger = logging.getLogger(__name__)
 
 
 class SistemasExplotablesRedSkill(BaseSkill):
@@ -361,6 +366,96 @@ class SistemasExplotablesRedSkill(BaseSkill):
         8443: "HTTPS-Alt",
     }
 
+    # ── Exploit source clients ───────────────────────────────────
+
+    _CISA_KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+    _EXPLOITDB_CSV_URL = "https://gitlab.com/exploit-database/exploitdb/-/raw/main/files_exploits.csv"
+    _EXPLOITDB_MAX_SIZE = 15 * 1024 * 1024  # 15 MB guard
+    _POC_DOMAINS = {"github.com", "exploit-db.com", "packetstormsecurity.com"}
+
+    def _fetch_cisa_kev(self) -> Dict[str, Dict[str, Any]]:
+        """Fetch CISA Known Exploited Vulnerabilities catalog.
+
+        Returns dict keyed by CVE ID with fields: date_added, vendor, product,
+        ransomware_use.  Cached in self._kev_cache after first call.
+        """
+        if hasattr(self, "_kev_cache"):
+            return self._kev_cache
+        try:
+            req = urllib.request.Request(
+                self._CISA_KEV_URL,
+                headers={"User-Agent": "drystone-security-audit/1.0"},
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                body = json.loads(resp.read().decode())
+            lookup: Dict[str, Dict[str, Any]] = {}
+            for entry in body.get("vulnerabilities", []):
+                if not isinstance(entry, dict):
+                    continue
+                cve_id = str(entry.get("cveID") or "")
+                if cve_id:
+                    lookup[cve_id] = {
+                        "date_added": entry.get("dateAdded", ""),
+                        "vendor": entry.get("vendorProject", ""),
+                        "product": entry.get("product", ""),
+                        "ransomware_use": entry.get("knownRansomwareCampaignUse", "Unknown"),
+                    }
+            self._kev_cache = lookup
+            return lookup
+        except Exception as exc:
+            logger.warning("CISA KEV fetch failed: %s", exc)
+            self._kev_cache: Dict[str, Dict[str, Any]] = {}
+            return self._kev_cache
+
+    def _fetch_exploitdb_index(self, cve_ids: Set[str]) -> Dict[str, Dict[str, Any]]:
+        """Fetch Exploit-DB CSV index and return matches for given CVE IDs.
+
+        Returns dict keyed by CVE ID with fields: id, type, platform, description.
+        CVE IDs are found in the ``codes`` column (`;`-separated values).
+        Cached in self._edb_cache after first call.
+        """
+        if hasattr(self, "_edb_cache"):
+            return {cve: self._edb_cache[cve] for cve in cve_ids if cve in self._edb_cache}
+        try:
+            req = urllib.request.Request(
+                self._EXPLOITDB_CSV_URL,
+                headers={"User-Agent": "drystone-security-audit/1.0"},
+            )
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                raw = resp.read(self._EXPLOITDB_MAX_SIZE + 1)
+                if len(raw) > self._EXPLOITDB_MAX_SIZE:
+                    logger.warning("Exploit-DB CSV exceeds %d bytes, skipping", self._EXPLOITDB_MAX_SIZE)
+                    self._edb_cache: Dict[str, Dict[str, Any]] = {}
+                    return self._edb_cache
+                text = raw.decode("utf-8", errors="replace")
+            reader = csv.DictReader(io.StringIO(text))
+            full_index: Dict[str, Dict[str, Any]] = {}
+            for row in reader:
+                codes_raw = str(row.get("codes") or "")
+                if not codes_raw:
+                    continue
+                codes = [c.strip() for c in codes_raw.split(";") if c.strip().upper().startswith("CVE-")]
+                if not codes:
+                    continue
+                entry = {
+                    "id": int(row.get("id") or 0),
+                    "type": str(row.get("type") or ""),
+                    "platform": str(row.get("platform") or ""),
+                    "description": str(row.get("description") or "")[:200],
+                }
+                for code in codes:
+                    code_upper = code.upper()
+                    if code_upper not in full_index:
+                        full_index[code_upper] = entry
+            self._edb_cache = full_index
+            return {cve: full_index[cve] for cve in cve_ids if cve in full_index}
+        except Exception as exc:
+            logger.warning("Exploit-DB CSV fetch failed: %s", exc)
+            self._edb_cache: Dict[str, Dict[str, Any]] = {}
+            return self._edb_cache
+
+    # ── CVE Intelligence ─────────────────────────────────────────
+
     def _collect_cve_intelligence(
         self,
         inspector_doc: Dict[str, Any],
@@ -518,13 +613,29 @@ class SistemasExplotablesRedSkill(BaseSkill):
                 if role_name:
                     instance_roles[iid] = role_name
 
-        # 4. Collect unique CVE IDs (cap at 20) and query NVD API
+        # 4. Collect unique CVE IDs (cap at 20) and query exploit sources + NVD
         all_cve_ids: List[str] = []
         for cves in instance_cves_raw.values():
             for e in cves:
                 if e["id"] not in all_cve_ids and len(all_cve_ids) < 20:
                     all_cve_ids.append(e["id"])
 
+        cve_id_set = {c.upper() for c in all_cve_ids if c.upper().startswith("CVE-")}
+
+        # 4a. Fetch CISA KEV and Exploit-DB catalogs (before NVD loop)
+        kev_lookup: Dict[str, Dict[str, Any]] = {}
+        edb_lookup: Dict[str, Dict[str, Any]] = {}
+        if cve_id_set:
+            try:
+                kev_lookup = self._fetch_cisa_kev()
+            except Exception as exc:
+                enrichment_errors.append(f"CISA KEV fetch failed: {exc}")
+            try:
+                edb_lookup = self._fetch_exploitdb_index(cve_id_set)
+            except Exception as exc:
+                enrichment_errors.append(f"Exploit-DB fetch failed: {exc}")
+
+        # 4b. Query NVD API per CVE and extract PoC URLs from references
         nvd_cache: Dict[str, Dict[str, Any]] = {}
         for cve_id in all_cve_ids:
             if not cve_id.upper().startswith("CVE-"):
@@ -561,10 +672,26 @@ class SistemasExplotablesRedSkill(BaseSkill):
                     ),
                     "",
                 )
+                # Extract PoC/exploit URLs from NVD references
+                poc_urls: List[str] = []
+                seen_urls: Set[str] = set()
+                for ref in cve_data.get("references", []):
+                    if not isinstance(ref, dict):
+                        continue
+                    ref_url = str(ref.get("url") or "")
+                    if not ref_url or ref_url in seen_urls:
+                        continue
+                    tags = ref.get("tags", []) or []
+                    is_exploit_tag = any("Exploit" in str(t) for t in tags)
+                    is_poc_domain = any(d in ref_url for d in self._POC_DOMAINS)
+                    if is_exploit_tag or is_poc_domain:
+                        poc_urls.append(ref_url)
+                        seen_urls.add(ref_url)
                 nvd_cache[cve_id] = {
                     "cvss_score": cvss_score,
                     "cvss_vector": cvss_vector,
                     "description": cve_description[:600] if cve_description else "",
+                    "poc_urls": poc_urls,
                 }
             except Exception as e:
                 enrichment_errors.append(f"NVD lookup failed for {cve_id}: {e}")
@@ -589,6 +716,45 @@ class SistemasExplotablesRedSkill(BaseSkill):
                         "NETWORK" if "AV:N" in vector else ("LOCAL" if "AV:L" in vector else "")
                     )
                     exploitable = attack_vector == "NETWORK" and len(open_port_nums) > 0
+                # Build exploit_intel from external sources
+                cve_upper = cve_id.upper()
+                kev_entry = kev_lookup.get(cve_upper)
+                edb_entry = edb_lookup.get(cve_upper)
+                nvd_poc_urls = nvd.get("poc_urls", [])
+
+                has_public_exploit = bool(kev_entry or edb_entry or nvd_poc_urls)
+                sources_checked = ["cisa_kev", "exploit_db", "nvd_references"]
+
+                # Build human-readable summary
+                summary_parts: List[str] = []
+                if kev_entry:
+                    summary_parts.append("Listed in CISA KEV (actively exploited in wild)")
+                if edb_entry:
+                    eid = edb_entry.get("id", "?")
+                    etype = edb_entry.get("type", "unknown")
+                    summary_parts.append(f"{etype.capitalize()} exploit on Exploit-DB #{eid}")
+                if nvd_poc_urls:
+                    summary_parts.append(f"{len(nvd_poc_urls)} PoC URL(s) in NVD references")
+                if not summary_parts:
+                    summary_parts.append("No public exploit found in checked sources")
+
+                exploit_intel: Dict[str, Any] = {
+                    "has_public_exploit": has_public_exploit,
+                    "cisa_kev": {
+                        "listed": bool(kev_entry),
+                        "date_added": kev_entry.get("date_added", "") if kev_entry else "",
+                        "ransomware_use": kev_entry.get("ransomware_use", "") if kev_entry else "",
+                    },
+                    "exploit_db": {
+                        "id": edb_entry.get("id") if edb_entry else None,
+                        "type": edb_entry.get("type", "") if edb_entry else "",
+                        "platform": edb_entry.get("platform", "") if edb_entry else "",
+                    },
+                    "poc_urls": nvd_poc_urls[:10],
+                    "sources_checked": sources_checked,
+                    "summary": ". ".join(summary_parts) + ".",
+                }
+
                 enriched_cves.append(
                     {
                         "id": cve_id,
@@ -600,6 +766,7 @@ class SistemasExplotablesRedSkill(BaseSkill):
                         "attack_vector": attack_vector or "UNKNOWN",
                         "exploitable_from_internet": exploitable,
                         "relevant_open_ports": open_port_nums[:5],
+                        "exploit_intel": exploit_intel,
                     }
                 )
 
