@@ -1,0 +1,235 @@
+{
+  "skill": "cloudtrail_events",
+  "framework": "AWS Security Best Practices + PCI DSS v4.0 Mapping",
+  "description": "Security incident detection via historical CloudTrail event analysis. Covers root activity, authentication anomalies, audit tampering, privilege escalation, and reconnaissance patterns.",
+  "version": "1.0",
+  "total_checks": 10,
+  "last_updated": "2026-04-03",
+  "items": [
+    {
+      "id": "CTEF-001",
+      "title": "Root account activity detected in audit period",
+      "severity": "Critical",
+      "description": "The AWS root account was used to perform operations during the audit period. Root account usage bypasses IAM permission boundaries and audit controls, and is prohibited under PCI DSS.",
+      "evidence_files": ["root-events.json"],
+      "check_keywords": ["root", "Username", "EventName"],
+      "remediation": "Immediately investigate root account usage. Create IAM users/roles with least-privilege access. Enable MFA on root account. Consider removing all root access keys.",
+      "qsa_visibility": "obvious",
+      "pci_dss": [
+        {
+          "control": "7.2.1",
+          "reason": "All access must be based on least-privilege. Root account use violates least-privilege principle."
+        },
+        {
+          "control": "8.2.2",
+          "reason": "Shared/generic accounts (including root) must not be used for normal operations."
+        },
+        {
+          "control": "10.2.1.3",
+          "reason": "Root-level actions must be logged and reviewed as privileged access events."
+        }
+      ]
+    },
+    {
+      "id": "CTEF-002",
+      "title": "Excessive failed console login attempts",
+      "severity": "High",
+      "description": "Multiple failed console login attempts were detected, indicating a potential brute-force or credential-stuffing attack. Threshold: 5 or more failures in the audit period.",
+      "evidence_files": ["console-login-events.json"],
+      "check_keywords": ["ConsoleLogin", "ErrorCode", "ErrorMessage", "Failed authentication"],
+      "remediation": "Enable MFA for all IAM users. Review and rotate credentials for affected accounts. Implement account lockout policies via SCPs. Consider enabling AWS Guard Duty for automated detection.",
+      "qsa_visibility": "standard",
+      "pci_dss": [
+        {
+          "control": "8.3.4",
+          "reason": "Invalid authentication attempts must be locked out after no more than 6 attempts."
+        },
+        {
+          "control": "8.4.1",
+          "reason": "MFA required for all non-console admin access to protect against credential attacks."
+        },
+        {
+          "control": "10.7.2",
+          "reason": "Failed authentication attempts must be detected and responded to promptly."
+        }
+      ]
+    },
+    {
+      "id": "CTEF-003",
+      "title": "CloudTrail audit trail tampering detected",
+      "severity": "Critical",
+      "description": "Events indicating audit trail tampering were detected: StopLogging, DeleteTrail, or UpdateTrail. These actions can disable logging and allow malicious activity to go undetected.",
+      "evidence_files": ["audit-tampering-events.json", "stop-logging-events.json", "delete-trail-events.json", "update-trail-events.json"],
+      "check_keywords": ["StopLogging", "DeleteTrail", "UpdateTrail", "EventName"],
+      "remediation": "Immediately investigate who disabled/modified logging and why. Re-enable CloudTrail. Apply SCPs to prevent trail deletion. Enable CloudTrail log file integrity validation. Set up alerts for trail modifications.",
+      "qsa_visibility": "obvious",
+      "pci_dss": [
+        {
+          "control": "10.3.2",
+          "reason": "Audit log files must be protected to prevent modifications."
+        },
+        {
+          "control": "10.3.3",
+          "reason": "Audit log files must be promptly backed up to a centralized log server."
+        },
+        {
+          "control": "10.5.1",
+          "reason": "Retain audit logs for at least 12 months with 3 months immediately available."
+        }
+      ]
+    },
+    {
+      "id": "CTEF-004",
+      "title": "Privilege escalation events detected",
+      "severity": "High",
+      "description": "IAM privilege escalation events were detected: unauthorized policy attachment, access key creation, or login profile creation. These actions can be used to gain persistent elevated access.",
+      "evidence_files": ["privilege-escalation-events.json", "create-access-key-events.json", "attach-user-policy-events.json", "attach-role-policy-events.json"],
+      "check_keywords": ["AttachUserPolicy", "AttachRolePolicy", "CreateAccessKey", "CreateLoginProfile", "EventName"],
+      "remediation": "Review all IAM changes made during the audit period. Revoke unauthorized permissions. Implement IAM Access Analyzer. Apply least-privilege policies. Enable alerts for privileged IAM changes.",
+      "qsa_visibility": "standard",
+      "pci_dss": [
+        {
+          "control": "7.2.2",
+          "reason": "All access privileges must be assigned based on minimum necessary access."
+        },
+        {
+          "control": "8.6.1",
+          "reason": "All user IDs and authentication credentials must be managed and reviewed regularly."
+        },
+        {
+          "control": "10.2.1.5",
+          "reason": "Use of and changes to identification and authentication mechanisms must be logged."
+        }
+      ]
+    },
+    {
+      "id": "CTEF-005",
+      "title": "API throttling spike detected",
+      "severity": "Medium",
+      "description": "An unusual number of API throttling errors (Throttling/RequestLimitExceeded) were detected. This may indicate automated scanning, enumeration activity, or misconfigured tooling.",
+      "evidence_files": ["throttling-events.json"],
+      "check_keywords": ["Throttling", "RequestLimitExceeded", "ErrorCode"],
+      "remediation": "Investigate the source of excessive API calls. Review service quotas and request limits. Check for automated tools making excessive calls. Consider enabling AWS Shield if DDoS is suspected.",
+      "qsa_visibility": "deep",
+      "pci_dss": [
+        {
+          "control": "10.2.1.7",
+          "reason": "All actions taken by individuals with root or administrative privileges must be logged."
+        },
+        {
+          "control": "12.10.5",
+          "reason": "Security monitoring must include anomalous or suspicious activity detection."
+        }
+      ]
+    },
+    {
+      "id": "CTEF-006",
+      "title": "IAM permission denial storm (AccessDenied spike)",
+      "severity": "High",
+      "description": "A high number of AccessDenied errors were detected, indicating unauthorized access attempts, misconfigured permissions, or active reconnaissance of the environment.",
+      "evidence_files": ["access-denied-events.json"],
+      "check_keywords": ["AccessDenied", "Client.UnauthorizedOperation", "ErrorCode"],
+      "remediation": "Investigate principals generating AccessDenied errors. Review IAM policies for misconfiguration. Check for unauthorized principals attempting resource enumeration. Enable GuardDuty for automated anomaly detection.",
+      "qsa_visibility": "standard",
+      "pci_dss": [
+        {
+          "control": "10.2.1.4",
+          "reason": "Invalid logical access attempts must be logged."
+        },
+        {
+          "control": "10.7.2",
+          "reason": "Failures of critical security controls must be detected, alerted, and reported promptly."
+        }
+      ]
+    },
+    {
+      "id": "CTEF-007",
+      "title": "Unusual off-hours console logins detected",
+      "severity": "Medium",
+      "description": "Successful console logins were detected outside business hours (before 07:00 or after 20:00 UTC). This may indicate unauthorized access or compromised credentials.",
+      "evidence_files": ["console-login-events.json"],
+      "check_keywords": ["ConsoleLogin", "EventTime", "Username"],
+      "remediation": "Investigate the off-hours logins and verify with the account owners. If unauthorized, immediately reset credentials and review activity performed during the session. Consider implementing time-based access controls via SCPs.",
+      "qsa_visibility": "deep",
+      "pci_dss": [
+        {
+          "control": "8.3.9",
+          "reason": "Passwords/authentication factors must be changed if compromise is suspected."
+        },
+        {
+          "control": "10.2.1.1",
+          "reason": "All individual user access to cardholder data must be logged."
+        },
+        {
+          "control": "12.10.5",
+          "reason": "Security incident response must include monitoring for unusual access patterns."
+        }
+      ]
+    },
+    {
+      "id": "CTEF-008",
+      "title": "Mass resource deletion detected",
+      "severity": "High",
+      "description": "A high volume of Delete* API calls was detected during the audit period. This may indicate intentional data destruction, ransomware activity, or misconfigured automation.",
+      "evidence_files": ["delete-events.json"],
+      "check_keywords": ["Delete", "EventName", "Username"],
+      "remediation": "Investigate the deletion events and verify authorization. Enable S3 versioning and MFA Delete. Enable AWS Backup for critical resources. Apply SCPs to restrict delete operations to authorized principals only.",
+      "qsa_visibility": "standard",
+      "pci_dss": [
+        {
+          "control": "10.3.3",
+          "reason": "Audit log files must be backed up promptly to prevent data destruction from covering tracks."
+        },
+        {
+          "control": "12.10.1",
+          "reason": "Incident response plan must address data destruction scenarios."
+        }
+      ]
+    },
+    {
+      "id": "CTEF-009",
+      "title": "Credential report accessed (reconnaissance indicator)",
+      "severity": "Medium",
+      "description": "The IAM credential report was generated or downloaded during the audit period. This report lists all IAM users and their credential status. In attacker hands, it enables targeted credential attacks.",
+      "evidence_files": ["credential-report-events.json", "get-credential-report-events.json"],
+      "check_keywords": ["GenerateCredentialReport", "GetCredentialReport", "EventName"],
+      "remediation": "Verify that only authorized security personnel access credential reports. Restrict GenerateCredentialReport/GetCredentialReport to security audit roles only. Review what was done after the report was accessed.",
+      "qsa_visibility": "deep",
+      "pci_dss": [
+        {
+          "control": "8.6.1",
+          "reason": "All user IDs and authentication credentials must be managed and reviewed — access to credential inventories must be restricted."
+        },
+        {
+          "control": "10.2.1.5",
+          "reason": "All changes to authentication mechanisms must be logged and reviewed."
+        }
+      ]
+    },
+    {
+      "id": "CTEF-010",
+      "title": "Cross-account AssumeRole from unrecognized external accounts",
+      "severity": "Medium",
+      "description": "Cross-account role assumption events were detected from external AWS accounts. These may indicate legitimate third-party integrations or unauthorized lateral movement between accounts.",
+      "evidence_files": ["assume-role-events.json"],
+      "check_keywords": ["AssumeRole", "Username", "EventName", "crossAccount"],
+      "remediation": "Review all cross-account trust relationships. Ensure all external account IDs in trust policies are authorized. Apply conditions (aws:PrincipalOrgID, ExternalId) to cross-account trust policies. Audit and remove unused cross-account roles.",
+      "qsa_visibility": "deep",
+      "pci_dss": [
+        {
+          "control": "7.2.4",
+          "reason": "All user accounts and access privileges must be reviewed at least once every 6 months."
+        },
+        {
+          "control": "8.2.3",
+          "reason": "Shared/service accounts must have documented use cases and be managed appropriately."
+        },
+        {
+          "control": "12.3.4",
+          "reason": "Hardware and software technologies must be reviewed every 12 months to confirm they continue to meet security requirements."
+        }
+      ]
+    }
+  ],
+  "notes": "MVP skill for CloudTrail historical event analysis. Detects active security incidents and anomalies that configuration-based skills cannot identify. Uses deterministic pre-checks (Tier 1) for all 10 controls — no LLM dependency for pass/fail decisions. Evidence distilled at collection phase to stay within 120K token budget."
+}

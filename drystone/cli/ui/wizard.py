@@ -328,6 +328,9 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
                 "Alerting & Monitoring Audit", "alerting", checked=default_skill == "alerting"
             ),
             questionary.Choice(
+                "CloudTrail Events Audit", "cloudtrail_events", checked=default_skill == "cloudtrail_events"
+            ),
+            questionary.Choice(
                 "Account Hardening Audit", "hardening", checked=default_skill == "hardening"
             ),
             questionary.Choice(

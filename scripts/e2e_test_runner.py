@@ -50,6 +50,7 @@ SKILLS_ALL: Tuple[str, ...] = (
     "messaging",
     "cicd",
     "compute",
+    "cloudtrail_events",
 )
 
 REPORT_TYPES_ALL: Tuple[str, ...] = ("general", "pci-dss")

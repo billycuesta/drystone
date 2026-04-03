@@ -9723,3 +9723,224 @@ def check_ser_cve_001(evidence: Dict[str, Any]) -> PreCheckResult:
         f"{len(affected)} instance(s) internet-exposed with CISA KEV vulnerability (actively exploited in wild)",
         affected[:20],
     )
+
+
+# =============================================================================
+# CLOUDTRAIL EVENTS PRE-CHECKS (CTEF-*)
+# Deterministic checks on historical CloudTrail event evidence.
+# Each check loads its evidence file(s) and returns PASS/FAIL/SKIP.
+# =============================================================================
+
+
+def _load_ctef_events(evidence: dict, key: str) -> list:
+    """Helper: return event list for a given evidence key (default [])."""
+    val = evidence.get(key, [])
+    return val if isinstance(val, list) else []
+
+
+@_register("cloudtrail_events")
+def check_ctef_001(evidence: dict) -> PreCheckResult:
+    """CTEF-001: Root account activity detected in audit period."""
+    root_events = _load_ctef_events(evidence, "root-events")
+    if root_events:
+        sample = root_events[0].get("EventName", "unknown")
+        return PreCheckResult(
+            "CTEF-001",
+            "FAIL",
+            f"Root account used {len(root_events)} time(s); first event: {sample}",
+            ["arn:aws:iam::*:root"],
+        )
+    return PreCheckResult("CTEF-001", "PASS", "No root account activity detected", [])
+
+
+@_register("cloudtrail_events")
+def check_ctef_002(evidence: dict) -> PreCheckResult:
+    """CTEF-002: Excessive failed console login attempts (brute-force indicator)."""
+    console_events = _load_ctef_events(evidence, "console-login-events")
+    # ConsoleLogin failures have ErrorMessage = "Failed authentication"
+    failed = [
+        e for e in console_events
+        if e.get("ErrorCode") or "failed" in str(e.get("ErrorMessage", "")).lower()
+    ]
+    threshold = 5
+    if len(failed) >= threshold:
+        usernames = list({e.get("Username", "unknown") for e in failed})[:5]
+        return PreCheckResult(
+            "CTEF-002",
+            "FAIL",
+            f"{len(failed)} failed login attempt(s) detected; affected users: {usernames}",
+            [f"user:{u}" for u in usernames],
+        )
+    return PreCheckResult(
+        "CTEF-002", "PASS", f"Failed logins below threshold ({len(failed)} < {threshold})", []
+    )
+
+
+@_register("cloudtrail_events")
+def check_ctef_003(evidence: dict) -> PreCheckResult:
+    """CTEF-003: CloudTrail audit tampering detected (StopLogging / DeleteTrail / UpdateTrail)."""
+    tampering = _load_ctef_events(evidence, "audit-tampering-events")
+    if tampering:
+        event_names = list({e.get("EventName", "unknown") for e in tampering})
+        usernames = list({e.get("Username", "unknown") for e in tampering})[:5]
+        return PreCheckResult(
+            "CTEF-003",
+            "FAIL",
+            f"Audit trail tampering detected: {event_names} by {usernames}",
+            [f"user:{u}" for u in usernames],
+            confidence=1.0,
+        )
+    return PreCheckResult("CTEF-003", "PASS", "No CloudTrail tampering events detected", [])
+
+
+@_register("cloudtrail_events")
+def check_ctef_004(evidence: dict) -> PreCheckResult:
+    """CTEF-004: Privilege escalation events detected (policy attachment, access key creation)."""
+    priv_esc = _load_ctef_events(evidence, "privilege-escalation-events")
+    if priv_esc:
+        event_names = list({e.get("EventName", "unknown") for e in priv_esc})
+        actors = list({e.get("Username", "unknown") for e in priv_esc})[:5]
+        return PreCheckResult(
+            "CTEF-004",
+            "FAIL",
+            f"{len(priv_esc)} privilege escalation event(s): {event_names} by {actors}",
+            [f"user:{a}" for a in actors],
+        )
+    return PreCheckResult(
+        "CTEF-004", "PASS", "No privilege escalation events detected", []
+    )
+
+
+@_register("cloudtrail_events")
+def check_ctef_005(evidence: dict) -> PreCheckResult:
+    """CTEF-005: API throttling spike (service disruption indicator)."""
+    throttled = _load_ctef_events(evidence, "throttling-events")
+    threshold = 50
+    if len(throttled) >= threshold:
+        sources = list({e.get("EventSource", "unknown") for e in throttled})[:5]
+        return PreCheckResult(
+            "CTEF-005",
+            "FAIL",
+            f"{len(throttled)} throttling events detected; services: {sources}",
+            [],
+        )
+    return PreCheckResult(
+        "CTEF-005", "PASS", f"Throttling events below threshold ({len(throttled)} < {threshold})", []
+    )
+
+
+@_register("cloudtrail_events")
+def check_ctef_006(evidence: dict) -> PreCheckResult:
+    """CTEF-006: IAM permission denial storm (AccessDenied spike)."""
+    denied = _load_ctef_events(evidence, "access-denied-events")
+    threshold = 20
+    if len(denied) >= threshold:
+        actors = list({e.get("Username", "unknown") for e in denied})[:5]
+        return PreCheckResult(
+            "CTEF-006",
+            "FAIL",
+            f"{len(denied)} AccessDenied events detected; actors: {actors}",
+            [f"user:{a}" for a in actors],
+        )
+    return PreCheckResult(
+        "CTEF-006", "PASS", f"AccessDenied events below threshold ({len(denied)} < {threshold})", []
+    )
+
+
+@_register("cloudtrail_events")
+def check_ctef_007(evidence: dict) -> PreCheckResult:
+    """CTEF-007: Unusual off-hours console logins detected."""
+    console_events = _load_ctef_events(evidence, "console-login-events")
+    # Filter successful logins only
+    successful = [
+        e for e in console_events
+        if not e.get("ErrorCode") and "failed" not in str(e.get("ErrorMessage", "")).lower()
+    ]
+    off_hours = []
+    for e in successful:
+        event_time_str = e.get("EventTime", "")
+        try:
+            from datetime import datetime as _dt
+            if isinstance(event_time_str, str):
+                et = _dt.fromisoformat(event_time_str.replace("Z", "+00:00"))
+            else:
+                continue
+            # Off-hours: before 07:00 or after 20:00 UTC
+            if et.hour < 7 or et.hour >= 20:
+                off_hours.append(e)
+        except (ValueError, AttributeError):
+            continue
+
+    threshold = 3
+    if len(off_hours) >= threshold:
+        users = list({e.get("Username", "unknown") for e in off_hours})[:5]
+        return PreCheckResult(
+            "CTEF-007",
+            "FAIL",
+            f"{len(off_hours)} off-hours console login(s) detected; users: {users}",
+            [f"user:{u}" for u in users],
+        )
+    return PreCheckResult(
+        "CTEF-007", "PASS", f"Off-hours logins below threshold ({len(off_hours)} < {threshold})", []
+    )
+
+
+@_register("cloudtrail_events")
+def check_ctef_008(evidence: dict) -> PreCheckResult:
+    """CTEF-008: Mass resource deletion detected (data destruction indicator)."""
+    delete_events = _load_ctef_events(evidence, "delete-events")
+    threshold = 10
+    if len(delete_events) >= threshold:
+        event_names = list({e.get("EventName", "unknown") for e in delete_events})[:5]
+        actors = list({e.get("Username", "unknown") for e in delete_events})[:5]
+        return PreCheckResult(
+            "CTEF-008",
+            "FAIL",
+            f"{len(delete_events)} deletion event(s) detected: {event_names} by {actors}",
+            [f"user:{a}" for a in actors],
+        )
+    return PreCheckResult(
+        "CTEF-008", "PASS", f"Deletion events below threshold ({len(delete_events)} < {threshold})", []
+    )
+
+
+@_register("cloudtrail_events")
+def check_ctef_009(evidence: dict) -> PreCheckResult:
+    """CTEF-009: Credential report accessed (reconnaissance indicator)."""
+    gen_events = _load_ctef_events(evidence, "credential-report-events")
+    get_events = _load_ctef_events(evidence, "get-credential-report-events")
+    all_events = gen_events + get_events
+    if all_events:
+        actors = list({e.get("Username", "unknown") for e in all_events})[:5]
+        return PreCheckResult(
+            "CTEF-009",
+            "FAIL",
+            f"Credential report accessed {len(all_events)} time(s) by: {actors}",
+            [f"user:{a}" for a in actors],
+        )
+    return PreCheckResult("CTEF-009", "PASS", "No credential report access detected", [])
+
+
+@_register("cloudtrail_events")
+def check_ctef_010(evidence: dict) -> PreCheckResult:
+    """CTEF-010: Cross-account AssumeRole from unrecognized external accounts."""
+    assume_role_events = _load_ctef_events(evidence, "assume-role-events")
+    # Flag AssumeRole events where the caller is from a different account
+    # Detected when username contains ':' (cross-account format: account-id:role-name)
+    cross_account = [
+        e for e in assume_role_events
+        if ":" in str(e.get("Username", ""))
+        and not str(e.get("Username", "")).startswith("AROA")  # exclude service role prefixes
+    ]
+    threshold = 1
+    if len(cross_account) >= threshold:
+        actors = list({e.get("Username", "unknown") for e in cross_account})[:5]
+        return PreCheckResult(
+            "CTEF-010",
+            "FAIL",
+            f"{len(cross_account)} cross-account AssumeRole event(s) detected: {actors}",
+            [f"principal:{a}" for a in actors],
+        )
+    return PreCheckResult(
+        "CTEF-010", "PASS", "No anomalous cross-account AssumeRole events detected", []
+    )

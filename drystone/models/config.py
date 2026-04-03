@@ -251,6 +251,7 @@ class WizardConfig(BaseModel):
             "cicd",
             "compute",
             "sistemas_explotables_red",
+            "cloudtrail_events",
         }
         invalid = set(v) - valid_skills
         if invalid:

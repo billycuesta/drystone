@@ -234,6 +234,7 @@ def audit(
     # Create audit session
     click.echo("📁 Creating audit session...")
     session = AuditSession(config.client_name, account_id)
+    session.scan_depth = getattr(config, "scan_depth", "normal")  # propagate to skills
     click.echo(f"   Session: {session.base_path}\n")
 
     # Metrics tracker (per-session)
@@ -284,6 +285,10 @@ def audit(
             "drystone.skills.sistemas_explotables_red",
             "SistemasExplotablesRedSkill",
         ),
+        "cloudtrail_events": (
+            "drystone.skills.cloudtrail_events",
+            "CloudTrailEventsSkill",
+        ),
     }
 
     skill_display_names = {
@@ -301,6 +306,7 @@ def audit(
         "kms": "KMS",
         "cicd": "CI/CD",
         "compute": "Compute",
+        "cloudtrail_events": "CloudTrail Events Audit",
     }
 
     skill_instances = {}
