@@ -9526,8 +9526,12 @@ def check_ser_ec2_002(evidence: Dict[str, Any]) -> PreCheckResult:
                 entry: Dict[str, Any] = {
                     "id": cve_entry.get("id", ""),
                     "package": cve_entry.get("package", ""),
+                    "installed_version": cve_entry.get("installed_version", ""),
+                    "fixed_version": cve_entry.get("fixed_version", ""),
                     "inspector_severity": cve_entry.get("inspector_severity", ""),
                     "cvss_score": cve_entry.get("cvss_score"),
+                    "cvss_vector": cve_entry.get("cvss_vector", ""),
+                    "impact_type": cve_entry.get("impact_type", ""),
                     "description": cve_entry.get("description", ""),
                     "attack_vector": cve_entry.get("attack_vector", ""),
                     "exploitable_from_internet": cve_entry.get(

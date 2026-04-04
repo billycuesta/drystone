@@ -374,6 +374,44 @@ class SistemasExplotablesRedSkill(BaseSkill):
     _EXPLOITDB_MAX_SIZE = 15 * 1024 * 1024  # 15 MB guard
     _POC_DOMAINS = {"github.com", "exploit-db.com", "packetstormsecurity.com"}
 
+    @staticmethod
+    def _classify_impact(cvss_vector: str) -> str:
+        """Derive human-readable impact type from a CVSS v3.x vector string.
+
+        Returns one of: RCE, LPE, DoS, Information Disclosure, Arbitrary Write,
+        Limited Impact, or Unknown.
+        """
+        if not cvss_vector:
+            return "Unknown"
+        try:
+            # Strip prefix (CVSS:3.1/ or CVSS:3.0/)
+            raw = cvss_vector.split("/", 1)[-1] if "/" in cvss_vector else cvss_vector
+            parts = dict(p.split(":") for p in raw.split("/") if ":" in p)
+        except Exception:
+            return "Unknown"
+        av = parts.get("AV", "L")
+        c = parts.get("C", "N")
+        i = parts.get("I", "N")
+        a = parts.get("A", "N")
+        pr = parts.get("PR", "N")
+
+        # Full CIA impact = RCE (or near-RCE)
+        if c in ("H",) and i in ("H",):
+            return "RCE" if av == "N" else "LPE"
+        # Write-only or arbitrary write
+        if i == "H" and c != "H":
+            return "Arbitrary Write"
+        # Confidentiality only = info disclosure
+        if c == "H" and i != "H":
+            return "Information Disclosure"
+        # Availability only = DoS
+        if a == "H" and c == "N" and i == "N":
+            return "DoS"
+        # Partial impacts
+        if c in ("L", "H") or i in ("L", "H"):
+            return "Limited Impact"
+        return "Unknown"
+
     def _fetch_cisa_kev(self) -> Dict[str, Dict[str, Any]]:
         """Fetch CISA Known Exploited Vulnerabilities catalog.
 
@@ -508,10 +546,28 @@ class SistemasExplotablesRedSkill(BaseSkill):
                             package = pkg_parts[0].strip(",").strip() if pkg_parts else ""
                 else:
                     cve_id = title[:80]  # fallback: truncated title
+                # Capture installed/fixed version from vulnerable_packages if available
+                installed_version = ""
+                fixed_version = ""
+                vuln_pkgs_raw = finding.get("vulnerable_packages") or []
+                if vuln_pkgs_raw:
+                    first_pkg = vuln_pkgs_raw[0]
+                    installed_version = str(first_pkg.get("version") or "")
+                    fixed_version = str(first_pkg.get("fixed_version") or "")
+                    # Override package name with authoritative Inspector value if we got it
+                    if first_pkg.get("name") and not package:
+                        package = str(first_pkg["name"])
+
                 instance_cves_raw.setdefault(iid, [])
                 if cve_id and not any(e["id"] == cve_id for e in instance_cves_raw[iid]):
                     instance_cves_raw[iid].append(
-                        {"id": cve_id, "package": package, "severity": sev}
+                        {
+                            "id": cve_id,
+                            "package": package,
+                            "severity": sev,
+                            "installed_version": installed_version,
+                            "fixed_version": fixed_version,
+                        }
                     )
 
         # 2. Build SG → open internet-exposed ports mapping AND full ingress rules
@@ -696,7 +752,7 @@ class SistemasExplotablesRedSkill(BaseSkill):
             return {
                 "cvss_score": cvss_score,
                 "cvss_vector": cvss_vector,
-                "description": cve_description[:600] if cve_description else "",
+                "description": cve_description if cve_description else "",
                 "poc_urls": poc_urls_inner,
             }
 
@@ -807,9 +863,12 @@ class SistemasExplotablesRedSkill(BaseSkill):
                     {
                         "id": cve_id,
                         "package": entry.get("package", ""),
+                        "installed_version": entry.get("installed_version", ""),
+                        "fixed_version": entry.get("fixed_version", ""),
                         "inspector_severity": entry.get("severity", ""),
                         "cvss_score": nvd.get("cvss_score"),
                         "cvss_vector": vector or None,
+                        "impact_type": self._classify_impact(vector),
                         "description": nvd.get("description", ""),
                         "attack_vector": attack_vector or "UNKNOWN",
                         "exploitable_from_internet": exploitable,
@@ -951,6 +1010,22 @@ class SistemasExplotablesRedSkill(BaseSkill):
                                 "type": r.get("type"),
                             }
                         )
+                    # Extract package version details from Inspector finding
+                    pkg_vuln = f.get("packageVulnerabilityDetails") or {}
+                    vuln_pkgs = pkg_vuln.get("vulnerablePackages") or []
+                    vulnerable_packages = []
+                    for vp in vuln_pkgs[:5]:
+                        if not isinstance(vp, dict):
+                            continue
+                        vulnerable_packages.append(
+                            {
+                                "name": vp.get("name", ""),
+                                "version": vp.get("version", ""),
+                                "fixed_version": vp.get("fixedVersion", ""),
+                                "package_manager": vp.get("packageManager", ""),
+                                "arch": vp.get("arch", ""),
+                            }
+                        )
                     findings.append(
                         {
                             "findingArn": f.get("findingArn"),
@@ -958,6 +1033,7 @@ class SistemasExplotablesRedSkill(BaseSkill):
                             "status": status,
                             "title": f.get("title"),
                             "resources": resources,
+                            "vulnerable_packages": vulnerable_packages,
                         }
                     )
                     counts[sev] += 1

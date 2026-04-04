@@ -911,28 +911,46 @@ These correlations represent multi-stage attack scenarios where findings from di
         section = "\n#### Exploitability Analysis\n\n"
 
         if cve_details:
-            section += "| CVE / Advisory | Package | CVSS | Attack Vector | Open Ports | Public Exploit | CISA KEV |\n"
-            section += "|----------------|---------|------|---------------|------------|----------------|----------|\n"
+            section += "| CVE / Advisory | Package | Installed | Fixed | CVSS | Impact | AV | Exploit | KEV |\n"
+            section += "|----------------|---------|-----------|-------|------|--------|----|---------|-----|\n"
             for cve in cve_details[:15]:
                 cve_id = cve.get("id", "—")
                 package = cve.get("package", "—") or "—"
+                installed = cve.get("installed_version", "") or "—"
+                fixed = cve.get("fixed_version", "") or "—"
                 cvss = cve.get("cvss_score")
                 sev = cve.get("inspector_severity", "")
                 cvss_str = f"{cvss:.1f} ({sev})" if cvss is not None else "—"
+                impact = cve.get("impact_type", "") or "—"
                 av = cve.get("attack_vector", "—")
                 ports = cve.get("relevant_open_ports", [])
                 ports_str = ", ".join(str(p) for p in ports[:3]) if ports else "—"
+                av_str = f"{av} ({ports_str})" if ports else av
                 ei = cve.get("exploit_intel") or {}
                 has_exploit = ei.get("has_public_exploit", False)
                 exploit_str = "✅ Yes" if has_exploit else "No"
                 kev = ei.get("cisa_kev") or {}
                 kev_str = "⚠️ **KEV**" if kev.get("listed") else "No"
                 section += (
-                    f"| {cve_id} | {package} | {cvss_str} | {av} | {ports_str} | {exploit_str} | {kev_str} |\n"
+                    f"| {cve_id} | {package} | {installed} | {fixed} | {cvss_str} | {impact} | {av_str} | {exploit_str} | {kev_str} |\n"
                 )
             section += "\n"
 
-            # Surface PoC URLs for CVEs that have them
+            # CVE descriptions (truncated in renderer, not in evidence)
+            desc_lines = []
+            for cve in cve_details[:15]:
+                desc = (cve.get("description") or "").strip()
+                if not desc:
+                    continue
+                cve_id = cve.get("id", "")
+                impact = cve.get("impact_type", "")
+                impact_badge = f" `{impact}`" if impact and impact != "Unknown" else ""
+                desc_lines.append(f"- **`{cve_id}`**{impact_badge}: {desc[:300]}")
+            if desc_lines:
+                section += "**CVE Descriptions:**\n\n"
+                section += "\n".join(desc_lines) + "\n\n"
+
+            # Surface PoC URLs and exploit references
             poc_lines = []
             for cve in cve_details[:15]:
                 ei = cve.get("exploit_intel") or {}
