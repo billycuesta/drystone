@@ -83,7 +83,7 @@ def _distill_event(event: dict) -> dict:
     if "EventTime" in distilled and isinstance(distilled["EventTime"], datetime):
         distilled["EventTime"] = distilled["EventTime"].isoformat()
 
-    # Extract source IP from CloudTrailEvent JSON string
+    # Extract fields from nested CloudTrailEvent JSON blob
     if "CloudTrailEvent" in event:
         try:
             ct_event = json.loads(event["CloudTrailEvent"])
@@ -98,6 +98,19 @@ def _distill_event(event: dict) -> dict:
             if not distilled.get("ErrorCode"):
                 distilled["ErrorCode"] = ct_event.get("errorCode")
                 distilled["ErrorMessage"] = ct_event.get("errorMessage")
+            # Extract caller identity for cross-account detection (CTEF-010).
+            # The top-level Username field is often "unknown" for service-initiated
+            # AssumeRole events; userIdentity contains the authoritative caller info.
+            user_identity = ct_event.get("userIdentity") or {}
+            caller_account = user_identity.get("accountId")
+            caller_arn = user_identity.get("arn") or user_identity.get("principalId")
+            caller_type = user_identity.get("type")  # e.g. "AssumedRole", "IAMUser", "Service"
+            if caller_account:
+                distilled["callerAccountId"] = caller_account
+            if caller_arn:
+                distilled["callerArn"] = caller_arn
+            if caller_type:
+                distilled["callerType"] = caller_type
         except (json.JSONDecodeError, TypeError):
             pass
 
@@ -210,6 +223,7 @@ class CloudTrailEventsSkill(BaseSkill):
             "start_time": start_time.isoformat(),
             "end_time": end_time.isoformat(),
             "region": aws_client.region_name,
+            "account_id": aws_client.get_account_id() or "",
             "categories_collected": {},
         }
 

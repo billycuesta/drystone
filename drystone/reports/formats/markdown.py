@@ -581,6 +581,41 @@ This report presents security findings from the {self._get_skill_display_name(sk
             return ""
 
         section = "## 🗂️ Resources Audited\n\n"
+
+        # For CloudTrail Events skill, prepend scan scope metadata from _summary.json
+        if skill == "cloudtrail_events":
+            summary_path = evidence_dir / "_summary.json"
+            if summary_path.exists():
+                try:
+                    with open(summary_path) as f:
+                        ct_summary = json.load(f)
+                    region = ct_summary.get("region", "—")
+                    days_back = ct_summary.get("days_back", "—")
+                    scan_depth = ct_summary.get("scan_depth", "—")
+                    start_time = ct_summary.get("start_time", "")
+                    end_time = ct_summary.get("end_time", "")
+                    account_id = ct_summary.get("account_id", "—")
+                    # Format period as readable dates
+                    try:
+                        from datetime import datetime as _dt
+                        start_fmt = _dt.fromisoformat(start_time).strftime("%Y-%m-%d") if start_time else "—"
+                        end_fmt = _dt.fromisoformat(end_time).strftime("%Y-%m-%d") if end_time else "—"
+                    except Exception:
+                        start_fmt, end_fmt = start_time[:10] if start_time else "—", end_time[:10] if end_time else "—"
+                    section += "### Scan Scope\n\n"
+                    section += "| Parameter | Value |\n"
+                    section += "|-----------|-------|\n"
+                    section += f"| Account ID | `{account_id}` |\n"
+                    section += f"| Region | {region} |\n"
+                    section += f"| Period | {start_fmt} → {end_fmt} ({days_back} days) |\n"
+                    section += f"| Scan Depth | {scan_depth} |\n"
+                    total_events = sum(ct_summary.get("categories_collected", {}).values())
+                    section += f"| Total Events Processed | {total_events:,} |\n"
+                    section += "\n"
+                except Exception:
+                    pass
+
+        section += "### Event Categories\n\n" if skill == "cloudtrail_events" else ""
         section += "| Resource Type | Count |\n"
         section += "|---------------|-------|\n"
         for label, count in rows:

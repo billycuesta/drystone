@@ -19,19 +19,27 @@ def route_checklist_for_llm(
 
     pre_resolved = set(pass_ids) | set(fail_ids)
     llm_items: List[Dict[str, Any]] = []
+    item_ids: Set[str] = set()
     for item in items:
         if not isinstance(item, dict):
             continue
         check_id = str(item.get("id", ""))
+        if check_id:
+            item_ids.add(check_id)
         if check_id and check_id in pre_resolved:
             continue
         llm_items.append(item)
+
+    # Only count pre-checks that belong to the (possibly qsa_depth-filtered) checklist.
+    # Without this guard, pre-checks registered for IDs outside the filtered set inflate
+    # deterministic_resolved beyond total_checks, producing impossible confidence ratios.
+    resolved_in_checklist = pre_resolved & item_ids
 
     routed = dict(checklist)
     routed["items"] = llm_items
     stats = {
         "total_checks": len(items),
-        "deterministic_resolved": len(pre_resolved),
+        "deterministic_resolved": len(resolved_in_checklist),
         "llm_checks": len(llm_items),
     }
     return routed, stats

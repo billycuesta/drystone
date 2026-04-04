@@ -9890,13 +9890,15 @@ def check_ctef_007(evidence: dict) -> PreCheckResult:
     for e in successful:
         event_time_str = e.get("EventTime", "")
         try:
-            from datetime import datetime as _dt
+            from datetime import datetime as _dt, timezone as _tz
             if isinstance(event_time_str, str):
                 et = _dt.fromisoformat(event_time_str.replace("Z", "+00:00"))
             else:
                 continue
+            # Always compare in UTC — EventTime may carry local timezone offset
+            et_utc = et.astimezone(_tz.utc)
             # Off-hours: before 07:00 or after 20:00 UTC
-            if et.hour < 7 or et.hour >= 20:
+            if et_utc.hour < 7 or et_utc.hour >= 20:
                 off_hours.append(e)
         except (ValueError, AttributeError):
             continue
@@ -9953,24 +9955,52 @@ def check_ctef_009(evidence: dict) -> PreCheckResult:
 
 @_register("cloudtrail_events")
 def check_ctef_010(evidence: dict) -> PreCheckResult:
-    """CTEF-010: Cross-account AssumeRole from unrecognized external accounts."""
+    """CTEF-010: Cross-account AssumeRole from unrecognized external accounts.
+
+    Uses callerAccountId extracted from the nested CloudTrailEvent blob (added in
+    distiller fix) to reliably detect external principals. Falls back to Username
+    heuristic if callerAccountId is unavailable for older evidence.
+    """
     assume_role_events = _load_ctef_events(evidence, "assume-role-events")
-    # Flag AssumeRole events where the caller is from a different account
-    # Detected when username contains ':' (cross-account format: account-id:role-name)
-    cross_account = [
-        e for e in assume_role_events
-        if ":" in str(e.get("Username", ""))
-        and not str(e.get("Username", "")).startswith("AROA")  # exclude service role prefixes
-    ]
+
+    # Derive the audited account ID from the _summary metadata if available
+    summary = evidence.get("_summary") or {}
+    local_account_id = str(summary.get("account_id") or "")
+
+    # Service types that always assume roles legitimately within the same account
+    _AWS_SERVICE_CALLER_TYPES = {"AWSService", "Service", "AWS"}
+
+    cross_account = []
+    for e in assume_role_events:
+        caller_account = str(e.get("callerAccountId") or "")
+        caller_type = str(e.get("callerType") or "")
+
+        if caller_account:
+            # Primary detection: caller's account differs from audited account
+            if local_account_id and caller_account == local_account_id:
+                continue  # same-account call — expected
+            if caller_account and caller_account != local_account_id and local_account_id:
+                cross_account.append(e)
+                continue
+        else:
+            # Fallback for older evidence without callerAccountId:
+            # Username ':' heuristic (cross-account ARN format)
+            username = str(e.get("Username") or "")
+            if ":" in username and not username.startswith("AROA"):
+                cross_account.append(e)
+
     threshold = 1
     if len(cross_account) >= threshold:
-        actors = list({e.get("Username", "unknown") for e in cross_account})[:5]
+        actors = list({
+            e.get("callerArn") or e.get("Username") or "unknown"
+            for e in cross_account
+        })[:5]
         return PreCheckResult(
             "CTEF-010",
             "FAIL",
-            f"{len(cross_account)} cross-account AssumeRole event(s) detected: {actors}",
+            f"{len(cross_account)} cross-account AssumeRole event(s) from external account(s): {actors}",
             [f"principal:{a}" for a in actors],
         )
     return PreCheckResult(
-        "CTEF-010", "PASS", "No anomalous cross-account AssumeRole events detected", []
+        "CTEF-010", "PASS", "No cross-account AssumeRole events from external accounts detected", []
     )
