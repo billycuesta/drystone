@@ -458,10 +458,21 @@ class BaseSkill(ABC):
 
                     analogy = PRE_CHECK_ANALOGIES.get(check_id)
 
+                    base_risk = _severity_to_risk(item.get("severity", "Medium"))
+                    effective_risk = (
+                        result.risk_score_override
+                        if result.risk_score_override is not None
+                        else base_risk
+                    )
+                    # When risk is escalated beyond the checklist severity, bump severity label too
+                    effective_severity = item.get("severity", "Medium")
+                    if result.risk_score_override is not None and result.risk_score_override >= 9.0:
+                        effective_severity = "Critical"
+
                     finding = Finding(
                         id=check_id,
-                        severity=item.get("severity", "Medium"),
-                        risk_score=_severity_to_risk(item.get("severity", "Medium")),
+                        severity=effective_severity,
+                        risk_score=effective_risk,
                         title=item.get("title", check_id),
                         description=precheck_description,
                         remediation=item.get("remediation", "See checklist for remediation steps."),

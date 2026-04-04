@@ -31,6 +31,7 @@ class PreCheckResult:
     metadata: Dict[str, Any] = field(
         default_factory=dict
     )  # structured extras (cve_details, attack_path, etc.)
+    risk_score_override: Optional[float] = None  # overrides checklist severity-based score
 
 
 # Type alias for check functions
@@ -9559,6 +9560,30 @@ def check_ser_ec2_002(evidence: Dict[str, Any]) -> PreCheckResult:
     if per_instance_roles:
         metadata["iam_roles"] = per_instance_roles
 
+    # Contextual risk score: escalate when a NETWORK-vector CVSS≥9.0 CVE is present
+    # on an internet-reachable instance → effectively a Critical attack path.
+    all_cves_enriched = enriched_cve_details if enriched_cve_details else cve_details
+    max_cvss = 0.0
+    has_network_critical = False
+    for cve_e in all_cves_enriched:
+        score = cve_e.get("cvss_score") or 0.0
+        try:
+            score = float(score)
+        except (TypeError, ValueError):
+            score = 0.0
+        if score > max_cvss:
+            max_cvss = score
+        vector = str(cve_e.get("attack_vector") or "").upper()
+        if score >= 9.0 and "NETWORK" in vector:
+            has_network_critical = True
+
+    if has_network_critical:
+        risk_score_override = 9.0  # Critical path: CVSS≥9.0 + NETWORK + open port
+    elif max_cvss >= 7.0:
+        risk_score_override = 8.0  # Elevated high: significant CVSS but no confirmed NETWORK vector
+    else:
+        risk_score_override = None  # Fall back to checklist severity default (7.0)
+
     return PreCheckResult(
         "SER-EC2-002",
         "FAIL",
@@ -9566,6 +9591,7 @@ def check_ser_ec2_002(evidence: Dict[str, Any]) -> PreCheckResult:
         unique[:20],
         confidence=0.92,
         metadata=metadata,
+        risk_score_override=risk_score_override,
     )
 
 

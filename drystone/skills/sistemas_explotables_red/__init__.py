@@ -495,15 +495,17 @@ class SistemasExplotablesRedSkill(BaseSkill):
                     #   "CVE-XXXX - linux-image-aws"  (Inspector format with " - " separator)
                     #   "CVE-XXXX cryptography 41.0.4"  (space-separated, package is 2nd word)
                     if " - " in title:
+                        # "CVE-XXXX - pkg1, pkg2, pkg3" → take first package, strip trailing comma
                         dash_parts = title.split(" - ", 1)
                         cve_id = dash_parts[0].strip()
-                        package = dash_parts[1].strip().split()[0] if dash_parts[1].strip() else ""
+                        raw_pkg = dash_parts[1].strip().split()[0] if dash_parts[1].strip() else ""
+                        package = raw_pkg.strip(",").strip()
                     else:
                         parts = title.split(" ", 1)
                         cve_id = parts[0]
                         if len(parts) > 1:
                             pkg_parts = parts[1].strip().split()
-                            package = pkg_parts[0] if pkg_parts else ""
+                            package = pkg_parts[0].strip(",").strip() if pkg_parts else ""
                 else:
                     cve_id = title[:80]  # fallback: truncated title
                 instance_cves_raw.setdefault(iid, [])
@@ -714,9 +716,11 @@ class SistemasExplotablesRedSkill(BaseSkill):
                     nvd_cache[cve_id] = parsed
             except urllib.error.HTTPError as http_err:
                 if http_err.code == 429:
-                    # Rate limited — wait and retry once
+                    # Rate limited — wait and retry once.
+                    # Apply a minimum of 30s regardless of Retry-After value,
+                    # because NVD often sends 0 or omits the header entirely.
                     try:
-                        retry_after = int(http_err.headers.get("Retry-After", 30))
+                        retry_after = max(30, int(http_err.headers.get("Retry-After", 30)))
                     except (ValueError, TypeError):
                         retry_after = 30
                     logger.warning(
