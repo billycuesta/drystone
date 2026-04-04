@@ -207,7 +207,7 @@ class TestCloudTrailPreChecks:
 
         assert "cloudtrail_events" in PRE_CHECK_REGISTRY
         check_ids = {r.check_id for r in _run_all_checks({})}
-        expected = {f"CTEF-{i:03d}" for i in range(1, 11)}
+        expected = {f"CTEF-{i:03d}" for i in range(1, 14)}
         assert expected == check_ids
 
     # CTEF-001
@@ -331,6 +331,94 @@ class TestCloudTrailPreChecks:
         events = [_make_event("AssumeRole", "alice")]
         result = _run_check("CTEF-010", {"assume-role-events": events})
         assert result.status == "PASS"
+
+    # ── CTEF-011 ──────────────────────────────────────────────────────────────
+
+    def test_ctef_011_fail_security_hub_disabled(self):
+        events = [_make_event("DisableSecurityHub", "attacker")]
+        result = _run_check("CTEF-011", {"disable-security-hub-events": events})
+        assert result.status == "FAIL"
+        assert "attacker" in str(result.affected_resources)
+
+    def test_ctef_011_fail_guard_duty_deleted(self):
+        events = [_make_event("DeleteDetector", "admin")]
+        result = _run_check("CTEF-011", {"delete-detector-events": events})
+        assert result.status == "FAIL"
+
+    def test_ctef_011_fail_alarm_actions_disabled(self):
+        events = [_make_event("DisableAlarmActions", "ops")]
+        result = _run_check("CTEF-011", {"disable-alarm-actions-events": events})
+        assert result.status == "FAIL"
+
+    def test_ctef_011_pass_when_no_events(self):
+        result = _run_check("CTEF-011", {
+            "disable-security-hub-events": [],
+            "delete-detector-events": [],
+            "disable-alarm-actions-events": [],
+        })
+        assert result.status == "PASS"
+
+    def test_ctef_011_fail_aggregates_all_sources(self):
+        evidence = {
+            "disable-security-hub-events": [_make_event("DisableSecurityHub", "attacker1")],
+            "delete-detector-events": [_make_event("DeleteDetector", "attacker2")],
+        }
+        result = _run_check("CTEF-011", evidence)
+        assert result.status == "FAIL"
+        assert "2" in result.evidence_summary
+
+    # ── CTEF-012 ──────────────────────────────────────────────────────────────
+
+    def test_ctef_012_fail_secret_accessed(self):
+        events = [_make_event("GetSecretValue", "lambda-function")]
+        result = _run_check("CTEF-012", {"get-secret-value-events": events})
+        assert result.status == "FAIL"
+
+    def test_ctef_012_fail_parameter_accessed(self):
+        events = [_make_event("GetParameter", "ec2-instance")]
+        result = _run_check("CTEF-012", {"get-parameter-events": events})
+        assert result.status == "FAIL"
+
+    def test_ctef_012_pass_when_no_events(self):
+        result = _run_check("CTEF-012", {
+            "get-secret-value-events": [],
+            "get-parameter-events": [],
+        })
+        assert result.status == "PASS"
+
+    def test_ctef_012_fail_aggregates_both_sources(self):
+        evidence = {
+            "get-secret-value-events": [_make_event("GetSecretValue", "alice")],
+            "get-parameter-events": [_make_event("GetParameter", "bob")],
+        }
+        result = _run_check("CTEF-012", evidence)
+        assert result.status == "FAIL"
+        assert "2" in result.evidence_summary
+
+    # ── CTEF-013 ──────────────────────────────────────────────────────────────
+
+    def test_ctef_013_fail_trust_policy_modified(self):
+        events = [_make_event("UpdateAssumeRolePolicy", "admin")]
+        result = _run_check("CTEF-013", {"update-assume-role-events": events})
+        assert result.status == "FAIL"
+
+    def test_ctef_013_fail_inline_policy_added(self):
+        events = [_make_event("PutRolePolicy", "attacker")]
+        result = _run_check("CTEF-013", {"put-role-policy-events": events})
+        assert result.status == "FAIL"
+
+    def test_ctef_013_pass_when_no_events(self):
+        result = _run_check("CTEF-013", {
+            "update-assume-role-events": [],
+            "put-role-policy-events": [],
+        })
+        assert result.status == "PASS"
+
+    def test_ctef_013_affected_resources_include_actor(self):
+        events = [_make_event("PutRolePolicy", "malicious-user")]
+        result = _run_check("CTEF-013", {"put-role-policy-events": events})
+        assert result.status == "FAIL"
+        assert any("malicious-user" in r for r in result.affected_resources)
 
 
 # =============================================================================
@@ -485,8 +573,8 @@ class TestChecklistJson:
                 assert "control" in mapping
                 assert "reason" in mapping
 
-    def test_ten_checks_defined(self, checklist):
-        assert len(checklist["items"]) == 10
+    def test_thirteen_checks_defined(self, checklist):
+        assert len(checklist["items"]) == 13
 
 
 # =============================================================================

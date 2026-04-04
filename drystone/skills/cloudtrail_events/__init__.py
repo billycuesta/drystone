@@ -68,6 +68,12 @@ _TARGETED_EVENT_NAMES = [
     ("disable-security-hub-events", "EventName", "DisableSecurityHub"),
     ("delete-detector-events", "EventName", "DeleteDetector"),
     ("disable-alarm-actions-events", "EventName", "DisableAlarmActions"),
+    # Secrets and credential exfiltration (CTEF-012)
+    ("get-secret-value-events", "EventName", "GetSecretValue"),
+    ("get-parameter-events", "EventName", "GetParameter"),
+    # IAM trust and inline policy modifications (CTEF-013)
+    ("update-assume-role-events", "EventName", "UpdateAssumeRolePolicy"),
+    ("put-role-policy-events", "EventName", "PutRolePolicy"),
 ]
 
 

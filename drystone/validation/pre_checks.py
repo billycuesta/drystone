@@ -10004,3 +10004,79 @@ def check_ctef_010(evidence: dict) -> PreCheckResult:
     return PreCheckResult(
         "CTEF-010", "PASS", "No cross-account AssumeRole events from external accounts detected", []
     )
+
+
+@_register("cloudtrail_events")
+def check_ctef_011(evidence: dict) -> PreCheckResult:
+    """CTEF-011: Security monitoring service disabled (GuardDuty / SecurityHub / CloudWatch Alarms)."""
+    disabled = (
+        _load_ctef_events(evidence, "disable-security-hub-events")
+        + _load_ctef_events(evidence, "delete-detector-events")
+        + _load_ctef_events(evidence, "disable-alarm-actions-events")
+    )
+    if disabled:
+        event_names = list({e.get("EventName", "unknown") for e in disabled})[:5]
+        actors = list({e.get("Username", "unknown") for e in disabled})[:5]
+        return PreCheckResult(
+            "CTEF-011",
+            "FAIL",
+            f"{len(disabled)} security monitoring service disabling event(s): {event_names} by {actors}",
+            [f"actor:{a}" for a in actors],
+        )
+    return PreCheckResult("CTEF-011", "PASS", "No security monitoring service disabling events detected", [])
+
+
+@_register("cloudtrail_events")
+def check_ctef_012(evidence: dict) -> PreCheckResult:
+    """CTEF-012: Secrets and credentials accessed (Secrets Manager / SSM Parameter Store)."""
+    accessed = (
+        _load_ctef_events(evidence, "get-secret-value-events")
+        + _load_ctef_events(evidence, "get-parameter-events")
+    )
+    if accessed:
+        event_names = list({e.get("EventName", "unknown") for e in accessed})[:5]
+        actors = list({e.get("Username", "unknown") for e in accessed})[:5]
+        resources = list({
+            r.get("ResourceName", "unknown")
+            for e in accessed
+            for r in (e.get("Resources") or [])
+            if r.get("ResourceName")
+        })[:5]
+        summary = f"{len(accessed)} secret/parameter access event(s): {event_names} by {actors}"
+        if resources:
+            summary += f"; resources: {resources}"
+        return PreCheckResult(
+            "CTEF-012",
+            "FAIL",
+            summary,
+            [f"actor:{a}" for a in actors],
+        )
+    return PreCheckResult("CTEF-012", "PASS", "No secret or parameter access events detected", [])
+
+
+@_register("cloudtrail_events")
+def check_ctef_013(evidence: dict) -> PreCheckResult:
+    """CTEF-013: IAM trust or inline policy modified (privilege escalation via trust relationships)."""
+    modified = (
+        _load_ctef_events(evidence, "update-assume-role-events")
+        + _load_ctef_events(evidence, "put-role-policy-events")
+    )
+    if modified:
+        event_names = list({e.get("EventName", "unknown") for e in modified})[:5]
+        actors = list({e.get("Username", "unknown") for e in modified})[:5]
+        roles = list({
+            r.get("ResourceName", "unknown")
+            for e in modified
+            for r in (e.get("Resources") or [])
+            if r.get("ResourceName")
+        })[:5]
+        summary = f"{len(modified)} IAM trust/inline policy modification event(s): {event_names} by {actors}"
+        if roles:
+            summary += f"; roles: {roles}"
+        return PreCheckResult(
+            "CTEF-013",
+            "FAIL",
+            summary,
+            [f"actor:{a}" for a in actors],
+        )
+    return PreCheckResult("CTEF-013", "PASS", "No IAM trust or inline policy modification events detected", [])

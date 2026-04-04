@@ -1,4 +1,4 @@
-"""CloudTrail Events post-processor: timeline, top users, event distribution."""
+"""CloudTrail Events post-processor: timeline, top users, event distribution, threat intel."""
 
 import json
 import logging
@@ -8,8 +8,27 @@ from pathlib import Path
 from typing import Any
 
 from drystone.storage.session import AuditSession
+from drystone.threat_intel.traildiscover import enrich_finding as _td_enrich
 
 logger = logging.getLogger(__name__)
+
+# Maps each CTEF check ID to the CloudTrail event names relevant for threat intel lookup.
+# Empty list = no specific event (throttling, generic access denied, etc.)
+_CTEF_EVENT_MAP: dict[str, list[str]] = {
+    "CTEF-001": [],  # root activity — Username filter, no specific EventName
+    "CTEF-002": ["ConsoleLogin"],
+    "CTEF-003": ["DeleteTrail", "StopLogging", "UpdateTrail"],
+    "CTEF-004": ["CreateAccessKey", "AttachUserPolicy", "AttachRolePolicy", "CreateLoginProfile"],
+    "CTEF-005": [],  # throttling
+    "CTEF-006": [],  # access denied
+    "CTEF-007": ["ConsoleLogin"],
+    "CTEF-008": [],  # mass deletion — generic Delete* pattern
+    "CTEF-009": ["GenerateCredentialReport", "GetCredentialReport"],
+    "CTEF-010": ["AssumeRole"],
+    "CTEF-011": ["DisableSecurityHub", "DeleteDetector", "DisableAlarmActions"],
+    "CTEF-012": ["GetSecretValue", "GetParameter"],
+    "CTEF-013": ["UpdateAssumeRolePolicy", "PutRolePolicy"],
+}
 
 # Evidence files to load (filename stem → dict key)
 _EVIDENCE_FILES = {
@@ -28,6 +47,10 @@ _EVIDENCE_FILES = {
     "disable-security-hub-events": "disable-security-hub-events",
     "delete-detector-events": "delete-detector-events",
     "disable-alarm-actions-events": "disable-alarm-actions-events",
+    "get-secret-value-events": "get-secret-value-events",
+    "get-parameter-events": "get-parameter-events",
+    "update-assume-role-events": "update-assume-role-events",
+    "put-role-policy-events": "put-role-policy-events",
     "audit-tampering-events": "audit-tampering-events",
     "privilege-escalation-events": "privilege-escalation-events",
     "access-denied-events": "access-denied-events",
@@ -59,6 +82,10 @@ _CATEGORY_SEVERITY = {
     "disable-security-hub-events": "HIGH",
     "delete-detector-events": "HIGH",
     "disable-alarm-actions-events": "HIGH",
+    "get-secret-value-events": "HIGH",
+    "get-parameter-events": "HIGH",
+    "update-assume-role-events": "HIGH",
+    "put-role-policy-events": "HIGH",
 }
 
 
@@ -94,7 +121,46 @@ class CloudTrailEventsPostProcessor:
         findings["cloudtrail_top_users"] = self._top_users(evidence)
         findings["cloudtrail_event_distribution"] = self._event_distribution(evidence)
 
+        self._enrich_with_traildiscover(findings)
+
         return findings
+
+    # -------------------------------------------------------------------------
+    # TrailDiscover enrichment
+    # -------------------------------------------------------------------------
+
+    def _enrich_with_traildiscover(self, findings: dict) -> None:
+        """Enrich CTEF FAIL findings with TrailDiscover threat intelligence.
+
+        For each finding whose id matches a CTEF check, looks up the relevant
+        CloudTrail event names in the TrailDiscover catalog and merges MITRE
+        tactics, usedInWild flag, and real-world incident references into a
+        ``threat_intel`` key on the finding dict.
+
+        Only findings that actually have a ``severity`` field are enriched
+        (i.e., genuine findings injected by the reconciler or returned by the AI).
+        """
+        finding_list = findings.get("findings")
+        if not isinstance(finding_list, list):
+            return
+
+        enriched = 0
+        for finding in finding_list:
+            if not isinstance(finding, dict):
+                continue
+            finding_id = finding.get("id", "")
+            # Only enrich CTEF findings that have a severity (are genuine FAIL findings)
+            if not finding_id.startswith("CTEF-") or not finding.get("severity"):
+                continue
+            event_names = _CTEF_EVENT_MAP.get(finding_id, [])
+            if not event_names:
+                continue
+            _td_enrich(finding, event_names)
+            if "threat_intel" in finding:
+                enriched += 1
+
+        if enriched:
+            logger.debug("TrailDiscover enrichment: %d CTEF findings enriched", enriched)
 
     # -------------------------------------------------------------------------
     # Private helpers

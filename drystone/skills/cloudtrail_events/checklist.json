@@ -2,9 +2,9 @@
   "skill": "cloudtrail_events",
   "framework": "AWS Security Best Practices + PCI DSS v4.0 Mapping",
   "description": "Security incident detection via historical CloudTrail event analysis. Covers root activity, authentication anomalies, audit tampering, privilege escalation, and reconnaissance patterns.",
-  "version": "1.0",
-  "total_checks": 10,
-  "last_updated": "2026-04-03",
+  "version": "1.1",
+  "total_checks": 13,
+  "last_updated": "2026-04-04",
   "items": [
     {
       "id": "CTEF-001",
@@ -230,6 +230,79 @@
         }
       ]
     }
+    ,
+    {
+      "id": "CTEF-011",
+      "title": "Security monitoring service disabled",
+      "severity": "Critical",
+      "description": "A security monitoring service was disabled during the audit period. This includes GuardDuty detector deletion, Security Hub disabling, or CloudWatch Alarm actions disabling. Defense evasion via monitoring disruption is a hallmark of advanced threat actors.",
+      "evidence_files": ["disable-security-hub-events.json", "delete-detector-events.json", "disable-alarm-actions-events.json"],
+      "check_keywords": ["DisableSecurityHub", "DeleteDetector", "DisableAlarmActions", "EventName"],
+      "remediation": "Re-enable all security monitoring services immediately. Investigate who disabled the services and when. Correlate with other suspicious activity in the same timeframe. Implement SCPs to prevent monitoring service disabling.",
+      "qsa_visibility": "obvious",
+      "pci_dss": [
+        {
+          "control": "10.7.2",
+          "reason": "Failures of critical security controls must be detected, alerted on, and addressed promptly."
+        },
+        {
+          "control": "10.3.3",
+          "reason": "Audit logs must be protected from destruction and unauthorized modifications."
+        },
+        {
+          "control": "12.10.5",
+          "reason": "The incident response plan must include monitoring and responding to alerts from security monitoring systems."
+        }
+      ]
+    },
+    {
+      "id": "CTEF-012",
+      "title": "Secrets and credentials accessed from Secrets Manager or SSM Parameter Store",
+      "severity": "High",
+      "description": "GetSecretValue or GetParameter events were detected, indicating access to stored credentials, API keys, or configuration secrets. These events are frequently observed in credential-theft campaigns (SCARLETEEL, LUCR-3) after initial account compromise.",
+      "evidence_files": ["get-secret-value-events.json", "get-parameter-events.json"],
+      "check_keywords": ["GetSecretValue", "GetParameter", "EventName", "Username"],
+      "remediation": "Review all secret access events and verify they align with expected service behavior. Rotate any secrets that may have been accessed by unauthorized principals. Enable resource-based policies on secrets to restrict access to specific roles. Enable CloudTrail for data events on Secrets Manager.",
+      "qsa_visibility": "deep",
+      "pci_dss": [
+        {
+          "control": "8.6.1",
+          "reason": "Application/system accounts must be managed to prevent unauthorized use."
+        },
+        {
+          "control": "10.2.1.5",
+          "reason": "Use and modification of identification and authentication mechanisms must be logged."
+        },
+        {
+          "control": "3.7.1",
+          "reason": "Cryptographic keys and sensitive credentials must be protected against unauthorized access."
+        }
+      ]
+    },
+    {
+      "id": "CTEF-013",
+      "title": "IAM trust policy or inline policy modified",
+      "severity": "High",
+      "description": "UpdateAssumeRolePolicy or PutRolePolicy events were detected. These events modify trust relationships or attach inline policies to roles, potentially enabling cross-account privilege escalation or persistence. Both event types are marked usedInWild by TrailDiscover.",
+      "evidence_files": ["update-assume-role-events.json", "put-role-policy-events.json"],
+      "check_keywords": ["UpdateAssumeRolePolicy", "PutRolePolicy", "EventName", "Username"],
+      "remediation": "Review all trust relationship changes and inline policy additions. Ensure all changes are authorized and follow least-privilege. Enable SCPs to restrict trust policy modifications. Audit role trust policies for unexpected external principals.",
+      "qsa_visibility": "deep",
+      "pci_dss": [
+        {
+          "control": "7.2.2",
+          "reason": "Access to system components and cardholder data must follow least-privilege and be assigned to the minimum necessary for the job function."
+        },
+        {
+          "control": "10.2.1.5",
+          "reason": "Use and modification of identification and authentication mechanisms must be logged."
+        },
+        {
+          "control": "7.3.1",
+          "reason": "All access to system components and cardholder data must be assigned to an individual user."
+        }
+      ]
+    }
   ],
-  "notes": "MVP skill for CloudTrail historical event analysis. Detects active security incidents and anomalies that configuration-based skills cannot identify. Uses deterministic pre-checks (Tier 1) for all 10 controls — no LLM dependency for pass/fail decisions. Evidence distilled at collection phase to stay within 120K token budget."
+  "notes": "CloudTrail historical event analysis skill. Detects active security incidents and anomalies that configuration-based skills cannot identify. Uses deterministic pre-checks (Tier 1) for all 13 controls — no LLM dependency for pass/fail decisions. Evidence distilled at collection phase to stay within 120K token budget. TrailDiscover threat intelligence enrichment added in v1.1 (MITRE ATT&CK, usedInWild, real incidents)."
 }

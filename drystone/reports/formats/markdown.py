@@ -935,6 +935,53 @@ These correlations represent multi-stage attack scenarios where findings from di
 
         return section.strip()
 
+    def _threat_intel_block(self, threat_intel: Dict[str, Any]) -> str:
+        """Render compact TrailDiscover threat intelligence block.
+
+        Format (2 lines):
+            🎯 **Threat Intel:** MITRE: TA0005 · T1562.001
+            **Used in real attacks:** ✅ LUCR-3, SCARLETEEL 2.0
+        """
+        tactics = threat_intel.get("mitre_tactics") or []
+        techniques = threat_intel.get("mitre_techniques") or []
+        used_in_wild = threat_intel.get("used_in_wild", False)
+        incidents = threat_intel.get("real_incidents") or []
+
+        if not tactics and not used_in_wild:
+            return ""
+
+        block = "\n"
+
+        # Line 1: MITRE tactics + techniques (compact)
+        mitre_parts = []
+        # Show tactics (abbreviated: "TA0005 - Defense Evasion" → "TA0005")
+        tactic_ids = [t.split(" - ")[0] if " - " in t else t for t in tactics[:3]]
+        if tactic_ids:
+            mitre_parts.append(", ".join(tactic_ids))
+        # Show first 2 technique IDs
+        tech_ids = [t.split(" - ")[0] if " - " in t else t for t in techniques[:2]]
+        if tech_ids:
+            mitre_parts.append(" · ".join(tech_ids))
+        mitre_str = " · ".join(mitre_parts) if mitre_parts else "—"
+        block += f"🎯 **Threat Intel:** MITRE: {mitre_str}\n"
+
+        # Line 2: usedInWild + incident names
+        if used_in_wild:
+            if incidents:
+                # Truncate long incident names and limit to 3
+                incident_names = []
+                for name in incidents[:3]:
+                    # Keep only the part before the first colon or URL-like segment
+                    short = name.split(":")[0].strip() if ":" in name else name
+                    incident_names.append(short[:60])
+                block += f"**Used in real attacks:** ✅ {', '.join(incident_names)}\n"
+            else:
+                block += "**Used in real attacks:** ✅ Yes\n"
+        else:
+            block += "**Used in real attacks:** No documented incidents\n"
+
+        return block
+
     def _ser_exploitability_section(self, finding: Dict[str, Any]) -> str:
         """Render Exploitability Analysis section for SER findings with CVE intelligence."""
         snippet = finding.get("evidence_snippet") or {}
@@ -1300,6 +1347,11 @@ These correlations represent multi-stage attack scenarios where findings from di
                 detail += f"- `{resource}`\n"
             if len(affected) > 5:
                 detail += f"- ... and {len(affected) - 5} more\n"
+
+        # TrailDiscover threat intelligence block (CTEF findings only)
+        threat_intel = finding.get("threat_intel")
+        if threat_intel and isinstance(threat_intel, dict):
+            detail += self._threat_intel_block(threat_intel)
 
         detail += f"\n**Remediation:**  \n{remediation}\n"
 
