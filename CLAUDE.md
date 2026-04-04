@@ -634,18 +634,27 @@ ruff check drystone/
 
 ## Recent Context (Last 4 Sessions)
 
+**2026-04-04 (Session 23):** TrailDiscover Integration — CloudTrail Threat Intelligence Complete
+- ✅ Integrated TrailDiscover (377 AWS events catalog) as threat intelligence layer
+- ✅ Added CTEF-011 (Security monitoring disabled), CTEF-012 (Secrets accessed), CTEF-013 (IAM policy modified) pre-checks
+- ✅ Expanded CloudTrail collector: 15→19 lookups (added GetSecretValue, GetParameter, UpdateAssumeRolePolicy, PutRolePolicy)
+- ✅ Implemented selective enrichment: only FAIL findings with severity get threat intel (no noise)
+- ✅ Integrated MITRE ATT&CK mapping and incident correlation into findings
+- ✅ Added compact 2-line threat intel blocks to markdown reports (e.g., "🎯 Threat Intel: MITRE: TA0005 / ✅ LUCR-3, SCARLETEEL")
+- ✅ Checklist v1.0→v1.1 (10→13 checks)
+- ✅ Added 39 new tests (23 threat_intel module, 16 CloudTrail skill) → 1926 passing, 0 regressions
+- **Files:** threat_intel/traildiscover.py (NEW, with lru_cache), threat_intel/traildiscover_events.json (851KB), cloudtrail_events/__init__.py, post_processor.py, pre_checks.py, markdown.py
+- **Commit:** dce75dd
+- **Session Doc:** drystone-specs/SESSION_23_TRAILDISCOVER_2026-04-04.md
+
 **2026-04-02 (Session 22):** CloudTrail Events Skill Planning - Design Complete, User Validated
 - Completed exploit enrichment feature (commit d2ef454) with 35 new tests
 - Launched parallel Explore agents → confirmed gap: no skill queries CloudTrail lookup_events
 - Received comprehensive design from Plan agent: 7-phase implementation (14-19h)
 - Validated with user: MVP scope (8-10 checks), scan_depth config, single-region, timeline viz
 - All 4 design decisions finalized, user confirmed
-- Status: Ready for Phase 5 (plan finalization) tomorrow
-- Plan mode ACTIVE - will write final plan and ExitPlanMode tomorrow
 - Files: drystone/cli/main.py, drystone/cli/ui/wizard.py, drystone/skills/sistemas_explotables_red/*, drystone/validation/pre_checks.py, drystone/reports/formats/markdown.py, tests/skills/test_sistemas_explotables_red.py
 - Commit: d2ef454
-
-**2026-03-16 (Session 21):** PDF Report Professionalism Complete — 7 Gaps Closed → 8.5+/10 Rating
 
 **2026-03-16 (Session 21):** PDF Report Professionalism Complete — 7 Gaps Closed → 8.5+/10 Rating
 - Closed final 7 PDF professionalism gaps vs. manual pentest reports
@@ -668,17 +677,6 @@ ruff check drystone/
 - **Confidence Achieved:** 0.892 (ROBUST) with 0 FP, 0 FN
 - **Files:** drystone/validation/pre_checks.py, drystone/skills/alerting/__init__.py, drystone/reports/formats/markdown.py, drystone/reports/formats/pdf.py, tests/skills/test_alerting.py
 - **10 Commits:** efb0a32, 639112f, eddde60, f418bc3, ae76229, 24559cf, c421eb8, ee716a9, d696204, 2340443
-
-**2026-02-23 (Session 19):** Vulns QA + Legacy analyze() Bug Fixed in 3 Skills
-- ✅ Added 4 new vulns pre-checks: VULN-004 (exploitable CVEs), VULN-006 (EC2 scanning), VULN-007 (ECR scanning), VULN-008 (HIGH without remediation plan)
-- ✅ Root-caused critical bug: `VulnsSkill`, `NetworkSkill`, `ExposureSkill` all had legacy `analyze()` overrides that bypassed the 3-Tier pipeline reconciler → 0 findings when LLM returned empty
-- ✅ Fixed VulnsSkill: deleted legacy `analyze()` entirely (commit `478c5c7`)
-- ✅ Fixed NetworkSkill: deleted legacy `analyze()` entirely (commit `127c7c2`)
-- ✅ Fixed ExposureSkill: replaced legacy `analyze()` with slim override calling `super().analyze()` + new `_apply_exposure_post_processing()` preserving deterministic S3 checks (EXP-013/014/015) and `:unknown:` region patching (commit `127c7c2`)
-- ✅ All 510 tests passing, 2 pre-existing failures unrelated to changes
-- **Root Cause Pattern:** Skills implemented `analyze()` before 3-Tier architecture was added to `BaseSkill`. `VulnsSkill.__mro__` showed legacy method taking priority. When LLM returned empty JSON, FAIL pre-check results were never injected by reconciler.
-- **Diagnostic signature:** `normalize called: 0 findings, pre_checked_ids=None` in trace → reconciler bypassed
-- **Files:** `drystone/skills/vulns/__init__.py`, `drystone/skills/network/__init__.py`, `drystone/skills/exposure/__init__.py`, `drystone/validation/pre_checks.py`
 
 **2026-02-16 (Session 17):** 3-Tier Pre-Checks + Chunker Resilience + Normalizer Fix
 - ✅ Implemented full 3-Tier Validation Architecture (69 deterministic pre-checks across 13 skills)

@@ -29,7 +29,7 @@ Auditorías de seguridad automatizadas en AWS con análisis inteligente usando C
 | **Validation Framework** | Multi-skill gating rules + snippet extraction | ✅ |
 | **Report Structure** | Findings summary + architecture visualization | ✅ |
 | **PDF Professionalism** | Document control, conditions, client context (8.5+/10) | ✅ |
-| **Last Updated** | 2026-03-16 | ✅ |
+| **Last Updated** | 2026-04-04 | ✅ |
 
 ---
 
