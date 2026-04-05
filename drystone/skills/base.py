@@ -515,6 +515,43 @@ class BaseSkill(ABC):
                 f"Pre-check reconciliation: corrected affected_resources on {corrected} finding(s)"
             )
 
+        # Rule 2c: Escalate risk_score / severity on EXISTING LLM findings when the
+        # pre-check has a risk_score_override that exceeds the LLM's assessment.
+        # This handles the case where the AI correctly detected the finding but
+        # under-calibrated the severity (e.g. CVSS 9.8 NETWORK CVE on internet-exposed EC2
+        # reported as High 7.2 instead of Critical 9.0).
+        escalated = 0
+        for check_id, result in fail_results.items():
+            if getattr(result, "risk_score_override", None) is None:
+                continue
+            if check_id not in existing_ids:
+                continue  # not present — handled by Rule 2 injection above
+            for f in findings.findings:
+                if f.id == check_id:
+                    current_risk = float(f.risk_score or 0.0)
+                    if current_risk < result.risk_score_override:
+                        f.risk_score = result.risk_score_override
+                        if result.risk_score_override >= 9.0:
+                            f.severity = "Critical"
+                        elif result.risk_score_override >= 7.0 and f.severity not in ("Critical",):
+                            f.severity = "High"
+                        _logger.debug(
+                            "Pre-check reconciliation: escalated %s from risk=%.1f (%s) "
+                            "to risk=%.1f (%s) via risk_score_override",
+                            check_id,
+                            current_risk,
+                            f.severity,
+                            result.risk_score_override,
+                            f.severity,
+                        )
+                        escalated += 1
+                    break
+
+        if escalated:
+            _logger.info(
+                f"Pre-check reconciliation: escalated severity on {escalated} finding(s) via risk_score_override"
+            )
+
         return findings
 
     def _build_precheck_traceability(

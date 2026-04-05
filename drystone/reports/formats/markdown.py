@@ -993,41 +993,78 @@ These correlations represent multi-stage attack scenarios where findings from di
         section = "\n#### Exploitability Analysis\n\n"
 
         if cve_details:
+            # Group CVEs by resource (instance) so ALL instances are represented.
+            # An uncapped flat [:15] slice would only show the first instance's CVEs
+            # when multiple instances are present (e.g. 15 CVEs × 2 instances = 30 total).
+            from collections import OrderedDict
+
+            by_resource: OrderedDict = OrderedDict()
+            for cve in cve_details:
+                resource = cve.get("resource") or "unknown"
+                by_resource.setdefault(resource, []).append(cve)
+
+            # Per-instance cap: show top 10 CVEs per instance (sorted by CVSS desc)
+            _MAX_PER_INSTANCE = 10
+            cves_to_render: list = []
+            for resource, cves in by_resource.items():
+                sorted_cves = sorted(
+                    cves,
+                    key=lambda c: float(c.get("cvss_score") or 0.0),
+                    reverse=True,
+                )
+                cves_to_render.append((resource, sorted_cves[:_MAX_PER_INSTANCE]))
+
             section += "| CVE / Advisory | Package | Installed | Fixed | CVSS | Impact | AV | Exploit | KEV |\n"
             section += "|----------------|---------|-----------|-------|------|--------|----|---------|-----|\n"
-            for cve in cve_details[:15]:
-                cve_id = cve.get("id", "—")
-                package = cve.get("package", "—") or "—"
-                installed = cve.get("installed_version", "") or "—"
-                fixed = cve.get("fixed_version", "") or "—"
-                cvss = cve.get("cvss_score")
-                sev = cve.get("inspector_severity", "")
-                cvss_str = f"{cvss:.1f} ({sev})" if cvss is not None else "—"
-                impact = cve.get("impact_type", "") or "—"
-                av = cve.get("attack_vector", "—")
-                ports = cve.get("relevant_open_ports", [])
-                ports_str = ", ".join(str(p) for p in ports[:3]) if ports else "—"
-                av_str = f"{av} ({ports_str})" if ports else av
-                ei = cve.get("exploit_intel") or {}
-                has_exploit = ei.get("has_public_exploit", False)
-                exploit_str = "✅ Yes" if has_exploit else "No"
-                kev = ei.get("cisa_kev") or {}
-                kev_str = "⚠️ **KEV**" if kev.get("listed") else "No"
-                section += (
-                    f"| {cve_id} | {package} | {installed} | {fixed} | {cvss_str} | {impact} | {av_str} | {exploit_str} | {kev_str} |\n"
-                )
+            for resource, cves in cves_to_render:
+                if len(cves_to_render) > 1:
+                    # Add a separator row labeling the instance when multiple instances
+                    short_id = resource.split("/")[-1] if "/" in resource else resource
+                    section += f"| **`{short_id}`** | | | | | | | | |\n"
+                for cve in cves:
+                    cve_id = cve.get("id", "—")
+                    package = cve.get("package", "—") or "—"
+                    installed = cve.get("installed_version", "") or "—"
+                    fixed = cve.get("fixed_version", "") or "—"
+                    cvss = cve.get("cvss_score")
+                    sev = cve.get("inspector_severity", "")
+                    cvss_str = f"{cvss:.1f} ({sev})" if cvss is not None else "—"
+                    impact = cve.get("impact_type", "") or "—"
+                    av = cve.get("attack_vector", "—")
+                    ports = cve.get("relevant_open_ports", [])
+                    ports_str = ", ".join(str(p) for p in ports[:3]) if ports else "—"
+                    av_str = f"{av} ({ports_str})" if ports else av
+                    ei = cve.get("exploit_intel") or {}
+                    has_exploit = ei.get("has_public_exploit", False)
+                    exploit_str = "✅ Yes" if has_exploit else "No"
+                    kev = ei.get("cisa_kev") or {}
+                    kev_str = "⚠️ **KEV**" if kev.get("listed") else "No"
+                    section += (
+                        f"| {cve_id} | {package} | {installed} | {fixed} | {cvss_str} | {impact} | {av_str} | {exploit_str} | {kev_str} |\n"
+                    )
             section += "\n"
 
-            # CVE descriptions (truncated in renderer, not in evidence)
+            # CVE descriptions — show top CVSS CVEs across all instances (up to 15 unique)
             desc_lines = []
-            for cve in cve_details[:15]:
+            seen_ids: set = set()
+            all_sorted = sorted(
+                cve_details,
+                key=lambda c: float(c.get("cvss_score") or 0.0),
+                reverse=True,
+            )
+            for cve in all_sorted:
+                cve_id = cve.get("id", "")
+                if cve_id in seen_ids:
+                    continue
+                seen_ids.add(cve_id)
                 desc = (cve.get("description") or "").strip()
                 if not desc:
                     continue
-                cve_id = cve.get("id", "")
                 impact = cve.get("impact_type", "")
                 impact_badge = f" `{impact}`" if impact and impact != "Unknown" else ""
                 desc_lines.append(f"- **`{cve_id}`**{impact_badge}: {desc[:300]}")
+                if len(desc_lines) >= 15:
+                    break
             if desc_lines:
                 section += "**CVE Descriptions:**\n\n"
                 section += "\n".join(desc_lines) + "\n\n"

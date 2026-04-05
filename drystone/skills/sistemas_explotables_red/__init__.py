@@ -1021,7 +1021,8 @@ class SistemasExplotablesRedSkill(BaseSkill):
                             {
                                 "name": vp.get("name", ""),
                                 "version": vp.get("version", ""),
-                                "fixed_version": vp.get("fixedVersion", ""),
+                                # Inspector v2 API uses "fixedInVersion" (not "fixedVersion")
+                                "fixed_version": vp.get("fixedInVersion", ""),
                                 "package_manager": vp.get("packageManager", ""),
                                 "arch": vp.get("arch", ""),
                             }
