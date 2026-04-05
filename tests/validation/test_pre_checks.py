@@ -1615,6 +1615,70 @@ class TestALRT005:
         r = check_alrt_005({})
         assert r.status == "SKIP"
 
+    def test_fail_lists_alarm_names_not_topic_arn(self):
+        """When alarms are known, affected_resources should contain alarm names."""
+        r = check_alrt_005(
+            {
+                "cloudwatch-alarms": [
+                    {
+                        "AlarmName": "RootAccountUsage",
+                        "AlarmActions": ["arn:aws:sns:us-east-1:111:sec-alerts"],
+                    },
+                    {
+                        "AlarmName": "UnauthorizedApiCalls",
+                        "AlarmActions": ["arn:aws:sns:us-east-1:111:sec-alerts"],
+                    },
+                ],
+                "sns-topics": [
+                    {
+                        "TopicArn": "arn:aws:sns:us-east-1:111:sec-alerts",
+                        "Attributes": {"SubscriptionsConfirmed": "0"},
+                    }
+                ],
+            }
+        )
+        assert r.status == "FAIL"
+        assert "RootAccountUsage" in r.affected_resources
+        assert "UnauthorizedApiCalls" in r.affected_resources
+        # Topic ARN should NOT appear when alarm names are available
+        assert "arn:aws:sns:us-east-1:111:sec-alerts" not in r.affected_resources
+
+    def test_fail_summary_includes_alarm_count(self):
+        """Summary should mention how many alarms are blind."""
+        r = check_alrt_005(
+            {
+                "cloudwatch-alarms": [
+                    {"AlarmName": f"Alarm{i}", "AlarmActions": ["arn:aws:sns:us-east-1:111:sec"]}
+                    for i in range(5)
+                ],
+                "sns-topics": [
+                    {
+                        "TopicArn": "arn:aws:sns:us-east-1:111:sec",
+                        "Attributes": {"SubscriptionsConfirmed": "0"},
+                    }
+                ],
+            }
+        )
+        assert r.status == "FAIL"
+        assert "5" in r.evidence_summary
+        assert "blind" in r.evidence_summary
+
+    def test_fail_falls_back_to_topic_arn_when_no_alarm_names(self):
+        """If alarms have no AlarmName, fall back to topic ARN."""
+        r = check_alrt_005(
+            {
+                "cloudwatch-alarms": [{"AlarmActions": ["arn:aws:sns:us-east-1:111:sec"]}],
+                "sns-topics": [
+                    {
+                        "TopicArn": "arn:aws:sns:us-east-1:111:sec",
+                        "Attributes": {"SubscriptionsConfirmed": "0"},
+                    }
+                ],
+            }
+        )
+        assert r.status == "FAIL"
+        assert "arn:aws:sns:us-east-1:111:sec" in r.affected_resources
+
 
 class TestALRT006:
     def test_pass_when_no_pending_subscriptions(self):

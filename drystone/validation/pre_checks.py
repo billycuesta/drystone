@@ -537,6 +537,36 @@ PRE_CHECK_ANALOGIES: Dict[str, str] = {
         "Like a security camera system where the footage is recorded but nobody is watching "
         "the monitors — events happen but alerts never reach anyone."
     ),
+    "ALRT-002": (
+        "Without EventBridge integration, security events in CloudTrail are never processed "
+        "in near-real-time. An attacker can perform privilege escalation, disable logging, or "
+        "exfiltrate data and no automated response is triggered until someone manually reviews "
+        "the logs — typically hours or days later."
+    ),
+    "ALRT-005": (
+        "Like a fire alarm wired to a silent receiver — the alarm triggers but nobody hears "
+        "it. CloudWatch Alarms and EventBridge rules publish to an SNS topic with zero "
+        "confirmed subscribers, so all security notifications are silently discarded. "
+        "Incidents can go undetected indefinitely."
+    ),
+    "ALRT-007": (
+        "Critical security events (CreateUser, ConsoleLogin, StopLogging) have no metric "
+        "filters or EventBridge alerts. An attacker can create backdoor IAM users, disable "
+        "CloudTrail, or perform mass logins without triggering any notification to security "
+        "personnel. This is a monitoring gap, not a direct access control weakness."
+    ),
+    "ALRT-010": (
+        "CloudWatch Alarms in INSUFFICIENT_DATA state are not evaluating their metrics — "
+        "they will never fire, effectively disabling that monitoring channel. This may "
+        "indicate stale alarm configuration, deleted log groups, or metrics that stopped "
+        "publishing. The alarm appears active but provides zero protection."
+    ),
+    "ALRT-017": (
+        "CloudWatch log groups with retention below 90 days do not satisfy PCI DSS "
+        "Requirement 10.7 (12-month log availability) or the 3-month immediately-accessible "
+        "requirement. Audit evidence needed for forensic investigation or compliance reviews "
+        "will be automatically deleted before it can be used."
+    ),
     # ── SECRETS MANAGER ──────────────────────────────────────────────────────
     "SM-001": (
         "Like writing passwords on sticky notes and never replacing them — the longer "
@@ -2952,6 +2982,22 @@ def check_alrt_005(evidence: Dict[str, Any]) -> PreCheckResult:
 
     critical = set(_alerting_critical_topic_arns(evidence))
     no_subs = []
+
+    # Build map: SNS topic ARN → list of alarm names that publish to it
+    alarm_map: Dict[str, List[str]] = {}
+    alarms = evidence.get("cloudwatch-alarms")
+    if isinstance(alarms, list):
+        for alarm in alarms:
+            if not isinstance(alarm, dict):
+                continue
+            alarm_name = str(alarm.get("AlarmName") or "")
+            for action_arn in alarm.get("AlarmActions") or []:
+                action_arn = str(action_arn)
+                if action_arn not in alarm_map:
+                    alarm_map[action_arn] = []
+                if alarm_name:
+                    alarm_map[action_arn].append(alarm_name)
+
     for t in topics:
         if not isinstance(t, dict):
             continue
@@ -2964,9 +3010,21 @@ def check_alrt_005(evidence: Dict[str, Any]) -> PreCheckResult:
             no_subs.append(arn)
 
     if no_subs:
-        return PreCheckResult(
-            "ALRT-005", "FAIL", "alert SNS topic(s) have no confirmed subscriptions", no_subs[:5]
+        # Collect alarm names that depend on the unsubscribed topics — these are
+        # the effective blind spots for responders (more actionable than topic ARNs).
+        affected_alarms = []
+        for topic_arn in no_subs:
+            affected_alarms.extend(alarm_map.get(topic_arn, []))
+
+        resources = affected_alarms[:13] if affected_alarms else no_subs[:5]
+        summary = (
+            f"alert SNS topic(s) have no confirmed subscriptions "
+            f"({len(affected_alarms)} alarm(s) are effectively blind)"
+            if affected_alarms
+            else "alert SNS topic(s) have no confirmed subscriptions"
         )
+        return PreCheckResult("ALRT-005", "FAIL", summary, resources)
+
     return PreCheckResult("ALRT-005", "PASS", "alert SNS topics have confirmed subscriptions", [])
 
 

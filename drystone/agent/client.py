@@ -281,6 +281,16 @@ class AgentClient:
                     skill_name,
                     first_error,
                 )
+                # Warn if repair pass returned 0 findings — pre-check reconciliation
+                # will inject validated FAILs, but this may indicate a prompt/size issue.
+                _repaired_count = len((findings_data or {}).get("findings") or [])
+                if _repaired_count == 0:
+                    logger.warning(
+                        "Repair pass returned 0 findings for %s — "
+                        "LLM may have returned empty output (prompt size or format issue). "
+                        "Pre-check reconciliation will inject deterministic findings.",
+                        skill_name,
+                    )
             except AgentError:
                 raise
 
