@@ -5364,3 +5364,243 @@ class TestEXP024S3KMSEncryption:
         )
         assert result.status == "FAIL"
         assert len(result.affected_resources) == len(audit_names)
+
+# ── ALRT-026: CloudTrail S3 Bucket Notifications ──────────────────────────────
+
+
+class TestAlrt026S3BucketNotifications:
+    """Tests for ALRT-026: CloudTrail S3 bucket downstream event notifications."""
+
+    def _run(self, evidence):
+        from drystone.validation.pre_checks import check_alrt_026
+        return check_alrt_026(evidence)
+
+    def test_skip_no_evidence(self):
+        result = self._run({})
+        assert result.check_id == "ALRT-026"
+        assert result.status == "SKIP"
+
+    def test_skip_empty_list(self):
+        result = self._run({"cloudtrail-s3-notifications": []})
+        assert result.status == "SKIP"
+
+    def test_skip_all_error_entries(self):
+        """All entries have errors (access denied) → SKIP."""
+        evidence = {
+            "cloudtrail-s3-notifications": [
+                {"bucket_name": "trail-bucket", "error": "AccessDenied"}
+            ]
+        }
+        result = self._run(evidence)
+        assert result.status == "SKIP"
+
+    def test_pass_no_notifications(self):
+        """No downstream services configured → PASS."""
+        evidence = {
+            "cloudtrail-s3-notifications": [
+                {
+                    "bucket_name": "trail-bucket",
+                    "trail_name": "my-trail",
+                    "lambda_configs": [],
+                    "sqs_configs": [],
+                    "sns_configs": [],
+                }
+            ]
+        }
+        result = self._run(evidence)
+        assert result.status == "PASS"
+        assert result.affected_resources == []
+
+    def test_fail_with_lambda_notification(self):
+        """Lambda downstream service → FAIL Medium."""
+        evidence = {
+            "cloudtrail-s3-notifications": [
+                {
+                    "bucket_name": "trail-bucket",
+                    "trail_name": "my-trail",
+                    "lambda_configs": [
+                        {"LambdaFunctionArn": "arn:aws:lambda:us-east-1:123:function:process-logs"}
+                    ],
+                    "sqs_configs": [],
+                    "sns_configs": [],
+                }
+            ]
+        }
+        result = self._run(evidence)
+        assert result.status == "FAIL"
+        assert "trail-bucket" in result.evidence_summary
+        assert any("process-logs" in r for r in result.affected_resources)
+
+    def test_fail_with_multiple_services(self):
+        """Lambda + SQS + SNS → FAIL, all services listed."""
+        evidence = {
+            "cloudtrail-s3-notifications": [
+                {
+                    "bucket_name": "trail-bucket",
+                    "trail_name": "my-trail",
+                    "lambda_configs": [
+                        {"LambdaFunctionArn": "arn:aws:lambda:us-east-1:123:function:fn-a"}
+                    ],
+                    "sqs_configs": [
+                        {"QueueArn": "arn:aws:sqs:us-east-1:123:trail-queue"}
+                    ],
+                    "sns_configs": [
+                        {"TopicArn": "arn:aws:sns:us-east-1:123:trail-topic"}
+                    ],
+                }
+            ]
+        }
+        result = self._run(evidence)
+        assert result.status == "FAIL"
+        assert len(result.affected_resources) == 3
+        labels = [r.split(":")[0] for r in result.affected_resources]
+        assert "Lambda" in labels
+        assert "SQS" in labels
+        assert "SNS" in labels
+
+    def test_fail_summary_contains_count(self):
+        """Evidence summary mentions the number of downstream services."""
+        evidence = {
+            "cloudtrail-s3-notifications": [
+                {
+                    "bucket_name": "my-bucket",
+                    "trail_name": "t",
+                    "lambda_configs": [
+                        {"LambdaFunctionArn": "arn:aws:lambda:us-east-1:123:function:a"},
+                        {"LambdaFunctionArn": "arn:aws:lambda:us-east-1:123:function:b"},
+                    ],
+                    "sqs_configs": [],
+                    "sns_configs": [],
+                }
+            ]
+        }
+        result = self._run(evidence)
+        assert "2" in result.evidence_summary
+
+
+# ── ALRT-027: CloudTrail Log Group Subscription Filters ───────────────────────
+
+
+class TestAlrt027LogSubscriptions:
+    """Tests for ALRT-027: CloudTrail CloudWatch log group subscription consumers."""
+
+    def _run(self, evidence):
+        from drystone.validation.pre_checks import check_alrt_027
+        return check_alrt_027(evidence)
+
+    def test_skip_no_evidence(self):
+        result = self._run({})
+        assert result.check_id == "ALRT-027"
+        assert result.status == "SKIP"
+
+    def test_skip_empty_list(self):
+        result = self._run({"cloudtrail-log-subscriptions": []})
+        assert result.status == "SKIP"
+
+    def test_skip_all_error_entries(self):
+        evidence = {
+            "cloudtrail-log-subscriptions": [
+                {"log_group_name": "/aws/cloudtrail", "error": "ResourceNotFound"}
+            ]
+        }
+        result = self._run(evidence)
+        assert result.status == "SKIP"
+
+    def test_pass_no_subscription_filters(self):
+        """No subscription filters → PASS."""
+        evidence = {
+            "cloudtrail-log-subscriptions": [
+                {
+                    "log_group_name": "/aws/cloudtrail",
+                    "trail_name": "my-trail",
+                    "subscription_filters": [],
+                }
+            ]
+        }
+        result = self._run(evidence)
+        assert result.status == "PASS"
+        assert result.affected_resources == []
+
+    def test_fail_with_lambda_subscription(self):
+        """Lambda subscription filter → FAIL."""
+        evidence = {
+            "cloudtrail-log-subscriptions": [
+                {
+                    "log_group_name": "/aws/cloudtrail",
+                    "trail_name": "my-trail",
+                    "subscription_filters": [
+                        {
+                            "filterName": "forward-to-lambda",
+                            "destinationArn": "arn:aws:lambda:us-east-1:123:function:log-processor",
+                            "filterPattern": "",
+                        }
+                    ],
+                }
+            ]
+        }
+        result = self._run(evidence)
+        assert result.status == "FAIL"
+        assert "log-processor" in result.evidence_summary or any(
+            "log-processor" in r for r in result.affected_resources
+        )
+
+    def test_fail_with_kinesis_subscription(self):
+        """Kinesis subscription filter → FAIL, label shows Kinesis."""
+        evidence = {
+            "cloudtrail-log-subscriptions": [
+                {
+                    "log_group_name": "/aws/cloudtrail",
+                    "trail_name": "my-trail",
+                    "subscription_filters": [
+                        {
+                            "filterName": "to-kinesis",
+                            "destinationArn": "arn:aws:kinesis:us-east-1:123:stream/audit-stream",
+                            "filterPattern": "",
+                        }
+                    ],
+                }
+            ]
+        }
+        result = self._run(evidence)
+        assert result.status == "FAIL"
+        assert any("Kinesis" in r for r in result.affected_resources)
+
+    def test_fail_summary_contains_log_group(self):
+        evidence = {
+            "cloudtrail-log-subscriptions": [
+                {
+                    "log_group_name": "/aws/cloudtrail/my-trail",
+                    "trail_name": "my-trail",
+                    "subscription_filters": [
+                        {
+                            "filterName": "fwd",
+                            "destinationArn": "arn:aws:lambda:us-east-1:123:function:a",
+                            "filterPattern": "",
+                        }
+                    ],
+                }
+            ]
+        }
+        result = self._run(evidence)
+        assert "/aws/cloudtrail/my-trail" in result.evidence_summary
+
+    def test_fail_firehose_detected(self):
+        """Firehose destination detected and labeled correctly."""
+        evidence = {
+            "cloudtrail-log-subscriptions": [
+                {
+                    "log_group_name": "/aws/cloudtrail",
+                    "trail_name": "t",
+                    "subscription_filters": [
+                        {
+                            "filterName": "to-firehose",
+                            "destinationArn": "arn:aws:firehose:us-east-1:123:deliverystream/logs",
+                            "filterPattern": "",
+                        }
+                    ],
+                }
+            ]
+        }
+        result = self._run(evidence)
+        assert result.status == "FAIL"
+        assert any("Firehose" in r for r in result.affected_resources)

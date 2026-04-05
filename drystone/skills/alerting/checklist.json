@@ -376,10 +376,48 @@
         }
       ],
       "qsa_visibility": "standard"
+    },
+    {
+      "id": "ALRT-026",
+      "title": "CloudTrail S3 bucket exposes downstream attack surface via event notifications",
+      "severity": "Medium",
+      "description": "The S3 bucket receiving CloudTrail logs has event notification configurations that trigger Lambda functions, SQS queues, or SNS topics. An attacker who compromises any of these downstream services can silently destroy audit logs without directly touching CloudTrail. This broadens the attack surface for audit trail tampering (TrailGuard threat model).",
+      "evidence_files": ["cloudtrail-s3-notifications.json", "cloudtrail-trails.json"],
+      "remediation": "Review and restrict S3 event notification targets on the CloudTrail bucket. Ensure Lambda/SQS/SNS destinations have least-privilege IAM policies and cannot be used to disrupt log delivery. Prefer no event notifications unless operationally required.",
+      "pci_dss": [
+        {
+          "control": "10.3.3",
+          "reason": "Audit logs must be promptly backed up to a centralized server or media that is difficult to alter. Downstream event consumers expand the attack surface for silent log destruction."
+        },
+        {
+          "control": "10.5.1",
+          "reason": "Retain audit logs for at least 12 months. Services with write access to the audit trail pipeline can truncate or delete logs, undermining retention requirements."
+        }
+      ],
+      "qsa_visibility": "deep"
+    },
+    {
+      "id": "ALRT-027",
+      "title": "CloudTrail CloudWatch log group has downstream subscription filter consumers",
+      "severity": "Low",
+      "description": "The CloudWatch log group receiving CloudTrail logs has subscription filters that stream events to Lambda functions, Kinesis streams, or Firehose delivery streams. Compromising any of these downstream consumers can disrupt real-time log streaming without alerting CloudTrail. This extends the logging pipeline attack surface.",
+      "evidence_files": ["cloudtrail-log-subscriptions.json"],
+      "remediation": "Document all subscription filters on the CloudTrail log group. Ensure Lambda/Kinesis/Firehose destinations have least-privilege IAM roles and cannot be used to disrupt real-time log streaming. Review whether all subscriptions are operationally required.",
+      "pci_dss": [
+        {
+          "control": "10.3.3",
+          "reason": "Audit logs must be protected from destruction. Subscription consumers with write or delete access to log streams can undermine audit trail integrity."
+        },
+        {
+          "control": "10.6.1",
+          "reason": "Security events must generate real-time alerts. Compromised subscription filters can selectively suppress alert delivery."
+        }
+      ],
+      "qsa_visibility": "deep"
     }
   ],
-  "version": "1.1",
-  "total_checks": 25,
-  "last_updated": "2026-02-19",
-  "notes": "Generated based on aws-alerting-skill.md and mapped against PCI DSS v4.0 controls."
+  "version": "1.2",
+  "total_checks": 27,
+  "last_updated": "2026-04-05",
+  "notes": "Generated based on aws-alerting-skill.md and mapped against PCI DSS v4.0 controls. v1.2 adds ALRT-026/027 (TrailGuard downstream attack surface checks)."
 }

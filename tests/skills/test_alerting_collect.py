@@ -217,6 +217,37 @@ def _make_config_client():
     return c
 
 
+def _make_s3_client(with_notifications=False):
+    """S3 mock for bucket notification configuration."""
+    c = MagicMock()
+    if with_notifications:
+        c.get_bucket_notification_configuration.return_value = {
+            "LambdaFunctionConfigurations": [
+                {
+                    "LambdaFunctionArn": "arn:aws:lambda:us-east-1:123:function:process-logs",
+                    "Events": ["s3:ObjectCreated:*"],
+                }
+            ],
+            "QueueConfigurations": [],
+            "TopicConfigurations": [],
+        }
+    else:
+        c.get_bucket_notification_configuration.return_value = {
+            "LambdaFunctionConfigurations": [],
+            "QueueConfigurations": [],
+            "TopicConfigurations": [],
+        }
+    return c
+
+
+def _make_logs_client_with_subscriptions(subscription_filters=None):
+    """CloudWatch Logs mock that includes subscription filters."""
+    base = _make_logs_client()
+    filters = subscription_filters or []
+    base.describe_subscription_filters.return_value = {"subscriptionFilters": filters}
+    return base
+
+
 def _boto3_factory(**overrides):
     """Dispatch factory: returns the appropriate mock client by service name."""
     clients = {
@@ -227,6 +258,7 @@ def _boto3_factory(**overrides):
         "sns": _make_sns_client(),
         "ec2": _make_ec2_client(),
         "config": _make_config_client(),
+        "s3": _make_s3_client(),
     }
     clients.update(overrides)
 
@@ -577,6 +609,179 @@ class TestSaveJson:
         skill._save_json(filepath, {"a": 1})
         content = filepath.read_text()
         assert "\n" in content  # indented → multi-line
+
+
+# ── S3 bucket notifications ───────────────────────────────────────────────────
+
+
+class TestS3BucketNotifications:
+    def test_writes_cloudtrail_s3_notifications_file(self, skill, tmp_path):
+        aws_client = _make_aws_client()
+        session, evidence_path = _make_session(tmp_path)
+
+        with patch("boto3.client", side_effect=_boto3_factory()):
+            skill.collect(aws_client, session)
+
+        assert (evidence_path / "cloudtrail-s3-notifications.json").exists()
+
+    def test_no_notifications_returns_empty_configs(self, skill, tmp_path):
+        aws_client = _make_aws_client()
+        session, evidence_path = _make_session(tmp_path)
+
+        with patch("boto3.client", side_effect=_boto3_factory(s3=_make_s3_client(with_notifications=False))):
+            skill.collect(aws_client, session)
+
+        data = json.loads((evidence_path / "cloudtrail-s3-notifications.json").read_text())
+        assert isinstance(data, list)
+        assert len(data) == 1
+        assert data[0]["bucket_name"] == "my-bucket"
+        assert data[0]["lambda_configs"] == []
+        assert data[0]["sqs_configs"] == []
+        assert data[0]["sns_configs"] == []
+
+    def test_with_lambda_notification(self, skill, tmp_path):
+        aws_client = _make_aws_client()
+        session, evidence_path = _make_session(tmp_path)
+        s3 = _make_s3_client(with_notifications=True)
+
+        with patch("boto3.client", side_effect=_boto3_factory(s3=s3)):
+            skill.collect(aws_client, session)
+
+        data = json.loads((evidence_path / "cloudtrail-s3-notifications.json").read_text())
+        assert len(data) == 1
+        assert len(data[0]["lambda_configs"]) == 1
+        assert "process-logs" in data[0]["lambda_configs"][0]["LambdaFunctionArn"]
+
+    def test_s3_access_denied_stores_error(self, skill, tmp_path):
+        aws_client = _make_aws_client()
+        session, evidence_path = _make_session(tmp_path)
+        s3 = MagicMock()
+        s3.get_bucket_notification_configuration.side_effect = Exception("AccessDenied")
+
+        with patch("boto3.client", side_effect=_boto3_factory(s3=s3)):
+            skill.collect(aws_client, session)
+
+        data = json.loads((evidence_path / "cloudtrail-s3-notifications.json").read_text())
+        assert len(data) == 1
+        assert "error" in data[0]
+        assert "AccessDenied" in data[0]["error"]
+
+    def test_no_trails_writes_empty_list(self, skill, tmp_path):
+        """If no trails, no S3 notifications to collect."""
+        aws_client = _make_aws_client()
+        session, evidence_path = _make_session(tmp_path)
+        ct = _make_ct_client()
+        ct.describe_trails.return_value = {"trailList": []}
+
+        with patch("boto3.client", side_effect=_boto3_factory(cloudtrail=ct)):
+            skill.collect(aws_client, session)
+
+        data = json.loads((evidence_path / "cloudtrail-s3-notifications.json").read_text())
+        assert data == []
+
+
+# ── CloudTrail log subscriptions ──────────────────────────────────────────────
+
+
+class TestCloudTrailLogSubscriptions:
+    def test_writes_cloudtrail_log_subscriptions_file(self, skill, tmp_path):
+        aws_client = _make_aws_client()
+        session, evidence_path = _make_session(tmp_path)
+
+        with patch("boto3.client", side_effect=_boto3_factory()):
+            skill.collect(aws_client, session)
+
+        assert (evidence_path / "cloudtrail-log-subscriptions.json").exists()
+
+    def test_no_subscriptions_returns_empty_list(self, skill, tmp_path):
+        aws_client = _make_aws_client()
+        session, evidence_path = _make_session(tmp_path)
+        logs = _make_logs_client_with_subscriptions([])
+
+        with patch("boto3.client", side_effect=_boto3_factory(logs=logs)):
+            skill.collect(aws_client, session)
+
+        data = json.loads((evidence_path / "cloudtrail-log-subscriptions.json").read_text())
+        assert isinstance(data, list)
+        assert len(data) == 1
+        assert data[0]["subscription_filters"] == []
+
+    def test_with_subscription_filter(self, skill, tmp_path):
+        aws_client = _make_aws_client()
+        session, evidence_path = _make_session(tmp_path)
+        filters = [
+            {
+                "filterName": "forward-to-lambda",
+                "logGroupName": "CloudTrail",
+                "destinationArn": "arn:aws:lambda:us-east-1:123:function:log-processor",
+                "filterPattern": "",
+            }
+        ]
+        logs = _make_logs_client_with_subscriptions(filters)
+
+        with patch("boto3.client", side_effect=_boto3_factory(logs=logs)):
+            skill.collect(aws_client, session)
+
+        data = json.loads((evidence_path / "cloudtrail-log-subscriptions.json").read_text())
+        assert len(data) == 1
+        assert len(data[0]["subscription_filters"]) == 1
+        assert data[0]["subscription_filters"][0]["filterName"] == "forward-to-lambda"
+
+    def test_log_group_name_extracted_from_arn(self, skill, tmp_path):
+        """Log group name should be extracted correctly from the CloudWatchLogsLogGroupArn."""
+        aws_client = _make_aws_client()
+        session, evidence_path = _make_session(tmp_path)
+        logs = _make_logs_client_with_subscriptions([])
+
+        with patch("boto3.client", side_effect=_boto3_factory(logs=logs)):
+            skill.collect(aws_client, session)
+
+        data = json.loads((evidence_path / "cloudtrail-log-subscriptions.json").read_text())
+        # ARN in _make_ct_client: "arn:aws:logs::123:log-group:CloudTrail"
+        assert data[0]["log_group_name"] == "CloudTrail"
+
+    def test_trail_without_cloudwatch_arn_skipped(self, skill, tmp_path):
+        """Trails without CloudWatchLogsLogGroupArn should produce no subscription entries."""
+        aws_client = _make_aws_client()
+        session, evidence_path = _make_session(tmp_path)
+        ct = _make_ct_client()
+        # Trail without CW logs
+        ct.describe_trails.return_value = {
+            "trailList": [
+                {
+                    "Name": "no-cw-trail",
+                    "S3BucketName": "my-bucket",
+                    "IsMultiRegionTrail": True,
+                    "HomeRegion": "us-east-1",
+                    "HasCustomEventSelectors": False,
+                    "HasInsightSelectors": False,
+                    "IsOrganizationTrail": False,
+                    "CloudWatchLogsLogGroupArn": None,
+                    "CloudWatchLogsRoleArn": None,
+                    "KMSKeyId": None,
+                    "LogFileValidationEnabled": True,
+                }
+            ]
+        }
+
+        with patch("boto3.client", side_effect=_boto3_factory(cloudtrail=ct)):
+            skill.collect(aws_client, session)
+
+        data = json.loads((evidence_path / "cloudtrail-log-subscriptions.json").read_text())
+        assert data == []
+
+    def test_describe_subscription_filters_error_stores_error(self, skill, tmp_path):
+        aws_client = _make_aws_client()
+        session, evidence_path = _make_session(tmp_path)
+        logs = _make_logs_client_with_subscriptions([])
+        logs.describe_subscription_filters.side_effect = Exception("ResourceNotFound")
+
+        with patch("boto3.client", side_effect=_boto3_factory(logs=logs)):
+            skill.collect(aws_client, session)
+
+        data = json.loads((evidence_path / "cloudtrail-log-subscriptions.json").read_text())
+        assert len(data) == 1
+        assert "error" in data[0]
 
 
 # ── skill.name property ───────────────────────────────────────────────────────

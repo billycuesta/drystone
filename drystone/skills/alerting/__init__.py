@@ -94,6 +94,94 @@ class AlertingSkill(BaseSkill):
                 trails_list.append(trail_detail)
 
             self._save_json(evidence_path / "cloudtrail-trails.json", trails_list)
+
+            # === CLOUDTRAIL S3 BUCKET NOTIFICATIONS ===
+            print("  Collecting CloudTrail S3 bucket notifications...")
+            try:
+                s3_client = boto3.client("s3", **client_kwargs)
+                s3_notifications = []
+
+                for trail in trails_list:
+                    bucket_name = trail.get("S3BucketName")
+                    # Skip org trails that belong to the master account
+                    if not bucket_name:
+                        continue
+                    try:
+                        notif = s3_client.get_bucket_notification_configuration(
+                            Bucket=bucket_name
+                        )
+                        notif.pop("ResponseMetadata", None)
+                        s3_notifications.append(
+                            {
+                                "bucket_name": bucket_name,
+                                "trail_name": trail.get("Name"),
+                                "lambda_configs": notif.get(
+                                    "LambdaFunctionConfigurations", []
+                                ),
+                                "sqs_configs": notif.get("QueueConfigurations", []),
+                                "sns_configs": notif.get("TopicConfigurations", []),
+                            }
+                        )
+                    except Exception as e_bucket:
+                        # Permission denied or cross-account bucket — skip gracefully
+                        s3_notifications.append(
+                            {
+                                "bucket_name": bucket_name,
+                                "trail_name": trail.get("Name"),
+                                "error": str(e_bucket),
+                            }
+                        )
+
+                self._save_json(
+                    evidence_path / "cloudtrail-s3-notifications.json", s3_notifications
+                )
+            except Exception as e:
+                print(f"    Warning: Could not collect S3 bucket notifications: {e}")
+
+            # === CLOUDTRAIL CLOUDWATCH LOG SUBSCRIPTION FILTERS ===
+            print("  Collecting CloudTrail log group subscription filters...")
+            try:
+                logs_client_ct = boto3.client("logs", **client_kwargs)
+                log_subscriptions = []
+
+                for trail in trails_list:
+                    cw_log_group_arn = trail.get("CloudWatchLogsLogGroupArn")
+                    if not cw_log_group_arn:
+                        continue
+                    # Extract log group name from ARN
+                    # ARN format: arn:aws:logs:region:account:log-group:/name:*
+                    log_group_name = cw_log_group_arn.split(":log-group:")[-1].rstrip(
+                        ":*"
+                    )
+                    try:
+                        resp = logs_client_ct.describe_subscription_filters(
+                            logGroupName=log_group_name
+                        )
+                        log_subscriptions.append(
+                            {
+                                "log_group_name": log_group_name,
+                                "trail_name": trail.get("Name"),
+                                "subscription_filters": resp.get(
+                                    "subscriptionFilters", []
+                                ),
+                            }
+                        )
+                    except Exception as e_lg:
+                        log_subscriptions.append(
+                            {
+                                "log_group_name": log_group_name,
+                                "trail_name": trail.get("Name"),
+                                "error": str(e_lg),
+                            }
+                        )
+
+                self._save_json(
+                    evidence_path / "cloudtrail-log-subscriptions.json",
+                    log_subscriptions,
+                )
+            except Exception as e:
+                print(f"    Warning: Could not collect CloudWatch log subscriptions: {e}")
+
         except Exception as e:
             print(f"    Warning: Could not collect CloudTrail data: {e}")
 

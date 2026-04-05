@@ -207,6 +207,8 @@ class MarkdownFormatter(BaseFormatter):
         "access-keys.json": "Access Keys",
         # Alerting / Monitoring
         "cloudtrail-trails.json": "CloudTrail Trails",
+        "cloudtrail-s3-notifications.json": "CloudTrail S3 Notifications",
+        "cloudtrail-log-subscriptions.json": "CloudTrail Log Subscriptions",
         "cloudwatch-alarms.json": "CloudWatch Alarms",
         "cloudwatch-log-groups.json": "CloudWatch Log Groups",
         "cloudwatch-metric-filters.json": "CloudWatch Metric Filters",

@@ -3600,6 +3600,105 @@ def check_alrt_012(evidence: Dict[str, Any]) -> PreCheckResult:
     )
 
 
+@_register("alerting")
+def check_alrt_026(evidence: Dict[str, Any]) -> PreCheckResult:
+    """ALRT-026: CloudTrail S3 bucket exposes downstream attack surface via event notifications."""
+    notifications = evidence.get("cloudtrail-s3-notifications")
+    if not isinstance(notifications, list) or not notifications:
+        return PreCheckResult("ALRT-026", "SKIP", "no cloudtrail-s3-notifications evidence", [])
+
+    # Filter out entries with errors (cross-account or permission-denied buckets)
+    valid = [n for n in notifications if isinstance(n, dict) and "error" not in n]
+    if not valid:
+        return PreCheckResult("ALRT-026", "SKIP", "cloudtrail S3 buckets not accessible", [])
+
+    downstream_services = []
+    for entry in valid:
+        bucket_name = entry.get("bucket_name", "unknown")
+        for cfg in entry.get("lambda_configs", []) or []:
+            arn = cfg.get("LambdaFunctionArn", "")
+            if arn:
+                fn_name = arn.split(":")[-1]
+                downstream_services.append(f"Lambda:{fn_name}")
+        for cfg in entry.get("sqs_configs", []) or []:
+            arn = cfg.get("QueueArn", "")
+            if arn:
+                queue_name = arn.split(":")[-1]
+                downstream_services.append(f"SQS:{queue_name}")
+        for cfg in entry.get("sns_configs", []) or []:
+            arn = cfg.get("TopicArn", "")
+            if arn:
+                topic_name = arn.split(":")[-1]
+                downstream_services.append(f"SNS:{topic_name}")
+
+    if not downstream_services:
+        return PreCheckResult(
+            "ALRT-026",
+            "PASS",
+            "CloudTrail S3 bucket has no downstream event notification services",
+            [],
+        )
+
+    bucket_name = valid[0].get("bucket_name", "unknown") if valid else "unknown"
+    summary = (
+        f"CloudTrail S3 bucket '{bucket_name}' has {len(downstream_services)} downstream "
+        f"service(s): [{', '.join(downstream_services[:5])}]"
+    )
+    return PreCheckResult("ALRT-026", "FAIL", summary, downstream_services[:10])
+
+
+@_register("alerting")
+def check_alrt_027(evidence: Dict[str, Any]) -> PreCheckResult:
+    """ALRT-027: CloudTrail CloudWatch log group has downstream subscription filter consumers."""
+    subscriptions = evidence.get("cloudtrail-log-subscriptions")
+    if not isinstance(subscriptions, list) or not subscriptions:
+        return PreCheckResult(
+            "ALRT-027", "SKIP", "no cloudtrail-log-subscriptions evidence", []
+        )
+
+    # Filter out error entries
+    valid = [s for s in subscriptions if isinstance(s, dict) and "error" not in s]
+    if not valid:
+        return PreCheckResult(
+            "ALRT-027", "SKIP", "cloudtrail log groups not accessible", []
+        )
+
+    filters_found = []
+    for entry in valid:
+        log_group_name = entry.get("log_group_name", "unknown")
+        for sf in entry.get("subscription_filters", []) or []:
+            dest = sf.get("destinationArn", "")
+            filter_name = sf.get("filterName", "unknown")
+            if dest:
+                # Detect destination type
+                if ":lambda:" in dest:
+                    dest_label = f"Lambda:{dest.split(':')[-1]}"
+                elif ":kinesis:" in dest:
+                    dest_label = f"Kinesis:{dest.split('/')[-1]}"
+                elif ":firehose:" in dest:
+                    dest_label = f"Firehose:{dest.split('/')[-1]}"
+                elif ":logs:" in dest:
+                    dest_label = f"Logs:{dest.split(':')[-1]}"
+                else:
+                    dest_label = dest
+                filters_found.append(f"{filter_name}→{dest_label}")
+
+    if not filters_found:
+        return PreCheckResult(
+            "ALRT-027",
+            "PASS",
+            "CloudTrail log group has no downstream subscription consumers",
+            [],
+        )
+
+    log_group_name = valid[0].get("log_group_name", "unknown") if valid else "unknown"
+    summary = (
+        f"CloudTrail log group '{log_group_name}' has {len(filters_found)} subscription "
+        f"filter(s): [{', '.join(filters_found[:5])}]"
+    )
+    return PreCheckResult("ALRT-027", "FAIL", summary, filters_found[:10])
+
+
 # ============================================================================
 # EXPOSURE PRE-CHECKS
 # ============================================================================
