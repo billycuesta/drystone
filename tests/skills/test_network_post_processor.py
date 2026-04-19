@@ -115,7 +115,11 @@ def test_network_post_processor_adds_architecture_diagram(tmp_path):
     out = NetworkPostProcessor(session).process(findings)
     assert "architecture" in out
     assert "flow_diagram" in out["architecture"]
-    assert "VPC vpc-1" in out["architecture"]["flow_diagram"]
-    assert "EC2: web-1" in out["architecture"]["flow_diagram"]
-    assert "Lambda: fn1" in out["architecture"]["flow_diagram"]
-    assert "RDS: cardsdb" in out["architecture"]["flow_diagram"]
+    diagram = out["architecture"]["flow_diagram"]
+    assert "vpc-1" in diagram
+    assert "10.0.0.0/16" in diagram
+    assert "EC2: web-1" in diagram
+    assert "Lambda: fn1" in diagram
+    assert "RDS: cardsdb" in diagram
+    # new-mmap tree connectors present
+    assert "├──" in diagram or "└──" in diagram

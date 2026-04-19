@@ -317,24 +317,31 @@ class NetworkPostProcessor:
                     )
         return gaps
 
-    def _box(self, title: str) -> List[str]:
-        w = 73
-        t = title[: w - 4]
-        top = "┌" + "─" * (w - 2) + "┐"
-        mid = "│ " + t.ljust(w - 4) + " │"
-        bot = "└" + "─" * (w - 2) + "┘"
-        return [top, mid, bot]
+    # ── ASCII tree helpers (new-mmap style) ──────────────────────────────────
+
+    def _tree_lines(
+        self, items: List[str], prefix: str = "", last_flags: Optional[List[bool]] = None
+    ) -> List[str]:
+        """Not used directly — see _render_vpc_tree."""
+        return []
+
+    def _branch(self, label: str, is_last: bool, indent: str = "") -> str:
+        connector = "└── " if is_last else "├── "
+        return f"{indent}{connector}{label}"
+
+    def _continuation(self, is_last: bool, indent: str = "") -> str:
+        return indent + ("    " if is_last else "│   ")
 
     def _generate_diagram(self, a: Dict[str, Any]) -> str:
         region = a.get("region") or "unknown"
+        account_id = a.get("account_id") or "unknown"
         vpcs = a.get("vpcs") or []
 
         lines: List[str] = []
-        lines.extend(self._box(f"AWS NETWORK TOPOLOGY (region: {region})"))
-        lines.append("")
+        lines.append(f"AWS Network Topology — {region}  (account: {account_id})")
 
         if not vpcs:
-            lines.append("No VPCs detected in evidence.")
+            lines.append("└── (no VPCs detected in evidence)")
             return "\n".join(lines)
 
         def _is_empty_vpc(v: Dict[str, Any]) -> bool:
@@ -342,111 +349,124 @@ class NetworkPostProcessor:
             if v.get("vpc_endpoints_total", 0):
                 return False
             for s in subs:
-                eni_total = int(s.get("eni_total") or 0)
-                rn = s.get("resource_names") or {}
-                if eni_total > 0:
+                if int(s.get("eni_total") or 0) > 0:
                     return False
-                if isinstance(rn, dict) and any(
-                    (rn.get(k) or []) for k in ["EC2", "Lambda", "RDS"]
-                ):
+                rn = s.get("resource_names") or {}
+                if isinstance(rn, dict) and any(rn.get(k) for k in ["EC2", "Lambda", "RDS"]):
                     return False
             return True
 
-        non_empty_vpcs = [v for v in vpcs if not _is_empty_vpc(v)]
-        hidden_empty = len(vpcs) - len(non_empty_vpcs)
+        non_empty = [v for v in vpcs if not _is_empty_vpc(v)]
+        empty_count = len(vpcs) - len(non_empty)
+        shown = non_empty[:5]
 
-        if not non_empty_vpcs:
-            lines.append(
-                "All detected VPCs are empty from workload perspective (no resources/ENIs)."
-            )
-            lines.append(
-                "Tip: run without hide-empty mode only when troubleshooting inventory completeness."
-            )
-            return "\n".join(lines)
+        for vi, v in enumerate(shown):
+            is_last_vpc = (vi == len(shown) - 1) and empty_count == 0
 
-        # Keep diagram readable: show up to 5 non-empty VPCs.
-        for v in non_empty_vpcs[:5]:
-            vpc_id = v.get("vpc_id")
+            vpc_id = v.get("vpc_id") or "unknown"
             vpc_name = v.get("vpc_name") or vpc_id
-            cidr = v.get("cidr")
-            igws = v.get("igw_ids") or []
-            flow = "yes" if v.get("flow_logs_active") else "no"
-            vpce_total = v.get("vpc_endpoints_total") or 0
-            resources_total = int(v.get("resources_total") or 0)
-            subnets_total = len(v.get("subnets_public") or []) + len(v.get("subnets_private") or [])
+            cidr = v.get("cidr") or "?"
+            label = vpc_name if vpc_name != vpc_id else vpc_id
+            vpc_label = f"{label}  [{cidr}]"
+            lines.append(self._branch(vpc_label, is_last_vpc))
 
-            lines.append(f"{vpc_name}")
-            lines.append(f"  VPC {vpc_id}")
-            lines.append(
-                f"  {region} | {vpc_id} | {cidr} | {subnets_total} subnets | {resources_total} resources"
-            )
-            lines.append(
-                f"  IGW: {', '.join(igws) if igws else 'none'} | FlowLogs: {flow} | VPCE: {vpce_total}"
-            )
+            ind1 = self._continuation(is_last_vpc)
+
+            # Metadata row
+            igws = v.get("igw_ids") or []
+            flow = "✓" if v.get("flow_logs_active") else "✗"
+            vpce = v.get("vpc_endpoints_total") or 0
+            igw_str = ", ".join(igws) if igws else "none"
+            meta = f"IGW: {igw_str}  |  FlowLogs: {flow}  |  VPC Endpoints: {vpce}"
+            lines.append(f"{ind1}│")
+            lines.append(f"{ind1}├── {meta}")
 
             pubs = v.get("subnets_public") or []
             privs = v.get("subnets_private") or []
+            has_priv = bool(privs)
 
-            def fmt_sub(s: Dict[str, Any]) -> str:
-                sid = s.get("subnet_id")
-                sname = s.get("subnet_name") or sid
-                cidr = s.get("cidr")
-                return f"    - {sname} ({sid}) {cidr}"
+            # ── Public subnets ────────────────────────────────────────────
+            lines.append(f"{ind1}│")
+            pub_label = f"Public Subnets ({len(pubs)})"
+            lines.append(self._branch(pub_label, not has_priv, ind1))
+            ind2_pub = self._continuation(not has_priv, ind1)
 
-            def fmt_names(s: Dict[str, Any]) -> List[str]:
-                rn = s.get("resource_names") or {}
-                if not isinstance(rn, dict):
-                    return []
-
-                def _fmt(label: str, names: Any) -> Optional[str]:
-                    if not isinstance(names, list) or not names:
-                        return None
-                    # Keep diagram readable: show first 2 names
-                    shown = [str(x) for x in names[:2]]
-                    extra = len(names) - len(shown)
-                    suffix = f" (+{extra} more)" if extra > 0 else ""
-                    return f"      {label}: {', '.join(shown)}{suffix}"
-
-                out = []
-                for label in ["EC2", "Lambda", "RDS"]:
-                    line = _fmt(label, rn.get(label))
-                    if line:
-                        out.append(line)
-                return out
-
-            lines.append("  Public subnets:")
             if pubs:
-                for s in pubs[:5]:
-                    lines.append(fmt_sub(s))
-                    names = fmt_names(s)
-                    if names:
-                        lines.extend(names)
-                    else:
-                        lines.append("      No resources")
+                for si, s in enumerate(pubs[:5]):
+                    is_last_sub = si == len(pubs[:5]) - 1
+                    sid = s.get("subnet_id") or "?"
+                    sname = s.get("subnet_name") or sid
+                    scidr = s.get("cidr") or "?"
+                    az = s.get("az") or "?"
+                    pub_ips = int(s.get("eni_public_ip_total") or 0)
+                    pub_ip_tag = f"  ⚠ {pub_ips} public IP(s)" if pub_ips else ""
+                    sub_label = f"{sname}  {scidr}  [{az}]{pub_ip_tag}"
+                    lines.append(self._branch(sub_label, is_last_sub, ind2_pub))
+
+                    ind3 = self._continuation(is_last_sub, ind2_pub)
+                    res_lines = self._resource_lines(s, ind3)
+                    lines.extend(res_lines)
             else:
-                lines.append("    - none")
+                lines.append(f"{ind2_pub}└── (none)")
 
-            lines.append("  Private subnets:")
-            if privs:
-                for s in privs[:5]:
-                    lines.append(fmt_sub(s))
-                    names = fmt_names(s)
-                    if names:
-                        lines.extend(names)
-                    else:
-                        lines.append("      No resources")
-            else:
-                lines.append("    - none")
+            # ── Private subnets ───────────────────────────────────────────
+            if has_priv:
+                lines.append(f"{ind1}│")
+                lines.append(self._branch(f"Private Subnets ({len(privs)})", True, ind1))
+                ind2_priv = self._continuation(True, ind1)
 
-            lines.append("")
+                for si, s in enumerate(privs[:5]):
+                    is_last_sub = si == len(privs[:5]) - 1
+                    sid = s.get("subnet_id") or "?"
+                    sname = s.get("subnet_name") or sid
+                    scidr = s.get("cidr") or "?"
+                    az = s.get("az") or "?"
+                    sub_label = f"{sname}  {scidr}  [{az}]"
+                    lines.append(self._branch(sub_label, is_last_sub, ind2_priv))
 
-        if hidden_empty > 0:
-            lines.append("")
-            lines.append(f"(Hide empty VPCs enabled: {hidden_empty} empty VPC(s) omitted)")
+                    ind3 = self._continuation(is_last_sub, ind2_priv)
+                    res_lines = self._resource_lines(s, ind3)
+                    lines.extend(res_lines)
 
-        if len(non_empty_vpcs) > 5:
-            lines.append(
-                f"(Diagram truncated: {len(non_empty_vpcs) - 5} additional non-empty VPC(s) not shown)"
-            )
+            lines.append(f"{ind1}")
+
+        if empty_count > 0:
+            lines.append(self._branch(f"({empty_count} empty VPC(s) omitted)", True))
+
+        if len(non_empty) > 5:
+            extra = len(non_empty) - 5
+            lines.append(f"    ... and {extra} more non-empty VPC(s) not shown")
 
         return "\n".join(lines).rstrip()
+
+    def _resource_lines(self, s: Dict[str, Any], indent: str) -> List[str]:
+        """Return tree lines for resources inside a subnet."""
+        rn = s.get("resource_names") or {}
+        if not isinstance(rn, dict):
+            return [f"{indent}└── (no named resources)"]
+
+        items: List[str] = []
+        for label in ["EC2", "Lambda", "RDS"]:
+            names = rn.get(label) or []
+            if not isinstance(names, list) or not names:
+                continue
+            shown = [str(x) for x in names[:3]]
+            extra = len(names) - len(shown)
+            suffix = f" (+{extra} more)" if extra > 0 else ""
+            items.append(f"{label}: {', '.join(shown)}{suffix}")
+
+        # Also count other ENI types
+        eni_types = s.get("eni_types") or {}
+        for etype in ["NATGW", "VPCE"]:
+            count = eni_types.get(etype, 0)
+            if count:
+                items.append(f"{etype}: {count}")
+
+        if not items:
+            return [f"{indent}└── (no resources)"]
+
+        lines = []
+        for i, item in enumerate(items):
+            is_last = i == len(items) - 1
+            lines.append(self._branch(item, is_last, indent))
+        return lines
