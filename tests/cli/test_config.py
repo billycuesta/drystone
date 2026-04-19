@@ -149,12 +149,14 @@ class TestRoundTrip:
         assert loaded.output_formats == sample_config.output_formats
         assert loaded.report_type == sample_config.report_type
 
-    def test_direct_credentials_preserved_in_round_trip(self, tmp_config_dir, sample_config):
+    def test_direct_credentials_never_persisted(self, tmp_config_dir, sample_config):
+        # Credentials must never be written to disk (security requirement)
         save_config(sample_config)
-        loaded = load_last_config()
-        assert loaded is not None
-        assert loaded.aws_access_key_id == sample_config.aws_access_key_id
-        assert loaded.aws_secret_access_key == sample_config.aws_secret_access_key
+        _, last_run = tmp_config_dir
+        data = json.loads(last_run.read_text())
+        assert "aws_access_key_id" not in data
+        assert "aws_secret_access_key" not in data
+        assert "ai_api_key" not in data
 
     def test_credentials_omitted_when_using_credentials_file(self, tmp_config_dir, tmp_path):
         creds_file = tmp_path / "creds.json"

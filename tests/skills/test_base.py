@@ -66,13 +66,14 @@ def _skill_findings(*findings) -> SkillFindings:
     )
 
 
-def _pre_check(check_id, status="PASS", affected=None, evidence_summary="", metadata=None):
+def _pre_check(check_id, status="PASS", affected=None, evidence_summary="", metadata=None, risk_score_override=None):
     r = SimpleNamespace(
         check_id=check_id,
         status=status,
         affected_resources=list(affected or []),
         evidence_summary=evidence_summary,
         metadata=metadata,
+        risk_score_override=risk_score_override,
     )
     return r
 

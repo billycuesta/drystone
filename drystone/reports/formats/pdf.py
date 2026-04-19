@@ -12,6 +12,7 @@ from typing import Any, Dict, List
 
 from drystone.reports.formats.base import BaseFormatter
 from drystone.reports.pentest_inventory_summary import build_environment_narrative
+from drystone.reports.safety import redact_secrets
 from drystone.reports.validation_commands import suggest_aws_cli_commands
 
 
@@ -1586,7 +1587,7 @@ class PDFFormatter(BaseFormatter):
             )
 
         if snippet_for_json:
-            dumped = json.dumps(snippet_for_json, indent=2, ensure_ascii=False)
+            dumped, _ = redact_secrets(json.dumps(snippet_for_json, indent=2, ensure_ascii=False))
             description_html += (
                 "<div class='finding-inline-section finding-evidence'><h4>Evidence</h4>"
                 f"<pre class='code-block'>{html.escape(dumped)}</pre></div>"

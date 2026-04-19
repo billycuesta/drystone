@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from drystone.reports.formats.base import BaseFormatter
+from drystone.reports.safety import redact_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -1367,7 +1368,8 @@ These correlations represent multi-stage attack scenarios where findings from di
 
             if snippet_for_json:
                 detail += "```json\n"
-                detail += json.dumps(snippet_for_json, indent=2, ensure_ascii=False)
+                redacted, _ = redact_secrets(json.dumps(snippet_for_json, indent=2, ensure_ascii=False))
+                detail += redacted
                 detail += "\n```\n"
 
             if evidence_refs:

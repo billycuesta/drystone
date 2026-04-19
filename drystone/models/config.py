@@ -342,12 +342,11 @@ class WizardConfig(BaseModel):
         # Convert Path objects to strings for JSON serialization
         data = self.model_dump(mode="json")
 
-        # If using a file, profile, or env vars for AWS, don't save direct keys
-        # BUT keep the file/profile paths for reconfiguration
-        if self.aws_credentials_file or self.aws_profile or not self.aws_access_key_id:
-            data.pop("aws_access_key_id", None)
-            data.pop("aws_secret_access_key", None)
-            data.pop("aws_session_token", None)
+        # Never persist credentials — always strip secrets from saved config
+        data.pop("aws_access_key_id", None)
+        data.pop("aws_secret_access_key", None)
+        data.pop("aws_session_token", None)
+        data.pop("ai_api_key", None)
 
         # Always preserve aws_credentials_file and aws_profile (they're not sensitive)
         # They will be None if not used, which is fine

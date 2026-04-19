@@ -32,7 +32,7 @@ class AuditSession:
         self.timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
 
         # Base path: audit-logs/{client}_{timestamp}/
-        self.base_path = Path.cwd() / "audit-logs" / f"{client_name}_{self.timestamp}"
+        self.base_path = Path.cwd() / "audit-logs" / f"{self.client_name}_{self.timestamp}"
 
         # Create directory structure
         self._create_directories()

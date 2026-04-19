@@ -1,6 +1,7 @@
 """Extended tests for FindingsNormalizer with evidence validation and mutual exclusions."""
 
 import pytest
+from datetime import datetime, timedelta
 
 from drystone.models.findings import Finding
 from drystone.validation.findings_normalizer import FindingsNormalizer
@@ -560,7 +561,7 @@ class TestPCIDSSAlignment:
                     "AccessKeys": [
                         {
                             "AccessKeyId": "AKIA...",
-                            "CreateDate": "2026-01-15T10:00:00",  # Recent key
+                            "CreateDate": (datetime.now() - timedelta(days=30)).isoformat(),  # Recent key
                         }
                     ],
                 },
