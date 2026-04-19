@@ -11,6 +11,8 @@
 
 **AWS Security Audit CLI powered by Claude**
 
+Drystone automates AWS security audits using Claude as the analysis engine. It collects raw evidence from 15+ AWS services via boto3, applies a 3-tier validation pipeline (deterministic pre-checks → AI analysis → reconciliation), and generates findings mapped to PCI DSS v4.0 and CIS controls. Output includes Markdown, PDF, and JSON reports with MITRE ATT&CK enrichment and cross-skill attack chain correlation.
+
 ---
 
 ## Architecture
