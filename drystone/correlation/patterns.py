@@ -3188,6 +3188,20 @@ def _match_cross_account_admin_no_externalid(
     return has_cross_account_no_ext and has_admin_policy
 
 
+def _find_sources_cross_account_admin_no_externalid(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> List[Finding]:
+    iam_findings = findings_by_skill.get("iam", [])
+    sources = [f for f in iam_findings if f.id == "IAM-033"]
+    sources += [
+        f for f in iam_findings
+        if f.id in {"IAM-015", "IAM-016"} or "administrator" in f.title.lower()
+    ]
+    return sources
+
+
 def _cross_account_admin_attack_path(_: Dict[str, Any]) -> List[str]:
     return [
         "Identify cross-account trust without ExternalId requirement (IAM-033)",
@@ -3218,6 +3232,7 @@ PATTERN_REGISTRY.register(
         severity="Critical",
         skills_required=["iam"],
         matcher=_match_cross_account_admin_no_externalid,
+        source_finder=_find_sources_cross_account_admin_no_externalid,
         attack_path_generator=_cross_account_admin_attack_path,
         remediation_generator=_cross_account_admin_remediation,
         threat_context=ThreatContext(
@@ -3467,6 +3482,17 @@ def _match_iam_no_mfa_cross_account_pivot(
     return has_no_mfa and has_cross_account
 
 
+def _find_sources_iam_no_mfa_cross_account_pivot(
+    findings_by_skill: Dict[str, List[Finding]],
+    resource_index: Dict[str, List[Finding]],
+    evidence_by_skill: Dict[str, Any],
+) -> List[Finding]:
+    iam_findings = findings_by_skill.get("iam", [])
+    sources = [f for f in iam_findings if _is_no_mfa_finding(f)]
+    sources += [f for f in iam_findings if f.id == "IAM-033"]
+    return sources
+
+
 def _iam_no_mfa_cross_account_path(_: Dict[str, Any]) -> List[str]:
     return [
         "IAM user credentials stolen or brute-forced (no MFA protection)",
@@ -3497,6 +3523,7 @@ PATTERN_REGISTRY.register(
         severity="Critical",
         skills_required=["iam"],
         matcher=_match_iam_no_mfa_cross_account_pivot,
+        source_finder=_find_sources_iam_no_mfa_cross_account_pivot,
         attack_path_generator=_iam_no_mfa_cross_account_path,
         remediation_generator=_iam_no_mfa_cross_account_remediation,
         threat_context=ThreatContext(

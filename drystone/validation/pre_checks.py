@@ -3783,6 +3783,21 @@ def check_exp_001(evidence: Dict[str, Any]) -> PreCheckResult:
                     return True
         return False
 
+    def _pab_blocks_all(pab):
+        if not isinstance(pab, dict):
+            return False
+        return all([
+            pab.get("BlockPublicAcls"),
+            pab.get("BlockPublicPolicy"),
+            pab.get("IgnorePublicAcls"),
+            pab.get("RestrictPublicBuckets"),
+        ])
+
+    _network_condition_keys = (
+        "aws:sourceVpce", "aws:sourceVpc", "aws:sourcevpce", "aws:sourcevpc",
+        "aws:PrincipalOrgID", "aws:PrincipalOrgPaths",
+    )
+
     def _has_public_policy(policy):
         if not isinstance(policy, dict):
             return False
@@ -3796,8 +3811,17 @@ def check_exp_001(evidence: Dict[str, Any]) -> PreCheckResult:
                 continue
             act = st.get("Action")
             actions = [act] if isinstance(act, str) else (act or [])
-            if any(a in actions for a in ("s3:*", "s3:GetObject", "s3:ListBucket")):
-                return True
+            if not any(a in actions for a in ("s3:*", "s3:GetObject", "s3:ListBucket")):
+                continue
+            # Condition restricting to VPC/org = not truly public
+            condition = st.get("Condition") or {}
+            cond_keys = set()
+            for op_dict in condition.values():
+                if isinstance(op_dict, dict):
+                    cond_keys.update(op_dict.keys())
+            if any(k in cond_keys for k in _network_condition_keys):
+                continue
+            return True
         return False
 
     # Also try by_name lookup
@@ -3809,6 +3833,9 @@ def check_exp_001(evidence: Dict[str, Any]) -> PreCheckResult:
     public = []
     for b in all_buckets:
         if not isinstance(b, dict):
+            continue
+        # PublicAccessBlock fully enabled → bucket cannot be public regardless of ACL/policy
+        if _pab_blocks_all(b.get("PublicAccessBlock")):
             continue
         if _is_public_acl(b.get("ACL")) or _has_public_policy(b.get("BucketPolicy")):
             public.append(f"arn:aws:s3:::{b.get('Name', 'unknown')}")
@@ -7027,20 +7054,23 @@ def check_sm_004(evidence: Dict[str, Any]) -> PreCheckResult:
     if not isinstance(secrets_list, list) or not secrets_list:
         return PreCheckResult("SM-004", "SKIP", "no secrets data available", [])
 
-    # AWS-managed key indicators
+    # AWS-managed key indicators (explicit patterns + missing KmsKeyId = AWS default)
     _aws_kms_patterns = ("alias/aws/secretsmanager", "aws/secretsmanager", "Default AWS managed")
 
-    failed = [
-        s.get("ARN", s.get("Name", "unknown"))
-        for s in secrets_list
-        if isinstance(s, dict) and any(p in str(s.get("KmsKeyId") or "") for p in _aws_kms_patterns)
-    ]
+    failed = []
+    for s in secrets_list:
+        if not isinstance(s, dict):
+            continue
+        kms_key = str(s.get("KmsKeyId") or "").strip()
+        if not kms_key or any(p in kms_key for p in _aws_kms_patterns):
+            failed.append(s.get("ARN", s.get("Name", "unknown")))
+
     if not failed:
         return PreCheckResult("SM-004", "PASS", "all secrets use customer-managed KMS keys", [])
     return PreCheckResult(
         "SM-004",
         "FAIL",
-        f"{len(failed)} secret(s) use AWS-managed KMS key (not customer-managed)",
+        f"{len(failed)} secret(s) use AWS-managed KMS key or missing KMS config",
         failed,
     )
 
@@ -7065,11 +7095,25 @@ def check_sm_005(evidence: Dict[str, Any]) -> PreCheckResult:
             continue
         arn = s.get("ARN", s.get("Name", "unknown"))
 
-        # Case 1: LastRotatedDate is empty/null = never rotated (always FAIL)
+        # Case 1: LastRotatedDate is empty/null = never rotated
+        # Only flag if the secret is also >90 days old (gives time to set up rotation)
         last_rotated = str(s.get("LastRotatedDate") or "").strip()
         rotation_enabled = bool(s.get("RotationEnabled"))
         if not last_rotated and not rotation_enabled:
-            never_rotated.append(arn)
+            raw_created = s.get("CreatedDate") or s.get("LastChangedDate")
+            secret_age_days = 0
+            if raw_created:
+                try:
+                    dt_str = str(raw_created).replace(" ", "T")
+                    if "+" in dt_str[10:] or dt_str.endswith("Z"):
+                        dt_created = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+                    else:
+                        dt_created = datetime.fromisoformat(dt_str).replace(tzinfo=timezone.utc)
+                    secret_age_days = (now - dt_created).days
+                except (ValueError, TypeError):
+                    pass
+            if secret_age_days > 90:
+                never_rotated.append(arn)
             continue
 
         # Case 2: LastChangedDate > 365 days ago

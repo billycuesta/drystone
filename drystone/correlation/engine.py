@@ -523,16 +523,27 @@ class CorrelationEngine:
         seen_keys: Set[str] = set()
 
         for corr in correlations:
-            # Rule 1: All source findings must exist
             source_ids = corr.source_finding_ids or []
-            if source_ids and not all(sid in all_finding_ids for sid in source_ids):
-                logger.debug(f"Dropping correlation {corr.id}: missing source findings")
-                continue
 
-            # Rule 2: At least 2 source findings (skip for dynamic patterns with empty sources)
-            if source_ids and len(source_ids) < 2:
-                logger.debug(f"Dropping correlation {corr.id}: fewer than 2 source findings")
-                continue
+            # Finding-based patterns (have source_finder) must supply >= 2 source findings.
+            # Evidence-based patterns (source_finder=None) may have empty source_ids.
+            pattern = PATTERN_REGISTRY.get(corr.pattern_id)
+            is_finding_based = pattern is not None and pattern.source_finder is not None
+
+            # Rule 1: Finding-based patterns must have >= 2 validated source findings
+            if is_finding_based:
+                if len(source_ids) < 2:
+                    logger.debug(f"Dropping correlation {corr.id}: fewer than 2 source findings")
+                    continue
+                # Rule 2: All source findings must exist
+                if not all(sid in all_finding_ids for sid in source_ids):
+                    logger.debug(f"Dropping correlation {corr.id}: missing source findings")
+                    continue
+            elif source_ids:
+                # Evidence-based with some source_ids: validate they exist
+                if not all(sid in all_finding_ids for sid in source_ids):
+                    logger.debug(f"Dropping correlation {corr.id}: missing source findings")
+                    continue
 
             # Rule 3: Dedup by pattern + sources
             dedup_key = f"{corr.pattern_id}|{'|'.join(sorted(source_ids))}"
