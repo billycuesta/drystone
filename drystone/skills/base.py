@@ -22,6 +22,28 @@ def _severity_to_risk(severity: str) -> float:
     }.get(severity, 5.0)
 
 
+def _extract_resource_names(arns: list) -> list:
+    """Extract human-readable names from ARNs or plain identifiers."""
+    names = []
+    for r in arns or []:
+        if r.startswith("arn:") and "/" in r:
+            names.append(r.split("/")[-1])
+        elif r.startswith("arn:") and r.count(":") >= 5:
+            names.append(r.split(":")[-1])
+        else:
+            names.append(r)
+    return [n for n in names if n][:5]
+
+
+def _format_resource_list(names: list) -> str:
+    """Format a list of names as 'a, b and c'."""
+    if not names:
+        return ""
+    if len(names) == 1:
+        return names[0]
+    return ", ".join(names[:-1]) + f" and {names[-1]}"
+
+
 class BaseSkill(ABC):
     """Abstract base class for Drystone security skills.
 
@@ -438,23 +460,51 @@ class BaseSkill(ABC):
                         if evidence_snippet is None:
                             evidence_snippet = {}
                         evidence_snippet.update(result.metadata)
-                    # Build a rich description: combine the checklist context with
-                    # the specific evidence observed by the deterministic pre-check.
+                    # Build narrative description for the injected finding.
                     checklist_desc = (item.get("description") or "").strip()
                     evidence_line = (result.evidence_summary or "").strip()
-                    if checklist_desc and evidence_line:
-                        precheck_description = (
-                            f"{checklist_desc}\n\n" f"**Detected:** {evidence_line}"
-                        )
-                    elif checklist_desc:
-                        precheck_description = checklist_desc
-                    else:
-                        precheck_description = evidence_line or check_id
 
                     from drystone.validation.pre_checks import (
                         PRE_CHECK_ANALOGIES,
+                        PRE_CHECK_DESCRIPTIONS,
                         PRE_CHECK_IMPACTS,
+                        PRE_CHECK_REMEDIATIONS,
                     )
+
+                    template = PRE_CHECK_DESCRIPTIONS.get(check_id)
+                    if template:
+                        resource_names = _extract_resource_names(result.affected_resources)
+                        resources_str = _format_resource_list(resource_names) or evidence_line
+                        count = len(result.affected_resources) or 1
+                        precheck_description = template.format(
+                            resources=resources_str,
+                            count=count,
+                            service=self.name.upper(),
+                        )
+                    else:
+                        # Programmatic fallback: narrative opening + checklist context
+                        skill_upper = self.name.upper()
+                        resource_names = _extract_resource_names(result.affected_resources)
+                        resources_str = _format_resource_list(resource_names)
+                        if evidence_line:
+                            p1 = (
+                                f"During the analysis of the {skill_upper} service, it was "
+                                f"identified that {evidence_line.rstrip('.')}."
+                            )
+                            if resources_str:
+                                p2 = (
+                                    f"Specifically, the following resources are affected: "
+                                    f"{resources_str}. {checklist_desc}".strip()
+                                )
+                            else:
+                                p2 = checklist_desc
+                        else:
+                            p1 = (
+                                f"During the analysis of the {skill_upper} service, "
+                                f"{checklist_desc}"
+                            )
+                            p2 = ""
+                        precheck_description = f"{p1}\n\n{p2}".strip()
 
                     analogy = PRE_CHECK_ANALOGIES.get(check_id)
 
@@ -475,7 +525,7 @@ class BaseSkill(ABC):
                         risk_score=effective_risk,
                         title=item.get("title", check_id),
                         description=precheck_description,
-                        remediation=item.get("remediation", "See checklist for remediation steps."),
+                        remediation=PRE_CHECK_REMEDIATIONS.get(check_id) or item.get("remediation", "See checklist for remediation steps."),
                         affected_resources=result.affected_resources,
                         evidence_refs=evidence_refs,
                         evidence_snippet=evidence_snippet,

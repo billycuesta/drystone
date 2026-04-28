@@ -149,10 +149,10 @@ class TestInjectFindingsForMissedFails:
 
         injected = next(f for f in result.findings if f.id == "IAM-020")
         assert injected.severity == "Medium"
-        # Description now combines checklist context + specific evidence detected
-        assert "IAM users should belong to at least one group" in injected.description
-        assert "3 users without groups" in injected.description
-        assert "**Detected:**" in injected.description
+        # Description uses narrative format: opens with "During the analysis of..."
+        # Resources are extracted from affected_resources ARNs (alice, bob)
+        assert "During the analysis of" in injected.description
+        assert "alice" in injected.description or "bob" in injected.description
         assert len(injected.affected_resources) == 2
 
     def test_no_injection_when_ai_already_found(self):

@@ -268,7 +268,7 @@ def test_pdf_non_pentest_still_uses_severity_grouping(tmp_path):
     formatter = PDFFormatter(_sample_findings(), session, config)
     html_content = formatter._findings_by_severity_html(_sample_findings()["findings"])
 
-    assert "Critical Severity" in html_content
+    assert "pill-critical" in html_content  # severity group header uses pill, not old text
     assert "Phase 1" not in html_content
 
 

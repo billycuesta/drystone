@@ -65,8 +65,18 @@ Extends with skill-specific fields.
       <field>title: string (concise, less than 80 chars)</field>
       <field>severity: enum Critical|High|Medium|Low</field>
       <field>risk_score: float (0.0-10.0)</field>
-      <field>description: string — 2 paragraphs: (1) what the misconfiguration/weakness is technically,
-        (2) why it exists or what enables it. Name the exact service, config, or permission involved.</field>
+      <field>description: string — 2 paragraphs using professional audit narrative format:
+        (1) "During the analysis of the [SKILL_NAME] service, it was identified that [specific finding].
+             Specifically, it was observed that [named resources: usernames, key IDs, ARNs] [condition]."
+        (2) "This situation implies that [security consequence — what risk this creates for the organization]."
+        IMPORTANT: Always name affected resources by their exact identifier (username, key ID, ARN).
+        Never write generic descriptions. Every description must reference the actual AWS evidence.
+        Example paragraph 1: "During the analysis of the IAM service, it was identified that 3 user
+        accounts do not have MFA configured. Specifically, users alice, bob and carol lack MFA for
+        both console access and active programmatic credentials (access keys)."
+        Example paragraph 2: "This situation implies that access to these accounts relies on a single
+        authentication factor, increasing the risk of compromise in the event of credential exposure."
+      </field>
       <field>impact: string — Separate from description. 2 paragraphs:
         (1) Technical scenario: what can an attacker do if this is exploited (step-by-step attacker path),
         (2) Business consequence: data exposure, financial impact, compliance violation.
@@ -82,9 +92,12 @@ Extends with skill-specific fields.
         You SHOULD provide an analogy for every finding. Only omit if the finding is highly abstract with no physical parallel.</field>
     </required_fields>
     <writing_style>
-      <description>Write 2 paragraphs: (1) what the misconfiguration/weakness is technically,
-        (2) why it exists or what enables it. Be specific — name the exact service, config,
-        or permission involved.</description>
+      <description>Write 2 paragraphs using professional audit narrative:
+        (1) "During the analysis of the [SKILL_NAME] service, it was identified that [specific finding,
+             naming affected resources by exact identifier]."
+        (2) "This situation implies that [security consequence]."
+        Always reference specific resource names/ARNs from the evidence. No generic descriptions.
+      </description>
       <impact>Write 2 paragraphs: (1) concrete attacker scenario using the affected resources,
         (2) business impact (data access, lateral movement, financial damage, compliance violation).
         If resources are known, reference them by name or ARN.</impact>

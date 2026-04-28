@@ -112,7 +112,7 @@ class TestGAP5HideEmptyFields:
         }
         card = pdf_formatter._finding_card_html(finding)
         assert "No raw evidence snippet" not in card
-        assert "finding-evidence" not in card
+        assert "<h4>Evidence</h4>" not in card
 
     def test_no_affected_resources_placeholder(self, pdf_formatter):
         """No 'No affected resources listed' when empty."""
@@ -170,7 +170,7 @@ class TestGAP5HideEmptyFields:
             "evidence_snippet": {"key": "value"},
         }
         card = pdf_formatter._finding_card_html(finding)
-        assert "finding-evidence" in card
+        assert "<h4>Evidence</h4>" in card
         assert "key" in card
         assert "value" in card
 
@@ -204,7 +204,7 @@ class TestGAP2DocumentControl:
 
     def test_document_control_auto_generated(self, pdf_formatter):
         result = pdf_formatter._document_control_html()
-        assert "Document Control" in result
+        assert "meta-table" in result  # heading lives in template section-divider
         assert "ACMECORP" in result  # Client slug
         assert "SEC" in result  # General report type code
         assert "CONFIDENTIAL" in result

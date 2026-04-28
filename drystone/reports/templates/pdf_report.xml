@@ -6,25 +6,86 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Drystone - AWS Security Findings Report</title>
+  <title>Drystone — AWS Security Findings Report</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
+    /* ============================================================
+       TOKENS
+    ============================================================ */
+    :root {
+      /* Brand */
+      --navy-900: #0d0f30;
+      --navy-800: #13163d;
+      --navy-700: #1a1f52;
+      --navy-600: #252a66;
+      --navy-400: #4a5299;
+      --navy-200: #9199cc;
+      --navy-100: #c8ccee;
+      --navy-50:  #eeeff8;
+
+      /* Accent — single hue, oklch-derived */
+      --accent:       oklch(58% 0.17 250);
+      --accent-light: oklch(72% 0.13 250);
+      --accent-dim:   oklch(92% 0.05 250);
+
+      /* Semantic severity */
+      --sev-critical:     #c0292b;
+      --sev-critical-bg:  #fdf2f2;
+      --sev-critical-br:  #f5c6c6;
+      --sev-high:         #c2540a;
+      --sev-high-bg:      #fef6ee;
+      --sev-high-br:      #fad8b8;
+      --sev-medium:       #1d6fa4;
+      --sev-medium-bg:    #eff6fd;
+      --sev-medium-br:    #b8d9f3;
+      --sev-low:          #1a7a4a;
+      --sev-low-bg:       #f0faf5;
+      --sev-low-br:       #b0dfc8;
+
+      /* Surfaces */
+      --bg:           #f2f4f8;
+      --surface:      #ffffff;
+      --surface-alt:  #f8f9fc;
+      --border:       #dde2ec;
+      --border-soft:  #edf0f5;
+
+      /* Text */
+      --text-1: #111827;
+      --text-2: #374151;
+      --text-3: #6b7280;
+      --text-4: #9ca3af;
+
+      /* Type */
+      --font-sans: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', 'Courier New', monospace;
+
+      /* Spacing */
+      --r-sm: 6px;
+      --r-md: 10px;
+      --r-lg: 14px;
+    }
+
+    /* ============================================================
+       PRINT SETUP
+    ============================================================ */
     @page {
       size: A4 portrait;
-      margin: 8mm 0 12mm 0;
-      background: #f3f4f6;
+      margin: 0 0 14mm 0;
+      background: var(--bg);
       @bottom-left {
-        content: "Drystone Security Report";
-        font-family: 'Segoe UI', sans-serif;
-        font-size: 8px;
-        color: #6b7280;
-        margin-left: 15mm;
+        content: "Drystone Security Report · Confidential";
+        font-family: var(--font-sans);
+        font-size: 7.5px;
+        color: #9ca3af;
+        margin-left: 16mm;
       }
       @bottom-right {
-        content: "Confidential Information";
-        font-family: 'Segoe UI', sans-serif;
-        font-size: 8px;
-        color: #6b7280;
-        margin-right: 15mm;
+        content: "Page " counter(page) " of " counter(pages);
+        font-family: var(--font-sans);
+        font-size: 7.5px;
+        color: #9ca3af;
+        margin-right: 16mm;
       }
     }
 
@@ -34,51 +95,192 @@
       @bottom-right { content: ""; }
     }
 
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
-    :root {
-      --bg-top: #17143d;
-      --bg-bottom: #0d0f30;
-      --surface: #ffffff;
-      --surface-soft: #f8fafc;
-      --surface-border: #d8dee9;
-      --text-primary: #111827;
-      --text-muted: #6b7280;
-      --accent-coral: #b8c6ff;
-      --accent-purple: #8189b3;
-      --accent-amber: #f59e0b;
-      --accent-teal: #0891b2;
-    }
-
-    html { background: #f3f4f6; }
+    /* ============================================================
+       BASE
+    ============================================================ */
+    html { background: var(--bg); }
 
     body {
-      font-family: 'Segoe UI', Tahoma, sans-serif;
-      line-height: 1.45;
-      margin: 0;
-      padding: 0;
-      background: transparent;
-      color: var(--text-primary);
+      font-family: var(--font-sans);
       font-size: 11px;
+      line-height: 1.55;
+      color: var(--text-1);
+      background: transparent;
+    }
+
+    /* ============================================================
+       COVER PAGE
+    ============================================================ */
+    .cover {
+      min-height: 297mm;
+      background: linear-gradient(175deg, #17143d 0%, #0d0f30 100%);
+      display: flex;
+      flex-direction: column;
+      page-break-after: always;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Geometric accents */
+    .cover::before {
+      content: '';
+      position: absolute;
+      top: -80px; right: -80px;
+      width: 420px; height: 420px;
+      border-radius: 50%;
+      border: 60px solid rgba(255,255,255,0.025);
+      pointer-events: none;
+    }
+    .cover::after {
+      content: '';
+      position: absolute;
+      bottom: -60px; left: -60px;
+      width: 300px; height: 300px;
+      border-radius: 50%;
+      border: 40px solid rgba(255,255,255,0.02);
+      pointer-events: none;
+    }
+
+    .cover-stripe {
+      height: 4px;
+      background: linear-gradient(90deg, #c084fc 0%, #e879a0 45%, #fb923c 80%, #f97316 100%);
+      flex-shrink: 0;
+    }
+
+    .cover-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 0 18mm;
       position: relative;
       z-index: 1;
     }
 
-    .cover {
-      min-height: 297mm;
-      padding: 0 18mm;
+    .cover-wordmark {
       display: flex;
       flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      text-align: center;
-      background: linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
-      page-break-after: always;
+      align-items: flex-start;
+      margin-bottom: 52px;
     }
 
+    .cover-ascii-logo {
+      font-family: var(--font-mono);
+      font-size: 7.2px;
+      line-height: 1.15;
+      white-space: pre;
+      color: #b8c6ff;
+      border: none;
+      padding: 0;
+      margin: 0;
+      letter-spacing: 0;
+    }
+
+    .cover-wordmark-version {
+      font-size: 9.5px;
+      color: var(--navy-200);
+      font-family: var(--font-mono);
+      margin-top: 6px;
+      white-space: nowrap;
+    }
+
+    .cover-tagline {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--accent-light);
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+
+    .cover-title {
+      font-size: 38px;
+      font-weight: 800;
+      color: #ffffff;
+      line-height: 1.1;
+      letter-spacing: -0.5px;
+      margin-bottom: 10px;
+      max-width: 560px;
+    }
+
+    .cover-subtitle {
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--navy-200);
+      margin-bottom: 52px;
+    }
+
+    .cover-meta-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: var(--r-lg);
+      overflow: hidden;
+      max-width: 460px;
+    }
+
+    .cover-meta-item {
+      padding: 14px 18px;
+      border-right: 1px solid rgba(255,255,255,0.08);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .cover-meta-item:nth-child(even) { border-right: none; }
+    .cover-meta-item:nth-last-child(-n+2) { border-bottom: none; }
+
+    .cover-meta-label {
+      font-size: 8.5px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--navy-200);
+      margin-bottom: 4px;
+    }
+
+    .cover-meta-value {
+      font-size: 12px;
+      font-weight: 600;
+      color: #ffffff;
+    }
+
+    .cover-footer {
+      padding: 16px 18mm;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: relative;
+      z-index: 1;
+    }
+
+    .cover-footer-label {
+      font-size: 8.5px;
+      color: var(--navy-400);
+      font-family: var(--font-mono);
+      letter-spacing: 0.4px;
+    }
+
+    .cover-confidential {
+      font-size: 8px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--navy-400);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 4px;
+      padding: 3px 8px;
+    }
+
+    /* ============================================================
+       REPORT CONTENT WRAPPER
+    ============================================================ */
     .report-content {
-      padding: 7mm 15mm 8mm 15mm;
-      background: #f3f4f6;
+      padding: 8mm 16mm 10mm 16mm;
+      background: var(--bg);
     }
 
     .report-content p,
@@ -92,774 +294,841 @@
     .report-content code,
     .report-content .code-block {
       text-align: left;
-      text-justify: auto;
     }
 
-    body > * {
-      position: relative;
-      z-index: 1;
-    }
-
-    .ascii-header {
-      margin: 0;
-      padding: 0;
-      background: transparent;
-      border: none;
-      border-radius: 7px;
-      text-align: center;
-    }
-
-    .drystone-logo {
-      margin: 0;
-      padding: 0;
-      border: none;
-      background: transparent;
-      box-shadow: none;
-      font-family: 'Courier New', monospace;
-      font-size: 11px;
-      line-height: 1.05;
-      white-space: pre;
-      display: inline-block;
-      text-align: left;
-    }
-
-    .drystone-logo-line {
-      white-space: pre;
-    }
-
-    .header-tagline,
-    .header-version,
-    .header-motto,
-    .header-analysis-title {
-      margin: 0;
-      color: #ffffff;
-      text-align: center;
-      font-family: 'Courier New', monospace;
-      letter-spacing: 0.2px;
-    }
-
-    .header-tagline {
-      margin-top: 20px;
-      font-size: 14px;
-      font-weight: 700;
-    }
-
-    .header-version {
-      margin-top: 4px;
-      font-size: 10px;
-      font-weight: 700;
-    }
-
-    .header-motto {
-      margin-top: 10px;
-      font-size: 13px;
-      font-weight: 700;
-    }
-
-    .header-analysis-title {
-      margin: 24px 0 0 0;
-      color: #ffffff;
-      font-size: 34px;
-      font-weight: 700;
-      letter-spacing: 0.6px;
-      text-transform: uppercase;
-      text-align: center;
-      font-family: 'Segoe UI', Tahoma, sans-serif;
-    }
-
-    .company-name {
-      font-size: 24px;
-      font-weight: 700;
-      margin: 10px 0 6px 0;
-      letter-spacing: 1px;
-    }
-
-    .subtitle { font-size: 14px; margin: 0; }
-
-    h2 {
-      color: #111827;
-      font-size: 1.45em;
-      margin: 24px 0 14px 0;
-      font-weight: 700;
-      border-bottom: 2px solid #d1d5db;
-      padding-bottom: 7px;
-      text-transform: uppercase;
-      letter-spacing: 0.8px;
+    /* ============================================================
+       SECTION HEADERS (h2)
+    ============================================================ */
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 26px 0 14px 0;
       page-break-after: avoid;
     }
 
-    h3 {
-      color: #111827;
-      font-size: 1.1em;
-      margin: 16px 0 10px 0;
-    }
-
-    .card {
-      background: var(--surface);
-      border: 1px solid var(--surface-border);
-      border-radius: 10px;
-      padding: 14px;
-      margin: 12px 0;
-      page-break-inside: avoid;
-    }
-
-    .risk-widget {
-      margin-bottom: 1.5rem;
-    }
-
-    .scope-definition {
-      background: var(--surface);
-      border: 1px solid var(--surface-border);
-      border-radius: 12px;
-      padding: 12px;
-      margin: 10px 0 14px 0;
-      page-break-inside: avoid;
-    }
-
-    .scope-row {
-      display: flex;
-      gap: 10px;
-      align-items: baseline;
-      padding: 7px 2px;
-      border-bottom: 1px dashed #cbd5e1;
-    }
-
-    .scope-row:last-child {
-      border-bottom: none;
-    }
-
-    .scope-label {
-      display: inline-block;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.4px;
+    .section-header-num {
+      font-family: var(--font-mono);
       font-size: 9px;
-      min-width: 140px;
-      font-weight: 700;
+      font-weight: 600;
+      color: var(--accent);
+      letter-spacing: 0.4px;
       flex-shrink: 0;
     }
 
-    .scope-value {
-      display: inline-block;
-      color: #111827;
-      font-size: 11px;
-      font-weight: 600;
-      word-break: break-word;
+    h2 {
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--text-1);
+      text-transform: uppercase;
+      letter-spacing: 0.9px;
+      flex: 1;
     }
 
-    .findings-summary-table {
+    .section-rule {
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    h3 {
+      font-size: 11.5px;
+      font-weight: 700;
+      color: var(--text-1);
+      margin: 14px 0 8px 0;
+    }
+
+    h4 {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--text-2);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin: 10px 0 6px 0;
+    }
+
+    /* ============================================================
+       CARD
+    ============================================================ */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      padding: 14px;
+      margin: 10px 0;
+      page-break-inside: avoid;
+    }
+
+    /* ============================================================
+       DOCUMENT CONTROL / SCOPE
+    ============================================================ */
+    .meta-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 10px;
+    }
+
+    .meta-table tr { border-bottom: 1px solid var(--border-soft); }
+    .meta-table tr:last-child { border-bottom: none; }
+
+    .meta-table td {
+      padding: 7px 6px;
+      vertical-align: top;
+      text-align: left !important;
+    }
+
+    .meta-table td:first-child {
+      font-size: 8.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-3);
+      width: 140px;
+      flex-shrink: 0;
+    }
+
+    .meta-table td:last-child {
+      font-weight: 600;
+      color: var(--text-1);
+    }
+
+    /* ============================================================
+       SEVERITY PILLS
+    ============================================================ */
+    .pill {
+      display: inline-block;
+      padding: 2px 9px;
+      border-radius: 999px;
+      font-size: 8.5px;
+      font-weight: 700;
+      border: 1px solid transparent;
+      line-height: 1.4;
+      white-space: nowrap;
+      letter-spacing: 0.2px;
+    }
+
+    .pill-critical { color: var(--sev-critical); background: var(--sev-critical-bg); border-color: var(--sev-critical-br); }
+    .pill-high     { color: var(--sev-high);     background: var(--sev-high-bg);     border-color: var(--sev-high-br); }
+    .pill-medium   { color: var(--sev-medium);   background: var(--sev-medium-bg);   border-color: var(--sev-medium-br); }
+    .pill-low      { color: var(--sev-low);      background: var(--sev-low-bg);      border-color: var(--sev-low-br); }
+
+    /* ============================================================
+       TABLES
+    ============================================================ */
+    .data-table {
       width: 100%;
       border-collapse: separate;
       border-spacing: 0;
-      margin: 14px 0;
-      background: var(--surface);
-      border-radius: 10px;
-      overflow: hidden;
-      border: 1px solid var(--surface-border);
       font-size: 10px;
+      background: var(--surface);
+      border-radius: var(--r-md);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      margin: 10px 0;
     }
 
-    .findings-summary-table th {
-      background: #eef2f7;
-      color: #111827;
-      padding: 11px 8px;
+    .data-table thead tr { background: var(--navy-800); }
+
+    .data-table th {
+      padding: 10px 10px;
       text-align: left;
+      font-size: 8.5px;
       font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--navy-100);
+      border-bottom: 1px solid var(--navy-600);
+    }
+
+    .data-table th.center,
+    .data-table td.center { text-align: center !important; }
+
+    .data-table tbody tr { border-bottom: 1px solid var(--border-soft); }
+    .data-table tbody tr:last-child { border-bottom: none; }
+    .data-table tbody tr:nth-child(even) { background: var(--surface-alt); }
+
+    .data-table td {
+      padding: 9px 10px;
+      vertical-align: middle;
+      color: var(--text-2);
+      border-bottom: 1px solid var(--border-soft);
+    }
+
+    .data-table tbody tr:last-child td { border-bottom: none; }
+
+    .data-table .totals-row td {
+      background: #eef0fa;
+      border-top: 2px solid var(--accent);
+      font-weight: 700;
+      color: var(--text-1);
+    }
+
+    /* ============================================================
+       SEVERITY BAR
+    ============================================================ */
+    .sev-bar-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .sev-bar {
+      flex: 1;
+      height: 7px;
+      background: var(--border-soft);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+
+    .sev-bar-fill { display: block; height: 100%; border-radius: 99px; }
+    .sev-bar-fill.critical { background: var(--sev-critical); }
+    .sev-bar-fill.high     { background: var(--sev-high); }
+    .sev-bar-fill.medium   { background: var(--sev-medium); }
+    .sev-bar-fill.low      { background: var(--sev-low); }
+
+    .sev-count {
       font-size: 10px;
+      font-weight: 700;
+      color: var(--text-1);
+      min-width: 22px;
+      text-align: right;
+    }
+
+    /* ============================================================
+       RISK SCALE
+    ============================================================ */
+    .risk-scale {
+      display: flex;
+      height: 14px;
+      border-radius: 7px;
+      overflow: hidden;
+      margin: 8px 0 4px;
+    }
+
+    .risk-scale span { flex: 1; }
+    .risk-scale .rs-ok     { background: var(--sev-low); }
+    .risk-scale .rs-good   { background: #5cb85c; }
+    .risk-scale .rs-medium { background: #e6a817; }
+    .risk-scale .rs-high   { background: var(--sev-high); }
+    .risk-scale .rs-crit   { background: var(--sev-critical); }
+
+    .risk-scale-indicator {
+      position: relative;
+    }
+
+    /* ============================================================
+       FINDING CARD
+    ============================================================ */
+    .finding {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      margin: 14px 0;
+      page-break-inside: auto;
+      overflow: hidden;
+    }
+
+    .finding + .finding { page-break-before: always; }
+
+    .finding-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 14px 16px 12px;
+      border-bottom: 1px solid var(--border-soft);
+    }
+
+    .finding-id {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--accent);
+      background: var(--accent-dim);
+      border-radius: 4px;
+      padding: 2px 7px;
+      white-space: nowrap;
+      align-self: flex-start;
+      margin-top: 2px;
+    }
+
+    .finding-title-wrap { flex: 1; }
+
+    .finding-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-1);
+      margin: 0 0 6px 0;
+      line-height: 1.3;
+    }
+
+    .finding-meta {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .finding-body { padding: 14px 16px; }
+
+    .finding-section {
+      margin-bottom: 14px;
+      padding-bottom: 14px;
+      border-bottom: 1px dashed var(--border);
+    }
+
+    .finding-section:last-child {
+      margin-bottom: 0;
+      padding-bottom: 0;
+      border-bottom: none;
+    }
+
+    .finding-description-box {
+      background: var(--surface-alt);
+      border: 1px solid var(--border-soft);
+      border-left: 3px solid var(--navy-200);
+      border-radius: var(--r-md);
+      padding: 10px 12px;
+    }
+
+    .finding-remediation-box {
+      background: #f0fdf8;
+      border: 1px solid #a7f3d0;
+      border-left: 3px solid #059669;
+      border-radius: var(--r-md);
+      padding: 10px 12px;
+    }
+
+    .finding-impact-box {
+      background: #fff8f2;
+      border: 1px solid #fad8b8;
+      border-left: 3px solid var(--sev-high);
+      border-radius: var(--r-md);
+      padding: 10px 12px;
+    }
+
+    .finding-exploitation-box {
+      background: #fffbf0;
+      border: 1px solid #fce9a0;
+      border-left: 3px solid #d4a017;
+      border-radius: var(--r-md);
+      padding: 10px 12px;
+    }
+
+    /* ============================================================
+       CODE BLOCK
+    ============================================================ */
+    .code-block {
+      background: #13192b;
+      color: #e2e8f5;
+      border-radius: var(--r-md);
+      padding: 12px 14px;
+      font-family: var(--font-mono);
+      font-size: 8.5px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-all;
+      page-break-inside: auto;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .code-block-light {
+      background: var(--surface-alt);
+      color: var(--text-2);
+      border: 1px solid var(--border);
+    }
+
+    /* ============================================================
+       RESOURCE LIST
+    ============================================================ */
+    .resource-list {
+      list-style: none;
+      padding: 6px 10px;
+      margin: 6px 0 0 0;
+      background: #13192b;
+      border-left: 2px solid var(--navy-400);
+      border-radius: var(--r-sm);
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .resource-list li {
+      font-family: var(--font-mono);
+      font-size: 8.5px;
+      color: #c9d5e8;
+      padding: 2px 0;
+      word-break: break-all;
+    }
+
+    .resource-list li::before {
+      content: "–\00a0";
+      opacity: 0.5;
+    }
+
+    .resource-list.light {
+      background: var(--surface-alt);
+      border-left-color: var(--border);
+    }
+
+    .resource-list.light li {
+      color: var(--text-2);
+    }
+
+    /* ============================================================
+       ASSESSMENT RATING
+    ============================================================ */
+    .rating-block,
+    .assessment-rating {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      padding: 14px 16px;
+      border-radius: var(--r-lg);
+      border: 1px solid transparent;
+      margin: 10px 0;
+    }
+
+    .rating-block.excellent,
+    .assessment-rating.rating-excellent { background: #f0fdf4; border-color: #86efac; }
+    .rating-block.good,
+    .assessment-rating.rating-good,
+    .assessment-rating.rating-very-good { background: #fefce8; border-color: #fde047; }
+    .rating-block.improvable,
+    .assessment-rating.rating-improvable { background: #fff7ed; border-color: #fcd34d; }
+    .rating-block.critical,
+    .assessment-rating.rating-critical { background: var(--sev-critical-bg); border-color: var(--sev-critical-br); }
+
+    .rating-badge {
+      width: 44px; height: 44px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+
+    .rating-block.excellent .rating-badge,
+    .assessment-rating.rating-excellent .rating-badge { background: #dcfce7; color: #166534; }
+    .rating-block.good .rating-badge,
+    .assessment-rating.rating-good .rating-badge,
+    .assessment-rating.rating-very-good .rating-badge { background: #fef9c3; color: #854d0e; }
+    .rating-block.improvable .rating-badge,
+    .assessment-rating.rating-improvable .rating-badge { background: #ffedd5; color: #9a3412; }
+    .rating-block.critical .rating-badge,
+    .assessment-rating.rating-critical .rating-badge { background: #fee2e2; color: #991b1b; }
+
+    .rating-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .rating-label {
+      font-size: 8.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-3);
+      margin-bottom: 2px;
+    }
+
+    .rating-value {
+      font-size: 16px;
+      font-weight: 800;
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+
+    .rating-block.excellent .rating-value,
+    .assessment-rating.rating-excellent .rating-value { color: #15803d; }
+    .rating-block.good .rating-value,
+    .assessment-rating.rating-good .rating-value,
+    .assessment-rating.rating-very-good .rating-value { color: #a16207; }
+    .rating-block.improvable .rating-value,
+    .assessment-rating.rating-improvable .rating-value { color: #c2540a; }
+    .rating-block.critical .rating-value,
+    .assessment-rating.rating-critical .rating-value { color: var(--sev-critical); }
+
+    .rating-desc {
+      font-size: 10px;
+      color: var(--text-2);
+      line-height: 1.45;
+    }
+
+    /* ============================================================
+       PHASE DESCRIPTION
+    ============================================================ */
+    .phase-desc {
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--navy-200);
+      border-radius: var(--r-md);
+      padding: 10px 12px;
+      color: var(--text-2);
+      font-size: 10.5px;
+      margin: 0 0 12px;
+      page-break-inside: avoid;
+    }
+
+    /* ============================================================
+       PCI DSS ANNEX
+    ============================================================ */
+    .pci-table {
+      font-size: 9px;
+      table-layout: fixed;
+    }
+
+    .pci-table th {
+      background: var(--navy-700);
+      color: var(--navy-100);
+      font-size: 8.5px;
+    }
+
+    .pci-table tr.pci-req-group td {
+      background: var(--surface-alt);
+      font-weight: 700;
+      color: var(--text-1);
+      font-size: 9px;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .pci-ok { color: var(--sev-low); font-weight: 700; }
+    .pci-ko { color: var(--sev-critical); font-weight: 700; }
+
+    .pci-method {
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--navy-400);
+      border-radius: var(--r-md);
+      padding: 10px 12px;
+      font-size: 9.5px;
+      margin-bottom: 12px;
+    }
+
+    /* ============================================================
+       EXECUTIVE NARRATIVE
+    ============================================================ */
+    .executive-narrative p {
+      font-size: 11px;
+      line-height: 1.65;
+      color: var(--text-2);
+      margin-bottom: 12px;
+    }
+
+    .executive-narrative p:last-child { margin-bottom: 0; }
+
+    /* ============================================================
+       TIMELINE
+    ============================================================ */
+    .timeline {
+      list-style: none;
+      padding: 0;
+      position: relative;
+      margin-top: 8px;
+    }
+
+    .timeline::before {
+      content: '';
+      position: absolute;
+      left: 18px; top: 10px; bottom: 10px;
+      width: 1px;
+      background: var(--border);
+    }
+
+    .timeline-item {
+      position: relative;
+      padding: 0 0 14px 40px;
+      page-break-inside: avoid;
+    }
+
+    .timeline-item:last-child { padding-bottom: 0; }
+
+    .timeline-dot {
+      position: absolute;
+      left: 12px; top: 3px;
+      width: 13px; height: 13px;
+      border-radius: 50%;
+      background: var(--surface);
+      border: 2px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    .timeline-dot.dot-critical { border-color: var(--sev-critical); background: var(--sev-critical-bg); }
+    .timeline-dot.dot-high     { border-color: var(--sev-high);     background: var(--sev-high-bg); }
+    .timeline-dot.dot-medium   { border-color: var(--sev-medium);   background: var(--sev-medium-bg); }
+    .timeline-dot.dot-low      { border-color: var(--sev-low);      background: var(--sev-low-bg); }
+
+    .timeline-label {
+      font-size: 8.5px;
+      font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.4px;
+      color: var(--text-3);
+      margin-bottom: 2px;
     }
 
-    .findings-summary-table td {
-      padding: 10px 8px;
-      border-bottom: 1px solid var(--surface-border);
-      vertical-align: top;
-      background: var(--surface);
-      color: #111827;
+    .timeline-text {
+      font-size: 10.5px;
+      color: var(--text-2);
+      line-height: 1.45;
     }
 
-    .findings-summary-table th:nth-child(1),
-    .findings-summary-table th:nth-child(3),
-    .findings-summary-table th:nth-child(4),
-    .findings-summary-table th:nth-child(5),
-    .findings-summary-table td:nth-child(1),
-    .findings-summary-table td:nth-child(3),
-    .findings-summary-table td:nth-child(4),
-    .findings-summary-table td:nth-child(5) {
-      text-align: center;
+    /* ============================================================
+       PAGE BREAK & MISC
+    ============================================================ */
+    .page-break { page-break-before: always; }
+    .phase-section { page-break-before: always; }
+    .phase-section:first-of-type { page-break-before: auto; }
+
+    h2 + .card,
+    h2 + .phase-desc { page-break-before: avoid; }
+
+    .analogy {
+      margin: 10px 0 0;
+      padding: 6px 10px;
+      border-left: 3px solid var(--border);
+      background: #f9fafc;
+      color: var(--text-3);
+      font-style: italic;
+      font-size: 9.5px;
+      border-radius: 0 4px 4px 0;
+    }
+
+    /* Index */
+    .index-list { padding-left: 18px; }
+    .index-list > li { margin-bottom: 5px; }
+    .index-sublist { padding-left: 16px; margin-top: 4px; }
+    .index-sublist li { font-size: 10px; color: var(--text-2); margin-bottom: 3px; }
+    .index-code { font-family: var(--font-mono); font-weight: 600; }
+
+    /* Conditions */
+    .conditions-list { list-style: disc; padding-left: 20px; margin: 6px 0; }
+    .conditions-list li { margin-bottom: 4px; font-size: 10.5px; color: var(--text-2); }
+
+    /* Top recommendations in executive summary */
+    .top-recommendations-list {
+      margin: 0;
+      padding-left: 20px;
+    }
+
+    .top-recommendations-list li {
+      margin-bottom: 6px;
+      line-height: 1.45;
+      text-align: left;
     }
 
     .severity-pill {
       display: inline-block;
       padding: 2px 9px;
+      margin-right: 8px;
       border-radius: 999px;
-      font-size: 9px;
-      font-weight: 700;
       border: 1px solid transparent;
-      line-height: 1.2;
-      white-space: nowrap;
-    }
-
-    .pci-annex-table {
-      font-size: 9px;
-      table-layout: fixed;
-    }
-    .pci-annex-table th {
-      background: var(--accent-purple);
-      color: #ffffff;
-      font-size: 9px;
-      padding: 9px 8px;
-    }
-    .pci-annex-table td {
-      padding: 8px 8px;
-      vertical-align: top;
-      word-wrap: break-word;
-      overflow-wrap: anywhere;
-      border-right: 1px solid var(--surface-border);
-    }
-    .pci-annex-table th {
-      border-right: 1px solid #aeb6de;
-    }
-    .pci-annex-table th:first-child,
-    .pci-annex-table td:first-child {
-      border-left: 1px solid var(--surface-border);
-    }
-    .pci-annex-table th:last-child,
-    .pci-annex-table td:last-child {
-      border-right: 1px solid var(--surface-border);
-    }
-    .pci-annex-table tr.pci-req-header td {
-      background: #eef2f7;
+      font-size: 8.5px;
       font-weight: 700;
-      font-size: 9px;
-      color: #111827;
-      padding: 9px 8px;
-      border-bottom: 1px solid var(--surface-border);
-    }
-    .pci-annex-table th:nth-child(1),
-    .pci-annex-table th:nth-child(2),
-    .pci-annex-table td:nth-child(1),
-    .pci-annex-table td:nth-child(2) {
-      text-align: center;
-      white-space: nowrap;
-    }
-    .pci-annex-table .pci-ok { color: #047857; font-weight: 700; }
-    .pci-annex-table .pci-ko { color: #b91c1c; font-weight: 700; }
-    .pci-annex-methodology {
-      background: var(--surface-soft);
-      border: 1px solid var(--surface-border);
-      border-left: 4px solid var(--accent-purple);
-      border-radius: 8px;
-      padding: 10px 12px;
-      margin: 2px 0 12px 0;
-      font-size: 9.5px;
-      color: #1f2937;
-    }
-    .pci-annex-methodology h3 {
-      margin: 0 0 6px 0;
-      font-size: 10px;
-      color: #111827;
-    }
-    .pci-annex-methodology ol {
-      margin: 0;
-      padding-left: 16px;
-    }
-    .pci-annex-methodology li {
-      margin: 0 0 4px 0;
+      letter-spacing: 0.2px;
       line-height: 1.4;
-    }
-    .pci-annex-card {
-      page-break-inside: auto;
-    }
-    .pci-annex-table tbody tr {
-      page-break-inside: avoid;
-    }
-
-    .severity-critical { color: #b91c1c; font-weight: 700; }
-    .severity-high { color: #b45309; font-weight: 700; }
-    .severity-medium { color: #0369a1; font-weight: 700; }
-    .severity-low { color: #047857; font-weight: 700; }
-
-    .severity-pill.severity-critical { background: #fee2e2; border-color: #fecaca; }
-    .severity-pill.severity-high { background: #ffedd5; border-color: #fed7aa; }
-    .severity-pill.severity-medium { background: #e0f2fe; border-color: #bae6fd; }
-    .severity-pill.severity-low { background: #dcfce7; border-color: #bbf7d0; }
-
-    .phase-description {
-      background: var(--surface-soft);
-      border: 1px solid var(--surface-border);
-      border-left: 4px solid #a0a8cc;
-      border-radius: 8px;
-      padding: 10px 12px;
-      margin: 0 0 12px 0;
-      color: #334155;
-      font-size: 1.0em;
-      page-break-inside: avoid;
-    }
-
-    .phase-description p {
-      margin: 0 0 6px 0;
-      line-height: 1.42;
-    }
-
-    .phase-description p:last-child {
-      margin-bottom: 0;
-    }
-
-    .phase-section {
-      page-break-before: always;
-    }
-
-    .phase-section:first-of-type {
-      page-break-before: auto;
-    }
-
-    .findings-summary-table .totals-row td {
-      background: #f0f4ff;
-      border-top: 2px solid #6366f1;
-    }
-
-    .phase-summary-table th:nth-child(1),
-    .phase-summary-table td:nth-child(1) {
-      text-align: left;
-    }
-
-    .severity-summary-table th:nth-child(1),
-    .severity-summary-table td:nth-child(1) {
-      text-align: left;
-    }
-
-    .phase-pill {
-      display: inline-block;
-      padding: 2px 9px;
-      border-radius: 999px;
-      font-size: 9px;
-      font-weight: 700;
-      border: 1px solid transparent;
-      line-height: 1.2;
       white-space: nowrap;
+      vertical-align: baseline;
     }
 
-    .phase-pill-1 {
-      color: #374151;
-      background: transparent;
-      border-color: #d1d5db;
-    }
+    .severity-critical { color: var(--sev-critical); background: var(--sev-critical-bg); border-color: var(--sev-critical-br); }
+    .severity-high     { color: var(--sev-high);     background: var(--sev-high-bg);     border-color: var(--sev-high-br); }
+    .severity-medium   { color: var(--sev-medium);   background: var(--sev-medium-bg);   border-color: var(--sev-medium-br); }
+    .severity-low      { color: var(--sev-low);      background: var(--sev-low-bg);      border-color: var(--sev-low-br); }
 
-    .phase-pill-2 {
-      color: #374151;
-      background: transparent;
-      border-color: #d1d5db;
-    }
-
-    .individual-finding {
-      background: var(--surface);
-      margin: 12px 0;
-      border-radius: 10px;
-      border: 1px solid var(--surface-border);
-      padding: 14px;
-      page-break-inside: auto;
+    /* Section divider label */
+    .section-divider {
+      display: flex; align-items: center; gap: 12px;
+      margin: 26px 0 14px;
       page-break-after: avoid;
     }
 
-    .individual-finding + .individual-finding {
-      page-break-before: always;
-    }
-
-    .individual-finding h3 {
-      margin-top: 0;
-      border-bottom: 2px solid var(--accent-coral);
-      padding-bottom: 5px;
-    }
-
-    .individual-finding h4 {
-      color: #111827;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      font-size: 1em;
-    }
-
-    .finding-description {
-      background: var(--surface-soft);
-      padding: 12px;
-      border-radius: 8px;
-      border-left: 4px solid #a0a8cc;
-      page-break-inside: auto;
-    }
-
-    .finding-description h4 {
-      margin-top: 0;
-      margin-bottom: 6px;
-    }
-
-    .finding-inline-section {
-      margin-top: 16px;
-      padding-top: 14px;
-      border-top: 1px dashed #cbd5e1;
-      page-break-inside: auto;
-    }
-
-    .finding-inline-section h4 {
-      margin: 0 0 6px 0;
-    }
-
-    .finding-resources {
-      background: var(--surface-soft);
-      border: 1px solid var(--surface-border);
-      border-radius: 8px;
-      padding: 10px;
-      margin-top: 10px;
-      page-break-inside: avoid;
-    }
-
-    .finding-resources.finding-evidence {
-      page-break-inside: auto;
-    }
-
-    .finding-remediation {
-      background: #f0fdfa;
-      border-left: 4px solid var(--accent-teal);
-      border-radius: 8px;
-      padding: 10px;
-      margin-top: 10px;
-      page-break-inside: avoid;
-    }
-
-    .finding-remediation h4,
-    .finding-exploitation h4 {
-      margin-top: 0;
-      margin-bottom: 6px;
-    }
-
-    .finding-impact {
-      background: #fff7ed;
-      border-left: 4px solid #f97316;
-      border-radius: 6px;
-      padding: 12px 16px;
-      margin: 12px 0;
-      page-break-inside: avoid;
-    }
-
-    .finding-impact h4 {
-      color: #111827;
-      margin: 0 0 8px 0;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-
-    .finding-exploitation {
-      background: #fff7ed;
-      border-left: 4px solid var(--accent-amber);
-      border-radius: 8px;
-      padding: 10px;
-      margin-top: 10px;
-      page-break-inside: avoid;
-    }
-
-    .finding-analogy {
-      margin: 0.75rem 0 0 0;
-      padding: 0.5rem 0.75rem;
-      border-left: 3px solid #6c757d;
-      background: #f8f9fa;
-      color: #555;
-      font-style: italic;
-      font-size: 0.9em;
-    }
-
-    .resource-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-    }
-
-    .resource-list li {
-      background: #f8fafc;
-      border-left: 3px solid #cbd5e1;
-      border-radius: 5px;
-      padding: 6px 8px;
-      margin-bottom: 5px;
-      font-size: 9px;
-      font-family: 'Courier New', monospace;
-      word-break: break-all;
-      color: #334155;
-    }
-
-    .bar {
-      width: 100%;
-      height: 10px;
-      background: #e5e7eb;
-      border-radius: 10px;
-      overflow: hidden;
-    }
-
-    .bar-fill { display: block; height: 100%; }
-    .bar-fill.severity-critical { background: #dc2626; }
-    .bar-fill.severity-high { background: #f59e0b; }
-    .bar-fill.severity-medium { background: #0ea5e9; }
-    .bar-fill.severity-low { background: #10b981; }
-
-    .code-block {
-      background: #f3f4f6;
-      color: #111827;
-      border-radius: 8px;
-      padding: 12px;
-      font-size: 9px;
-      line-height: 1.3;
-      white-space: pre-wrap;
-      page-break-inside: auto;
-    }
-
-    .finding-evidence .code-block {
-      background: #303030;
-      color: #ffffff;
-    }
-
-    .finding-inline-section.finding-affected .code-block,
-    .finding-inline-section.finding-validation .code-block,
-    .finding-inline-section.finding-evidence .code-block,
-    .finding-exploitation .code-block {
-      background: #303030;
-      color: #ffffff;
-    }
-
-    .finding-affected .resource-list li {
-      background: #303030;
-      color: #ffffff;
-      border-left-color: #555555;
-    }
-
-    .finding-validation .resource-list li {
-      background: #303030;
-      color: #ffffff;
-      border-left-color: #555555;
-    }
-
-    .page-break { page-break-before: always; }
-
-    /* Prevent orphaned section headers — keep h2 with following content */
-    .section-group {
-      page-break-inside: avoid;
-    }
-    h2 + .card {
-      page-break-before: avoid;
-    }
-
-    .index-list {
-      margin: 0;
-      padding-left: 18px;
-    }
-
-    .index-list > li {
-      margin-bottom: 6px;
-    }
-
-    .index-sublist {
-      margin-top: 6px;
-      margin-bottom: 4px;
-      padding-left: 18px;
-    }
-
-    .index-sublist li {
-      margin-bottom: 4px;
-      font-size: 10px;
-      color: #374151;
-    }
-
-    .index-code {
-      font-family: 'Courier New', monospace;
+    .section-divider-label {
+      font-size: 8.5px;
       font-weight: 700;
-    }
-
-    /* Executive Narrative */
-    .executive-narrative p {
-      font-size: 11px;
-      line-height: 1.6;
-      color: #374151;
-      margin-bottom: 14px;
-    }
-
-    .assessment-rating {
-      border-left: 4px solid #6b7280;
-      background: #f9fafb;
-      border-radius: 6px;
-      padding: 12px 16px;
-      margin-top: 10px;
-    }
-
-    .rating-label {
-      font-size: 10px;
-      font-weight: 600;
       text-transform: uppercase;
-      color: #6b7280;
-      letter-spacing: 0.05em;
-      display: block;
-      margin-bottom: 4px;
+      letter-spacing: 1px;
+      color: var(--text-4);
+      white-space: nowrap;
     }
 
-    .rating-value {
-      font-size: 16px;
-      font-weight: 700;
-      display: block;
-      margin-bottom: 8px;
-    }
-
-    .rating-desc {
-      font-size: 10px;
-      color: #4b5563;
-      margin: 0;
-      line-height: 1.5;
-    }
-
-    .rating-excellent  { border-left-color: #16a34a; background: #f0fdf4; }
-    .rating-excellent  .rating-value { color: #15803d; }
-    .rating-very-good  { border-left-color: #22c55e; background: #f0fdf4; }
-    .rating-very-good  .rating-value { color: #16a34a; }
-    .rating-good       { border-left-color: #eab308; background: #fefce8; }
-    .rating-good       .rating-value { color: #ca8a04; }
-    .rating-improvable { border-left-color: #f97316; background: #fff7ed; }
-    .rating-improvable .rating-value { color: #ea580c; }
-    .rating-critical   { border-left-color: #dc2626; background: #fef2f2; }
-    .rating-critical   .rating-value { color: #dc2626; }
-
-    /* Risk Scale */
-    .risk-scale-bar {
-      display: flex;
-      height: 18px;
-      border-radius: 10px;
-      overflow: hidden;
-      margin: 10px 0 6px 0;
-    }
-    .risk-scale-bar .rs-segment {
+    .section-divider hr {
       flex: 1;
-      position: relative;
+      border: none;
+      border-top: 1px solid var(--border);
     }
-    .risk-scale-bar .rs-appropriate { background: #16a34a; }
-    .risk-scale-bar .rs-low { background: #22c55e; }
-    .risk-scale-bar .rs-medium { background: #eab308; }
-    .risk-scale-bar .rs-high { background: #f97316; }
-    .risk-scale-bar .rs-critical { background: #dc2626; }
-    .risk-scale-indicator {
-      position: absolute;
-      top: -4px;
-      width: 4px;
-      height: 26px;
-      background: #111827;
-      border-radius: 2px;
-      z-index: 2;
+
+    /* Stat pill row */
+    .stat-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin: 8px 0;
     }
-    .risk-scale-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 8px;
-      font-size: 9.5px;
+
+    .stat-pill {
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      padding: 8px 12px;
+      min-width: 80px;
     }
-    .risk-scale-table th {
-      text-align: left;
-      padding: 6px 8px;
-      background: #f3f4f6;
-      font-size: 9px;
+
+    .stat-pill-label {
+      font-size: 8px;
+      font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.4px;
-      border-bottom: 1px solid #d1d5db;
-    }
-    .risk-scale-table td {
-      padding: 6px 8px;
-      border-bottom: 1px solid #e5e7eb;
-      vertical-align: top;
-    }
-    .risk-scale-table .rs-dot {
-      display: inline-block;
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      margin-right: 6px;
-      vertical-align: middle;
+      letter-spacing: 0.5px;
+      color: var(--text-3);
+      margin-bottom: 2px;
     }
 
-    /* Document Control */
-    .document-control {
-      background: var(--surface);
-      border: 1px solid var(--surface-border);
-      border-radius: 12px;
-      padding: 12px;
-      margin: 10px 0 14px 0;
-      page-break-inside: avoid;
+    .stat-pill-value {
+      font-size: 20px;
+      font-weight: 800;
+      line-height: 1;
     }
 
-    /* Conditions Section */
-    .conditions-list {
-      list-style: disc;
-      padding-left: 20px;
-      margin: 6px 0;
-    }
-    .conditions-list li {
-      margin-bottom: 4px;
-      font-size: 10.5px;
-      color: #374151;
-    }
-
+    .stat-pill-value.critical { color: var(--sev-critical); }
+    .stat-pill-value.high     { color: var(--sev-high); }
+    .stat-pill-value.medium   { color: var(--sev-medium); }
+    .stat-pill-value.low      { color: var(--sev-low); }
   </style>
 </head>
 <body>
-  <div class="cover">
-    <div class="ascii-header">
-      <div class="drystone-logo">{{DRYSTONE_BANNER_HTML}}</div>
-      <p class="header-tagline">AWS Security Audit powered by AI</p>
-      <p class="header-version">v1.0.0</p>
+
+<!-- ============================================================
+     COVER PAGE
+============================================================ -->
+<div class="cover">
+  <div class="cover-stripe"></div>
+  <div class="cover-body">
+
+    <div class="cover-wordmark">
+      <pre class="cover-ascii-logo">{{DRYSTONE_BANNER_HTML}}</pre>
+      <div class="cover-wordmark-version">v1.0.0 · AWS Security Audit powered by AI</div>
     </div>
 
-    <p class="header-analysis-title">{{ANALYSIS_TITLE}}</p>
+    <div class="cover-tagline">Security Assessment Report</div>
+    <div class="cover-title">{{ANALYSIS_TITLE}}</div>
+    <div class="cover-subtitle">AWS Infrastructure · Automated + AI-Assisted Analysis</div>
+
+    <div class="cover-meta-grid">
+      <div class="cover-meta-item">
+        <div class="cover-meta-label">Target Account</div>
+        <div class="cover-meta-value">{{AWS_ACCOUNT_ID}}</div>
+      </div>
+      <div class="cover-meta-item">
+        <div class="cover-meta-label">Region</div>
+        <div class="cover-meta-value">{{AWS_REGION}}</div>
+      </div>
+      <div class="cover-meta-item">
+        <div class="cover-meta-label">Report Date</div>
+        <div class="cover-meta-value">{{REPORT_DATE}}</div>
+      </div>
+      <div class="cover-meta-item">
+        <div class="cover-meta-label">Analyst</div>
+        <div class="cover-meta-value">{{ANALYST_NAME}}</div>
+      </div>
+    </div>
+
+  </div>
+  <div class="cover-footer">
+    <div class="cover-footer-label">AWS Security Audit powered by AI · drystone.io</div>
+    <div class="cover-confidential">Confidential</div>
+  </div>
+</div>
+
+<!-- ============================================================
+     REPORT CONTENT
+============================================================ -->
+<div class="report-content">
+
+  <!-- DOCUMENT CONTROL -->
+  <div class="section-divider">
+    <div class="section-divider-label">Document Control</div>
+    <hr>
+  </div>
+  <div class="card">
+    {{DOCUMENT_CONTROL}}
   </div>
 
-  <div class="report-content">
-
-  {{DOCUMENT_CONTROL}}
-
-  <h2>Scope Definition</h2>
-  <div class="scope-definition">
-    {{SCOPE_DEFINITION}}
+  <!-- SCOPE DEFINITION -->
+  <div class="section-divider">
+    <h2>Scope Definition</h2>
+    <hr>
+  </div>
+  <div class="card">
+    <table class="meta-table">
+      {{SCOPE_DEFINITION}}
+    </table>
   </div>
 
   {{CONDITIONS_SECTION}}
 
-  <h2>Inventory</h2>
+  <!-- INVENTORY -->
+  <div class="section-divider">
+    <h2>Inventory</h2>
+    <hr>
+  </div>
   <div class="card">
     {{INVENTORY_SECTION}}
   </div>
   {{INVENTORY_ENV_SECTION}}
 
-  <h2>Executive Summary</h2>
+  <!-- EXECUTIVE SUMMARY -->
+  <div class="section-divider">
+    <h2>Executive Summary</h2>
+    <hr>
+  </div>
   <div class="card executive-narrative">
     {{EXECUTIVE_NARRATIVE}}
   </div>
 
   {{METHODOLOGY_SECTION}}
 
-  <div class="section-group">
-  <h2>Risk Analysis</h2>
-  <div class="card risk-widget">
+  <!-- RISK ANALYSIS -->
+  <div class="section-divider">
+    <h2>Risk Analysis</h2>
+    <hr>
+  </div>
+
+  <div class="card">
     <h3>Severity Distribution</h3>
-    <table class="findings-summary-table severity-summary-table">
-      <thead><tr><th>Severity</th><th>Distribution</th><th>Count</th></tr></thead>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Severity</th>
+          <th>Distribution</th>
+          <th class="center">Count</th>
+        </tr>
+      </thead>
       <tbody>{{SEVERITY_CHART}}</tbody>
     </table>
   </div>
-  <div class="card risk-widget">
+
+  <div class="card">
     {{PHASE_FINDINGS_TABLE}}
   </div>
-  <div class="card risk-widget">
+
+  <div class="card">
     <h3>Top 5 Affected Resources</h3>
-    <ul>{{TOP_RESOURCES}}</ul>
+    <ul class="resource-list light">{{TOP_RESOURCES}}</ul>
   </div>
-  <div class="card risk-widget">
+
+  <div class="card">
     <h3>Findings Summary</h3>
-    <table class="findings-summary-table">
+    <table class="data-table">
       <thead>
-        <tr><th>ID</th><th>Title</th><th>Severity</th><th>Risk</th><th>Resources</th></tr>
+        <tr>
+          <th class="center">ID</th>
+          <th>Title</th>
+          <th class="center">Severity</th>
+          <th class="center">Risk</th>
+          <th class="center">Resources</th>
+        </tr>
       </thead>
       <tbody>{{TOP_FINDINGS_ROWS}}</tbody>
     </table>
-  </div>
   </div>
 
   {{PAGEBREAK_ARCH_CORR}}
@@ -869,20 +1138,36 @@
   {{FINDINGS_BY_SEVERITY}}
 
   <div class="page-break"></div>
-
   {{CORRELATION_SECTION}}
 
-  <h2>Remediation Timeline (Recommended)</h2>
-  <div class="card">{{REMEDIATION_TIMELINE}}</div>
+  <!-- REMEDIATION TIMELINE -->
+  <div class="section-divider">
+    <h2>Remediation Timeline</h2>
+    <hr>
+  </div>
+  <div class="card">
+    {{REMEDIATION_TIMELINE}}
+  </div>
 
-  <h2>References</h2>
-  <div class="card"><ul>{{REFERENCES}}</ul></div>
+  <!-- REFERENCES -->
+  <div class="section-divider">
+    <h2>References</h2>
+    <hr>
+  </div>
+  <div class="card">
+    <ul>{{REFERENCES}}</ul>
+  </div>
 
-  <h2>Notes</h2>
+  <!-- NOTES -->
+  <div class="section-divider">
+    <h2>Notes</h2>
+    <hr>
+  </div>
   <div class="card">{{FOOTER_NOTES}}</div>
 
   {{PCI_DSS_ANNEX}}
-  </div>
+
+</div><!-- /report-content -->
 </body>
 </html>
 ]]></html>

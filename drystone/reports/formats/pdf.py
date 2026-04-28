@@ -140,6 +140,7 @@ class PDFFormatter(BaseFormatter):
             "ANALYSIS_TITLE": html.escape(self._analysis_title()),
             "INDEX_SECTION": self._index_section_html(findings),
             "CLIENT_NAME": html.escape(self.session.client_name or "Unknown Client"),
+            "ANALYST_NAME": html.escape(self._analyst_name()),
             "REPORT_DATE": html.escape(report_date),
             "AWS_ACCOUNT_ID": html.escape(self._resolved_account_id(findings)),
             "SKILL": html.escape(self._display_skill()),
@@ -316,6 +317,12 @@ class PDFFormatter(BaseFormatter):
     def _analysis_title(self) -> str:
         skill = self._display_skill()
         return f"Security Audit Report: {skill} Security Analysis"
+
+    def _analyst_name(self) -> str:
+        ctx = self._get_client_context()
+        if ctx and hasattr(ctx, "analyst") and isinstance(getattr(ctx, "analyst", None), str):
+            return ctx.analyst
+        return "Drystone AI"
 
     def _looks_spanish(self, text: str) -> bool:
         t = str(text or "").lower()
@@ -590,8 +597,16 @@ class PDFFormatter(BaseFormatter):
                 )
             top_recs_html = (
                 "<h3 style='margin-top:14px'>Top Recommendations</h3>"
-                f"<ol style='margin:0;padding-left:18px'>{''.join(rec_items)}</ol>"
+                f"<ol class='top-recommendations-list'>{''.join(rec_items)}</ol>"
             )
+
+        rating_icon = {
+            "rating-excellent": "A+",
+            "rating-very-good": "A",
+            "rating-good": "B",
+            "rating-improvable": "C",
+            "rating-critical": "!",
+        }.get(rating_class, "-")
 
         return (
             business_intro
@@ -600,9 +615,12 @@ class PDFFormatter(BaseFormatter):
             + f"{findings_text}</p>"
             + risk_bar
             + f"<div class='assessment-rating {rating_class}'>"
-            + "<span class='rating-label'>Overall Assessment:</span> "
-            + f"<span class='rating-value'>{html.escape(rating_label)}</span>"
+            + f"<div class='rating-badge'>{rating_icon}</div>"
+            + "<div class='rating-content'>"
+            + "<div class='rating-label'>Overall Assessment</div>"
+            + f"<div class='rating-value'>{html.escape(rating_label)}</div>"
             + f"<p class='rating-desc'>{html.escape(rating_desc)}</p>"
+            + "</div>"
             + "</div>"
             + top_recs_html
         )
@@ -612,10 +630,8 @@ class PDFFormatter(BaseFormatter):
     ) -> str:
         def item(label: str, value: str) -> str:
             return (
-                "<div class='scope-row'>"
-                f"<span class='scope-label'>{html.escape(label)}</span>"
-                f"<span class='scope-value'>{html.escape(value)}</span>"
-                "</div>"
+                f"<tr><td>{html.escape(label)}</td>"
+                f"<td>{html.escape(value)}</td></tr>"
             )
 
         access_key = self._masked_access_key()
@@ -1291,7 +1307,14 @@ class PDFFormatter(BaseFormatter):
             items_sorted = sorted(
                 items, key=lambda f: float(f.get("risk_score", 0.0)), reverse=True
             )
-            phase_header = f"<h2>{section['phase']}</h2>{self._phase_description_html(section)}"
+            phase_header = (
+                "<div class='section-divider' style='margin-top:24px;'>"
+                f"<div class='section-divider-label'>{section.get('number', '')}</div>"
+                f"<h2>{section['phase']}</h2>"
+                "<hr>"
+                "</div>"
+                + self._phase_description_html(section)
+            )
             section_block = ["<div class='phase-section'>", phase_header]
             for finding in items_sorted:
                 section_block.append(self._finding_card_html(finding))
@@ -1466,13 +1489,25 @@ class PDFFormatter(BaseFormatter):
             groups.setdefault(str(finding.get("severity", "Low")), []).append(finding)
 
         sections = []
+        rendered_severity_sections = 0
         for severity in ["Critical", "High", "Medium", "Low"]:
             sev_findings = sorted(groups.get(severity, []), key=self._finding_sort_key)
             if not sev_findings:
                 continue
-            sections.append(f"<h2>{severity} Severity ({len(sev_findings)})</h2>")
+            if rendered_severity_sections > 0:
+                sections.append("<div class='page-break'></div>")
+            count = len(sev_findings)
+            label = f"{count} finding{'s' if count > 1 else ''}"
+            sections.append(
+                "<div class='section-divider' style='margin-top:24px;'>"
+                f"<span class='pill pill-{severity.lower()}'>{severity.upper()}</span>"
+                f"<h2>{label}</h2>"
+                "<hr>"
+                "</div>"
+            )
             for finding in sev_findings:
                 sections.append(self._finding_card_html(finding))
+            rendered_severity_sections += 1
         return "".join(sections)
 
     def _finding_card_html(self, finding: Dict[str, Any]) -> str:
@@ -1488,14 +1523,6 @@ class PDFFormatter(BaseFormatter):
             html.escape(str(finding.get("remediation", ""))).replace("\n\n", "</p><p>")
         )
         cis_ref = html.escape(str(finding.get("cis_reference", "N/A")))
-
-        raw_impact = finding.get("impact")
-        impact_html = ""
-        if raw_impact:
-            impact_text = self._md_bold_to_html(
-                html.escape(str(raw_impact)).replace("\n\n", "</p><p>")
-            )
-            impact_html = f"<div class='finding-impact'><h4>Impact</h4><p>{impact_text}</p></div>"
 
         evidence_snippet = finding.get("evidence_snippet")
         skill = str(self.findings.get("skill", "")).lower()
@@ -1513,43 +1540,26 @@ class PDFFormatter(BaseFormatter):
 
         resources = finding.get("affected_resources", [])[:8]
 
-        commands, commands_suggested = self._collect_validation_commands(finding)
+        commands, _commands_suggested = self._collect_validation_commands(finding)
         is_pentest_report = str(getattr(self.config, "report_type", "general")) == "pentest"
         exploitation_block = (
             self._exploitation_block_html(finding, commands) if is_pentest_report else ""
         )
 
+        # Exploitability badge (inline style — no CSS class needed, small inline element)
         exploit_status = finding.get("exploitability_status")
         _exploit_styles = {
             "validated": "background:#fee2e2;color:#991b1b;border:1px solid #fca5a5",
             "probable": "background:#fef9c3;color:#854d0e;border:1px solid #fde047",
             "theoretical": "background:#f3f4f6;color:#374151;border:1px solid #d1d5db",
         }
-        _default_style = _exploit_styles["theoretical"]
+        exploit_badge_html = ""
         if exploit_status:
-            _style = _exploit_styles.get(exploit_status, _default_style)
+            _style = _exploit_styles.get(exploit_status, _exploit_styles["theoretical"])
             exploit_badge_html = (
-                "<span style='padding:2px 8px;border-radius:12px;font-size:0.8em;font-weight:700;"
-                + _style
-                + "'>"
-                + exploit_status.title()
-                + "</span>"
+                f"<span style='padding:2px 8px;border-radius:12px;font-size:8px;font-weight:700;{_style}'>"
+                f"{exploit_status.title()}</span>"
             )
-        else:
-            exploit_badge_html = ""
-
-        exploit_suffix = (
-            f" | <strong>Exploitability:</strong> {exploit_badge_html}"
-            if exploit_badge_html
-            else ""
-        )
-        severity_line = (
-            f"<p><strong>Risk Score:</strong> {risk:.1f}/10 | <strong>Severity:</strong> "
-            f"<span class='severity-pill severity-{severity.lower()}'>{severity}</span>"
-            f"{exploit_suffix}</p>"
-        )
-
-        analogy = finding.get("security_analogy")
 
         attack_vector_block = ""
         if is_ser and has_cve_intel:
@@ -1557,52 +1567,101 @@ class PDFFormatter(BaseFormatter):
 
         cis_line = ""
         if cis_ref and cis_ref not in ("N/A", "None", "", "n/a"):
-            cis_line = f"<p><strong>CIS Reference:</strong> {cis_ref}</p>"
+            cis_line = (
+                "<p style='font-size:9px;color:var(--text-3);margin-top:8px;'>"
+                f"<strong>CIS Reference:</strong> {cis_ref}</p>"
+            )
 
-        # Build description with analogy as final paragraph (no standalone callout box)
-        description_html = f"<p>{description}</p>"
-        if analogy:
-            analogy_html = self._md_bold_to_html(html.escape(str(analogy)))
-            description_html += f"<p><em><strong>Analogy:</strong> {analogy_html}</em></p>"
+        # --- Header ---
+        meta_items = [f"<span class='pill pill-{severity.lower()}'>{severity}</span>"]
+        meta_items.append(
+            f"<span style='color:var(--text-3);font-size:9px;'>Risk {risk:.1f}/10</span>"
+        )
+        if exploit_badge_html:
+            meta_items.append(exploit_badge_html)
 
+        header_html = (
+            "<div class='finding-header'>"
+            f"<div class='finding-id'>{finding_id}</div>"
+            "<div class='finding-title-wrap'>"
+            f"<div class='finding-title'>{title}</div>"
+            f"<div class='finding-meta'>{''.join(meta_items)}</div>"
+            "</div>"
+            "</div>"
+        )
+
+        # --- Body sections ---
+        body_parts: List[str] = []
+
+        # Description (always present)
+        desc_content = f"<p>{description}</p>"
+        body_parts.append(
+            "<div class='finding-section'>"
+            "<h4>Description</h4>"
+            f"<div class='finding-description-box'>{desc_content}</div>"
+            "</div>"
+        )
+
+        # Affected Resources
         if resources:
-            affected_text = "\n".join(str(res) for res in resources)
-            description_html += (
-                "<div class='finding-inline-section finding-affected'><h4>Affected Resources</h4>"
-                f"<pre class='code-block'>{html.escape(affected_text)}</pre></div>"
+            res_items = "".join(f"<li>{html.escape(str(r))}</li>" for r in resources)
+            body_parts.append(
+                "<div class='finding-section'>"
+                "<h4>Affected Resources</h4>"
+                f"<ul class='resource-list light'>{res_items}</ul>"
+                "</div>"
             )
 
-        if commands:
-            heading = (
-                "Validation Commands (AWS CLI Suggested)"
-                if commands_suggested
-                else "Validation Commands"
-            )
-            commands_text = "\n".join(commands)
-            description_html += (
-                "<div class='finding-inline-section finding-validation'><h4>"
-                f"{html.escape(heading)}"
-                "</h4>"
-                f"<pre class='code-block'>{html.escape(commands_text)}</pre></div>"
-            )
-
+        # Evidence Snippet
         if snippet_for_json:
             dumped, _ = redact_secrets(json.dumps(snippet_for_json, indent=2, ensure_ascii=False))
-            description_html += (
-                "<div class='finding-inline-section finding-evidence'><h4>Evidence</h4>"
-                f"<pre class='code-block'>{html.escape(dumped)}</pre></div>"
+            body_parts.append(
+                "<div class='finding-section'>"
+                "<h4>Evidence</h4>"
+                f"<pre class='code-block'>{html.escape(dumped)}</pre>"
+                "</div>"
             )
 
+        # Attack Vector (SER skill only)
+        if attack_vector_block:
+            body_parts.append(
+                f"<div class='finding-section'>{attack_vector_block}</div>"
+            )
+
+        # Exploitation (pentest report only)
+        if exploitation_block:
+            body_parts.append(
+                f"<div class='finding-section'>{exploitation_block}</div>"
+            )
+
+        # Impact
+        raw_impact = finding.get("impact")
+        if raw_impact:
+            impact_text = self._md_bold_to_html(
+                html.escape(str(raw_impact)).replace("\n\n", "</p><p>")
+            )
+            body_parts.append(
+                "<div class='finding-section'>"
+                "<h4>Impact</h4>"
+                f"<div class='finding-impact-box'><p>{impact_text}</p></div>"
+                "</div>"
+            )
+
+        # Remediation (always present)
+        body_parts.append(
+            "<div class='finding-section'>"
+            "<h4>Remediation</h4>"
+            f"<div class='finding-remediation-box'><p>{remediation}</p></div>"
+            "</div>"
+        )
+
         return (
-            "<div class='individual-finding'>"
-            + f"<h3>[{finding_id}] {title}</h3>"
-            + severity_line
-            + f"<div class='finding-description'><h4>Description</h4>{description_html}</div>"
-            + attack_vector_block
-            + exploitation_block
-            + impact_html
-            + f"<div class='finding-remediation'><h4>Remediation</h4><p>{remediation}</p></div>"
+            "<div class='finding'>"
+            + header_html
+            + "<div class='finding-body'>"
+            + "".join(body_parts)
             + cis_line
+            + "</div>"
             + "</div>"
         )
 
@@ -1627,7 +1686,7 @@ class PDFFormatter(BaseFormatter):
                 if cve_id:
                     network_cve_ids.append(cve_id)
 
-        blocks: List[str] = ["<div class='finding-exploitation'><h4>Attack Vector Playbook</h4>"]
+        blocks: List[str] = ["<div class='finding-exploitation-box'><h4>Attack Vector Playbook</h4>"]
         for iid, path_data in list(attack_paths.items())[:3]:
             if not isinstance(path_data, dict):
                 continue
@@ -1703,21 +1762,6 @@ class PDFFormatter(BaseFormatter):
             suggested = bool(cleaned)
         return cleaned, suggested
 
-    def _validation_commands_block_html(self, cleaned: List[str], suggested: bool) -> str:
-        if not cleaned:
-            return ""
-
-        items = "".join(f"<li><code>{html.escape(cmd)}</code></li>" for cmd in cleaned[:8])
-        if len(cleaned) > 8:
-            items += f"<li>... and {len(cleaned) - 8} more</li>"
-
-        heading = "Validation Commands (AWS CLI Suggested)" if suggested else "Validation Commands"
-
-        return (
-            f"<div class='finding-resources finding-validation'><h4>{heading}</h4>"
-            f"<ul class='resource-list'>{items}</ul></div>"
-        )
-
     def _exploitation_block_html(
         self, finding: Dict[str, Any], validation_commands: List[str]
     ) -> str:
@@ -1761,7 +1805,7 @@ class PDFFormatter(BaseFormatter):
             )
 
         return (
-            "<div class='finding-exploitation'><h4>Exploitation (Theoretical)</h4>"
+            "<div class='finding-exploitation-box'><h4>Exploitation (Theoretical)</h4>"
             f"<p>{narrative}</p>{cmd_html}</div>"
         )
 
@@ -1987,10 +2031,8 @@ class PDFFormatter(BaseFormatter):
 
         def row(label: str, value: str) -> str:
             return (
-                "<div class='scope-row'>"
-                f"<span class='scope-label'>{html.escape(label)}</span>"
-                f"<span class='scope-value'>{html.escape(value)}</span>"
-                "</div>"
+                f"<tr><td>{html.escape(label)}</td>"
+                f"<td>{html.escape(value)}</td></tr>"
             )
 
         fields = [
@@ -2003,10 +2045,9 @@ class PDFFormatter(BaseFormatter):
         ]
 
         return (
-            "<h2>Document Control</h2>"
-            "<div class='document-control'>"
+            "<table class='meta-table'>"
             + "".join(row(label, value) for label, value in fields)
-            + "</div>"
+            + "</table>"
         )
 
     def _conditions_section_html(self) -> str:
@@ -2067,7 +2108,10 @@ class PDFFormatter(BaseFormatter):
         exclusions_list = "".join(f"<li>{html.escape(item)}</li>" for item in default_exclusions)
 
         return (
+            "<div class='section-divider'>"
             f"<h2>{header}</h2>"
+            "<hr>"
+            "</div>"
             "<div class='card'>"
             f"<h3>{scope_header}</h3>"
             f"<ul class='conditions-list'>{scope_list}</ul>"
