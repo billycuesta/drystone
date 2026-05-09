@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 # Example credentials for documentation (NOT REAL)
 # nosec B105 - Example credentials from AWS documentation, not real secrets
@@ -13,7 +13,10 @@ _EXAMPLE_AWS_SECRET_KEY = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"  # nosec
 
 
 # Canonical pentest skill list — single source of truth for --skills=pentest
-PENTEST_CORE_SKILLS = ["recon", "iam", "exposure", "network", "vulns", "secretsmanager"]
+PENTEST_CORE_SKILLS = [
+    "recon", "iam", "exposure", "network", "vulns",
+    "secretsmanager", "sistemas_explotables_red",
+]
 
 
 class WizardConfig(BaseModel):
@@ -66,7 +69,7 @@ class WizardConfig(BaseModel):
     )
 
     claude_cli_model: Literal["haiku", "sonnet", "opus"] = Field(
-        default="haiku",
+        default="sonnet",
         description="Model alias for claude-cli provider",
     )
 
@@ -97,20 +100,13 @@ class WizardConfig(BaseModel):
         description="Language used in generated reports",
     )
 
-    # Client context file (optional, enriches reports with business context)
-    client_context_file: Optional[Path] = Field(
-        default=None,
-        description="Path to client-context.md file for report enrichment",
-    )
-
     # Metadata
     created_at: datetime = Field(default_factory=datetime.utcnow)
     non_interactive: bool = Field(default=False)
 
-    class Config:
-        """Pydantic config."""
-
-        json_schema_extra = {
+    model_config = ConfigDict(
+        validate_default=True,
+        json_schema_extra={
             "example": {
                 "client_name": "ACME Corp",
                 "aws_access_key_id": _EXAMPLE_AWS_ACCESS_KEY,
@@ -126,7 +122,8 @@ class WizardConfig(BaseModel):
                 "created_at": "2026-01-17T10:30:00",
                 "non_interactive": False,
             }
-        }
+        },
+    )
 
     def get_aws_credentials(self) -> tuple[str, str, Optional[str]]:
         """Get credentials with priority: manual > file > env."""
@@ -211,14 +208,16 @@ class WizardConfig(BaseModel):
 
         return None
 
-    @validator("aws_region")
+    @field_validator("aws_region")
+    @classmethod
     def validate_region(cls, v: str) -> str:
         """Validate AWS region format."""
         if not v or not isinstance(v, str):
             raise ValueError("Region must be a non-empty string")
         return v.lower()
 
-    @validator("skills")
+    @field_validator("skills")
+    @classmethod
     def validate_skills(cls, v: List[str]) -> List[str]:
         """Validate skill names."""
         # Meta-skill: pentest is an execution preset (not a collector/analyzer by itself).
@@ -260,8 +259,9 @@ class WizardConfig(BaseModel):
             raise ValueError("At least one skill must be selected")
         return v
 
-    @validator("report_type")
-    def validate_report_type(cls, v: str, values: dict) -> str:
+    @field_validator("report_type")
+    @classmethod
+    def validate_report_type(cls, v: str, info: ValidationInfo) -> str:
         """Disallow pentest report unless pentest preset used.
 
         In the wizard, selecting the pentest preset expands skills to core skills and
@@ -270,15 +270,16 @@ class WizardConfig(BaseModel):
         """
 
         if v == "pentest":
-            skills = values.get("skills") or []
+            skills = info.data.get("skills") or []
             # After validation, preset expands to core skills.
-            if skills != ["recon", "iam", "exposure", "network", "vulns", "secretsmanager"]:
+            if skills != list(PENTEST_CORE_SKILLS):
                 raise ValueError(
                     "report_type='pentest' is only supported with the pentest preset (Recon+IAM+Exposure+Network+Vulns)"
                 )
         return v
 
-    @validator("output_formats")
+    @field_validator("output_formats")
+    @classmethod
     def validate_formats(cls, v: List[str]) -> List[str]:
         """Validate output formats."""
         valid_formats = {"markdown", "json", "pdf"}
@@ -289,8 +290,9 @@ class WizardConfig(BaseModel):
             raise ValueError("At least one output format must be selected")
         return v
 
-    @validator("ai_api_key", pre=True, always=True)
-    def validate_ai_api_key(cls, v: Optional[str], values: dict) -> Optional[str]:
+    @field_validator("ai_api_key", mode="before")
+    @classmethod
+    def validate_ai_api_key(cls, v: Optional[str], info: ValidationInfo) -> Optional[str]:
         """Validate AI API key based on provider."""
         if isinstance(v, str):
             v = v.strip()
@@ -298,7 +300,7 @@ class WizardConfig(BaseModel):
             if v.startswith("- "):
                 v = v[2:].strip()
 
-        ai_provider = values.get("ai_provider")
+        ai_provider = info.data.get("ai_provider")
 
         # If using API-based provider, key must be provided
         if ai_provider in ["claude-api"]:
@@ -307,7 +309,8 @@ class WizardConfig(BaseModel):
 
         return v
 
-    @validator("scan_depth", pre=True, always=True)
+    @field_validator("scan_depth", mode="before")
+    @classmethod
     def normalize_scan_depth(cls, v: Optional[str]) -> str:
         """Normalize scan depth values and support legacy Spanish values."""
         value = str(v or "normal").strip().lower()
@@ -321,21 +324,6 @@ class WizardConfig(BaseModel):
         if value not in allowed:
             raise ValueError(f"Invalid scan_depth: {value}. Valid: {sorted(allowed)}")
         return value
-
-    @property
-    def _client_context(self):
-        """Load and cache client context from file if configured."""
-        if not hasattr(self, "_cached_client_context"):
-            if self.client_context_file:
-                try:
-                    from drystone.models.client_context import ClientContext
-
-                    self._cached_client_context = ClientContext.from_file(self.client_context_file)
-                except Exception:
-                    self._cached_client_context = None
-            else:
-                self._cached_client_context = None
-        return self._cached_client_context
 
     def dict_for_json(self) -> dict:
         """Convert to JSON-serializable dict, excluding sensitive credentials if not stored directly."""

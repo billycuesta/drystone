@@ -8,6 +8,7 @@ import questionary
 
 from drystone.cloud.aws import validate_aws_credentials
 from drystone.models import WizardConfig
+from drystone.models.config import PENTEST_CORE_SKILLS
 
 
 def validate_aws_creds(
@@ -201,8 +202,7 @@ def display_config_summary(project_config: dict, ai_config: dict) -> None:
         else "None"
     )
     print(f"   Security Skills: {skills_display}")
-    print(f"   Scan Depth: {project_config.get('scan_depth', 'normal')}")
-    print(f"   QSA Depth: {project_config.get('qsa_depth', 'standard')}")
+    print(f"   Auditor Visibility: {project_config.get('qsa_depth', 'standard')}")
 
     # Output formats
     formats_display = (
@@ -224,7 +224,8 @@ def display_config_summary(project_config: dict, ai_config: dict) -> None:
     print("\n🤖 AI Configuration:")
     print(f"   Provider: {ai_config['ai_provider']}")
     if ai_config.get("ai_provider") == "claude-cli":
-        print(f"   Claude CLI Model: {ai_config.get('claude_cli_model', 'haiku')}")
+        print(f"   Claude CLI Model: {ai_config.get('claude_cli_model', 'sonnet')}")
+    print(f"   Scan Depth: {ai_config.get('scan_depth', 'normal')}")
 
     if ai_config["ai_provider"] == "bedrock":
         print("   Bedrock Region: eu-west-1")
@@ -285,23 +286,6 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
     ).ask()
     if client_name is None:
         raise KeyboardInterrupt("Wizard cancelled")
-
-    # ── Step 1b: Client Context File (optional) ──────────────────
-    client_context_file = questionary.text(
-        "Client context file (optional, press Enter to skip):",
-        default=defaults.get("client_context_file", ""),
-    ).ask()
-    if client_context_file is None:
-        raise KeyboardInterrupt("Wizard cancelled")
-    if client_context_file.strip():
-        from pathlib import Path
-
-        expanded = Path(client_context_file).expanduser()
-        if expanded.exists():
-            print(f"✅ Client context file: {expanded}")
-        else:
-            print(f"⚠️  File not found: {expanded} (will be ignored)")
-            client_context_file = ""
 
     # ── Step 2: Skill Selection ───────────────────────────────────
     current_skills = defaults.get("skills", ["iam"])
@@ -458,36 +442,17 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
     if aws_region is None:
         raise KeyboardInterrupt("Wizard cancelled")
 
-    # ── Step 5: Scan Depth ────────────────────────────────────────
+    # ── Step 5: Auditor Visibility ───────────────────────────────
     print()
-    print("  Scan Depth controls how much evidence is sent to the AI per skill.")
-    print("  Higher depth = more chunks analyzed = broader coverage but more tokens/time.")
-    print()
-    current_depth = defaults.get("scan_depth", "normal")
-    scan_depth = questionary.select(
-        "Scan Depth:",
-        choices=[
-            questionary.Choice("Shallow  — Fast scan, minimal chunks. Quick checks or cost-sensitive runs", "shallow"),
-            questionary.Choice("Normal   — Balanced coverage. Recommended for most audits", "normal"),
-            questionary.Choice("Deep     — Extended analysis with more evidence chunks per skill", "deep"),
-            questionary.Choice("Very deep — Maximum coverage. All available evidence. Higher token usage", "very-deep"),
-        ],
-        default=current_depth,
-    ).ask()
-    if scan_depth is None:
-        raise KeyboardInterrupt("Wizard cancelled")
-
-    # ── Step 5b: QSA Depth ────────────────────────────────────────
-    print()
-    print("  QSA Depth filters which checks are executed based on auditor visibility.")
+    print("  Auditor Visibility filters which checks are executed based on auditor depth.")
     print("  Lower depth = only obvious issues. Higher depth = subtle and advanced checks.")
     print()
     current_qsa_depth = defaults.get("qsa_depth", "standard")
     qsa_depth = questionary.select(
-        "QSA Visibility Level:",
+        "Auditor Visibility Level:",
         choices=[
             questionary.Choice("Obvious  — Self-evident findings only (MFA, root keys, public S3)", "obvious"),
-            questionary.Choice("Standard — Normal QSA audit scope (key rotation, policies, CloudTrail)", "standard"),
+            questionary.Choice("Standard — Normal audit scope (key rotation, policies, CloudTrail)", "standard"),
             questionary.Choice("Deep     — All checks incl. advanced analysis (AssumeRole chains, trust policies)", "deep"),
         ],
         default=current_qsa_depth,
@@ -513,7 +478,7 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
     current_report_type = defaults.get("report_type", "general")
 
     if selected_skill == "pentest":
-        skills = ["recon", "iam", "exposure", "network", "vulns", "secretsmanager"]
+        skills = list(PENTEST_CORE_SKILLS)
         report_type = "pentest"
     else:
         skills = [selected_skill]
@@ -541,13 +506,10 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
         "client_name": client_name,
         "aws_region": aws_region,
         "skills": skills,
-        "scan_depth": scan_depth,
         "qsa_depth": qsa_depth,
         "output_formats": output_formats,
         "report_type": report_type,
     }
-    if client_context_file and client_context_file.strip():
-        project_config["client_context_file"] = client_context_file.strip()
     project_config.update(creds_config)
 
     return project_config
@@ -592,16 +554,16 @@ def run_ai_menu(current_config: Optional[dict] = None) -> dict:
     result = {
         "ai_provider": ai_provider,
         "ai_api_key": None,
-        "claude_cli_model": defaults.get("claude_cli_model", "haiku"),
+        "claude_cli_model": defaults.get("claude_cli_model", "sonnet"),
     }
 
     if ai_provider == "claude-cli":
-        current_model = defaults.get("claude_cli_model", "haiku")
+        current_model = defaults.get("claude_cli_model", "sonnet")
         selected_model = questionary.select(
             "Claude CLI model:",
             choices=[
-                questionary.Choice("Haiku (Default)", "haiku", checked=current_model == "haiku"),
-                questionary.Choice("Sonnet", "sonnet", checked=current_model == "sonnet"),
+                questionary.Choice("Haiku", "haiku", checked=current_model == "haiku"),
+                questionary.Choice("Sonnet (Default)", "sonnet", checked=current_model == "sonnet"),
                 questionary.Choice("Opus", "opus", checked=current_model == "opus"),
             ],
             default=current_model,
@@ -627,6 +589,22 @@ def run_ai_menu(current_config: Optional[dict] = None) -> dict:
                 break
             print("Please try again with a valid API key.\n")
 
+    # ── Scan Depth ────────────────────────────────────────────────
+    current_depth = defaults.get("scan_depth", "normal")
+    scan_depth = questionary.select(
+        "Scan Depth:",
+        choices=[
+            questionary.Choice("Shallow  — Fast scan, minimal chunks", "shallow"),
+            questionary.Choice("Normal   — Balanced coverage. Recommended for most audits", "normal"),
+            questionary.Choice("Deep     — Extended analysis with more evidence chunks per skill", "deep"),
+            questionary.Choice("Very deep — Maximum coverage. Higher token usage", "very-deep"),
+        ],
+        default=current_depth,
+    ).ask()
+    if scan_depth is None:
+        raise KeyboardInterrupt("Wizard cancelled")
+    result["scan_depth"] = scan_depth
+
     return result
 
 
@@ -639,7 +617,8 @@ def get_default_ai_config() -> dict:
     return {
         "ai_provider": "claude-cli",
         "ai_api_key": None,
-        "claude_cli_model": "haiku",
+        "claude_cli_model": "sonnet",
+        "scan_depth": "normal",
     }
 
 

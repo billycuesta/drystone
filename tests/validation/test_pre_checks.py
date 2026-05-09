@@ -4,9 +4,15 @@ Verifies that pre-checks produce correct PASS/FAIL/SKIP results
 based on known evidence patterns.
 """
 
+import json
+from pathlib import Path
+
 import pytest
 
 from drystone.validation.pre_checks import (
+    PRE_CHECK_DESCRIPTIONS,
+    PRE_CHECK_IMPACTS,
+    PRE_CHECK_REMEDIATIONS,
     PreCheckResult,
     check_alr_003,
     check_alr_022,
@@ -46,6 +52,11 @@ from drystone.validation.pre_checks import (
     check_ecr_006,
     check_exp_002,
     check_exp_003,
+    check_exp_004,
+    check_exp_007,
+    check_exp_013,
+    check_exp_014,
+    check_exp_015,
     check_exp_020,
     check_exp_021,
     check_exp_022,
@@ -64,10 +75,14 @@ from drystone.validation.pre_checks import (
     check_iam_008,
     check_iam_009,
     check_iam_011,
+    check_iam_012,
     check_iam_014,
+    check_iam_015,
+    check_iam_016,
     check_iam_018,
     check_iam_019,
     check_iam_020,
+    check_iam_026,
     check_iam_032,
     check_iam_033,
     check_iam_034,
@@ -77,6 +92,7 @@ from drystone.validation.pre_checks import (
     check_iam_038,
     check_iam_039,
     check_kms_001,
+    check_kms_002,
     check_kms_004,
     check_msg_001,
     check_msg_002,
@@ -96,6 +112,7 @@ from drystone.validation.pre_checks import (
     check_net_010,
     check_net_011,
     check_net_012,
+    check_net_013,
     check_net_014,
     check_net_015,
     check_net_016,
@@ -113,12 +130,23 @@ from drystone.validation.pre_checks import (
     check_sm_014,
     check_sm_015,
     check_sm_017,
+    check_vuln_002,
+    check_vuln_003,
+    check_vuln_004,
+    check_vuln_008,
     check_vuln_005,
+    check_vuln_009,
+    check_vuln_010,
+    check_vuln_011,
     check_vuln_022,
     check_vuln_023,
     check_vuln_024,
     check_vuln_025,
     check_vuln_028,
+    check_waf_001,
+    check_waf_004,
+    check_waf_006,
+    check_waf_010,
     check_waf_013,
     format_pre_checks_for_prompt,
     run_pre_checks,
@@ -127,6 +155,173 @@ from drystone.validation.pre_checks import (
 # ============================================================================
 # IAM CHECKS
 # ============================================================================
+
+
+class TestIAMDeterministicFindingText:
+    def test_injected_iam_findings_have_specific_impact_text(self):
+        for check_id in ("IAM-007", "IAM-015", "IAM-016", "IAM-026"):
+            impact = PRE_CHECK_IMPACTS[check_id]
+            assert "This finding" not in impact
+            assert "manual verification" not in impact.lower()
+
+        assert "Inline role policies" in PRE_CHECK_IMPACTS["IAM-007"]
+        assert "Directly attached user policies" in PRE_CHECK_IMPACTS["IAM-015"]
+        assert "Programmatic-only IAM users" in PRE_CHECK_IMPACTS["IAM-016"]
+        assert "Privileged roles without permission boundaries" in PRE_CHECK_IMPACTS["IAM-026"]
+
+    def test_iam002_remediation_is_programmatic_first_not_console_only(self):
+        remediation = PRE_CHECK_REMEDIATIONS["IAM-002"]
+        first_sentence = remediation.split(".", 1)[0].lower()
+
+        assert "programmatic access" in first_sentence
+        assert "console access" not in first_sentence
+        assert "active access keys" in remediation
+
+    def test_iam016_text_classifies_programmatic_only_users_without_overclaiming(self):
+        description = PRE_CHECK_DESCRIPTIONS["IAM-016"]
+        remediation = PRE_CHECK_REMEDIATIONS["IAM-016"]
+
+        assert "programmatic-only" in description
+        assert "manual review" in description
+        assert "programmatic-only IAM users" in remediation
+        assert "replace long-lived access keys used by service accounts" not in remediation
+
+    def test_iam016_checklist_matches_programmatic_only_evidence(self):
+        checklist_path = (
+            Path(__file__).resolve().parents[2] / "drystone" / "skills" / "iam" / "checklist.json"
+        )
+        checklist = json.loads(checklist_path.read_text())
+        item = next(i for i in checklist["items"] if i["id"] == "IAM-016")
+
+        assert (
+            item["title"] == "Programmatic-only IAM users should use roles or temporary credentials"
+        )
+        assert "ambiguous users require owner validation" in item["description"]
+        assert {"users.json", "credential-report.csv", "groups.json", "policies.json"}.issubset(
+            set(item["evidence_files"])
+        )
+        assert "Compare custom policies" not in item["remediation"]
+
+
+class TestExposureDeterministicFindingText:
+    def test_exp007_text_is_alb_waf_specific(self):
+        description = PRE_CHECK_DESCRIPTIONS["EXP-007"].lower()
+        remediation = PRE_CHECK_REMEDIATIONS["EXP-007"].lower()
+
+        assert "application load balancer" in description
+        assert "waf" in description
+        assert "s3 bucket" not in description
+        assert "api gateway" not in remediation
+        assert "webacl" in remediation
+
+    def test_exp013_text_is_tls_specific(self):
+        description = PRE_CHECK_DESCRIPTIONS["EXP-013"].lower()
+        remediation = PRE_CHECK_REMEDIATIONS["EXP-013"].lower()
+
+        assert "securetransport" in description
+        assert "securetransport" in remediation
+        assert "public access" not in description
+        assert "sourceaccount" not in remediation
+
+    def test_exposure_impacts_are_specific_for_injected_findings(self):
+        for check_id in ("EXP-002", "EXP-007", "EXP-013", "EXP-014", "EXP-015", "EXP-024"):
+            impact = PRE_CHECK_IMPACTS[check_id].lower()
+            assert "if exploited, an attacker could leverage" not in impact
+            assert "depending on the environment" not in impact
+
+
+class TestNetworkDeterministicFindingText:
+    def test_network_templates_match_their_controls(self):
+        guards = {
+            "NET-007": {
+                "required": ("network firewall",),
+                "forbidden": ("sensitive ports", "ssh", "rdp"),
+            },
+            "NET-008": {
+                "required": ("critical workload", "public subnet"),
+                "forbidden": ("overlapping", "redundant"),
+            },
+            "NET-009": {
+                "required": ("security group", "broad cidr"),
+                "forbidden": ("vpc peering", "peered vpc"),
+            },
+            "NET-010": {
+                "required": ("network acl",),
+                "forbidden": ("transit gateway",),
+            },
+            "NET-011": {
+                "required": ("security group", "description"),
+                "forbidden": ("vpc endpoint", "privatelink"),
+            },
+            "NET-013": {
+                "required": ("nat", "vpc endpoint"),
+                "forbidden": ("intercept", "manipulate api traffic"),
+            },
+            "NET-016": {
+                "required": ("subnet", "nacl"),
+                "forbidden": ("security group-to-security group", "trust entire security"),
+            },
+            "NET-025": {
+                "required": ("subnet", "classification", "tag"),
+                "forbidden": ("ssh", "rdp", "administrative ports"),
+            },
+            "NET-027": {
+                "required": ("security group", "tag"),
+                "forbidden": ("vpc endpoint", "privatelink"),
+            },
+        }
+
+        for check_id, guard in guards.items():
+            text = f"{PRE_CHECK_DESCRIPTIONS[check_id]} {PRE_CHECK_REMEDIATIONS[check_id]}".lower()
+            for expected in guard["required"]:
+                assert expected in text, check_id
+            for forbidden in guard["forbidden"]:
+                assert forbidden not in text, check_id
+
+    def test_network_governance_impacts_do_not_claim_direct_exploitation(self):
+        for check_id in (
+            "NET-003",
+            "NET-009",
+            "NET-010",
+            "NET-011",
+            "NET-013",
+            "NET-016",
+            "NET-022",
+            "NET-025",
+        ):
+            impact = PRE_CHECK_IMPACTS[check_id].lower()
+            assert "escalate privileges" not in impact
+            assert "if exploited, an attacker could leverage" not in impact
+            assert (
+                "not proven" in impact
+                or "not by itself" in impact
+                or "not directly" in impact
+                or "not proof" in impact
+                or "does not prove" in impact
+                or "by itself" in impact
+                or "rather than direct proof" in impact
+                or "unless" in impact
+            )
+
+    def test_net_001_impact_is_specific_to_exposed_database_ports(self):
+        impact = PRE_CHECK_IMPACTS["NET-001"].lower()
+
+        assert "tcp/1433" in impact
+        assert "database" in impact
+        assert "security group" in impact
+        assert "high-privilege foothold" not in impact
+        assert "full compromise" not in impact
+
+    def test_net_013_checklist_title_matches_nat_endpoint_gap_control(self):
+        checklist_path = Path("drystone/skills/network/checklist.json")
+        checklist = json.loads(checklist_path.read_text())
+        item = next(i for i in checklist["items"] if i["id"] == "NET-013")
+
+        title = item["title"].lower()
+        assert "nat" in title
+        assert "vpc endpoint" in title
+        assert "wildcard principal" not in title
+        assert "wildcard action" not in title
 
 
 class TestIAM001:
@@ -284,6 +479,163 @@ class TestIAM014:
         assert r.status == "FAIL"
 
 
+class TestIAM012RichMetadata:
+    def _make_user(self, name, pwd_last_used=None, key_last_used=None):
+        user = {"UserName": name, "Arn": f"arn:aws:iam::123:user/{name}"}
+        if pwd_last_used:
+            user["PasswordLastUsed"] = pwd_last_used
+        if key_last_used:
+            user["AccessKeys"] = [
+                {
+                    "AccessKeyId": f"AKIA{name.upper()[:4]}",
+                    "Status": "Active",
+                    "LastUsed": {"LastUsedDate": key_last_used},
+                }
+            ]
+        return user
+
+    def test_skip_when_no_users(self):
+        r = check_iam_012({})
+        assert r.status == "SKIP"
+
+    def test_pass_when_all_active_recently(self):
+        evidence = {"users": [self._make_user("active", pwd_last_used="2026-04-01T00:00:00Z")]}
+        r = check_iam_012(evidence)
+        assert r.status == "PASS"
+
+    def test_fail_emits_resource_details_with_days(self):
+        evidence = {
+            "users": [
+                self._make_user("olduser", pwd_last_used="2025-10-01T00:00:00Z"),
+            ]
+        }
+        r = check_iam_012(evidence)
+        assert r.status == "FAIL"
+        details = r.metadata.get("resource_details", [])
+        assert len(details) == 1
+        d = details[0]
+        assert d["user"] == "olduser"
+        assert "arn" in d
+        assert "days_since_last_activity" in d
+        assert isinstance(d["days_since_last_activity"], int)
+        assert d["days_since_last_activity"] >= 90
+
+    def test_resource_details_include_last_access_key_use(self):
+        evidence = {
+            "users": [
+                self._make_user("keyuser", key_last_used="2025-09-01T00:00:00Z"),
+            ]
+        }
+        r = check_iam_012(evidence)
+        assert r.status == "FAIL"
+        d = r.metadata["resource_details"][0]
+        assert d["last_access_key_use"] != "N/A"
+        assert d["last_console_login"] == "N/A"
+
+    def test_root_account_excluded(self):
+        evidence = {"users": [{"UserName": "<root_account>", "PasswordLastUsed": None}]}
+        r = check_iam_012(evidence)
+        assert r.status == "PASS"
+
+    def test_credential_report_recent_activity_excludes_users(self):
+        evidence = {
+            "users": [
+                {"UserName": "jcgarcia", "Arn": "arn:aws:iam::123:user/jcgarcia"},
+                {"UserName": "mario", "Arn": "arn:aws:iam::123:user/mario"},
+                {"UserName": "old1", "Arn": "arn:aws:iam::123:user/old1"},
+                {"UserName": "old2", "Arn": "arn:aws:iam::123:user/old2"},
+            ],
+            "credential-report": {
+                "by_user": {
+                    "jcgarcia": {"password_last_used": "2026-04-15T00:00:00Z"},
+                    "mario": {"access_key_1_last_used_date": "2026-04-10T00:00:00Z"},
+                    "old1": {"password_last_used": "2025-01-01T00:00:00Z"},
+                    "old2": {"access_key_1_last_used_date": "no_information"},
+                }
+            },
+        }
+        r = check_iam_012(evidence)
+        assert r.status == "FAIL"
+        assert "arn:aws:iam::123:user/jcgarcia" not in r.affected_resources
+        assert "arn:aws:iam::123:user/mario" not in r.affected_resources
+        assert r.affected_resources == ["arn:aws:iam::123:user/old1", "arn:aws:iam::123:user/old2"]
+
+
+class TestIAM014RichMetadata:
+    def _make_user_two_keys(
+        self, name, key1_used="2026-04-01T00:00:00Z", key2_used="2026-04-15T00:00:00Z"
+    ):
+        return {
+            "UserName": name,
+            "Arn": f"arn:aws:iam::123:user/{name}",
+            "AccessKeys": [
+                {
+                    "AccessKeyId": f"AKIA{name.upper()[:4]}KEY1",
+                    "Status": "Active",
+                    "CreateDate": "2025-11-01T00:00:00Z",
+                    "LastUsed": {"LastUsedDate": key1_used},
+                },
+                {
+                    "AccessKeyId": f"AKIA{name.upper()[:4]}KEY2",
+                    "Status": "Active",
+                    "CreateDate": "2026-02-01T00:00:00Z",
+                    "LastUsed": {"LastUsedDate": key2_used},
+                },
+            ],
+        }
+
+    def test_fail_emits_resource_details_with_key_list(self):
+        evidence = {"users": [self._make_user_two_keys("multikey")]}
+        r = check_iam_014(evidence)
+        assert r.status == "FAIL"
+        details = r.metadata.get("resource_details", [])
+        assert len(details) == 1
+        d = details[0]
+        assert d["user"] == "multikey"
+        assert "active_access_keys" in d
+        assert len(d["active_access_keys"]) == 2
+
+    def test_key_details_have_required_fields(self):
+        evidence = {"users": [self._make_user_two_keys("bob")]}
+        r = check_iam_014(evidence)
+        key = r.metadata["resource_details"][0]["active_access_keys"][0]
+        assert "access_key_id" in key
+        assert "status" in key
+        assert "create_date" in key
+        assert "last_used_date" in key
+        assert "days_since_last_use" in key
+
+    def test_key_id_is_masked(self):
+        evidence = {"users": [self._make_user_two_keys("masked")]}
+        r = check_iam_014(evidence)
+        key_id = r.metadata["resource_details"][0]["active_access_keys"][0]["access_key_id"]
+        assert "****" in key_id
+
+    def test_rotation_status_unknown_by_default(self):
+        evidence = {"users": [self._make_user_two_keys("norot")]}
+        r = check_iam_014(evidence)
+        assert "rotation_in_progress" not in r.metadata["resource_details"][0]
+        assert r.metadata["resource_details"][0]["rotation_status"] == "unknown"
+
+    def test_uses_real_user_arn(self):
+        evidence = {"users": [self._make_user_two_keys("realarn")]}
+        r = check_iam_014(evidence)
+        assert r.affected_resources == ["arn:aws:iam::123:user/realarn"]
+
+    def test_pass_when_single_key_no_metadata(self):
+        evidence = {
+            "users": [
+                {
+                    "UserName": "singlekey",
+                    "AccessKeys": [{"AccessKeyId": "AKIAONLY", "Status": "Active"}],
+                }
+            ]
+        }
+        r = check_iam_014(evidence)
+        assert r.status == "PASS"
+        assert r.metadata.get("resource_details") is None
+
+
 class TestIAM020:
     def test_pass_when_all_have_groups(self):
         evidence = {"users": [{"UserName": "alice", "Groups": [{"GroupName": "admin"}]}]}
@@ -294,6 +646,88 @@ class TestIAM020:
         evidence = {"users": [{"UserName": "alice", "Groups": []}]}
         r = check_iam_020(evidence)
         assert r.status == "FAIL"
+
+
+class TestIAM015And016Metadata:
+    def test_iam015_includes_direct_policy_metadata(self):
+        evidence = {
+            "users": [
+                {
+                    "UserName": "alice",
+                    "Arn": "arn:aws:iam::123:user/alice",
+                    "Groups": [],
+                    "AttachedPolicies": [
+                        {
+                            "PolicyName": "DirectS3",
+                            "PolicyArn": "arn:aws:iam::123:policy/DirectS3",
+                        }
+                    ],
+                }
+            ],
+            "policies": [
+                {
+                    "PolicyName": "DirectS3",
+                    "Arn": "arn:aws:iam::123:policy/DirectS3",
+                    "PolicyDocument": {
+                        "Statement": [
+                            {"Effect": "Allow", "Action": "s3:GetObject", "Resource": "*"}
+                        ]
+                    },
+                }
+            ],
+        }
+        r = check_iam_015(evidence)
+        assert r.status == "FAIL"
+        details = r.metadata["resource_details"][0]
+        assert details["direct_policies"][0]["resolved_actions_sample"] == ["s3:GetObject"]
+
+    def test_iam016_marks_ambiguous_service_account_pattern(self):
+        evidence = {
+            "users": [
+                {
+                    "UserName": "api",
+                    "Arn": "arn:aws:iam::123:user/api",
+                    "AccessKeys": [{"Status": "Active"}],
+                }
+            ],
+            "credential-report": {"by_user": {"api": {"password_enabled": "false"}}},
+        }
+        r = check_iam_016(evidence)
+        assert r.status == "FAIL"
+        details = r.metadata["resource_details"][0]
+        assert details["classification"] == "ambiguous"
+        assert details["service_account_pattern"] is False
+
+
+class TestIAM026PermissionBoundaries:
+    def test_roles_without_iam_admin_actions_are_not_delegated_admin(self):
+        evidence = {
+            "roles": [
+                {
+                    "RoleName": "readonly",
+                    "Arn": "arn:aws:iam::123:role/readonly",
+                    "AttachedPolicies": [
+                        {"PolicyName": "ReadOnly", "PolicyArn": "arn:aws:iam::123:policy/ReadOnly"}
+                    ],
+                }
+            ],
+            "policies": [
+                {
+                    "PolicyName": "ReadOnly",
+                    "Arn": "arn:aws:iam::123:policy/ReadOnly",
+                    "PolicyDocument": {
+                        "Statement": [
+                            {"Effect": "Allow", "Action": "s3:GetObject", "Resource": "*"}
+                        ]
+                    },
+                }
+            ],
+        }
+        r = check_iam_026(evidence)
+        assert r.status == "FAIL"
+        assert "delegated" not in r.evidence_summary.lower()
+        assert r.metadata["roles_without_boundary_and_iam_admin_actions"] == 0
+        assert r.metadata["classification"] == "missing_boundary_no_iam_admin_actions_detected"
 
 
 class TestIAM032:
@@ -590,6 +1024,16 @@ class TestIAM007:
     def test_skip_when_no_roles(self):
         r = check_iam_007({})
         assert r.status == "SKIP"
+
+    def test_inline_policy_description_and_remediation_are_on_topic(self):
+        from drystone.validation.pre_checks import PRE_CHECK_DESCRIPTIONS, PRE_CHECK_REMEDIATIONS
+
+        text = PRE_CHECK_DESCRIPTIONS["IAM-007"].lower()
+        remediation = PRE_CHECK_REMEDIATIONS["IAM-007"].lower()
+        assert "inline polic" in text
+        assert "managed polic" in remediation
+        assert "password" not in text
+        assert "password" not in remediation
 
 
 class TestIAM018:
@@ -1509,6 +1953,22 @@ class TestALRT007:
         r = check_alrt_007({})
         assert r.status == "SKIP"
 
+    def test_single_missing_event_gets_medium_risk_override(self):
+        r = check_alrt_007(
+            {
+                "cloudwatch-metric-filters": [
+                    {"filterPattern": "{ $.eventName = StopLogging }"},
+                    {"filterPattern": "{ $.eventName = DeleteTrail }"},
+                    {"filterPattern": "{ $.eventName = ConsoleLogin }"},
+                ]
+            }
+        )
+
+        assert r.status == "FAIL"
+        assert r.affected_resources == ["CreateUser"]
+        assert r.risk_score_override == 4.5
+        assert r.metadata["missing_events"] == ["CreateUser"]
+
 
 class TestALRT009:
     def test_pass_when_ct_log_group_has_filters(self):
@@ -1580,6 +2040,20 @@ class TestALRT017:
         r = check_alrt_017({})
         assert r.status == "SKIP"
 
+    def test_fail_emits_retention_metadata(self):
+        r = check_alrt_017(
+            {
+                "cloudwatch-log-groups": [
+                    {"LogGroupName": "FlowLogsPostClear", "RetentionInDays": 30},
+                ]
+            }
+        )
+
+        assert r.status == "FAIL"
+        details = r.metadata["resource_details"]
+        assert details[0]["log_group_name"] == "FlowLogsPostClear"
+        assert details[0]["retention_in_days"] == 30
+
 
 class TestALRT005:
     def test_pass_when_alert_topic_has_confirmed_subscriptions(self):
@@ -1615,8 +2089,8 @@ class TestALRT005:
         r = check_alrt_005({})
         assert r.status == "SKIP"
 
-    def test_fail_lists_alarm_names_not_topic_arn(self):
-        """When alarms are known, affected_resources should contain alarm names."""
+    def test_fail_lists_topic_arn_and_keeps_alarm_names_in_metadata(self):
+        """Affected resources should be SNS topics; alarm names belong in metadata."""
         r = check_alrt_005(
             {
                 "cloudwatch-alarms": [
@@ -1638,10 +2112,10 @@ class TestALRT005:
             }
         )
         assert r.status == "FAIL"
-        assert "RootAccountUsage" in r.affected_resources
-        assert "UnauthorizedApiCalls" in r.affected_resources
-        # Topic ARN should NOT appear when alarm names are available
-        assert "arn:aws:sns:us-east-1:111:sec-alerts" not in r.affected_resources
+        assert r.affected_resources == ["arn:aws:sns:us-east-1:111:sec-alerts"]
+        details = r.metadata["resource_details"]
+        assert "RootAccountUsage" in details[0]["affected_alarms"]
+        assert "UnauthorizedApiCalls" in details[0]["affected_alarms"]
 
     def test_fail_summary_includes_alarm_count(self):
         """Summary should mention how many alarms are blind."""
@@ -1661,10 +2135,10 @@ class TestALRT005:
         )
         assert r.status == "FAIL"
         assert "5" in r.evidence_summary
-        assert "blind" in r.evidence_summary
+        assert "publish" in r.evidence_summary
 
     def test_fail_falls_back_to_topic_arn_when_no_alarm_names(self):
-        """If alarms have no AlarmName, fall back to topic ARN."""
+        """Affected resource remains the topic ARN when alarms have no names."""
         r = check_alrt_005(
             {
                 "cloudwatch-alarms": [{"AlarmActions": ["arn:aws:sns:us-east-1:111:sec"]}],
@@ -1677,7 +2151,7 @@ class TestALRT005:
             }
         )
         assert r.status == "FAIL"
-        assert "arn:aws:sns:us-east-1:111:sec" in r.affected_resources
+        assert r.affected_resources == ["arn:aws:sns:us-east-1:111:sec"]
 
 
 class TestALRT006:
@@ -1778,6 +2252,45 @@ class TestALRT010:
             }
         )
         assert r.status == "SKIP"
+
+    def test_fail_emits_alarm_metadata(self):
+        r = check_alrt_010(
+            {
+                "cloudwatch-alarms": [
+                    {
+                        "AlarmName": "NginxUnhealthy",
+                        "StateValue": "INSUFFICIENT_DATA",
+                        "MetricName": "UnHealthyHostCount",
+                        "Namespace": "AWS/ApplicationELB",
+                        "AlarmActions": ["arn:aws:sns:eu-west-1:111:alerts"],
+                    }
+                ]
+            }
+        )
+
+        assert r.status == "FAIL"
+        assert r.risk_score_override == 4.5
+        assert "severity_rationale" in r.metadata
+        detail = r.metadata["resource_details"][0]
+        assert detail["alarm_name"] == "NginxUnhealthy"
+        assert detail["metric_name"] == "UnHealthyHostCount"
+
+    def test_custom_security_alarm_keeps_checklist_severity(self):
+        r = check_alrt_010(
+            {
+                "cloudwatch-alarms": [
+                    {
+                        "AlarmName": "UnauthorizedApiCalls",
+                        "StateValue": "INSUFFICIENT_DATA",
+                        "MetricName": "UnauthorizedApiCalls",
+                        "Namespace": "CustomAlerts",
+                    }
+                ]
+            }
+        )
+
+        assert r.status == "FAIL"
+        assert r.risk_score_override is None
 
 
 class TestALRT011:
@@ -2246,9 +2759,39 @@ class TestEXP002:
         )
         assert r.status == "PASS"
 
-    def test_fail_when_public_rds(self):
+    def test_pass_when_public_rds_has_no_open_sg_evidence(self):
         r = check_exp_002(
             {"rds-instances": [{"DBInstanceIdentifier": "db1", "PubliclyAccessible": True}]}
+        )
+        assert r.status == "PASS"
+
+    def test_fail_when_public_rds_has_open_database_port(self):
+        r = check_exp_002(
+            {
+                "rds-instances": [
+                    {
+                        "DBInstanceIdentifier": "db1",
+                        "Engine": "postgres",
+                        "PubliclyAccessible": True,
+                        "VpcSecurityGroups": [{"VpcSecurityGroupId": "sg-1"}],
+                    }
+                ],
+                "security-groups": {
+                    "by_id": {
+                        "sg-1": {
+                            "GroupId": "sg-1",
+                            "IngressRules": [
+                                {
+                                    "IpProtocol": "tcp",
+                                    "FromPort": 5432,
+                                    "ToPort": 5432,
+                                    "IpRanges": [{"CidrIp": "0.0.0.0/0"}],
+                                }
+                            ],
+                        }
+                    }
+                },
+            }
         )
         assert r.status == "FAIL"
 
@@ -2810,6 +3353,7 @@ class TestNET007:
     def _rt_with_igw(self):
         return {
             "RouteTableId": "rt-1",
+            "VpcId": "vpc-1",
             "Routes": [
                 {"GatewayId": "igw-abc", "DestinationCidrBlock": "0.0.0.0/0", "State": "active"}
             ],
@@ -2844,9 +3388,12 @@ class TestNET007:
             {
                 "route-tables": {"items": [self._rt_with_igw()]},
                 "vpc-endpoints": {"items": vpces},
+                "subnets": {"items": [{"SubnetId": "s-1", "VpcId": "vpc-1"}]},
+                "ec2-instances": {"items": [{"InstanceId": "i-1", "SubnetId": "s-1"}]},
             }
         )
         assert r.status == "FAIL"
+        assert r.affected_resources == ["vpc-1"]
 
     def test_pass_igw_with_nfw_endpoint(self):
         vpces = [
@@ -2860,6 +3407,8 @@ class TestNET007:
             {
                 "route-tables": {"items": [self._rt_with_igw()]},
                 "vpc-endpoints": {"items": vpces},
+                "subnets": {"items": [{"SubnetId": "s-1", "VpcId": "vpc-1"}]},
+                "ec2-instances": {"items": [{"InstanceId": "i-1", "SubnetId": "s-1"}]},
             }
         )
         assert r.status == "PASS"
@@ -2869,9 +3418,23 @@ class TestNET007:
             {
                 "route-tables": {"items": [self._rt_with_igw()]},
                 "vpc-endpoints": {"items": []},
+                "subnets": {"items": [{"SubnetId": "s-1", "VpcId": "vpc-1"}]},
+                "ec2-instances": {"items": [{"InstanceId": "i-1", "SubnetId": "s-1"}]},
             }
         )
         assert r.status == "FAIL"
+
+    def test_pass_empty_internet_facing_vpc_without_workloads(self):
+        r = check_net_007(
+            {
+                "route-tables": {"items": [self._rt_with_igw()]},
+                "vpc-endpoints": {"items": []},
+                "subnets": {"items": [{"SubnetId": "s-1", "VpcId": "vpc-1"}]},
+                "ec2-instances": {"items": []},
+                "rds-instances": {"items": []},
+            }
+        )
+        assert r.status == "PASS"
 
 
 class TestNET008:
@@ -2929,11 +3492,13 @@ class TestNET008:
         """RDS with flat SubnetIds array (Drystone collector format) in public subnet."""
         rt = self._rt_public("s-pub")
         rds = {"DBInstanceIdentifier": "my-rds", "SubnetIds": ["s-pub", "s-priv"]}
-        r = check_net_008({
-            "route-tables": {"items": [rt]},
-            "subnets": {"items": [{"SubnetId": "s-pub"}, {"SubnetId": "s-priv"}]},
-            "rds-instances": {"items": [rds]},
-        })
+        r = check_net_008(
+            {
+                "route-tables": {"items": [rt]},
+                "subnets": {"items": [{"SubnetId": "s-pub"}, {"SubnetId": "s-priv"}]},
+                "rds-instances": {"items": [rds]},
+            }
+        )
         assert r.status == "FAIL"
         assert any("my-rds" in res for res in r.affected_resources)
 
@@ -2949,11 +3514,13 @@ class TestNET008:
                 ]
             },
         }
-        r = check_net_008({
-            "route-tables": {"items": [rt]},
-            "subnets": {"items": [{"SubnetId": "s-pub"}, {"SubnetId": "s-priv"}]},
-            "rds-instances": {"items": [rds]},
-        })
+        r = check_net_008(
+            {
+                "route-tables": {"items": [rt]},
+                "subnets": {"items": [{"SubnetId": "s-pub"}, {"SubnetId": "s-priv"}]},
+                "rds-instances": {"items": [rds]},
+            }
+        )
         assert r.status == "FAIL"
         assert any("my-rds" in res for res in r.affected_resources)
 
@@ -2961,11 +3528,13 @@ class TestNET008:
         """RDS with flat SubnetIds only in private subnets."""
         rt = self._rt_public("s-pub")
         rds = {"DBInstanceIdentifier": "my-rds", "SubnetIds": ["s-priv"]}
-        r = check_net_008({
-            "route-tables": {"items": [rt]},
-            "subnets": {"items": [{"SubnetId": "s-pub"}, {"SubnetId": "s-priv"}]},
-            "rds-instances": {"items": [rds]},
-        })
+        r = check_net_008(
+            {
+                "route-tables": {"items": [rt]},
+                "subnets": {"items": [{"SubnetId": "s-pub"}, {"SubnetId": "s-priv"}]},
+                "rds-instances": {"items": [rds]},
+            }
+        )
         assert r.status == "PASS"
 
 
@@ -3003,6 +3572,43 @@ class TestNET010:
     def test_pass_default_nacl_deny_rule(self):
         nacl = self._nacl("acl-default", True, "0.0.0.0/0", action="deny")
         r = check_net_010({"network-acls": {"items": [nacl]}})
+        assert r.status == "PASS"
+
+
+class TestNET013:
+    def test_fail_nat_default_route_without_vpc_endpoints(self):
+        rt = {
+            "RouteTableId": "rt-private",
+            "VpcId": "vpc-1",
+            "Routes": [{"DestinationCidrBlock": "0.0.0.0/0", "NatGatewayId": "nat-1"}],
+        }
+        r = check_net_013(
+            {
+                "route-tables": {"items": [rt]},
+                "nat-gateway-routes": {
+                    "items": [{"NatGatewayId": "nat-1", "SubnetId": "subnet-pub"}]
+                },
+                "vpc-endpoints": {"items": []},
+            }
+        )
+        assert r.status == "FAIL"
+        assert r.affected_resources == ["rt-private"]
+        detail = r.metadata["resource_details"][0]
+        assert detail["nat_gateway_id"] == "nat-1"
+        assert detail["observed_service_traffic"] == "not_collected"
+
+    def test_pass_when_vpc_endpoint_evidence_present(self):
+        rt = {
+            "RouteTableId": "rt-private",
+            "VpcId": "vpc-1",
+            "Routes": [{"DestinationCidrBlock": "0.0.0.0/0", "NatGatewayId": "nat-1"}],
+        }
+        r = check_net_013(
+            {
+                "route-tables": {"items": [rt]},
+                "vpc-endpoints": {"items": [{"VpcEndpointId": "vpce-1"}]},
+            }
+        )
         assert r.status == "PASS"
 
 
@@ -3260,14 +3866,16 @@ class TestNET011:
             ip_range["Description"] = description
         return {
             "GroupId": sg_id,
-            "IngressRules": [{
-                "IpProtocol": protocol,
-                "FromPort": from_port,
-                "ToPort": to_port,
-                "IpRanges": [ip_range],
-                "Ipv6Ranges": [],
-                "UserIdGroupPairs": [],
-            }],
+            "IngressRules": [
+                {
+                    "IpProtocol": protocol,
+                    "FromPort": from_port,
+                    "ToPort": to_port,
+                    "IpRanges": [ip_range],
+                    "Ipv6Ranges": [],
+                    "UserIdGroupPairs": [],
+                }
+            ],
             "EgressRules": [],
             "Tags": [{"Key": "Name", "Value": sg_id}],
         }
@@ -3292,7 +3900,9 @@ class TestNET011:
         """Verify all affected SGs are reported, not just the first one."""
         sg1 = self._sg_with_rule("sg-1", "tcp", 22, 22)  # no desc
         sg2 = self._sg_with_rule("sg-2", "tcp", 3306, 3306)  # no desc
-        sg3 = self._sg_with_rule("sg-3", "tcp", 443, 443, description="HTTPS")  # has desc, non-critical
+        sg3 = self._sg_with_rule(
+            "sg-3", "tcp", 443, 443, description="HTTPS"
+        )  # has desc, non-critical
         r = check_net_011({"security-groups": {"items": [sg1, sg2, sg3]}})
         assert r.status == "FAIL"
         assert "sg-1" in r.affected_resources
@@ -3301,12 +3911,14 @@ class TestNET011:
     def test_fail_all_traffic_rule_missing_description(self):
         sg = {
             "GroupId": "sg-all",
-            "IngressRules": [{
-                "IpProtocol": "-1",
-                "IpRanges": [{"CidrIp": "0.0.0.0/0"}],
-                "Ipv6Ranges": [],
-                "UserIdGroupPairs": [],
-            }],
+            "IngressRules": [
+                {
+                    "IpProtocol": "-1",
+                    "IpRanges": [{"CidrIp": "0.0.0.0/0"}],
+                    "Ipv6Ranges": [],
+                    "UserIdGroupPairs": [],
+                }
+            ],
             "EgressRules": [],
             "Tags": [],
         }
@@ -3325,14 +3937,18 @@ class TestNET022:
     def _rt_public(self, subnet_id):
         return {
             "RouteTableId": "rt-pub",
-            "Routes": [{"GatewayId": "igw-abc", "DestinationCidrBlock": "0.0.0.0/0", "State": "active"}],
+            "Routes": [
+                {"GatewayId": "igw-abc", "DestinationCidrBlock": "0.0.0.0/0", "State": "active"}
+            ],
             "Associations": [{"SubnetId": subnet_id}],
         }
 
     def _rt_private(self, subnet_id):
         return {
             "RouteTableId": "rt-priv",
-            "Routes": [{"NatGatewayId": "nat-abc", "DestinationCidrBlock": "0.0.0.0/0", "State": "active"}],
+            "Routes": [
+                {"NatGatewayId": "nat-abc", "DestinationCidrBlock": "0.0.0.0/0", "State": "active"}
+            ],
             "Associations": [{"SubnetId": subnet_id}],
         }
 
@@ -3348,34 +3964,66 @@ class TestNET022:
 
     def test_pass_no_public_subnets(self):
         rt = self._rt_private("s-1")
-        r = check_net_022({
-            "route-tables": {"items": [rt]},
-            "subnets": {"items": [{"SubnetId": "s-1"}]},
-        })
+        r = check_net_022(
+            {
+                "route-tables": {"items": [rt]},
+                "subnets": {"items": [{"SubnetId": "s-1"}]},
+            }
+        )
         assert r.status == "PASS"
 
     def test_fail_public_subnets_detected(self):
         rt = self._rt_public("s-pub")
-        r = check_net_022({
-            "route-tables": {"items": [rt]},
-            "subnets": {"items": [{"SubnetId": "s-pub"}, {"SubnetId": "s-priv"}]},
-        })
+        r = check_net_022(
+            {
+                "route-tables": {"items": [rt]},
+                "subnets": {"items": [{"SubnetId": "s-pub"}, {"SubnetId": "s-priv"}]},
+            }
+        )
         assert r.status == "FAIL"
         assert "s-pub" in r.affected_resources
 
     def test_fail_multiple_public_subnets(self):
         rt = {
             "RouteTableId": "rt-pub",
-            "Routes": [{"GatewayId": "igw-abc", "DestinationCidrBlock": "0.0.0.0/0", "State": "active"}],
+            "Routes": [
+                {"GatewayId": "igw-abc", "DestinationCidrBlock": "0.0.0.0/0", "State": "active"}
+            ],
             "Associations": [{"SubnetId": "s-pub1"}, {"SubnetId": "s-pub2"}],
         }
-        r = check_net_022({
-            "route-tables": {"items": [rt]},
-            "subnets": {"items": [{"SubnetId": "s-pub1"}, {"SubnetId": "s-pub2"}]},
-        })
+        r = check_net_022(
+            {
+                "route-tables": {"items": [rt]},
+                "subnets": {"items": [{"SubnetId": "s-pub1"}, {"SubnetId": "s-pub2"}]},
+            }
+        )
         assert r.status == "FAIL"
         assert "s-pub1" in r.affected_resources
         assert "s-pub2" in r.affected_resources
+
+    def test_fail_subnets_inherit_public_main_route_table(self):
+        rt = {
+            "RouteTableId": "rt-main",
+            "VpcId": "vpc-default",
+            "Routes": [
+                {"GatewayId": "igw-abc", "DestinationCidrBlock": "0.0.0.0/0", "State": "active"}
+            ],
+            "Associations": [{"Main": True}],
+        }
+        r = check_net_022(
+            {
+                "route-tables": {"items": [rt]},
+                "subnets": {
+                    "items": [
+                        {"SubnetId": "s-a", "VpcId": "vpc-default"},
+                        {"SubnetId": "s-b", "VpcId": "vpc-default"},
+                    ]
+                },
+            }
+        )
+        assert r.status == "FAIL"
+        assert r.affected_resources == ["s-a", "s-b"]
+        assert all(d["inherited_main_route"] for d in r.metadata["resource_details"])
 
 
 class TestNET025:
@@ -3910,6 +4558,141 @@ class TestKMS004:
 # ============================================================================
 # WAF CHECKS
 # ============================================================================
+
+
+class TestWAFPreChecks:
+    def test_waf001_counts_waf_classic_alb_as_protected(self):
+        classic_alb = "arn:aws:elasticloadbalancing:eu-west-1:123:loadbalancer/app/classic/abc"
+        unprotected_alb = "arn:aws:elasticloadbalancing:eu-west-1:123:loadbalancer/app/open/def"
+
+        r = check_waf_001(
+            {
+                "alb-waf-associations": [
+                    {"LoadBalancerArn": classic_alb, "WAFv2WebACL": None},
+                    {"LoadBalancerArn": unprotected_alb, "WAFv2WebACL": None},
+                ],
+                "waf-classic": {
+                    "regional": {
+                        "eu-west-1": {
+                            "alb_associations": [
+                                {
+                                    "LoadBalancerArn": classic_alb,
+                                    "WebACL": {"WebACLId": "classic-1", "Name": "ClassicACL"},
+                                }
+                            ]
+                        }
+                    }
+                },
+            }
+        )
+
+        assert r.status == "FAIL"
+        assert r.affected_resources == [unprotected_alb]
+        assert classic_alb in r.metadata["waf_classic_protected_albs"]
+
+    def test_waf001_passes_when_albs_have_wafv2_or_classic(self):
+        classic_alb = "arn:aws:elasticloadbalancing:eu-west-1:123:loadbalancer/app/classic/abc"
+        wafv2_alb = "arn:aws:elasticloadbalancing:eu-west-1:123:loadbalancer/app/wafv2/def"
+
+        r = check_waf_001(
+            {
+                "alb-waf-associations": [
+                    {"LoadBalancerArn": classic_alb, "WAFv2WebACL": None},
+                    {"LoadBalancerArn": wafv2_alb, "WAFv2WebACL": {"ARN": "arn:wafv2"}},
+                ],
+                "waf-classic": {
+                    "regional": {
+                        "eu-west-1": {
+                            "alb_associations": [
+                                {
+                                    "LoadBalancerArn": classic_alb,
+                                    "WebACL": {"WebACLId": "classic-1", "Name": "ClassicACL"},
+                                }
+                            ]
+                        }
+                    }
+                },
+            }
+        )
+
+        assert r.status == "PASS"
+
+    def test_waf004_text_and_metadata_are_log_redaction_specific(self):
+        r = check_waf_004(
+            {
+                "wafv2-web-acls": [
+                    {
+                        "Name": "API2025",
+                        "ARN": "arn:aws:wafv2:eu-west-1:123:regional/webacl/API2025/id",
+                        "Logging": {
+                            "enabled": True,
+                            "RedactedFields": [{"QueryString": {}}, {"UriPath": {}}],
+                        },
+                    }
+                ]
+            }
+        )
+
+        assert r.status == "FAIL"
+        assert "incomplete log redaction" in r.evidence_summary
+        assert "authorization" in r.metadata["resource_details"][0]["missing_redactions"]
+        assert "IP reputation" not in PRE_CHECK_DESCRIPTIONS["WAF-004"]
+        assert "log redaction" in PRE_CHECK_REMEDIATIONS["WAF-004"]
+
+    def test_waf006_reports_missing_aws_baseline_without_claiming_no_sqli(self):
+        r = check_waf_006(
+            {
+                "wafv2-web-acls": [
+                    {
+                        "Name": "API2025",
+                        "ARN": "arn:aws:wafv2:eu-west-1:123:regional/webacl/API2025/id",
+                        "WebACL": {
+                            "Rules": [
+                                {
+                                    "Statement": {
+                                        "ManagedRuleGroupStatement": {
+                                            "VendorName": "Cyber Security Cloud Inc.",
+                                            "Name": "CyberSecurityCloud-HighSecurityOWASPSet-",
+                                        }
+                                    }
+                                }
+                            ]
+                        },
+                    }
+                ]
+            }
+        )
+
+        assert r.status == "FAIL"
+        assert "baseline AWS Managed Rules" in r.evidence_summary
+        assert "SQL injection protection rules enabled" not in PRE_CHECK_DESCRIPTIONS["WAF-006"]
+        assert (
+            r.metadata["resource_details"][0]["managed_rule_groups"][0]["vendor"]
+            == "Cyber Security Cloud Inc."
+        )
+
+    def test_waf010_text_and_metadata_are_classic_migration_specific(self):
+        r = check_waf_010(
+            {
+                "waf-classic": {
+                    "global": {"web_acls": [{"Name": "CommonAttackProtection", "WebACLId": "g1"}]},
+                    "regional": {
+                        "eu-west-1": {
+                            "web_acls": [
+                                {"Name": "BackOffice", "WebACLId": "r1"},
+                                {"Name": "API", "WebACLId": "r2"},
+                            ]
+                        }
+                    },
+                }
+            }
+        )
+
+        assert r.status == "FAIL"
+        assert r.affected_resources == ["CommonAttackProtection", "BackOffice", "API"]
+        assert "geo-restriction" not in PRE_CHECK_DESCRIPTIONS["WAF-010"]
+        assert "migrate WAF Classic" in PRE_CHECK_REMEDIATIONS["WAF-010"]
+        assert len(r.metadata["resource_details"]) == 3
 
 
 class TestWAF013:
@@ -4765,6 +5548,7 @@ class TestIAM041AdminRoles:
             )
         return {
             "RoleName": name,
+            "Arn": f"arn:aws:iam::123456789012:role/{name}",
             "AttachedPolicies": [
                 {"PolicyName": a.split("/")[-1], "PolicyArn": a} for a in (attached_arns or [])
             ],
@@ -4822,8 +5606,8 @@ class TestIAM041AdminRoles:
         assert result.status == "FAIL"
         assert len(result.affected_resources) == 2
 
-    def test_fail_trust_context_included(self):
-        """Trust principal should appear in affected resource label for context."""
+    def test_fail_trust_context_stays_in_metadata(self):
+        """Affected resource should be the privileged role ARN; trust context is metadata."""
         evidence = {
             "roles": [
                 self._make_role(
@@ -4835,8 +5619,33 @@ class TestIAM041AdminRoles:
         }
         result = self._run(evidence)
         assert result.status == "FAIL"
-        # Label should reference the trust principal
-        assert "trusted by" in result.affected_resources[0]
+        assert result.affected_resources == ["arn:aws:iam::123456789012:role/cicd-role"]
+        assert result.metadata["detailed_roles"][0]["TrustedBy"] == [
+            "arn:aws:iam::123456789012:root"
+        ]
+
+    def test_affected_resource_is_role_with_admin_policy_not_trusting_parent(self):
+        evidence = {
+            "roles": [
+                self._make_role(
+                    "AWS-QuickSetup-StackSet-Local-ExecutionRole",
+                    ["arn:aws:iam::aws:policy/AdministratorAccess"],
+                    trusted_by="arn:aws:iam::123456789012:role/AWS-QuickSetup-Admin",
+                )
+            ]
+        }
+        result = self._run(evidence)
+        assert result.affected_resources == [
+            "arn:aws:iam::123456789012:role/AWS-QuickSetup-StackSet-Local-ExecutionRole"
+        ]
+
+    def test_remediation_targets_admin_policy_not_role_chaining(self):
+        from drystone.validation.pre_checks import PRE_CHECK_REMEDIATIONS
+
+        remediation = PRE_CHECK_REMEDIATIONS["IAM-041"].lower()
+        assert "administratoraccess" in remediation
+        assert "least-privilege" in remediation
+        assert "role chaining" not in remediation
 
     def test_pass_empty_roles_list(self):
         result = self._run({"roles": []})
@@ -4866,7 +5675,7 @@ class TestPentestPresetSecretsmgr:
             aws_secret_access_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
             skills=["pentest"],
         )
-        expected = ["recon", "iam", "exposure", "network", "vulns", "secretsmanager"]
+        expected = ["recon", "iam", "exposure", "network", "vulns", "secretsmanager", "sistemas_explotables_red"]
         assert config.skills == expected
 
 
@@ -5379,7 +6188,8 @@ class TestEXP024S3KMSEncryption:
             }
         )
         assert result.status == "FAIL"
-        assert "old-bucket" in result.affected_resources
+        assert "arn:aws:s3:::old-bucket" in result.affected_resources
+        assert result.metadata["resource_details"][0]["bucket_name"] == "old-bucket"
 
     def test_fail_audit_bucket_aes256(self):
         """Audit/log bucket with AES256 (not KMS) → FAIL."""
@@ -5393,7 +6203,7 @@ class TestEXP024S3KMSEncryption:
             }
         )
         assert result.status == "FAIL"
-        assert "cloudtrail-logs-prod" in result.affected_resources
+        assert "arn:aws:s3:::cloudtrail-logs-prod" in result.affected_resources
 
     def test_fail_mixed_buckets(self):
         """No encryption + AES256 audit buckets both flagged."""
@@ -5429,6 +6239,148 @@ class TestEXP024S3KMSEncryption:
         assert result.status == "FAIL"
         assert len(result.affected_resources) == len(audit_names)
 
+
+class TestExposureQAFixes:
+    def test_exp002_requires_public_rds_and_open_database_port(self):
+        evidence = {
+            "rds-instances": {
+                "items": [
+                    {
+                        "DBInstanceIdentifier": "postclear",
+                        "Engine": "sqlserver-web",
+                        "PubliclyAccessible": True,
+                        "VpcSecurityGroups": [{"VpcSecurityGroupId": "sg-rds"}],
+                    }
+                ]
+            },
+            "security-groups": {
+                "by_id": {
+                    "sg-rds": {
+                        "GroupId": "sg-rds",
+                        "IngressRules": [
+                            {
+                                "IpProtocol": "tcp",
+                                "FromPort": 1433,
+                                "ToPort": 1433,
+                                "IpRanges": [{"CidrIp": "0.0.0.0/0"}],
+                                "Ipv6Ranges": [{"CidrIpv6": "::/0"}],
+                            }
+                        ],
+                    }
+                }
+            },
+        }
+        result = check_exp_002(evidence)
+        assert result.status == "FAIL"
+        detail = result.metadata["resource_details"][0]
+        assert detail["db_instance_identifier"] == "postclear"
+        assert detail["open_rules"][0]["port"] == 1433
+
+    def test_exp004_skips_without_ec2_inventory_even_if_rds_sg_is_open(self):
+        evidence = {
+            "security-groups": {
+                "by_id": {
+                    "sg-rds": {
+                        "GroupId": "sg-rds",
+                        "IngressRules": [
+                            {
+                                "IpProtocol": "tcp",
+                                "FromPort": 1433,
+                                "ToPort": 1433,
+                                "IpRanges": [{"CidrIp": "0.0.0.0/0"}],
+                            }
+                        ],
+                    }
+                }
+            }
+        }
+        result = check_exp_004(evidence)
+        assert result.status == "SKIP"
+
+    def test_exp007_emits_alb_metadata(self):
+        alb_arn = "arn:aws:elasticloadbalancing:eu-west-1:123:loadbalancer/app/public/abc"
+        result = check_exp_007(
+            {
+                "load-balancers": {
+                    "items": [
+                        {
+                            "LoadBalancerArn": alb_arn,
+                            "LoadBalancerName": "public",
+                            "Type": "application",
+                            "Scheme": "internet-facing",
+                            "DNSName": "public.example",
+                        }
+                    ]
+                },
+                "wafv2-web-acl-alb-associations": {"by_alb_arn": {}},
+            }
+        )
+        assert result.status == "FAIL"
+        assert result.metadata["resource_details"][0]["load_balancer_arn"] == alb_arn
+
+    def test_exp013_affected_resources_cover_all_missing_tls_buckets(self):
+        result = check_exp_013(
+            {
+                "s3-buckets": {
+                    "by_name": {
+                        f"bucket-{i}": {
+                            "Name": f"bucket-{i}",
+                            "BucketPolicy": {"Statement": []},
+                        }
+                        for i in range(7)
+                    }
+                }
+            }
+        )
+        assert result.status == "FAIL"
+        assert len(result.affected_resources) == 7
+        assert len(result.metadata["resource_details"]) == 7
+
+    def test_exp014_affected_resources_cover_all_unversioned_buckets(self):
+        result = check_exp_014(
+            {
+                "s3-buckets": {
+                    "by_name": {
+                        f"bucket-{i}": {"Name": f"bucket-{i}", "Versioning": None} for i in range(7)
+                    }
+                }
+            }
+        )
+        assert result.status == "FAIL"
+        assert len(result.affected_resources) == 7
+        assert len(result.metadata["resource_details"]) == 7
+
+    def test_exp015_reports_empty_principal_org_id_as_malformed_condition(self):
+        result = check_exp_015(
+            {
+                "_audit_metadata": {"_account_id": "111111111111"},
+                "s3-buckets": {
+                    "items": [
+                        {
+                            "Name": "quicksetup",
+                            "BucketPolicy": {
+                                "Statement": [
+                                    {
+                                        "Sid": "Target",
+                                        "Effect": "Allow",
+                                        "Principal": "*",
+                                        "Action": "s3:GetObject",
+                                        "Resource": "arn:aws:s3:::quicksetup/baseline.json",
+                                        "Condition": {"StringEquals": {"aws:PrincipalOrgID": ""}},
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                },
+            }
+        )
+        assert result.status == "FAIL"
+        detail = result.metadata["resource_details"][0]
+        assert detail["condition_status"] == "empty_aws:PrincipalOrgID"
+        assert result.affected_resources == ["arn:aws:s3:::quicksetup"]
+
+
 # ── ALRT-026: CloudTrail S3 Bucket Notifications ──────────────────────────────
 
 
@@ -5437,6 +6389,7 @@ class TestAlrt026S3BucketNotifications:
 
     def _run(self, evidence):
         from drystone.validation.pre_checks import check_alrt_026
+
         return check_alrt_026(evidence)
 
     def test_skip_no_evidence(self):
@@ -5505,12 +6458,8 @@ class TestAlrt026S3BucketNotifications:
                     "lambda_configs": [
                         {"LambdaFunctionArn": "arn:aws:lambda:us-east-1:123:function:fn-a"}
                     ],
-                    "sqs_configs": [
-                        {"QueueArn": "arn:aws:sqs:us-east-1:123:trail-queue"}
-                    ],
-                    "sns_configs": [
-                        {"TopicArn": "arn:aws:sns:us-east-1:123:trail-topic"}
-                    ],
+                    "sqs_configs": [{"QueueArn": "arn:aws:sqs:us-east-1:123:trail-queue"}],
+                    "sns_configs": [{"TopicArn": "arn:aws:sns:us-east-1:123:trail-topic"}],
                 }
             ]
         }
@@ -5550,6 +6499,7 @@ class TestAlrt027LogSubscriptions:
 
     def _run(self, evidence):
         from drystone.validation.pre_checks import check_alrt_027
+
         return check_alrt_027(evidence)
 
     def test_skip_no_evidence(self):
@@ -5668,3 +6618,454 @@ class TestAlrt027LogSubscriptions:
         result = self._run(evidence)
         assert result.status == "FAIL"
         assert any("Firehose" in r for r in result.affected_resources)
+
+
+# ── Pattern A rich metadata tests ────────────────────────────────────────────
+
+
+def _sg(sg_id, group_name="test-sg", ingress=None):
+    return {"GroupId": sg_id, "GroupName": group_name, "IngressRules": ingress or []}
+
+
+def _perm(proto="tcp", from_port=22, to_port=22, cidr="0.0.0.0/0"):
+    return {
+        "IpProtocol": proto,
+        "FromPort": from_port,
+        "ToPort": to_port,
+        "IpRanges": [{"CidrIp": cidr}],
+    }
+
+
+class TestNET001RichMetadata:
+    def test_pass_returns_no_metadata(self):
+        r = check_net_001({"security-groups": [_sg("sg-1")]})
+        assert r.status == "PASS"
+        assert r.metadata.get("resource_details") is None
+
+    def test_fail_emits_resource_details(self):
+        evidence = {"security-groups": [_sg("sg-1", ingress=[_perm(from_port=22, to_port=22)])]}
+        r = check_net_001(evidence)
+        assert r.status == "FAIL"
+        details = r.metadata.get("resource_details", [])
+        assert len(details) >= 1
+        d = details[0]
+        assert d["resource"] == "sg-1"
+        assert d["port"] == 22
+        assert d["service"] == "SSH"
+        assert d["source"] in ("0.0.0.0/0", "::/0")
+
+    def test_resource_detail_has_protocol(self):
+        evidence = {"security-groups": [_sg("sg-x", ingress=[_perm(from_port=3389, to_port=3389)])]}
+        r = check_net_001(evidence)
+        assert r.status == "FAIL"
+        d = r.metadata["resource_details"][0]
+        assert "protocol" in d
+        assert d["service"] == "RDP"
+
+
+class TestNET009RichMetadata:
+    def _broad_perm(self, from_port=8080, to_port=8080, cidr="10.0.0.0/8"):
+        return {
+            "IpProtocol": "tcp",
+            "FromPort": from_port,
+            "ToPort": to_port,
+            "IpRanges": [{"CidrIp": cidr}],
+        }
+
+    def test_pass_returns_no_metadata(self):
+        r = check_net_009({"security-groups": [_sg("sg-1")]})
+        assert r.status == "PASS"
+
+    def test_fail_emits_resource_details(self):
+        evidence = {"security-groups": [_sg("sg-1", "broad-sg", ingress=[self._broad_perm()])]}
+        r = check_net_009(evidence)
+        assert r.status == "FAIL"
+        details = r.metadata.get("resource_details", [])
+        assert len(details) >= 1
+        d = details[0]
+        assert d["resource"] == "sg-1"
+        assert "cidr" in d
+        assert "port_range" in d
+        assert "protocol" in d
+
+    def test_web_ports_excluded(self):
+        web_perm = {
+            "IpProtocol": "tcp",
+            "FromPort": 80,
+            "ToPort": 80,
+            "IpRanges": [{"CidrIp": "10.0.0.0/8"}],
+        }
+        r = check_net_009({"security-groups": [_sg("sg-1", ingress=[web_perm])]})
+        assert r.status == "PASS"
+
+
+class TestNET011RichMetadata:
+    def _perm_no_desc(self, port=22):
+        return {
+            "IpProtocol": "tcp",
+            "FromPort": port,
+            "ToPort": port,
+            "IpRanges": [{"CidrIp": "0.0.0.0/0"}],
+        }
+
+    def test_fail_emits_resource_details(self):
+        evidence = {"security-groups": [_sg("sg-miss", ingress=[self._perm_no_desc(22)])]}
+        r = check_net_011(evidence)
+        assert r.status == "FAIL"
+        details = r.metadata.get("resource_details", [])
+        assert len(details) >= 1
+        d = details[0]
+        assert d["resource"] == "sg-miss"
+        assert d["missing_description"] is True
+        assert "port" in d
+
+
+class TestEXP003RichMetadata:
+    def test_fail_emits_resource_details(self):
+        evidence = {
+            "security-groups": [_sg("sg-rdp", ingress=[_perm(from_port=3389, to_port=3389)])]
+        }
+        r = check_exp_003(evidence)
+        assert r.status == "FAIL"
+        details = r.metadata.get("resource_details", [])
+        assert len(details) >= 1
+        d = details[0]
+        assert d["resource"] == "sg-rdp"
+        assert d["port"] == 3389
+        assert d["service"] == "RDP"
+        assert "source" in d
+
+    def test_pass_returns_no_metadata(self):
+        r = check_exp_003({"security-groups": [_sg("sg-ok")]})
+        assert r.status == "PASS"
+        assert r.metadata.get("resource_details") is None
+
+
+class TestVULN002RichMetadata:
+    def _finding(
+        self, severity="CRITICAL", status="ACTIVE", resource_id="i-123", cve="CVE-2024-9999"
+    ):
+        return {
+            "severity": severity,
+            "status": status,
+            "resources": [{"id": resource_id}],
+            "packageVulnerabilityDetails": {
+                "vulnerabilityId": cve,
+                "vulnerablePackages": [
+                    {"name": "openssl", "version": "1.0", "fixedInVersion": "1.1"}
+                ],
+            },
+            "firstObservedAt": "2024-01-01T00:00:00Z",
+        }
+
+    def test_pass_returns_no_metadata(self):
+        r = check_vuln_002({"inspector-findings": [self._finding(severity="HIGH")]})
+        assert r.status == "PASS"
+
+    def test_fail_emits_resource_details(self):
+        r = check_vuln_002({"inspector-findings": [self._finding()]})
+        assert r.status == "FAIL"
+        details = r.metadata.get("resource_details", [])
+        assert len(details) == 1
+        d = details[0]
+        assert d["resource_id"] == "i-123"
+        assert d["cve_id"] == "CVE-2024-9999"
+        assert d["package"] == "openssl"
+        assert d["fix_available"] is True
+        assert isinstance(d["days_open"], int)
+
+
+class TestVulnerabilityReportingQAFixes:
+    def _inspector_finding(
+        self,
+        *,
+        title="CVE-2026-3888 - snapd",
+        resource_id="i-123",
+        severity="HIGH",
+        status="ACTIVE",
+        exploit="YES",
+        fix="YES",
+        score=7.8,
+        arn="arn:aws:inspector2:eu-west-1:123:finding/f-1",
+    ):
+        return {
+            "findingArn": arn,
+            "title": title,
+            "severity": severity,
+            "status": status,
+            "resources": [{"type": "AWS_EC2_INSTANCE", "id": resource_id}],
+            "inspectorScore": score,
+            "fixAvailable": fix,
+            "exploitAvailable": exploit,
+            "remediation": {"recommendation": {"text": "None Provided"}},
+        }
+
+    def test_vuln004_uses_active_exploit_without_critical_overclaim(self):
+        result = check_vuln_004({"inspector-findings": [self._inspector_finding()]})
+
+        assert result.status == "FAIL"
+        assert result.risk_score_override == 7.8
+        detail = result.metadata["resource_details"][0]
+        assert detail["severity"] == "HIGH"
+        assert detail["exploit_available"] == "YES"
+        assert detail["evidence_ref"].startswith("inspector-findings.json#findingArn.")
+
+        text = (
+            PRE_CHECK_DESCRIPTIONS["VULN-004"]
+            + PRE_CHECK_IMPACTS["VULN-004"]
+            + PRE_CHECK_REMEDIATIONS["VULN-004"]
+        ).lower()
+        assert "zero-day" not in text
+        assert "critical cves" not in text
+        assert "inspector reports" in text or "exploitavailable=yes" in text
+
+    def test_vuln004_ignores_closed_critical_findings(self):
+        closed_critical = self._inspector_finding(
+            title="CVE-2025-68263 - linux-image-aws",
+            severity="CRITICAL",
+            status="CLOSED",
+            exploit="NO",
+            score=9.8,
+        )
+
+        result = check_vuln_004({"inspector-findings": [closed_critical]})
+
+        assert result.status == "PASS"
+
+    def test_vuln003_skips_without_public_reachability_evidence(self):
+        result = check_vuln_003({"inspector-findings": [self._inspector_finding()]})
+
+        assert result.status == "SKIP"
+        assert "reachability" in result.evidence_summary
+
+    def test_vuln003_fails_when_public_reachability_is_proven(self):
+        result = check_vuln_003(
+            {
+                "inspector-findings": [self._inspector_finding(resource_id="i-public")],
+                "ec2-instances": {
+                    "items": [{"InstanceId": "i-public", "PublicIpAddress": "203.0.113.10"}]
+                },
+            }
+        )
+
+        assert result.status == "FAIL"
+        assert result.affected_resources == ["i-public"]
+        assert result.metadata["resource_details"][0]["public_exposure_evidence"]
+
+    def test_vuln008_description_does_not_claim_eol(self):
+        result = check_vuln_008(
+            {
+                "inspector-findings": [
+                    self._inspector_finding(resource_id="i-1", title="CVE-2026-23273"),
+                    self._inspector_finding(resource_id="i-2", title="CVE-2026-3888"),
+                ]
+            }
+        )
+
+        assert result.status == "FAIL"
+        assert len(result.metadata["resource_details"]) == 2
+        text = PRE_CHECK_DESCRIPTIONS["VULN-008"].lower()
+        assert "end-of-life" not in text
+        assert "support lifecycle" not in text
+        assert "remediation" in text
+        assert "no remediation plan evident" not in result.evidence_summary
+
+    def test_vuln010_includes_instance_name_context_without_age_claim(self):
+        result = check_vuln_010(
+            {
+                "inspector-findings": [self._inspector_finding(resource_id="i-api")],
+                "ec2-patch-status": [
+                    {
+                        "InstanceId": "i-api",
+                        "Tags": [{"Key": "Name", "Value": "API - Robicheaux N1 - 2025"}],
+                    }
+                ],
+            }
+        )
+
+        assert result.status == "FAIL"
+        assert (
+            result.metadata["resource_details"][0]["instance_name"] == "API - Robicheaux N1 - 2025"
+        )
+        assert "beyond the recommended timeframe" not in PRE_CHECK_DESCRIPTIONS["VULN-010"]
+        assert "named application service components" in PRE_CHECK_DESCRIPTIONS["VULN-010"]
+        assert "service instances" in PRE_CHECK_IMPACTS["VULN-010"]
+        assert "If exploited, an attacker could leverage" not in PRE_CHECK_IMPACTS["VULN-010"]
+
+    def test_vuln011_does_not_infer_disabled_scanning_from_empty_ecr_results(self):
+        result = check_vuln_011({"inspector-findings": [], "ecr-image-scans": []})
+
+        assert result.status == "SKIP"
+        assert "cannot infer disabled scanning" in result.evidence_summary
+
+
+class TestVULN009RichMetadata:
+    def _findings_for(self, resource_id, count=4, severity="HIGH"):
+        return [
+            {"severity": severity, "status": "ACTIVE", "resources": [{"id": resource_id}]}
+            for _ in range(count)
+        ]
+
+    def test_pass_no_multi_vuln(self):
+        r = check_vuln_009({"inspector-findings": self._findings_for("i-1", count=2)})
+        assert r.status == "PASS"
+
+    def test_fail_emits_resource_details(self):
+        findings = self._findings_for("i-heavy", count=5)
+        r = check_vuln_009({"inspector-findings": findings})
+        assert r.status == "FAIL"
+        details = r.metadata.get("resource_details", [])
+        assert len(details) >= 1
+        d = details[0]
+        assert d["resource_id"] == "i-heavy"
+        assert d["cve_count"] == 5
+        assert "severities" in d
+
+
+class TestALRT005RichMetadata:
+    def _topic(self, arn, confirmed=0):
+        return {"TopicArn": arn, "Attributes": {"SubscriptionsConfirmed": str(confirmed)}}
+
+    def _alarm(self, name, topic_arn):
+        return {"AlarmName": name, "AlarmActions": [topic_arn]}
+
+    def test_fail_emits_resource_details(self):
+        arn = "arn:aws:sns:us-east-1:123:alerts"
+        evidence = {
+            "sns-topics": [self._topic(arn, confirmed=0)],
+            "cloudwatch-alarms": [self._alarm("BillingAlarm", arn)],
+        }
+        r = check_alrt_005(evidence)
+        assert r.status == "FAIL"
+        details = r.metadata.get("resource_details", [])
+        assert len(details) >= 1
+        d = details[0]
+        assert d["topic_arn"] == arn
+        assert "affected_alarms" in d
+        assert "BillingAlarm" in d["affected_alarms"]
+        assert d["alarm_count"] >= 1
+
+    def test_pass_returns_no_metadata(self):
+        arn = "arn:aws:sns:us-east-1:123:alerts"
+        r = check_alrt_005({"sns-topics": [self._topic(arn, confirmed=1)]})
+        assert r.status == "PASS"
+
+
+class TestKMS002RichMetadata:
+    def _grant(
+        self,
+        key_id="key-1",
+        grant_id="g1",
+        grantee="arn:aws:iam::123:user/dev",
+        ops=None,
+        constraints=None,
+    ):
+        return {
+            "KeyId": key_id,
+            "GrantId": grant_id,
+            "GranteePrincipal": grantee,
+            "Operations": ops or ["Decrypt"],
+            "Constraints": constraints,
+            "CreationDate": "2024-01-01T00:00:00Z",
+        }
+
+    def test_fail_emits_resource_details(self):
+        evidence = {"kms-grants": {"items": [self._grant()]}}
+        r = check_kms_002(evidence)
+        assert r.status == "FAIL"
+        details = r.metadata.get("resource_details", [])
+        assert len(details) >= 1
+        d = details[0]
+        assert d["key_id"] == "key-1"
+        assert d["grant_id"] == "g1"
+        assert "grantee" in d
+        assert "Decrypt" in d["operations"]
+        assert isinstance(d["days_active"], int)
+        assert d["has_constraints"] is False
+
+    def test_service_grant_with_context_skipped(self):
+        g = self._grant(
+            grantee="s3.amazonaws.com",
+            constraints={"EncryptionContextEquals": {"aws:s3:arn": "arn:aws:s3:::bucket"}},
+        )
+        r = check_kms_002({"kms-grants": {"items": [g]}})
+        assert r.status == "PASS"
+
+    def test_multiple_grants_collected(self):
+        evidence = {
+            "kms-grants": {
+                "items": [
+                    self._grant("k1", "g1"),
+                    self._grant("k2", "g2", ops=["GenerateDataKey"]),
+                ]
+            }
+        }
+        r = check_kms_002(evidence)
+        assert r.status == "FAIL"
+        assert len(r.metadata["resource_details"]) == 2
+
+
+class TestVULN023RichMetadata:
+    def test_fail_emits_resource_details(self):
+        evidence = {
+            "ec2-user-data": {
+                "items": [
+                    {
+                        "InstanceId": "i-abc",
+                        "InstanceName": "web-server",
+                        "ContainsSecrets": {"AWS_ACCESS_KEY": True, "DATABASE_URL": True},
+                    }
+                ]
+            }
+        }
+        r = check_vuln_023(evidence)
+        assert r.status == "FAIL"
+        details = r.metadata.get("resource_details", [])
+        assert len(details) == 1
+        d = details[0]
+        assert d["instance_id"] == "i-abc"
+        assert d["secret_count"] == 2
+        assert "AWS_ACCESS_KEY" in d["secret_types"]
+
+    def test_pass_no_secrets(self):
+        evidence = {
+            "ec2-user-data": {
+                "items": [{"InstanceId": "i-clean", "ContainsSecrets": {"AWS_ACCESS_KEY": False}}]
+            }
+        }
+        r = check_vuln_023(evidence)
+        assert r.status == "PASS"
+
+
+class TestVULN024RichMetadata:
+    def test_fail_emits_resource_details(self):
+        evidence = {
+            "lambda-environment-variables": {
+                "items": [
+                    {
+                        "FunctionArn": "arn:aws:lambda:us-east-1:123:function:api",
+                        "FunctionName": "api",
+                        "PotentialSecretKeys": ["DB_PASSWORD", "API_SECRET"],
+                    }
+                ]
+            }
+        }
+        r = check_vuln_024(evidence)
+        assert r.status == "FAIL"
+        details = r.metadata.get("resource_details", [])
+        assert len(details) == 1
+        d = details[0]
+        assert d["function_name"] == "api"
+        assert d["key_count"] == 2
+        assert "DB_PASSWORD" in d["sensitive_keys"]
+
+    def test_pass_no_sensitive_keys(self):
+        evidence = {
+            "lambda-environment-variables": {
+                "items": [
+                    {"FunctionArn": "arn:...", "FunctionName": "clean", "PotentialSecretKeys": []}
+                ]
+            }
+        }
+        r = check_vuln_024(evidence)
+        assert r.status == "PASS"
