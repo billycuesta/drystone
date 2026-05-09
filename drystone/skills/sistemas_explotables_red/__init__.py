@@ -772,27 +772,38 @@ class SistemasExplotablesRedSkill(BaseSkill):
                     nvd_cache[cve_id] = parsed
             except urllib.error.HTTPError as http_err:
                 if http_err.code == 429:
-                    # Rate limited — wait and retry once.
-                    # Apply a minimum of 30s regardless of Retry-After value,
-                    # because NVD often sends 0 or omits the header entirely.
-                    try:
-                        retry_after = max(30, int(http_err.headers.get("Retry-After", 30)))
-                    except (ValueError, TypeError):
-                        retry_after = 30
-                    logger.warning(
-                        "NVD API rate limited for %s, retrying in %ss", cve_id, retry_after
-                    )
-                    time.sleep(retry_after)
-                    try:
-                        with urllib.request.urlopen(req, timeout=10) as resp2:
-                            body2 = json.loads(resp2.read().decode())
-                        parsed2 = _parse_nvd_response(body2)
-                        if parsed2:
-                            nvd_cache[cve_id] = parsed2
-                    except Exception as retry_exc:
-                        enrichment_errors.append(
-                            f"NVD lookup failed for {cve_id} (after retry): {retry_exc}"
-                        )
+                    # Exponential backoff: 30s → 60s → 120s (3 retries total)
+                    _retried = False
+                    for _attempt in range(3):
+                        try:
+                            _delay = 30 * (2 ** _attempt)
+                            logger.warning(
+                                "NVD rate limited for %s (attempt %d/3), retrying in %ss",
+                                cve_id, _attempt + 1, _delay,
+                            )
+                            time.sleep(_delay)
+                            with urllib.request.urlopen(req, timeout=10) as resp2:
+                                body2 = json.loads(resp2.read().decode())
+                            parsed2 = _parse_nvd_response(body2)
+                            if parsed2:
+                                nvd_cache[cve_id] = parsed2
+                            _retried = True
+                            break
+                        except urllib.error.HTTPError as retry_err:
+                            if retry_err.code != 429:
+                                enrichment_errors.append(
+                                    f"NVD lookup failed for {cve_id} (attempt {_attempt+1}): {retry_err}"
+                                )
+                                _retried = True
+                                break
+                        except Exception as retry_exc:
+                            enrichment_errors.append(
+                                f"NVD lookup failed for {cve_id} (attempt {_attempt+1}): {retry_exc}"
+                            )
+                            _retried = True
+                            break
+                    if not _retried:
+                        enrichment_errors.append(f"NVD lookup failed for {cve_id}: exhausted retries")
                 else:
                     enrichment_errors.append(f"NVD lookup failed for {cve_id}: {http_err}")
             except Exception as e:
@@ -920,8 +931,14 @@ class SistemasExplotablesRedSkill(BaseSkill):
             )
             step_num += 1
 
-        # Step 2: Exploit network-reachable CVE
-        network_cves = [c for c in cves if c.get("exploitable_from_internet")]
+        # Step 2: Exploit network-reachable CVE. Inspector reachability findings
+        # confirm exposure but are not CVEs and must not inflate this count.
+        network_cves = [
+            c
+            for c in cves
+            if str(c.get("id") or "").upper().startswith("CVE-")
+            and c.get("exploitable_from_internet")
+        ]
         if network_cves:
             top_cve = network_cves[0]
             cve_id = top_cve.get("id", "CVE-unknown")
