@@ -289,8 +289,7 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
 
     # ── Step 2: Skill Selection ───────────────────────────────────
     current_skills = defaults.get("skills", ["iam"])
-    pentest_core = ["recon", "iam", "exposure", "network", "vulns", "secretsmanager"]
-    if current_skills == pentest_core:
+    if current_skills == list(PENTEST_CORE_SKILLS):
         default_skill = "pentest"
     elif isinstance(current_skills, list) and current_skills:
         default_skill = str(current_skills[0])
@@ -333,11 +332,6 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
             questionary.Choice("CI/CD (CodeBuild) Audit", "cicd", checked=default_skill == "cicd"),
             questionary.Choice(
                 "Compute (ECS/EKS) Audit", "compute", checked=default_skill == "compute"
-            ),
-            questionary.Choice(
-                "Network Exploitable Systems",
-                "sistemas_explotables_red",
-                checked=default_skill == "sistemas_explotables_red",
             ),
             questionary.Separator("────────────"),
             questionary.Choice("Internal Pentest", "pentest", checked=default_skill == "pentest"),
