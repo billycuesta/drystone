@@ -82,6 +82,12 @@ SESSION_TRACKER.md
 QUICK_START_*.md
 WIZARD_TESTING.md
 
+# Internal session/roadmap tracking docs — even inside drystone-specs/
+# (architecture, checks_inventory, and methodology docs in drystone-specs/ stay public;
+# only session logs and the internal roadmap file are excluded)
+drystone-specs/SESSION_*.md
+drystone-specs/PROJECT_PLAN.md
+
 # OS
 .DS_Store
 Thumbs.db
