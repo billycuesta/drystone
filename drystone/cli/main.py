@@ -477,6 +477,20 @@ def audit(
         except Exception as _corr_err:
             pass  # Non-blocking: report generates with empty chains if correlation fails
 
+    # === PHASE 3c: CHAIN-OF-CUSTODY MANIFEST ===
+    # Hash every evidence/findings JSON now that collection and analysis are
+    # done, so post-audit tampering with either is detectable later via
+    # `drystone verify-integrity`. Non-blocking: a manifest failure shouldn't
+    # stop the audit from producing a report.
+    try:
+        from drystone.storage.manifest import write_manifest
+
+        _manifest_path, _manifest_hash = write_manifest(session.base_path)
+        session.integrity_manifest_sha256 = _manifest_hash
+        click.echo(f"  🔒 Evidence integrity manifest written ({_manifest_path.name})\n")
+    except Exception as _manifest_err:
+        click.echo(f"  ⚠️  Could not write integrity manifest: {_manifest_err}\n")
+
     # === PHASE 4: REPORT GENERATION ===
     if all_findings:
         click.echo("📄 Generating reports...\n")
@@ -643,6 +657,44 @@ def logs(format: str) -> None:
     click.echo("📋 Audit Sessions:")
     for session in sessions:
         click.echo(f"  • {session.name}")
+
+
+@cli.command(name="verify-integrity")
+@click.argument("session_dir", type=click.Path(exists=True, file_okay=False, path_type=Path))
+def verify_integrity(session_dir: Path) -> None:
+    """Verify evidence/findings haven't been tampered with since the audit ran.
+
+    SESSION_DIR is an audit-logs/{client}_{timestamp}/ directory containing
+    a manifest.json written during the audit.
+    """
+    from drystone.storage.manifest import verify_manifest
+
+    result = verify_manifest(session_dir)
+
+    if result["error"]:
+        click.echo(f"❌ {result['error']}")
+        sys.exit(1)
+
+    click.echo(f"🔒 Checked {result['checked_files']} evidence/findings file(s)")
+    click.echo(f"   Manifest generated: {result['manifest_generated_at']}")
+
+    if result["ok"]:
+        click.echo("✅ Integrity verified — no tampering detected")
+        return
+
+    if result["tampered"]:
+        click.echo(f"\n❌ {len(result['tampered'])} file(s) modified since the audit ran:")
+        for rel in result["tampered"]:
+            click.echo(f"   • {rel}")
+    if result["missing"]:
+        click.echo(f"\n❌ {len(result['missing'])} file(s) recorded but no longer present:")
+        for rel in result["missing"]:
+            click.echo(f"   • {rel}")
+    if result["added"]:
+        click.echo(f"\n⚠️  {len(result['added'])} file(s) present but not in the manifest:")
+        for rel in result["added"]:
+            click.echo(f"   • {rel}")
+    sys.exit(1)
 
 
 def main() -> None:

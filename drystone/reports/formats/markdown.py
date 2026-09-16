@@ -408,6 +408,13 @@ This security assessment evaluated the {scope} for **{client}**. {findings_text}
                 f"\n**Filtered Out by Min Severity:** {filtered_out}"
             )
 
+        integrity_hash = report_meta.get("integrity_manifest_sha256")
+        if integrity_hash:
+            filter_note += (
+                f"\n**Evidence Integrity (SHA-256):** `{integrity_hash}`"
+                f" — verify with `drystone verify-integrity <session-dir>`"
+            )
+
         banner = """ ██████╗ ██████╗ ██╗   ██╗███████╗████████╗ ██████╗ ███╗   ██╗███████╗
  ██╔══██╗██╔══██╗╚██╗ ██╔╝██╔════╝╚══██╔══╝██╔═══██╗████╗  ██║██╔════╝
  ██║  ██║██████╔╝ ╚████╔╝ ███████╗   ██║   ██║   ██║██╔██╗ ██║█████╗

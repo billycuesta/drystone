@@ -95,7 +95,8 @@ class JSONFormatter(BaseFormatter):
 
     def _metadata(self) -> Dict[str, Any]:
         """Generate metadata section."""
-        return {
+        report_meta = self.findings.get("report_metadata", {}) or {}
+        metadata: Dict[str, Any] = {
             "client": self.session.client_name,
             "aws_account": self.session.account_id,
             "skill": self.findings.get("skill", "unknown"),
@@ -103,6 +104,11 @@ class JSONFormatter(BaseFormatter):
             "checklist_version": self.findings.get("checklist_version", "1.0"),
             "evidence_count": self.findings.get("evidence_count", 0),
         }
+        integrity_hash = report_meta.get("integrity_manifest_sha256")
+        if integrity_hash:
+            metadata["integrity_manifest_sha256"] = integrity_hash
+            metadata["integrity_manifest_file"] = report_meta.get("integrity_manifest_file")
+        return metadata
 
     def _calculate_statistics(self) -> Dict[str, Any]:
         """Calculate additional statistics for export."""

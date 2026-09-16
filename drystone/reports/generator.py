@@ -37,6 +37,17 @@ class ReportGenerator:
         self.session = session
         self.config = config
 
+    def _integrity_manifest_metadata(self) -> Dict[str, str]:
+        """Chain-of-custody metadata to embed in report_metadata, if a manifest
+        was written for this session (see drystone/storage/manifest.py)."""
+        manifest_hash = getattr(self.session, "integrity_manifest_sha256", None)
+        if not manifest_hash:
+            return {}
+        return {
+            "integrity_manifest_sha256": manifest_hash,
+            "integrity_manifest_file": "manifest.json",
+        }
+
     def generate_reports(self, skill: str, formats: List[str]) -> Dict[str, Path]:
         """Generate reports in requested formats.
 
@@ -155,6 +166,7 @@ class ReportGenerator:
             report_context = enricher.enrich(report_context)
         report_metadata = dict(report_context.get("report_metadata") or {})
         report_metadata["report_skill"] = skill
+        report_metadata.update(self._integrity_manifest_metadata())
         report_context["report_metadata"] = report_metadata
 
         for format_name in formats:
@@ -218,6 +230,7 @@ class ReportGenerator:
             report_context = enricher.enrich(report_context)
         report_metadata = dict(report_context.get("report_metadata") or {})
         report_metadata["report_skill"] = "aggregated"
+        report_metadata.update(self._integrity_manifest_metadata())
         report_context["report_metadata"] = report_metadata
         for format_name in formats:
             if self.config.report_type == "pentest" and format_name == "markdown":
