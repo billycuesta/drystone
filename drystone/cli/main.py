@@ -14,6 +14,9 @@ from drystone.cli.ui import print_banner, run_setup_wizard
 from drystone.cli.ui.branding import print_summary
 from drystone.cloud.aws import validate_aws_credentials
 from drystone.models import WizardConfig
+from drystone.skills.registry import skill_display_names as _registry_display_names
+from drystone.skills.registry import skill_import_map as _registry_import_map
+from drystone.skills.registry import skill_names as _registry_skill_names
 
 
 @click.group()
@@ -39,26 +42,7 @@ def cli() -> None:
 )
 @click.option(
     "--skills",
-    type=click.Choice(
-        [
-            "pentest",
-            "recon",
-            "iam",
-            "exposure",
-            "network",
-            "vulns",
-            "alerting",
-            "hardening",
-            "ecr",
-            "secretsmanager",
-            "waf",
-            "kms",
-            "messaging",
-            "cicd",
-            "compute",
-            "sistemas_explotables_red",
-        ]
-    ),
+    type=click.Choice(["pentest"] + _registry_skill_names()),
     help="Single skill to execute (use 'pentest' for multi-skill preset)",
 )
 @click.option(
@@ -255,49 +239,10 @@ def audit(
         except Exception as e:
             click.echo(f"   ⚠️  Could not collect pentest inventory: {e}\n")
 
-    # Dynamically load and execute skills
-    skills_map = {
-        "recon": ("drystone.skills.recon", "ReconSkill"),
-        "iam": ("drystone.skills.iam", "IAMSkill"),
-        "exposure": ("drystone.skills.exposure", "ExposureSkill"),
-        "network": ("drystone.skills.network", "NetworkSkill"),
-        "vulns": ("drystone.skills.vulns", "VulnsSkill"),
-        "alerting": ("drystone.skills.alerting", "AlertingSkill"),
-        "hardening": ("drystone.skills.hardening", "HardeningSkill"),
-        "ecr": ("drystone.skills.ecr", "ECRSkill"),
-        "secretsmanager": ("drystone.skills.secretsmanager", "SecretsManagerSkill"),
-        "waf": ("drystone.skills.waf", "WAFSkill"),
-        "kms": ("drystone.skills.kms", "KMSSkill"),
-        "messaging": ("drystone.skills.messaging", "MessagingSkill"),
-        "cicd": ("drystone.skills.cicd", "CICDSkill"),
-        "compute": ("drystone.skills.compute", "ComputeSkill"),
-        "sistemas_explotables_red": (
-            "drystone.skills.sistemas_explotables_red",
-            "SistemasExplotablesRedSkill",
-        ),
-        "cloudtrail_events": (
-            "drystone.skills.cloudtrail_events",
-            "CloudTrailEventsSkill",
-        ),
-    }
-
-    skill_display_names = {
-        "sistemas_explotables_red": "Network-Exploitable Systems Detection",
-        "iam": "IAM",
-        "exposure": "Exposure",
-        "network": "Network",
-        "vulns": "Vulnerabilities",
-        "hardening": "Hardening",
-        "secretsmanager": "Secrets Manager",
-        "waf": "WAF",
-        "ecr": "ECR",
-        "alerting": "Alerting",
-        "recon": "Recon",
-        "kms": "KMS",
-        "cicd": "CI/CD",
-        "compute": "Compute",
-        "cloudtrail_events": "CloudTrail Events Audit",
-    }
+    # Dynamically load and execute skills (auto-discovered — see
+    # drystone/skills/registry.py; a new skill needs zero edits here)
+    skills_map = _registry_import_map()
+    skill_display_names = _registry_display_names()
 
     skill_instances = {}
     collection_total = max(1, len(config.skills))
@@ -607,18 +552,7 @@ def version() -> None:
 @click.argument("skill_name", required=False)
 def skill(skill_name: Optional[str] = None) -> None:
     """Manage security skills."""
-    available_skills = [
-        "iam",
-        "exposure",
-        "network",
-        "vulns",
-        "alerting",
-        "hardening",
-        "ecr",
-        "secretsmanager",
-        "waf",
-        "sistemas_explotables_red",
-    ]
+    available_skills = _registry_skill_names()
 
     if not skill_name:
         click.echo("Available Skills:")

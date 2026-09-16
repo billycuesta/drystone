@@ -6,6 +6,8 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
+from drystone.skills.registry import skill_names as _registry_skill_names
+
 # Example credentials for documentation (NOT REAL)
 # nosec B105 - Example credentials from AWS documentation, not real secrets
 _EXAMPLE_AWS_ACCESS_KEY = "AKIAIOSFODNN7EXAMPLE"  # nosec
@@ -233,25 +235,9 @@ class WizardConfig(BaseModel):
                 "Single-skill scans only. Select one skill, or use 'pentest' preset for multi-skill execution."
             )
 
-        valid_skills = {
-            "recon",
-            "iam",
-            "exposure",
-            "network",
-            "vulns",
-            "alerting",
-            "hardening",
-            "ecr",
-            "secretsmanager",
-            "waf",
-            "pentest",
-            "kms",
-            "messaging",
-            "cicd",
-            "compute",
-            "sistemas_explotables_red",
-            "cloudtrail_events",
-        }
+        # Auto-discovered from drystone/skills/*/ (see drystone/skills/registry.py)
+        # plus the "pentest" meta-skill/preset, which isn't a real package.
+        valid_skills = set(_registry_skill_names()) | {"pentest"}
         invalid = set(v) - valid_skills
         if invalid:
             raise ValueError(f"Invalid skills: {invalid}. Valid: {valid_skills}")

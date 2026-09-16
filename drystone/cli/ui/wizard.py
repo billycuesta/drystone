@@ -9,6 +9,7 @@ import questionary
 from drystone.cloud.aws import validate_aws_credentials
 from drystone.models import WizardConfig
 from drystone.models.config import PENTEST_CORE_SKILLS
+from drystone.skills.registry import wizard_choices as _registry_wizard_choices
 
 
 def validate_aws_creds(
@@ -296,46 +297,21 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
     else:
         default_skill = "iam"
 
+    # Auto-discovered skill choices (see drystone/skills/registry.py) — a
+    # new skill needs zero edits here, it just needs to declare
+    # SKILL_WIZARD_SELECTABLE/SKILL_WIZARD_LABEL/SKILL_WIZARD_ORDER.
+    skill_choices = [
+        questionary.Choice(m.wizard_label, m.name, checked=default_skill == m.name)
+        for m in _registry_wizard_choices()
+    ]
+    skill_choices.append(questionary.Separator("────────────"))
+    skill_choices.append(
+        questionary.Choice("Internal Pentest", "pentest", checked=default_skill == "pentest")
+    )
+
     selected_skill = questionary.select(
         "Security Skill to Execute:",
-        choices=[
-            questionary.Choice("IAM Security Audit", "iam", checked=default_skill == "iam"),
-            questionary.Choice(
-                "Internet Exposure Audit", "exposure", checked=default_skill == "exposure"
-            ),
-            questionary.Choice(
-                "Network Policies Audit", "network", checked=default_skill == "network"
-            ),
-            questionary.Choice("Vulnerability Scanning", "vulns", checked=default_skill == "vulns"),
-            questionary.Choice(
-                "Alerting & Monitoring Audit", "alerting", checked=default_skill == "alerting"
-            ),
-            questionary.Choice(
-                "CloudTrail Events Audit", "cloudtrail_events", checked=default_skill == "cloudtrail_events"
-            ),
-            questionary.Choice(
-                "Account Hardening Audit", "hardening", checked=default_skill == "hardening"
-            ),
-            questionary.Choice(
-                "ECR Container Registry Audit", "ecr", checked=default_skill == "ecr"
-            ),
-            questionary.Choice(
-                "Secrets Manager Security Audit",
-                "secretsmanager",
-                checked=default_skill == "secretsmanager",
-            ),
-            questionary.Choice("WAF Security Audit", "waf", checked=default_skill == "waf"),
-            questionary.Choice("KMS Key Management Audit", "kms", checked=default_skill == "kms"),
-            questionary.Choice(
-                "Messaging (SQS/SNS) Audit", "messaging", checked=default_skill == "messaging"
-            ),
-            questionary.Choice("CI/CD (CodeBuild) Audit", "cicd", checked=default_skill == "cicd"),
-            questionary.Choice(
-                "Compute (ECS/EKS) Audit", "compute", checked=default_skill == "compute"
-            ),
-            questionary.Separator("────────────"),
-            questionary.Choice("Internal Pentest", "pentest", checked=default_skill == "pentest"),
-        ],
+        choices=skill_choices,
     ).ask()
     if selected_skill is None:
         raise KeyboardInterrupt("Wizard cancelled")
