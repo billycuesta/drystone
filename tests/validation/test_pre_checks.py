@@ -1,3 +1,4 @@
+# ruff: noqa: I001
 """Tests for deterministic pre-checks (Tier 1 validation).
 
 Verifies that pre-checks produce correct PASS/FAIL/SKIP results
@@ -13,6 +14,7 @@ import pytest
 from drystone.validation.pre_checks import (
     PRE_CHECK_DESCRIPTIONS,
     PRE_CHECK_IMPACTS,
+    PRE_CHECK_REGISTRY,
     PRE_CHECK_REMEDIATIONS,
     PreCheckResult,
     check_alr_003,
@@ -5145,6 +5147,17 @@ class TestCompLMB002:
 
 
 class TestRunPreChecks:
+    def test_package_facade_preserves_direct_imports(self):
+        from drystone.validation.pre_checks import (
+            PRE_CHECK_REGISTRY as IMPORTED_PRE_CHECK_REGISTRY,
+            check_iam_001,
+            run_pre_checks as imported_run_pre_checks,
+        )
+
+        assert IMPORTED_PRE_CHECK_REGISTRY is PRE_CHECK_REGISTRY
+        assert imported_run_pre_checks is run_pre_checks
+        assert check_iam_001 in PRE_CHECK_REGISTRY["iam"]
+
     def test_iam_full_run(self):
         evidence = {
             "account-summary": {
