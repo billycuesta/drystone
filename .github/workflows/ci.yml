@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      # WeasyPrint (PDF report generation) needs these system libs on Linux.
+      - name: Install system dependencies (WeasyPrint)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libpango-1.0-0 libpangocairo-1.0-0 libcairo2 libgdk-pixbuf-2.0-0
+
+      - name: Install Python dependencies
+        run: pip install -e ".[dev,pdf,llm]"
+
+      - name: Ruff (lint)
+        run: ruff check drystone/ tests/
+        # Pre-existing lint debt not yet cleaned up (tracked, not part of this
+        # gate) — report findings without failing the build for now. Tighten
+        # this once the debt is paid down.
+        continue-on-error: true
+
+      - name: Mypy (type check)
+        run: mypy drystone/
+        # Same as ruff above: real pre-existing type errors exist across the
+        # codebase, unrelated to any given PR's diff. Informational only
+        # until that debt is addressed.
+        continue-on-error: true
+
+      - name: Pytest
+        run: pytest tests/ --cov=drystone --cov-report=term-missing -q
