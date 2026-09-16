@@ -466,6 +466,83 @@ class TestAnalyzeEvidence:
             )
 
         assert result.summary.total_findings == 0
-        assert client.last_analysis_status["partial_results"] is True
-        assert client.last_analysis_status["failed_chunks"] == 1
-        assert client.last_analysis_status["failed_chunk_details"][0]["source_file"] == "second"
+        status = client.get_last_analysis_status("iam")
+        assert status["partial_results"] is True
+        assert status["failed_chunks"] == 1
+        assert status["failed_chunk_details"][0]["source_file"] == "second"
+
+    def test_last_analysis_status_not_cross_contaminated_across_threads(self, tmp_path):
+        """Regression test for the P0 race condition: a single AgentClient
+        instance is shared across concurrent skill threads in cli/main.py's
+        ThreadPoolExecutor. Before the fix, `last_analysis_status` was one
+        flat attribute on that shared instance, so one skill's thread could
+        read another skill's status mid-flight. Status must now be isolated
+        per skill_name regardless of thread interleaving.
+        """
+        import threading
+        import time
+
+        client = _make_api_client()
+        client.findings_cache = FindingsCache(cache_dir=tmp_path)
+
+        empty = SkillFindings(
+            skill="x",
+            findings=[],
+            summary=FindingsSummary(
+                total_findings=0, critical=0, high=0, medium=0, low=0, overall_risk_score=0.0
+            ),
+            evidence_count=1,
+            checklist_version="1.0",
+        )
+
+        class _OneChunk:
+            def should_chunk(self, evidence):
+                return True
+
+            def chunk_evidence(self, evidence):
+                return [
+                    EvidenceChunk(
+                        chunk_id=1, total_chunks=1, evidence={"x": []}, metadata={"source_file": "f"}
+                    )
+                ]
+
+        def _dispatch(*, skill_name, evidence=None, checklist=None, chunking=None, pre_checks=None, **_kw):
+            # A single patch shared by both threads (patch.object itself
+            # isn't thread-safe, so we can't have each thread install its
+            # own patch concurrently) dispatching on skill_name instead:
+            # "iam" finishes its chunk slowly and successfully; "network"
+            # finishes immediately and fails, so its status gets written to
+            # the shared instance while "iam" is still mid-flight.
+            if skill_name == "iam":
+                time.sleep(0.05)
+                return empty
+            raise AgentError("boom")
+
+        results = {}
+
+        def _run_iam():
+            client.analyze_evidence_chunked(
+                "iam", {"large": ["x"]}, MINIMAL_CHECKLIST, chunker=_OneChunk()
+            )
+            results["iam"] = client.get_last_analysis_status("iam")
+
+        def _run_network():
+            client.analyze_evidence_chunked(
+                "network", {"large": ["x"]}, MINIMAL_CHECKLIST, chunker=_OneChunk()
+            )
+            results["network"] = client.get_last_analysis_status("network")
+
+        with patch.object(client, "analyze_evidence", side_effect=_dispatch):
+            t_iam = threading.Thread(target=_run_iam)
+            t_network = threading.Thread(target=_run_network)
+            t_network.start()
+            t_iam.start()
+            t_iam.join()
+            t_network.join()
+
+        # "iam"'s chunk succeeded -> its own status must show no partial results,
+        # even though "network" (which failed) wrote to the same shared instance
+        # while "iam" was still running.
+        assert results["iam"]["partial_results"] is False
+        assert results["network"]["partial_results"] is True
+        assert results["network"]["failed_chunks"] == 1

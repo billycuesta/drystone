@@ -314,7 +314,7 @@ class BaseSkill(ABC):
                     except Exception:
                         pass
 
-        chunk_status = getattr(agent_client, "last_analysis_status", {}) or {}
+        chunk_status = agent_client.get_last_analysis_status(self.name) or {}
         chunk_partial = bool(chunk_status.get("partial_results", False))
         if chunk_partial and not llm_fallback_used:
             from drystone.validation.confidence import compute_skill_confidence

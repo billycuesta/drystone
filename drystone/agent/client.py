@@ -5,6 +5,7 @@ import logging
 import shutil
 import subprocess
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
@@ -76,7 +77,12 @@ class AgentClient:
         self.metrics_tracker: Any = None
         self.findings_cache = FindingsCache()
         self.progress_callback: Optional[Callable[[str, int, int, str, str], None]] = None
-        self.last_analysis_status: Dict[str, Any] = {}
+        # Keyed per skill_name, not a single shared attribute: one AgentClient
+        # instance is shared across concurrent skill threads (cli/main.py's
+        # ThreadPoolExecutor), so a flat `self.last_analysis_status` would let
+        # one skill's thread read another's status mid-flight (P0 race condition).
+        self._last_analysis_status_by_skill: Dict[str, Dict[str, Any]] = {}
+        self._last_analysis_status_lock = threading.Lock()
 
         # Validate provider type
         valid_types = {"claude-api", "claude-cli"}
@@ -344,6 +350,20 @@ class AgentClient:
             return 0
         return max(1, len(text) // 3)
 
+    def get_last_analysis_status(self, skill_name: str) -> Dict[str, Any]:
+        """Return the most recent chunked-analysis status for one skill.
+
+        Safe to call from any thread: statuses are stored per skill_name,
+        not on a single shared attribute, since this AgentClient instance
+        is shared across concurrent skill threads.
+        """
+        with self._last_analysis_status_lock:
+            return dict(self._last_analysis_status_by_skill.get(skill_name, {}))
+
+    def _set_last_analysis_status(self, skill_name: str, status: Dict[str, Any]) -> None:
+        with self._last_analysis_status_lock:
+            self._last_analysis_status_by_skill[skill_name] = status
+
     def analyze_evidence_chunked(
         self,
         skill_name: str,
@@ -363,7 +383,7 @@ class AgentClient:
         Returns:
             SkillFindings with aggregated findings from all chunks
         """
-        self.last_analysis_status = {"partial_results": False}
+        self._set_last_analysis_status(skill_name, {"partial_results": False})
         # Auto-create chunker if not provided
         budget = get_budget_policy(
             self.config.get("type", "claude-cli"),
@@ -382,10 +402,13 @@ class AgentClient:
         cached = self.findings_cache.get(cache_key)
         if cached is not None:
             print("  🧠 Cache hit: reusing previous LLM analysis")
-            self.last_analysis_status = {
-                "partial_results": False,
-                "cache_hit": True,
-            }
+            self._set_last_analysis_status(
+                skill_name,
+                {
+                    "partial_results": False,
+                    "cache_hit": True,
+                },
+            )
             if self.metrics_tracker:
                 try:
                     self.metrics_tracker.record_retry_attempt(skill_name, 0, "cache_hit")
@@ -400,7 +423,7 @@ class AgentClient:
         if not chunker.should_chunk(evidence):
             # Small evidence - use existing flow
             findings = self.analyze_evidence(skill_name, evidence, checklist, pre_checks=pre_checks)
-            self.last_analysis_status = {"partial_results": False}
+            self._set_last_analysis_status(skill_name, {"partial_results": False})
             self.findings_cache.set(cache_key, findings)
             return findings
 
@@ -540,7 +563,7 @@ class AgentClient:
         final_findings.skill = skill_name
         final_findings.evidence_count = len(evidence)
         final_findings.checklist_version = str((checklist or {}).get("version", "1.0"))
-        self.last_analysis_status = {
+        self._set_last_analysis_status(skill_name, {
             "partial_results": failed_chunks > 0,
             "failed_chunks": failed_chunks,
             "processed_chunks": processed_chunks,
@@ -548,7 +571,7 @@ class AgentClient:
             "failed_chunk_details": failed_chunk_details,
             "aborted_due_to_quota": aborted_due_to_quota,
             "aborted_due_to_auth": aborted_due_to_auth,
-        }
+        })
         if aborted_due_to_quota and final_findings.summary.total_findings == 0:
             raise AgentError(
                 "Provider quota/rate limit exhausted before processing enough chunks; "
