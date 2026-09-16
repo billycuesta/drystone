@@ -909,9 +909,12 @@ class ExposureSkill(BaseSkill):
     def analyze(self, session: AuditSession, agent_client: "AgentClient") -> Path:
         """Analyze exposure evidence via the full 3-Tier pipeline.
 
-        Extends BaseSkill.analyze() with deterministic S3 checks (EXP-013 TLS,
-        EXP-014 versioning, EXP-015 cross-account) and region patching for
-        ':unknown:' ARNs, applied as post-processing after the pipeline saves.
+        Extends BaseSkill.analyze() with region patching for ':unknown:' ARNs,
+        applied as post-processing after the pipeline saves. EXP-013/014/015
+        (S3 TLS/versioning/cross-account) are covered by Tier-1 pre-checks
+        (check_exp_013/014/015 in validation/pre_checks.py) and Tier-3
+        reconciliation like every other check — no skill-specific override
+        needed for those anymore (removed 2026-09-16, see PLAN P0 #3).
 
         Args:
             session: Audit session with collected evidence
@@ -923,7 +926,7 @@ class ExposureSkill(BaseSkill):
         # Run the full 3-Tier pipeline: pre-checks → LLM → reconciler → normalizer → save
         findings_path = super().analyze(session, agent_client)
 
-        # Post-process: inject deterministic S3 findings + patch ':unknown:' regions
+        # Post-process: patch ':unknown:' region ARNs
         try:
             self._apply_exposure_post_processing(session, findings_path)
         except Exception as e:
@@ -932,16 +935,16 @@ class ExposureSkill(BaseSkill):
         return findings_path
 
     def _apply_exposure_post_processing(self, session: AuditSession, findings_path: Path) -> None:
-        """Inject deterministic S3 findings and patch ':unknown:' region ARNs.
+        """Patch ':unknown:' region ARN placeholders with the actual audit region.
 
-        Reads the saved findings JSON, applies _generate_deterministic_findings()
-        (EXP-013/014/015) and region patching, then re-saves in-place.
+        Reads the saved findings JSON, patches region placeholders, then
+        re-saves in-place.
 
         Args:
             session: Audit session (for evidence path resolution)
             findings_path: Path to the already-saved findings JSON file
         """
-        # Load evidence (needed for deterministic checks + region patching)
+        # Load evidence (needed for region patching)
         evidence_path = session.get_evidence_path(self.name)
         evidence: Dict[str, Any] = {}
         if evidence_path.exists():
@@ -952,34 +955,11 @@ class ExposureSkill(BaseSkill):
                 except Exception:
                     pass
 
-        # Load checklist (needed for deterministic checks)
-        checklist_path = Path(__file__).parent / "checklist.json"
-        checklist: Dict[str, Any] = {}
-        if checklist_path.exists():
-            try:
-                with open(checklist_path) as f:
-                    checklist = json.load(f)
-            except Exception:
-                pass
-
         # Load saved findings payload (preserves analysis_metadata, validation_commands, etc.)
         with open(findings_path) as f:
             payload = json.load(f)
 
         current_findings: List[Dict[str, Any]] = payload.get("findings") or []
-
-        # Apply deterministic findings (override model findings for the same ID)
-        try:
-            deterministic = self._generate_deterministic_findings(evidence, checklist)
-            if deterministic:
-                merged: Dict[str, Any] = {
-                    str(f["id"]): f for f in current_findings if isinstance(f, dict) and f.get("id")
-                }
-                for df in deterministic:
-                    merged[df.id] = df.model_dump(mode="json")
-                current_findings = list(merged.values())
-        except Exception as e:
-            print(f"    Warning: deterministic exposure checks failed: {e}")
 
         # Patch ':unknown:' region placeholders with the actual audit region
         audit_region = (evidence.get("_audit_metadata") or {}).get("_region")
@@ -993,7 +973,8 @@ class ExposureSkill(BaseSkill):
                         patched.append(r)
                 f["affected_resources"] = patched
 
-        # Recalculate summary to reflect any added deterministic findings
+        # Recalculate summary (region patching doesn't change counts/scores,
+        # but keeps this in sync if that changes in the future)
         sev_counts: Dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0}
         risk_scores: List[float] = []
         for f in current_findings:
@@ -1022,235 +1003,6 @@ class ExposureSkill(BaseSkill):
         # Re-save in-place (keeps analysis_metadata, validation_commands intact)
         with open(findings_path, "w") as f:
             json.dump(payload, f, indent=2, default=str)
-
-    def _generate_deterministic_findings(
-        self, evidence: Dict[str, Any], checklist: Dict[str, Any]
-    ) -> List[Any]:
-        """Generate deterministic findings from evidence for high-signal checks."""
-
-        from drystone.models.findings import Finding, PCIDSSControl
-        from drystone.validation.findings_normalizer import FindingsNormalizer
-
-        items = checklist.get("items", []) or []
-        item_by_id = {i.get("id"): i for i in items if isinstance(i, dict) and i.get("id")}
-
-        meta = evidence.get("_audit_metadata") or {}
-        audit_account = meta.get("_account_id") if isinstance(meta, dict) else None
-        if isinstance(audit_account, str):
-            audit_account = audit_account.strip()
-
-        s3_doc = evidence.get("s3-buckets")
-        by_name = {}
-        if isinstance(s3_doc, dict) and isinstance(s3_doc.get("by_name"), dict):
-            by_name = s3_doc.get("by_name") or {}
-
-        def _mid_score(sev: str) -> float:
-            lo, hi = FindingsNormalizer.SEVERITY_RANGES.get(sev, (5.0, 5.0))
-            return round((lo + hi) / 2, 1)
-
-        def _pci(fid: str) -> List[PCIDSSControl]:
-            it = item_by_id.get(fid) or {}
-            out = []
-            for c in it.get("pci_dss") or []:
-                if isinstance(c, dict) and c.get("control"):
-                    out.append(
-                        PCIDSSControl(
-                            control=str(c.get("control")), reason=str(c.get("reason") or "")
-                        )
-                    )
-            return out
-
-        def _has_securetransport_deny(policy: Any) -> bool:
-            if not isinstance(policy, dict):
-                return False
-            for st in policy.get("Statement", []) or []:
-                if not isinstance(st, dict):
-                    continue
-                if st.get("Effect") != "Deny":
-                    continue
-                cond = st.get("Condition")
-                if not isinstance(cond, dict):
-                    continue
-                b = cond.get("Bool")
-                if isinstance(b, dict) and b.get("aws:SecureTransport") == "false":
-                    return True
-            return False
-
-        def _is_audit_log_bucket(name: str, bucket: Dict[str, Any]) -> bool:
-            n = name.lower()
-            if any(k in n for k in ["cloudtrail", "logs", "log", "audit", "backup", "config"]):
-                return True
-            pol = bucket.get("BucketPolicy")
-            if not isinstance(pol, dict):
-                return False
-            for st in pol.get("Statement", []) or []:
-                if not isinstance(st, dict):
-                    continue
-                principal = st.get("Principal")
-                if not isinstance(principal, dict):
-                    continue
-                svc = principal.get("Service")
-                if not isinstance(svc, str):
-                    continue
-                if svc in {
-                    "config.amazonaws.com",
-                    "cloudtrail.amazonaws.com",
-                    "delivery.logs.amazonaws.com",
-                }:
-                    return True
-                if svc.startswith("logs.") and svc.endswith(".amazonaws.com"):
-                    return True
-            return False
-
-        findings = []
-
-        # EXP-013: TLS enforcement missing
-        exp_013 = item_by_id.get("EXP-013")
-        if exp_013 and by_name:
-            buckets = []
-            for bn, b in by_name.items():
-                if not isinstance(bn, str) or not isinstance(b, dict):
-                    continue
-                if not _is_audit_log_bucket(bn, b):
-                    continue
-                pol = b.get("BucketPolicy")
-                if pol is None:
-                    continue
-                if not _has_securetransport_deny(pol):
-                    buckets.append(bn)
-
-            if buckets:
-                findings.append(
-                    Finding(
-                        id="EXP-013",
-                        severity=exp_013.get("severity", "High"),
-                        risk_score=_mid_score(exp_013.get("severity", "High")),
-                        title=str(exp_013.get("title", "S3 TLS enforcement missing")),
-                        description="One or more audit/log S3 buckets are missing an explicit bucket policy Deny for aws:SecureTransport=false, so non-TLS access is not explicitly blocked.",
-                        remediation=str(exp_013.get("remediation", "")),
-                        evidence_refs=[f"s3-buckets.json#by_name.{bn}" for bn in buckets[:5]],
-                        evidence_snippet={"buckets": [{"Name": bn} for bn in buckets[:20]]},
-                        affected_resources=[f"arn:aws:s3:::{bn}" for bn in buckets],
-                        cis_reference=None,
-                        pci_dss=_pci("EXP-013"),
-                        exploitability_status="probable",
-                    )
-                )
-
-        # EXP-014: Versioning missing
-        exp_014 = item_by_id.get("EXP-014")
-        if exp_014 and by_name:
-            buckets = []
-            for bn, b in by_name.items():
-                if not isinstance(bn, str) or not isinstance(b, dict):
-                    continue
-                if not _is_audit_log_bucket(bn, b):
-                    continue
-                if (b.get("Versioning") or "") != "Enabled":
-                    buckets.append(bn)
-
-            if buckets:
-                findings.append(
-                    Finding(
-                        id="EXP-014",
-                        severity=exp_014.get("severity", "High"),
-                        risk_score=_mid_score(exp_014.get("severity", "High")),
-                        title=str(exp_014.get("title", "S3 versioning missing")),
-                        description="One or more audit/log S3 buckets do not have versioning enabled, reducing protection against overwrites/deletions for audit evidence.",
-                        remediation=str(exp_014.get("remediation", "")),
-                        evidence_refs=[f"s3-buckets.json#by_name.{bn}" for bn in buckets[:5]],
-                        evidence_snippet={
-                            "audit_log_buckets": [
-                                {
-                                    "Name": bn,
-                                    "Versioning": (by_name.get(bn) or {}).get("Versioning"),
-                                }
-                                for bn in buckets[:20]
-                            ]
-                        },
-                        affected_resources=[f"arn:aws:s3:::{bn}" for bn in buckets],
-                        cis_reference=None,
-                        pci_dss=_pci("EXP-014"),
-                        exploitability_status="probable",
-                    )
-                )
-
-        # EXP-015: Cross-account bucket policy without conditions
-        exp_015 = item_by_id.get("EXP-015")
-        if exp_015 and by_name and isinstance(audit_account, str) and audit_account.isdigit():
-            buckets = []
-            principals: List[str] = []
-
-            def _has_strong_condition(st: Dict[str, Any]) -> bool:
-                cond = st.get("Condition")
-                if not isinstance(cond, dict):
-                    return False
-                for block in ["StringEquals", "ArnEquals", "StringLike", "ArnLike"]:
-                    b = cond.get(block)
-                    if not isinstance(b, dict):
-                        continue
-                    for k in b.keys():
-                        if k in {
-                            "aws:SourceAccount",
-                            "AWS:SourceAccount",
-                            "aws:SourceArn",
-                            "AWS:SourceArn",
-                        }:
-                            return True
-                return False
-
-            for bn, b in by_name.items():
-                if not isinstance(bn, str) or not isinstance(b, dict):
-                    continue
-                pol = b.get("BucketPolicy")
-                if not isinstance(pol, dict):
-                    continue
-                for st in pol.get("Statement", []) or []:
-                    if not isinstance(st, dict):
-                        continue
-                    if st.get("Effect") != "Allow":
-                        continue
-                    principal = st.get("Principal")
-                    if not isinstance(principal, dict):
-                        continue
-                    aws_p = principal.get("AWS")
-                    aws_list = [aws_p] if isinstance(aws_p, str) else (aws_p or [])
-                    for p in aws_list:
-                        if not isinstance(p, str) or not p.startswith("arn:aws:iam::"):
-                            continue
-                        parts = p.split(":")
-                        if len(parts) > 4 and parts[4].isdigit() and parts[4] != audit_account:
-                            if not _has_strong_condition(st):
-                                buckets.append(bn)
-                                principals.append(p)
-
-            if buckets and principals:
-                buckets_u = sorted(set(buckets))
-                principals_u = sorted(set(principals))
-                findings.append(
-                    Finding(
-                        id="EXP-015",
-                        severity=exp_015.get("severity", "High"),
-                        risk_score=_mid_score(exp_015.get("severity", "High")),
-                        title=str(exp_015.get("title", "S3 cross-account bucket policy")),
-                        description=str(exp_015.get("description", "")),
-                        remediation=str(exp_015.get("remediation", "")),
-                        evidence_refs=[f"s3-buckets.json#by_name.{bn}" for bn in buckets_u[:5]],
-                        evidence_snippet={
-                            "buckets": buckets_u[:20],
-                            "cross_account_principals": principals_u[:20],
-                        },
-                        affected_resources=[
-                            *[f"arn:aws:s3:::{bn}" for bn in buckets_u],
-                            *principals_u,
-                        ],
-                        cis_reference=None,
-                        pci_dss=_pci("EXP-015"),
-                        exploitability_status="probable",
-                    )
-                )
-
-        return findings
 
 
 __all__ = ["ExposureSkill"]
