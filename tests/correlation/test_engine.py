@@ -32,7 +32,7 @@ class TestCorrelationEngine:
         for skill, finding_list in findings.items():
             findings_file = temp_session_dir / "findings" / f"{skill}.json"
             with open(findings_file, "w") as f:
-                json.dump([f.dict() for f in finding_list], f)
+                json.dump([f.model_dump() for f in finding_list], f)
 
         return temp_session_dir
 
@@ -53,7 +53,7 @@ class TestCorrelationEngine:
         findings = get_all_sample_findings()
         iam_file = temp_session_dir / "findings" / "iam.json"
         with open(iam_file, "w") as f:
-            json.dump([f.dict() for f in findings["iam"]], f)
+            json.dump([f.model_dump() for f in findings["iam"]], f)
 
         engine = CorrelationEngine(temp_session_dir)
         result = engine.run()
@@ -70,7 +70,7 @@ class TestCorrelationEngine:
         for skill in ["iam", "exposure"]:
             findings_file = temp_session_dir / "findings" / f"{skill}.json"
             with open(findings_file, "w") as f:
-                json.dump([f.dict() for f in findings[skill]], f)
+                json.dump([f.model_dump() for f in findings[skill]], f)
 
         engine = CorrelationEngine(temp_session_dir)
         result = engine.run()
@@ -214,7 +214,7 @@ class TestCorrelationEngine:
 
         findings_file = temp_session_dir / "findings" / "iam.json"
         with open(findings_file, "w") as f:
-            json.dump([f.dict() for f in iam_findings], f)
+            json.dump([f.model_dump() for f in iam_findings], f)
 
         # Add network findings for pattern matching
         network_findings = []
@@ -236,7 +236,7 @@ class TestCorrelationEngine:
 
         findings_file = temp_session_dir / "findings" / "network.json"
         with open(findings_file, "w") as f:
-            json.dump([f.dict() for f in network_findings], f)
+            json.dump([f.model_dump() for f in network_findings], f)
 
         engine = CorrelationEngine(temp_session_dir)
         result = engine.run()
@@ -319,7 +319,7 @@ class TestCorrelationEngine:
 
         findings_file = temp_session_dir / "findings" / "hardening.json"
         with open(findings_file, "w") as f:
-            json.dump([finding.dict()], f)
+            json.dump([finding.model_dump()], f)
 
         engine = CorrelationEngine(temp_session_dir)
         findings_by_skill = engine._load_all_findings()
@@ -354,7 +354,7 @@ class TestCorrelationEngine:
         for skill in ["iam", "exposure"]:
             findings_file = temp_session_dir / "findings" / f"{skill}.json"
             with open(findings_file, "w") as f:
-                json.dump([f.dict() for f in findings[skill]], f)
+                json.dump([f.model_dump() for f in findings[skill]], f)
 
         engine = CorrelationEngine(temp_session_dir)
         result = engine.run()
