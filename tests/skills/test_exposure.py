@@ -75,6 +75,7 @@ def test_exposure_analyze_adds_deterministic_s3_findings(tmp_path):
 
     agent = Mock()
     agent.get_display_name.return_value = "TestAgent"
+    agent.get_last_analysis_status.return_value = {}
     agent.analyze_evidence_chunked.return_value = SkillFindings(
         skill="exposure",
         findings=[],
