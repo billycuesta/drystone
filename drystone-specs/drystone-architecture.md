@@ -15,7 +15,7 @@
 │  ├─ Client name                     ├─ Provider (CLI / API)         │
 │  ├─ AWS credentials (4 methods)     └─ API key (if API)             │
 │  ├─ Region                                                          │
-│  ├─ Skills (13 disponibles)                                         │
+│  ├─ Skills (16 disponibles)                                         │
 │  ├─ Output formats (md/json/pdf)                                    │
 │  └─ Report type (general/pci-dss/pentest)                           │
 │                                                                     │
@@ -62,10 +62,10 @@
 │  │  │  evidence + checklist → run_pre_checks()     │    │            │
 │  │  │  Output: PreCheckResult[] (PASS/FAIL/SKIP)   │    │            │
 │  │  │                                              │    │            │
-│  │  │  69 checks across 13 skills:                 │    │            │
-│  │  │  IAM(8) HRD(11) ALR(2) EXP(9) NET(3)        │    │            │
-│  │  │  WAF(5) VULN(3) SM(2) ECR(4) KMS(4)         │    │            │
-│  │  │  MSG(4) CICD(2) COMP(5)                      │    │            │
+│  │  │  240 checks across 16 skills:               │    │            │
+│  │  │  IAM(32) NET(25) ALR(23) VULN(20) RCN(20)   │    │            │
+│  │  │  EXP(18) HRD(16) WAF(15) SM(14) CT(13)      │    │            │
+│  │  │  CMP(11) MSG(9) SER(8) KMS(7) ECR(7) CICD(2)│    │            │
 │  │  └──────────────────────┬──────────────────────┘    │            │
 │  │                         │                            │            │
 │  │                         ▼                            │            │
@@ -202,7 +202,7 @@ Evidence ─────►  Tier 1 (Pre-checks) ─────►  Tier 2 (AI)
                  DETERMINISTIC                CONSTRAINED          POST-VALIDATE
                  pre_checks.py                agent/client.py      base.py + normalizer
 
-                 69 binary checks             Receives              • Reject PASS
+                 240 binary checks            Receives              • Reject PASS
                  PASS / FAIL / SKIP           <pre_computed_facts>    contradictions
                  ~1s, 100% reproducible       as XML in prompt      • Inject missed FAILs
                                               AI focuses on         • Normalize + dedup
@@ -254,7 +254,7 @@ Check IAM-005 (Password policy complexity):
 | Reproducibility (Tier 1) | Variable | **100%** |
 | Tokens to AI | 100% evidence analysis | Evidence + pre-computed hints + routing/distillation |
 | Post-validation for Tier 1 | Full normalizer | **Skipped** (already resolved) |
-| Deterministic checks | 0 pre-AI | **69** across 13 skills |
+| Deterministic checks | 0 pre-AI | **240** across 16 skills |
 
 ## P0 Token Reduction Modules (2026-02)
 
@@ -318,23 +318,28 @@ This makes cache invalidation automatic when evidence, checklist version, model,
 3. Next run loads overrides automatically in `get_budget_policy(...)`
 4. Provider/skill budgets converge to lower-token stable values over time
 
-## Skills disponibles (13)
+## Skills disponibles (16)
 
 | Skill | AWS Services | Checks | Pre-checks |
 |-------|-------------|--------|------------|
-| `iam` | IAM users, roles, policies | MFA, access keys, permissions | 8 |
-| `exposure` | S3, RDS, ELB, EC2 | Public endpoints, open buckets | 9 |
-| `network` | VPC, SGs, NACLs, TGW | Open ports, routing rules | 3 |
-| `vulns` | Inspector v2 | Known CVEs, patch status | 3 |
-| `alerting` | CloudTrail, CloudWatch, SNS | Event monitoring coverage | 2 |
-| `hardening` | Config, Security Hub | CIS/PCI compliance score | 11 |
-| `ecr` | ECR | Image scanning, registry config | 4 |
-| `secretsmanager` | Secrets Manager | Rotation, encryption | 2 |
-| `waf` | WAF, CloudFront, ALB | Rule coverage, protection gaps | 5 |
-| `kms` | KMS | Key rotation, policies | 4 |
-| `messaging` | SQS, SNS | Encryption, access policies | 4 |
+| `iam` | IAM users, roles, policies | MFA, access keys, permissions | 32 |
+| `network` | VPC, SGs, NACLs, TGW | Open ports, routing rules | 25 |
+| `alerting` | CloudTrail, CloudWatch, SNS | Event monitoring coverage | 23 |
+| `vulns` | Inspector v2 | Known CVEs, patch status | 20 |
+| `recon` | External attack surface (DNS, ports, certs) | PTES + OWASP Cloud Top 10 recon checks | 20 |
+| `exposure` | S3, RDS, ELB, EC2 | Public endpoints, open buckets | 18 |
+| `hardening` | Config, Security Hub | CIS/PCI compliance score | 16 |
+| `waf` | WAF, CloudFront, ALB | Rule coverage, protection gaps | 15 |
+| `secretsmanager` | Secrets Manager | Rotation, encryption | 14 |
+| `cloudtrail_events` | CloudTrail (historical events) | Root activity, auth anomalies, audit tampering, privilege escalation | 13 |
+| `compute` | ECS, EKS | Container hardening | 11 |
+| `messaging` | SQS, SNS | Encryption, access policies | 9 |
+| `sistemas_explotables_red` | EC2/network-exposed services | Network-exploitable systems (passive pentest correlation) | 8 |
+| `kms` | KMS | Key rotation, policies | 7 |
+| `ecr` | ECR | Image scanning, registry config | 7 |
 | `cicd` | CodeBuild | Build security, secrets in env | 2 |
-| `compute` | ECS, EKS | Container hardening | 5 |
+
+Total: 240 deterministic pre-checks across these 16 skills.
 
 ## Arquitectura clave
 
@@ -377,7 +382,7 @@ App (Python)                    Agent (Claude)
 
 | File | Role |
 |------|------|
-| `validation/pre_checks.py` | Tier 1: 69 deterministic checks, registry, XML formatter |
+| `validation/pre_checks.py` | Tier 1: 240 deterministic checks, registry, XML formatter |
 | `skills/base.py` | Orchestrates 3-tier flow in `analyze()`, reconciliation |
 | `agent/client.py` | Tier 2: Injects `<pre_computed_facts>` via SKILL_ADDENDUM |
 | `validation/findings_normalizer.py` | Tier 3: Skips pre-checked IDs, handles complex checks |
