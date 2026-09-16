@@ -6,7 +6,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from drystone.agent.cache import FindingsCache
+from drystone.agent.chunker import EvidenceChunk
 from drystone.agent.client import AgentClient, AgentError
+from drystone.models.findings import FindingsSummary, SkillFindings
 
 # ── Constructor helpers ───────────────────────────────────────────────────────
 
@@ -372,3 +375,97 @@ class TestAnalyzeEvidence:
         with patch.object(client, "_call_claude_api", return_value=response_json):
             result = client.analyze_evidence("iam", evidence, MINIMAL_CHECKLIST)
         assert result.evidence_count == 5
+
+    def test_normalizes_object_affected_resources_before_validation(self):
+        client = _make_api_client()
+        payload = json.loads(MINIMAL_FINDINGS_JSON)
+        payload["findings"] = [
+            {
+                "id": "NET-025",
+                "severity": "Medium",
+                "risk_score": 4.5,
+                "title": "Subnets missing tags",
+                "description": "desc",
+                "impact": "impact",
+                "evidence_refs": ["subnets.json#/items/0"],
+                "affected_resources": [
+                    {
+                        "subnet_id": "subnet-123",
+                        "cidr": "10.0.0.0/24",
+                        "issue": "No tags configured",
+                    }
+                ],
+                "remediation": "fix",
+            }
+        ]
+        payload["summary"] = {
+            "total_findings": 1,
+            "critical": 0,
+            "high": 0,
+            "medium": 1,
+            "low": 0,
+            "overall_risk_score": 4.5,
+        }
+
+        with patch.object(client, "_call_claude_api", return_value=json.dumps(payload)):
+            result = client.analyze_evidence("network", {"subnets": []}, MINIMAL_CHECKLIST)
+
+        finding = result.findings[0]
+        assert finding.affected_resources == ["subnet-123"]
+        assert finding.evidence_snippet["resource_details"][0]["issue"] == "No tags configured"
+
+    def test_chunk_failure_marks_last_analysis_partial(self, tmp_path):
+        client = _make_api_client()
+        client.findings_cache = FindingsCache(cache_dir=tmp_path)
+
+        class _Chunker:
+            def should_chunk(self, evidence):
+                return True
+
+            def chunk_evidence(self, evidence):
+                return [
+                    EvidenceChunk(
+                        chunk_id=1,
+                        total_chunks=2,
+                        evidence={"first": []},
+                        metadata={"source_file": "first"},
+                    ),
+                    EvidenceChunk(
+                        chunk_id=2,
+                        total_chunks=2,
+                        evidence={"second": []},
+                        metadata={"source_file": "second"},
+                    ),
+                ]
+
+        empty = SkillFindings(
+            skill="iam",
+            findings=[],
+            summary=FindingsSummary(
+                total_findings=0,
+                critical=0,
+                high=0,
+                medium=0,
+                low=0,
+                overall_risk_score=0.0,
+            ),
+            evidence_count=1,
+            checklist_version="1.0",
+        )
+
+        with patch.object(
+            client,
+            "analyze_evidence",
+            side_effect=[empty, AgentError("Claude CLI call timed out (>300s)")],
+        ):
+            result = client.analyze_evidence_chunked(
+                "iam",
+                {"large": ["x"]},
+                MINIMAL_CHECKLIST,
+                chunker=_Chunker(),
+            )
+
+        assert result.summary.total_findings == 0
+        assert client.last_analysis_status["partial_results"] is True
+        assert client.last_analysis_status["failed_chunks"] == 1
+        assert client.last_analysis_status["failed_chunk_details"][0]["source_file"] == "second"

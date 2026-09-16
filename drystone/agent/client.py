@@ -76,6 +76,7 @@ class AgentClient:
         self.metrics_tracker: Any = None
         self.findings_cache = FindingsCache()
         self.progress_callback: Optional[Callable[[str, int, int, str, str], None]] = None
+        self.last_analysis_status: Dict[str, Any] = {}
 
         # Validate provider type
         valid_types = {"claude-api", "claude-cli"}
@@ -294,7 +295,10 @@ class AgentClient:
             except AgentError:
                 raise
 
-        # 4. Validate with Pydantic
+        # 4. Normalize common model schema drift before Pydantic validation.
+        findings_data = self._normalize_response_schema(findings_data)
+
+        # 5. Validate with Pydantic
         try:
             findings = SkillFindings(**findings_data)
         except Exception as e:
@@ -304,7 +308,7 @@ class AgentClient:
                 )
             raise AgentError(f"Response validation failed: {e}")
 
-        # 5. NEW: Validate output format (post-agent check)
+        # 6. NEW: Validate output format (post-agent check)
         logger.debug(
             f"Validating {skill_name} findings: {findings.summary.total_findings} findings, severity breakdown: critical={findings.summary.critical}, high={findings.summary.high}, medium={findings.summary.medium}, low={findings.summary.low}"
         )
@@ -318,7 +322,7 @@ class AgentClient:
                     f"Output validation failed for {skill_name}: findings structure invalid",
                     {
                         "skill": skill_name,
-                        "summary": findings.summary.dict(),
+                        "summary": findings.summary.model_dump(),
                         "findings_count": len(findings.findings),
                     },
                 )
@@ -359,6 +363,7 @@ class AgentClient:
         Returns:
             SkillFindings with aggregated findings from all chunks
         """
+        self.last_analysis_status = {"partial_results": False}
         # Auto-create chunker if not provided
         budget = get_budget_policy(
             self.config.get("type", "claude-cli"),
@@ -377,6 +382,10 @@ class AgentClient:
         cached = self.findings_cache.get(cache_key)
         if cached is not None:
             print("  🧠 Cache hit: reusing previous LLM analysis")
+            self.last_analysis_status = {
+                "partial_results": False,
+                "cache_hit": True,
+            }
             if self.metrics_tracker:
                 try:
                     self.metrics_tracker.record_retry_attempt(skill_name, 0, "cache_hit")
@@ -391,6 +400,7 @@ class AgentClient:
         if not chunker.should_chunk(evidence):
             # Small evidence - use existing flow
             findings = self.analyze_evidence(skill_name, evidence, checklist, pre_checks=pre_checks)
+            self.last_analysis_status = {"partial_results": False}
             self.findings_cache.set(cache_key, findings)
             return findings
 
@@ -418,6 +428,7 @@ class AgentClient:
                 pass
 
         failed_chunks = 0
+        failed_chunk_details = []
         aborted_due_to_quota = False
         aborted_due_to_auth = False
         processed_chunks = 0
@@ -466,6 +477,14 @@ class AgentClient:
                 # produce invalid responses). Log and continue.
                 failed_chunks += 1
                 err_text = str(e)
+                failed_chunk_details.append(
+                    {
+                        "chunk_index": i + 1,
+                        "total_chunks": len(chunks),
+                        "source_file": str(source_file),
+                        "error": err_text.splitlines()[0][:240] if err_text else "unknown error",
+                    }
+                )
                 logger.warning(f"Chunk {i + 1}/{len(chunks)} ({source_file}) failed: {err_text}")
 
                 lower_err = err_text.lower()
@@ -518,6 +537,18 @@ class AgentClient:
 
         # Return aggregated result
         final_findings = aggregator.aggregate()
+        final_findings.skill = skill_name
+        final_findings.evidence_count = len(evidence)
+        final_findings.checklist_version = str((checklist or {}).get("version", "1.0"))
+        self.last_analysis_status = {
+            "partial_results": failed_chunks > 0,
+            "failed_chunks": failed_chunks,
+            "processed_chunks": processed_chunks,
+            "total_chunks": len(chunks),
+            "failed_chunk_details": failed_chunk_details,
+            "aborted_due_to_quota": aborted_due_to_quota,
+            "aborted_due_to_auth": aborted_due_to_auth,
+        }
         if aborted_due_to_quota and final_findings.summary.total_findings == 0:
             raise AgentError(
                 "Provider quota/rate limit exhausted before processing enough chunks; "
@@ -1191,12 +1222,6 @@ Missing CloudWatch alarm:
 
                 context["SKILL_ADDENDUM"] = format_pre_checks_for_prompt(pre_checks, checklist)
 
-            # Inject client context if available (enriches findings with business context)
-            client_ctx = getattr(self, "_client_context_xml", None)
-            if client_ctx:
-                addendum = context.get("SKILL_ADDENDUM", "")
-                context["SKILL_ADDENDUM"] = addendum + "\n" + client_ctx
-
             # Load and render template
             template = get_audit_template(skill_name, context)
             return template
@@ -1342,6 +1367,88 @@ Missing CloudWatch alarm:
             # Step 5: Give up and report the error
             preview = original_text[:500]
             raise AgentError(f"Invalid JSON response from API\nResponse preview: {preview}")
+
+    def _normalize_response_schema(self, payload: Any) -> Any:
+        """Repair small schema drifts in model JSON before strict validation.
+
+        The prompt asks for `affected_resources` as string identifiers, but LLMs
+        sometimes return objects such as {"subnet_id": "...", "issue": "..."}.
+        Preserve the object under evidence_snippet.resource_details and replace
+        affected_resources with stable string IDs so Pydantic validation does not
+        fail an otherwise useful chunk.
+        """
+        if not isinstance(payload, dict):
+            return payload
+
+        findings = payload.get("findings")
+        if not isinstance(findings, list):
+            return payload
+
+        def _resource_to_string(resource: Any) -> str:
+            if isinstance(resource, str):
+                return resource
+            if isinstance(resource, dict):
+                for key in (
+                    "arn",
+                    "Arn",
+                    "ARN",
+                    "resource",
+                    "id",
+                    "Id",
+                    "name",
+                    "Name",
+                    "subnet_id",
+                    "SubnetId",
+                    "security_group_id",
+                    "GroupId",
+                    "vpc_id",
+                    "VpcId",
+                    "route_table_id",
+                    "RouteTableId",
+                    "network_acl_id",
+                    "NetworkAclId",
+                    "internet_gateway_id",
+                    "InternetGatewayId",
+                    "instance_id",
+                    "InstanceId",
+                    "db_instance_identifier",
+                    "DBInstanceIdentifier",
+                    "bucket_arn",
+                    "bucket_name",
+                    "user",
+                    "role_arn",
+                    "role_name",
+                ):
+                    value = resource.get(key)
+                    if value:
+                        return str(value)
+                return json.dumps(resource, sort_keys=True, default=str)
+            return str(resource)
+
+        for finding in findings:
+            if not isinstance(finding, dict):
+                continue
+
+            affected = finding.get("affected_resources")
+            if isinstance(affected, list):
+                structured = [r for r in affected if isinstance(r, dict)]
+                if structured:
+                    snippet = finding.get("evidence_snippet")
+                    if not isinstance(snippet, dict):
+                        snippet = {}
+                    existing_details = snippet.get("resource_details")
+                    if isinstance(existing_details, list):
+                        snippet["resource_details"] = existing_details + structured
+                    else:
+                        snippet["resource_details"] = structured
+                    finding["evidence_snippet"] = snippet
+                finding["affected_resources"] = [_resource_to_string(r) for r in affected]
+            elif affected is None:
+                finding["affected_resources"] = []
+            else:
+                finding["affected_resources"] = [_resource_to_string(affected)]
+
+        return payload
 
     def _repair_response_to_json(
         self,
