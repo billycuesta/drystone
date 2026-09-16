@@ -38,6 +38,59 @@ class DynamicCorrelationPattern:
     ] = None
 
 
+# --- Narrative context helpers (P1: Pentest Skill Quality Audit, rec. A) ---
+#
+# attack_path_generator/remediation_generator receive a context dict built in
+# CorrelationEngine.run() with:
+#   "evidence_by_skill": Dict[str, Any]        -- raw per-skill evidence payloads
+#   "findings_by_skill": Dict[str, List[Finding]] -- every Finding for this session
+# Most matchers key off specific check IDs present in findings_by_skill[skill];
+# these helpers let the narrative functions re-select the same specific
+# finding(s) the matcher found and pull real resource identifiers out of them,
+# instead of returning category-templated text for every match.
+
+
+def _ctx_findings(context: Dict[str, Any], skill: str, ids: Optional[set] = None) -> List[Finding]:
+    """Findings for one skill from the narrative context, optionally filtered by ID."""
+    by_skill = context.get("findings_by_skill") or {}
+    findings = by_skill.get(skill) or []
+    if ids is None:
+        return list(findings)
+    return [f for f in findings if f.id in ids]
+
+
+def _ctx_evidence(context: Dict[str, Any], skill: str) -> Dict[str, Any]:
+    """Raw evidence payload for one skill from the narrative context."""
+    by_skill = context.get("evidence_by_skill") or {}
+    doc = by_skill.get(skill)
+    return doc if isinstance(doc, dict) else {}
+
+
+def _resource_summary(findings: List[Finding], limit: int = 3) -> str:
+    """Human-readable list of the real resources these findings named."""
+    resources: List[str] = []
+    for f in findings:
+        for r in f.affected_resources or []:
+            if r and r not in resources:
+                resources.append(r)
+    if not resources:
+        return "the affected resource(s) identified by this finding"
+    if len(resources) == 1:
+        return resources[0]
+    shown = ", ".join(resources[:limit])
+    if len(resources) > limit:
+        shown += f", and {len(resources) - limit} more"
+    return shown
+
+
+def _first_resource(findings: List[Finding], default: str = "the affected resource") -> str:
+    for f in findings:
+        for r in f.affected_resources or []:
+            if r:
+                return r
+    return default
+
+
 class PatternRegistry:
     """Registry for dynamic pentest correlation patterns."""
 
@@ -580,7 +633,39 @@ def _match_assume_role_escalation(
     return False
 
 
-def _assume_role_attack_path(_: Dict[str, Any]) -> List[str]:
+def _assume_role_matching_chains(context: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Re-select the same wildcard/root-trust chains _match_assume_role_escalation found."""
+    chains_doc = _ctx_evidence(context, "iam").get("assumeRole-chains") or {}
+    chains = chains_doc.get("chains", []) if isinstance(chains_doc, dict) else []
+    matches = []
+    for ch in chains if isinstance(chains, list) else []:
+        if not isinstance(ch, dict):
+            continue
+        principals = ch.get("TrustedPrincipals", [])
+        if any(isinstance(p, str) and (p == "*" or "arn:aws:iam::*:root" in p) for p in principals):
+            matches.append(ch)
+    return matches
+
+
+def _assume_role_attack_path(context: Dict[str, Any]) -> List[str]:
+    matches = _assume_role_matching_chains(context)
+    if matches:
+        role = matches[0].get("Arn") or matches[0].get("RoleName") or "the role"
+        trust = next(
+            (p for p in matches[0].get("TrustedPrincipals", []) if p == "*" or "root" in str(p)),
+            "*",
+        )
+        return [
+            "Compromise low-privilege IAM identity via leaked credentials or phishing",
+            "Enumerate trust relationships and role assumption paths",
+            f"Assume `{role}` -- its trust policy permits `{trust}` to assume it",
+            "Escalate privileges and access additional account resources"
+            + (
+                f" ({len(matches) - 1} other role(s) share this same overly permissive trust)"
+                if len(matches) > 1
+                else ""
+            ),
+        ]
     return [
         "Compromise low-privilege IAM identity via leaked credentials or phishing",
         "Enumerate trust relationships and role assumption paths",
@@ -589,7 +674,15 @@ def _assume_role_attack_path(_: Dict[str, Any]) -> List[str]:
     ]
 
 
-def _assume_role_remediation(_: Dict[str, Any]) -> List[str]:
+def _assume_role_remediation(context: Dict[str, Any]) -> List[str]:
+    matches = _assume_role_matching_chains(context)
+    if matches:
+        roles = ", ".join(str(m.get("Arn") or m.get("RoleName")) for m in matches[:3])
+        return [
+            f"Restrict the trust policy on {roles} to specific principals, remove wildcard/root trust",
+            "Require MFA and ExternalId where cross-account trust is needed",
+            "Continuously monitor sts:AssumeRole events in CloudTrail",
+        ]
     return [
         "Restrict trust policies to specific principals, avoid wildcard/root trust",
         "Require MFA and ExternalId where cross-account trust is needed",
@@ -638,17 +731,21 @@ def _match_iam_oidc_broad_trust_chain(
     return bool({"IAM-032", "IAM-034"}.intersection(ids))
 
 
-def _iam_oidc_broad_trust_attack_path(_: Dict[str, Any]) -> List[str]:
+def _iam_oidc_broad_trust_attack_path(context: Dict[str, Any]) -> List[str]:
+    findings = _ctx_findings(context, "iam", {"IAM-032", "IAM-034"})
+    role = _first_resource(findings, "the affected role")
     return [
-        "Attacker identifies role trust to token.actions.githubusercontent.com with broad or weak conditions",
+        f"Attacker identifies `{role}`'s trust to token.actions.githubusercontent.com with broad or weak conditions",
         "Mints/abuses external CI OIDC token that satisfies permissive trust",
-        "Assumes AWS role via AssumeRoleWithWebIdentity and pivots with temporary credentials",
+        f"Assumes `{role}` via AssumeRoleWithWebIdentity and pivots with temporary credentials",
     ]
 
 
-def _iam_oidc_broad_trust_remediation(_: Dict[str, Any]) -> List[str]:
+def _iam_oidc_broad_trust_remediation(context: Dict[str, Any]) -> List[str]:
+    findings = _ctx_findings(context, "iam", {"IAM-032", "IAM-034"})
+    role = _first_resource(findings, "the affected role")
     return [
-        "Constrain OIDC trust with exact sub + aud conditions and avoid broad wildcards",
+        f"Constrain OIDC trust on `{role}` with exact sub + aud conditions and avoid broad wildcards",
         "Restrict SAML/OIDC provider mutation actions to break-glass identities",
         "Continuously monitor AssumeRoleWithWebIdentity and IdP update events",
     ]
@@ -697,17 +794,21 @@ def _match_iam_policy_version_backdoor_chain(
     return any(_is_overprivileged_iam_finding(f) or f.id == "IAM-008" for f in iam_findings)
 
 
-def _iam_policy_version_backdoor_attack_path(_: Dict[str, Any]) -> List[str]:
+def _iam_policy_version_backdoor_attack_path(context: Dict[str, Any]) -> List[str]:
+    findings = _ctx_findings(context, "iam", {"IAM-035"})
+    identity = _first_resource(findings, "the affected identity")
     return [
-        "Attacker identifies identity with CreatePolicyVersion/SetDefaultPolicyVersion permissions",
+        f"Attacker identifies `{identity}`, which has CreatePolicyVersion/SetDefaultPolicyVersion permissions",
         "Creates malicious policy version and sets it as default to grant elevated access",
         "Uses temporary elevated privileges while hiding persistence in policy version history",
     ]
 
 
-def _iam_policy_version_backdoor_remediation(_: Dict[str, Any]) -> List[str]:
+def _iam_policy_version_backdoor_remediation(context: Dict[str, Any]) -> List[str]:
+    findings = _ctx_findings(context, "iam", {"IAM-035"})
+    identity = _first_resource(findings, "the affected identity")
     return [
-        "Remove policy-version mutation rights from non-security-admin identities",
+        f"Remove policy-version mutation rights from `{identity}` (and any other non-security-admin identities)",
         "Alert on CreatePolicyVersion and SetDefaultPolicyVersion CloudTrail events",
         "Require change approval and periodic review of all policy versions",
     ]
@@ -754,17 +855,21 @@ def _match_iam_mfa_hijack_chain(
     return "IAM-037" in ids
 
 
-def _iam_mfa_hijack_attack_path(_: Dict[str, Any]) -> List[str]:
+def _iam_mfa_hijack_attack_path(context: Dict[str, Any]) -> List[str]:
+    findings = _ctx_findings(context, "iam", {"IAM-037"})
+    identity = _first_resource(findings, "the affected identity")
     return [
-        "Attacker identifies principal with MFA lifecycle permissions",
+        f"Attacker identifies `{identity}`, which has MFA lifecycle permissions",
         "Registers/deactivates MFA device for target identity to force lockout or hijack",
         "Maintains access or disrupts incident response through authentication control abuse",
     ]
 
 
-def _iam_mfa_hijack_remediation(_: Dict[str, Any]) -> List[str]:
+def _iam_mfa_hijack_remediation(context: Dict[str, Any]) -> List[str]:
+    findings = _ctx_findings(context, "iam", {"IAM-037"})
+    identity = _first_resource(findings, "the affected identity")
     return [
-        "Restrict EnableMFADevice/CreateVirtualMFADevice/DeactivateMFADevice actions",
+        f"Restrict EnableMFADevice/CreateVirtualMFADevice/DeactivateMFADevice actions on `{identity}`",
         "Alert on MFA device lifecycle events in CloudTrail",
         "Use break-glass workflows with approvals for MFA administrative operations",
     ]
@@ -810,17 +915,21 @@ def _match_iam_authorization_wipeout_chain(
     return "IAM-038" in ids or "IAM-039" in ids
 
 
-def _iam_authorization_wipeout_attack_path(_: Dict[str, Any]) -> List[str]:
+def _iam_authorization_wipeout_attack_path(context: Dict[str, Any]) -> List[str]:
+    findings = _ctx_findings(context, "iam", {"IAM-038", "IAM-039"})
+    identity = _first_resource(findings, "the affected identity")
     return [
-        "Attacker uses broad IAM delete/detach permissions",
+        f"Attacker uses `{identity}`'s broad IAM delete/detach permissions",
         "Removes policies, policy versions, or role/user attachments",
         "Causes authorization disruption, denial-of-service, and anti-forensic impact",
     ]
 
 
-def _iam_authorization_wipeout_remediation(_: Dict[str, Any]) -> List[str]:
+def _iam_authorization_wipeout_remediation(context: Dict[str, Any]) -> List[str]:
+    findings = _ctx_findings(context, "iam", {"IAM-038", "IAM-039"})
+    identity = _first_resource(findings, "the affected identity")
     return [
-        "Eliminate iam:Delete* and broad detach/delete permissions from non-emergency roles",
+        f"Eliminate iam:Delete* and broad detach/delete permissions from `{identity}` (and any other non-emergency roles)",
         "Require approvals for destructive IAM authorization changes",
         "Create detections for delete/detach bursts and unusual IAM mutation patterns",
     ]
@@ -866,18 +975,22 @@ def _match_sm_rotation_hijack_chain(
     return bool({"SM-014", "SM-016"}.intersection(ids))
 
 
-def _sm_rotation_hijack_attack_path(_: Dict[str, Any]) -> List[str]:
+def _sm_rotation_hijack_attack_path(context: Dict[str, Any]) -> List[str]:
+    findings = _ctx_findings(context, "secretsmanager", {"SM-014", "SM-016"})
+    secret = _first_resource(findings, "the affected secret")
     return [
-        "Attacker identifies secret with rotation enabled and mutable rotation configuration",
+        f"Attacker identifies `{secret}`, which has rotation enabled and mutable rotation configuration",
         "Rebinds rotation workflow to attacker-controlled Lambda or abuses stage manipulation",
         "Exfiltrates current/pending secret values during rotation lifecycle",
         "Maintains persistence through scheduled future rotations",
     ]
 
 
-def _sm_rotation_hijack_remediation(_: Dict[str, Any]) -> List[str]:
+def _sm_rotation_hijack_remediation(context: Dict[str, Any]) -> List[str]:
+    findings = _ctx_findings(context, "secretsmanager", {"SM-014", "SM-016"})
+    secret = _first_resource(findings, "the affected secret")
     return [
-        "Restrict RotateSecret/UpdateSecretVersionStage to dedicated change-control roles",
+        f"Restrict RotateSecret/UpdateSecretVersionStage on `{secret}` to dedicated change-control roles",
         "Enforce allowlist for rotation Lambda ARNs and monitor config drifts",
         "Alert on AWSCURRENT stage moves and unexpected rotation lambda changes",
     ]
@@ -924,18 +1037,22 @@ def _match_sm_cross_region_backdoor_chain(
     return bool({"SM-013", "SM-015", "SM-017"}.intersection(ids))
 
 
-def _sm_cross_region_backdoor_attack_path(_: Dict[str, Any]) -> List[str]:
+def _sm_cross_region_backdoor_attack_path(context: Dict[str, Any]) -> List[str]:
+    findings = _ctx_findings(context, "secretsmanager", {"SM-013", "SM-015", "SM-017"})
+    secret = _first_resource(findings, "the affected secret")
     return [
-        "Attacker leverages permissive secret resource policies and replication capabilities",
+        f"Attacker leverages `{secret}`'s permissive resource policy and replication capabilities",
         "Creates or promotes replica secret in alternate region with attacker-favorable controls",
         "Pairs secret access with KMS decrypt path to read sensitive values",
         "Maintains stealthy cross-region backdoor while primary secret appears unchanged",
     ]
 
 
-def _sm_cross_region_backdoor_remediation(_: Dict[str, Any]) -> List[str]:
+def _sm_cross_region_backdoor_remediation(context: Dict[str, Any]) -> List[str]:
+    findings = _ctx_findings(context, "secretsmanager", {"SM-013", "SM-015", "SM-017"})
+    secret = _first_resource(findings, "the affected secret")
     return [
-        "Restrict ReplicateSecretToRegions/StopReplicationToReplica/PutResourcePolicy permissions",
+        f"Restrict ReplicateSecretToRegions/StopReplicationToReplica/PutResourcePolicy permissions on `{secret}`",
         "Enforce region allowlists and approved KMS keys for secrets encryption",
         "Continuously monitor cross-region secret replication and external principal grants",
     ]
@@ -981,17 +1098,21 @@ def _match_kms_ransomware_actions(
     return any(f.id in {"KMS-005", "KMS-006"} for f in kms_findings)
 
 
-def _kms_ransomware_attack_path(_: Dict[str, Any]) -> List[str]:
+def _kms_ransomware_attack_path(context: Dict[str, Any]) -> List[str]:
+    findings = _ctx_findings(context, "kms", {"KMS-005", "KMS-006"})
+    key = _first_resource(findings, "the affected KMS key")
     return [
-        "Attacker identifies KMS permissions enabling key disable/deletion or imported key material deletion",
+        f"Attacker identifies `{key}` has permissions enabling key disable/deletion or imported key material deletion",
         "Executes destructive KMS action to break decryptability of dependent services",
         "Forces operational outage or ransomware-like recovery pressure",
     ]
 
 
-def _kms_ransomware_remediation(_: Dict[str, Any]) -> List[str]:
+def _kms_ransomware_remediation(context: Dict[str, Any]) -> List[str]:
+    findings = _ctx_findings(context, "kms", {"KMS-005", "KMS-006"})
+    key = _first_resource(findings, "the affected KMS key")
     return [
-        "Restrict destructive KMS lifecycle permissions to tightly controlled break-glass roles",
+        f"Restrict destructive KMS lifecycle permissions on `{key}` to tightly controlled break-glass roles",
         "Alert on DisableKey, ScheduleKeyDeletion, DeleteImportedKeyMaterial, alias mutations",
         "Use dual-approval workflows and tested recovery playbooks for key operations",
     ]
@@ -1037,17 +1158,21 @@ def _match_kms_grant_persistence(
     return any(f.id == "KMS-007" for f in kms_findings)
 
 
-def _kms_grant_persistence_attack_path(_: Dict[str, Any]) -> List[str]:
+def _kms_grant_persistence_attack_path(context: Dict[str, Any]) -> List[str]:
+    findings = _ctx_findings(context, "kms", {"KMS-007"})
+    key = _first_resource(findings, "the affected KMS key")
     return [
-        "Attacker locates KMS grants delegating CreateGrant",
+        f"Attacker locates a grant on `{key}` delegating CreateGrant",
         "Creates follow-on grants for controlled principals to retain key access",
         "Maintains persistent decrypt/data-key capability without modifying key policy",
     ]
 
 
-def _kms_grant_persistence_remediation(_: Dict[str, Any]) -> List[str]:
+def _kms_grant_persistence_remediation(context: Dict[str, Any]) -> List[str]:
+    findings = _ctx_findings(context, "kms", {"KMS-007"})
+    key = _first_resource(findings, "the affected KMS key")
     return [
-        "Remove or tightly constrain CreateGrant delegation in grants",
+        f"Remove or tightly constrain CreateGrant delegation in grants on `{key}`",
         "Enforce grant constraints (encryption context, service scoping)",
         "Continuously review and alert on anomalous grant creation patterns",
     ]
@@ -1099,20 +1224,24 @@ def _match_cicd_plus_overpriv_iam(
     return any(_is_overprivileged_iam_finding(f) for f in iam_findings)
 
 
-def _cicd_overpriv_attack_path(_: Dict[str, Any]) -> List[str]:
+def _cicd_overpriv_attack_path(context: Dict[str, Any]) -> List[str]:
+    iam_findings = [f for f in _ctx_findings(context, "iam") if _is_overprivileged_iam_finding(f)]
+    role = _first_resource(iam_findings, "the build role")
     return [
         "Attacker compromises CI/CD token or build configuration",
-        "Obtains AWS credentials or pivots to AWS via build role",
+        f"Obtains AWS credentials or pivots to AWS via build role `{role}`",
         "Abuses over-privileged IAM permissions for account-wide lateral movement",
         "Establishes persistence through IAM role trust/policy changes",
     ]
 
 
-def _cicd_overpriv_remediation(_: Dict[str, Any]) -> List[str]:
+def _cicd_overpriv_remediation(context: Dict[str, Any]) -> List[str]:
+    iam_findings = [f for f in _ctx_findings(context, "iam") if _is_overprivileged_iam_finding(f)]
+    role = _first_resource(iam_findings, "the build role")
     return [
         "Harden CodeBuild projects (no insecureSsl/proxy injection) and remove unused creds",
         "Restrict who can start builds and update projects; use approval gates",
-        "Reduce IAM privileges of build roles and apply permission boundaries",
+        f"Reduce IAM privileges of `{role}` and apply permission boundaries",
     ]
 
 
@@ -1160,18 +1289,24 @@ def _match_messaging_plus_iam_admin(
     return any(_is_overprivileged_iam_finding(f) for f in iam_findings)
 
 
-def _messaging_iam_attack_path(_: Dict[str, Any]) -> List[str]:
+def _messaging_iam_attack_path(context: Dict[str, Any]) -> List[str]:
+    queue = _first_resource(_ctx_findings(context, "messaging"), "the affected queue")
+    role = _first_resource(
+        [f for f in _ctx_findings(context, "iam") if _is_overprivileged_iam_finding(f)],
+        "an over-privileged identity",
+    )
     return [
-        "Attacker obtains IAM rights to modify SQS queue attributes/policies",
+        f"Attacker uses `{role}` to modify `{queue}`'s attributes/policies",
         "Reconfigures DLQ/redrive to route messages to attacker-controlled queue",
         "Moves/re-drives messages to exfiltrate data and conceal theft",
         "Uses administrative IAM access to expand to other services",
     ]
 
 
-def _messaging_iam_remediation(_: Dict[str, Any]) -> List[str]:
+def _messaging_iam_remediation(context: Dict[str, Any]) -> List[str]:
+    queue = _first_resource(_ctx_findings(context, "messaging"), "the affected queue")
     return [
-        "Restrict IAM permissions for SQS administrative actions (SetQueueAttributes, AddPermission)",
+        f"Restrict IAM permissions for SQS administrative actions (SetQueueAttributes, AddPermission) on `{queue}`",
         "Harden queue policies and redrive allow policies",
         "Enable monitoring/alerts on SQS policy/attribute changes",
     ]
@@ -1219,18 +1354,20 @@ def _match_kms_plus_iam_admin(
     return any(_is_overprivileged_iam_finding(f) for f in iam_findings)
 
 
-def _kms_iam_attack_path(_: Dict[str, Any]) -> List[str]:
+def _kms_iam_attack_path(context: Dict[str, Any]) -> List[str]:
+    key = _first_resource(_ctx_findings(context, "kms"), "the affected KMS key")
     return [
-        "Attacker identifies permissive KMS key policies",
-        "Obtains/abuses IAM permissions to enumerate and use CMKs",
+        f"Attacker identifies `{key}`'s permissive key policy",
+        "Obtains/abuses IAM permissions to enumerate and use the CMK",
         "Decrypts protected secrets/data keys and exfiltrates sensitive data",
         "Expands to broader AWS access using recovered secrets",
     ]
 
 
-def _kms_iam_remediation(_: Dict[str, Any]) -> List[str]:
+def _kms_iam_remediation(context: Dict[str, Any]) -> List[str]:
+    key = _first_resource(_ctx_findings(context, "kms"), "the affected KMS key")
     return [
-        "Restrict KMS key policies and administrative IAM permissions",
+        f"Restrict `{key}`'s key policy and administrative IAM permissions",
         "Audit and remove wildcard principals; rotate affected keys/secrets",
         "Monitor KMS Decrypt/GenerateDataKey usage and alert on anomalies",
     ]
@@ -1307,18 +1444,32 @@ def _match_cicd_codebuild_token_leakage(
     return False
 
 
-def _cicd_attack_path(_: Dict[str, Any]) -> List[str]:
+def _cicd_leaking_project_name(context: Dict[str, Any]) -> str:
+    cicd = _ctx_evidence(context, "cicd")
+    projects = (cicd.get("codebuild-projects") or {}).get("items") or []
+    for p in projects if isinstance(projects, list) else []:
+        if not isinstance(p, dict):
+            continue
+        source = p.get("source") if isinstance(p.get("source"), dict) else {}
+        if bool(source.get("insecureSsl")):
+            return str(p.get("name") or p.get("arn") or "the project")
+    return "the affected CodeBuild project"
+
+
+def _cicd_attack_path(context: Dict[str, Any]) -> List[str]:
+    project = _cicd_leaking_project_name(context)
     return [
-        "Attacker gains access to CodeBuild project configuration or build execution",
+        f"Attacker gains access to CodeBuild project `{project}`'s configuration or build execution",
         "Harvests source credentials metadata and identifies token-based integrations",
         "Abuses insecure SSL/proxy paths to intercept repository credentials",
         "Uses leaked tokens for code access, supply-chain abuse, or lateral movement",
     ]
 
 
-def _cicd_remediation(_: Dict[str, Any]) -> List[str]:
+def _cicd_remediation(context: Dict[str, Any]) -> List[str]:
+    project = _cicd_leaking_project_name(context)
     return [
-        "Remove unused CodeBuild source credentials; prefer short-lived connections",
+        f"Remove unused CodeBuild source credentials on `{project}`; prefer short-lived connections",
         "Disable insecureSsl and prevent proxy env var injection",
         "Restrict who can update projects and start builds; monitor for anomalies",
     ]
@@ -1383,17 +1534,28 @@ def _match_messaging_dlq_exfil(
     return False
 
 
-def _messaging_dlq_attack_path(_: Dict[str, Any]) -> List[str]:
+def _messaging_dlq_queue_name(context: Dict[str, Any]) -> str:
+    messaging = _ctx_evidence(context, "messaging")
+    queues = (messaging.get("sqs-queues") or {}).get("items") or []
+    for q in queues if isinstance(queues, list) else []:
+        if isinstance(q, dict) and (q.get("RedrivePolicy") or q.get("RedriveAllowPolicy")):
+            return str(q.get("QueueArn") or q.get("QueueUrl") or "the queue")
+    return "the affected queue"
+
+
+def _messaging_dlq_attack_path(context: Dict[str, Any]) -> List[str]:
+    queue = _messaging_dlq_queue_name(context)
     return [
-        "Attacker obtains SQS administrative capability (SetQueueAttributes/Redrive configuration)",
+        f"Attacker obtains SQS administrative capability on `{queue}` (SetQueueAttributes/Redrive configuration)",
         "Modifies DLQ/redrive settings to route messages to attacker-controlled queue",
         "Moves or re-drives messages to exfiltrate accumulated sensitive payloads",
     ]
 
 
-def _messaging_dlq_remediation(_: Dict[str, Any]) -> List[str]:
+def _messaging_dlq_remediation(context: Dict[str, Any]) -> List[str]:
+    queue = _messaging_dlq_queue_name(context)
     return [
-        "Restrict SQS administrative actions and queue policy principals",
+        f"Restrict SQS administrative actions and queue policy principals on `{queue}`",
         "Review DLQ/redrive configuration and redrive allow policies",
         "Monitor CloudTrail for SetQueueAttributes and message move operations",
     ]
@@ -1439,17 +1601,21 @@ def _match_messaging_sns_sqs_unauth_exfil(
     return bool({"MSG-005", "MSG-007", "MSG-008"}.intersection(ids))
 
 
-def _messaging_sns_sqs_unauth_exfil_attack_path(_: Dict[str, Any]) -> List[str]:
+def _messaging_sns_sqs_unauth_exfil_attack_path(context: Dict[str, Any]) -> List[str]:
+    findings = _ctx_findings(context, "messaging", {"MSG-005", "MSG-007", "MSG-008"})
+    resource = _first_resource(findings, "the affected topic/queue")
     return [
-        "Attacker discovers permissive SNS topic and/or SQS queue policies",
+        f"Attacker discovers `{resource}`'s permissive policy",
         "Creates unauthorized subscription or injects/reads queue messages",
         "Exfiltrates message payloads and abuses trusted event workflows",
     ]
 
 
-def _messaging_sns_sqs_unauth_exfil_remediation(_: Dict[str, Any]) -> List[str]:
+def _messaging_sns_sqs_unauth_exfil_remediation(context: Dict[str, Any]) -> List[str]:
+    findings = _ctx_findings(context, "messaging", {"MSG-005", "MSG-007", "MSG-008"})
+    resource = _first_resource(findings, "the affected topic/queue")
     return [
-        "Eliminate wildcard principals on sns:Publish/sns:Subscribe and SQS data-plane actions",
+        f"Eliminate wildcard principals on `{resource}`'s sns:Publish/sns:Subscribe and SQS data-plane actions",
         "Add strict SourceArn/SourceAccount conditions for service integrations",
         "Continuously monitor policy changes and subscription drift",
     ]
@@ -1498,17 +1664,20 @@ def _match_messaging_queue_destruction_disruption(
     return has_open_messaging and has_destructive_iam
 
 
-def _messaging_queue_destruction_attack_path(_: Dict[str, Any]) -> List[str]:
+def _messaging_queue_destruction_attack_path(context: Dict[str, Any]) -> List[str]:
+    msg = _first_resource(_ctx_findings(context, "messaging", {"MSG-005", "MSG-008"}), "the queue/topic")
+    iam = _first_resource(_ctx_findings(context, "iam", {"IAM-038", "IAM-039"}), "an identity with destructive IAM rights")
     return [
-        "Attacker abuses broad messaging and IAM mutation/destruction permissions",
+        f"Attacker uses `{iam}` to abuse broad messaging and IAM mutation/destruction permissions on `{msg}`",
         "Deletes/purges queues or removes permissions to disrupt message-driven workloads",
         "Causes sustained delivery failures and service degradation",
     ]
 
 
-def _messaging_queue_destruction_remediation(_: Dict[str, Any]) -> List[str]:
+def _messaging_queue_destruction_remediation(context: Dict[str, Any]) -> List[str]:
+    iam = _first_resource(_ctx_findings(context, "iam", {"IAM-038", "IAM-039"}), "non-emergency roles")
     return [
-        "Remove destructive queue/topic operations from non-emergency roles",
+        f"Remove destructive queue/topic operations from `{iam}`",
         "Harden messaging resource policies and lock down admin APIs",
         "Alert on queue purge/delete and policy-removal operations",
     ]
@@ -1565,17 +1734,28 @@ def _match_kms_policy_backdoor(
     return False
 
 
-def _kms_backdoor_attack_path(_: Dict[str, Any]) -> List[str]:
+def _kms_backdoor_matching_key(context: Dict[str, Any]) -> str:
+    kms = _ctx_evidence(context, "kms")
+    items = (kms.get("kms-key-policies") or {}).get("items") or []
+    for it in items if isinstance(items, list) else []:
+        if isinstance(it, dict) and isinstance(it.get("Policy"), dict) and _policy_has_wildcard_principal(it["Policy"]):
+            return str(it.get("KeyId") or it.get("Arn") or "the key")
+    return "the affected KMS key"
+
+
+def _kms_backdoor_attack_path(context: Dict[str, Any]) -> List[str]:
+    key = _kms_backdoor_matching_key(context)
     return [
-        "Attacker identifies permissive KMS key policy (wildcard/cross-account principals)",
+        f"Attacker identifies `{key}`'s permissive key policy (wildcard/cross-account principals)",
         "Uses allowed KMS operations to decrypt data keys or protected secrets",
         "Exfiltrates sensitive data encrypted under the compromised CMK",
     ]
 
 
-def _kms_backdoor_remediation(_: Dict[str, Any]) -> List[str]:
+def _kms_backdoor_remediation(context: Dict[str, Any]) -> List[str]:
+    key = _kms_backdoor_matching_key(context)
     return [
-        "Restrict KMS key policies to explicit principals",
+        f"Restrict `{key}`'s key policy to explicit principals",
         "Add condition keys (aws:PrincipalArn/aws:SourceAccount) where applicable",
         "Review and rotate affected secrets/data and monitor KMS usage",
     ]
@@ -1639,19 +1819,33 @@ def _match_ecs_eventbridge_scheduled_tasks(
     return False
 
 
-def _ecs_scheduled_attack_path(_: Dict[str, Any]) -> List[str]:
+def _ecs_scheduled_rule_name(context: Dict[str, Any]) -> str:
+    compute = _ctx_evidence(context, "compute")
+    rules = (compute.get("eventbridge-rules") or {}).get("rules") or []
+    for r in rules if isinstance(rules, list) else []:
+        if not isinstance(r, dict) or not r.get("ScheduleExpression"):
+            continue
+        targets = r.get("Targets") or []
+        if any(isinstance(t, dict) and str(t.get("Arn", "")).startswith("arn:aws:ecs") for t in targets):
+            return str(r.get("Name") or r.get("Arn") or "the rule")
+    return "the affected EventBridge rule"
+
+
+def _ecs_scheduled_attack_path(context: Dict[str, Any]) -> List[str]:
+    rule = _ecs_scheduled_rule_name(context)
     return [
         "Attacker gains ability to create/modify EventBridge rules or ECS RunTask",
-        "Adds scheduled rule targeting ECS task execution",
+        f"Adds scheduled rule `{rule}` targeting ECS task execution",
         "Maintains persistence by periodically re-launching unauthorized tasks",
         "Uses task role permissions for lateral movement or data access",
     ]
 
 
-def _ecs_scheduled_remediation(_: Dict[str, Any]) -> List[str]:
+def _ecs_scheduled_remediation(context: Dict[str, Any]) -> List[str]:
+    rule = _ecs_scheduled_rule_name(context)
     return [
         "Restrict events:PutRule/events:PutTargets and ecs:RunTask permissions",
-        "Review scheduled rules and targets; remove unauthorized schedules",
+        f"Review scheduled rule `{rule}` and its targets; remove if unauthorized",
         "Enforce least privilege on task roles and monitor for unexpected task launches",
     ]
 
@@ -1711,18 +1905,30 @@ def _match_eks_public_endpoint(
     return False
 
 
-def _eks_public_overpriv_attack_path(_: Dict[str, Any]) -> List[str]:
+def _eks_public_cluster_name(context: Dict[str, Any]) -> str:
+    compute = _ctx_evidence(context, "compute")
+    clusters = (compute.get("eks-inventory") or {}).get("clusters") or []
+    for c in clusters if isinstance(clusters, list) else []:
+        vpc_cfg = c.get("resourcesVpcConfig") if isinstance(c, dict) else {}
+        if isinstance(vpc_cfg, dict) and vpc_cfg.get("endpointPublicAccess"):
+            return str(c.get("name") or c.get("arn") or "the cluster")
+    return "the affected EKS cluster"
+
+
+def _eks_public_overpriv_attack_path(context: Dict[str, Any]) -> List[str]:
+    cluster = _eks_public_cluster_name(context)
     return [
-        "EKS control plane endpoint is reachable from the internet",
+        f"`{cluster}`'s control plane endpoint is reachable from the internet",
         "Attacker obtains AWS credentials with EKS administrative access",
         "Uses kubectl/API access to enumerate workloads and secrets",
         "Escalates to cluster-wide persistence and lateral movement",
     ]
 
 
-def _eks_public_overpriv_remediation(_: Dict[str, Any]) -> List[str]:
+def _eks_public_overpriv_remediation(context: Dict[str, Any]) -> List[str]:
+    cluster = _eks_public_cluster_name(context)
     return [
-        "Disable public endpoint or restrict publicAccessCidrs",
+        f"Disable `{cluster}`'s public endpoint or restrict publicAccessCidrs",
         "Enforce least privilege for eks:* and related IAM permissions",
         "Enable control-plane logs and monitor authentication/audit events",
     ]
@@ -1783,17 +1989,33 @@ def _match_compute_ec2_imdsv1_profile_chain(
     return False
 
 
-def _compute_ec2_imdsv1_attack_path(_: Dict[str, Any]) -> List[str]:
+def _compute_ec2_imdsv1_instance(context: Dict[str, Any]) -> str:
+    compute = _ctx_evidence(context, "compute")
+    instances = (compute.get("ec2-inventory") or {}).get("instances") or []
+    for it in instances if isinstance(instances, list) else []:
+        if not isinstance(it, dict):
+            continue
+        md = it.get("MetadataOptions") if isinstance(it.get("MetadataOptions"), dict) else {}
+        has_profile = bool(it.get("IamInstanceProfile"))
+        imdsv1 = str(md.get("HttpTokens") or "optional").lower() != "required"
+        if has_profile and imdsv1:
+            return str(it.get("InstanceId") or "the instance")
+    return "the affected EC2 instance"
+
+
+def _compute_ec2_imdsv1_attack_path(context: Dict[str, Any]) -> List[str]:
+    instance = _compute_ec2_imdsv1_instance(context)
     return [
-        "Attacker gains SSRF or host-level foothold on EC2 workload",
+        f"Attacker gains SSRF or host-level foothold on `{instance}`",
         "Queries IMDSv1 endpoint and retrieves role credentials from metadata",
         "Uses temporary credentials for lateral movement and control-plane abuse",
     ]
 
 
-def _compute_ec2_imdsv1_remediation(_: Dict[str, Any]) -> List[str]:
+def _compute_ec2_imdsv1_remediation(context: Dict[str, Any]) -> List[str]:
+    instance = _compute_ec2_imdsv1_instance(context)
     return [
-        "Enforce IMDSv2 (HttpTokens=require) on all EC2 instances",
+        f"Enforce IMDSv2 (HttpTokens=require) on `{instance}` (and any other instances still on IMDSv1)",
         "Reduce privileges on instance profile roles",
         "Continuously monitor metadata credential abuse indicators",
     ]
@@ -1859,17 +2081,35 @@ def _match_compute_lambda_public_url_overpriv_chain(
     return False
 
 
-def _compute_lambda_public_url_overpriv_attack_path(_: Dict[str, Any]) -> List[str]:
+def _compute_lambda_public_url_function(context: Dict[str, Any]) -> str:
+    compute = _ctx_evidence(context, "compute")
+    funcs = (compute.get("lambda-inventory") or {}).get("functions") or []
+    risky = ["administratoraccess", "admin", "poweruser", "fullaccess"]
+    for fn in funcs if isinstance(funcs, list) else []:
+        if not isinstance(fn, dict) or str(fn.get("AuthType") or "").upper() != "NONE":
+            continue
+        attached = fn.get("AttachedPolicies") or []
+        if any(
+            isinstance(p, dict) and any(tok in str(p.get("PolicyName") or "").lower() for tok in risky)
+            for p in attached
+        ):
+            return str(fn.get("FunctionName") or fn.get("FunctionArn") or "the function")
+    return "the affected Lambda function"
+
+
+def _compute_lambda_public_url_overpriv_attack_path(context: Dict[str, Any]) -> List[str]:
+    fn = _compute_lambda_public_url_function(context)
     return [
-        "Attacker reaches unauthenticated Lambda Function URL",
+        f"Attacker reaches unauthenticated Lambda Function URL on `{fn}`",
         "Abuses vulnerable function path or runtime flaw",
         "Executes with over-privileged execution role to pivot across AWS resources",
     ]
 
 
-def _compute_lambda_public_url_overpriv_remediation(_: Dict[str, Any]) -> List[str]:
+def _compute_lambda_public_url_overpriv_remediation(context: Dict[str, Any]) -> List[str]:
+    fn = _compute_lambda_public_url_function(context)
     return [
-        "Disable unauthenticated Function URLs (AuthType=AWS_IAM)",
+        f"Disable `{fn}`'s unauthenticated Function URL (AuthType=AWS_IAM)",
         "Constrain Lambda execution role permissions to least privilege",
         "Add request validation, WAF/API Gateway front-door controls, and runtime monitoring",
     ]
@@ -1954,20 +2194,43 @@ def _match_exposure_plus_compute_overpriv(
     return has_compute
 
 
-def _public_entry_compute_attack_path(_: Dict[str, Any]) -> List[str]:
+def _public_entry_compute_type(context: Dict[str, Any]) -> str:
+    compute = _ctx_evidence(context, "compute")
+    has_ecs = bool((compute.get("ecs-inventory") or {}).get("services"))
+    has_eks = bool((compute.get("eks-inventory") or {}).get("clusters"))
+    if has_ecs and has_eks:
+        return "ECS and EKS"
+    if has_ecs:
+        return "ECS"
+    if has_eks:
+        return "EKS"
+    return "the compute"
+
+
+def _public_entry_compute_attack_path(context: Dict[str, Any]) -> List[str]:
+    identity = _first_resource(
+        [f for f in _ctx_findings(context, "iam") if _is_overprivileged_iam_finding(f)],
+        "an over-privileged workload identity",
+    )
+    compute_type = _public_entry_compute_type(context)
     return [
         "Attacker targets internet-facing application entrypoint",
         "Gains foothold and harvests workload credentials/tokens",
-        "Abuses over-privileged IAM permissions to access compute control plane",
-        "Moves laterally across ECS/EKS workloads and AWS resources",
+        f"Abuses `{identity}`'s over-privileged permissions to access the {compute_type} control plane",
+        f"Moves laterally across {compute_type} workloads and AWS resources",
     ]
 
 
-def _public_entry_compute_remediation(_: Dict[str, Any]) -> List[str]:
+def _public_entry_compute_remediation(context: Dict[str, Any]) -> List[str]:
+    identity = _first_resource(
+        [f for f in _ctx_findings(context, "iam") if _is_overprivileged_iam_finding(f)],
+        "workload identities",
+    )
+    compute_type = _public_entry_compute_type(context)
     return [
         "Restrict public entrypoints and enforce WAF + strong auth",
-        "Lock down IAM permissions for workload identities",
-        "Harden ECS/EKS configurations and enable comprehensive logging",
+        f"Lock down IAM permissions on `{identity}`",
+        f"Harden {compute_type} configurations and enable comprehensive logging",
     ]
 
 
@@ -2019,17 +2282,28 @@ def _match_lambda_env_secret_leak(
     )
 
 
-def _lambda_env_attack_path(_: Dict[str, Any]) -> List[str]:
+def _lambda_env_secret_function(context: Dict[str, Any]) -> str:
+    vulns_evidence = _ctx_evidence(context, "vulns")
+    env_items = _extract_items(vulns_evidence.get("lambda-environment-variables"))
+    for item in env_items:
+        if isinstance(item, dict) and item.get("PotentialSecretKeys"):
+            return str(item.get("FunctionName") or item.get("FunctionArn") or "the function")
+    return "the affected Lambda function"
+
+
+def _lambda_env_attack_path(context: Dict[str, Any]) -> List[str]:
+    fn = _lambda_env_secret_function(context)
     return [
-        "Attacker gains read capability over Lambda configuration metadata",
+        f"Attacker gains read capability over `{fn}`'s configuration metadata",
         "Extracts secret-like environment variable keys and values",
         "Reuses exposed credentials to access downstream AWS services",
     ]
 
 
-def _lambda_env_remediation(_: Dict[str, Any]) -> List[str]:
+def _lambda_env_remediation(context: Dict[str, Any]) -> List[str]:
+    fn = _lambda_env_secret_function(context)
     return [
-        "Move secrets from Lambda environment variables to Secrets Manager",
+        f"Move secrets out of `{fn}`'s environment variables into Secrets Manager",
         "Encrypt secret retrieval with KMS and runtime least privilege",
         "Rotate any potentially exposed credentials",
     ]
@@ -2105,17 +2379,33 @@ def _match_opensearch_public_exposure(
     return False
 
 
-def _opensearch_attack_path(_: Dict[str, Any]) -> List[str]:
+def _opensearch_domain_endpoint(context: Dict[str, Any]) -> str:
+    exposure_evidence = _ctx_evidence(context, "exposure")
+    domains = _extract_items(exposure_evidence.get("elasticsearch-domains"))
+    for d in domains:
+        endpoint = d.get("Endpoint")
+        policy = d.get("AccessPolicies")
+        if isinstance(endpoint, str) and endpoint and (
+            (isinstance(policy, str) and '"Principal":"*"' in policy.replace(" ", ""))
+            or (isinstance(policy, dict) and _policy_has_wildcard_principal(policy))
+        ):
+            return endpoint
+    return "the affected domain"
+
+
+def _opensearch_attack_path(context: Dict[str, Any]) -> List[str]:
+    endpoint = _opensearch_domain_endpoint(context)
     return [
-        "Attacker discovers exposed OpenSearch/Elasticsearch endpoint",
+        f"Attacker discovers exposed OpenSearch/Elasticsearch endpoint `{endpoint}`",
         "Interacts with index APIs where policy permits broad access",
         "Extracts indexed sensitive data or tampers with stored documents",
     ]
 
 
-def _opensearch_remediation(_: Dict[str, Any]) -> List[str]:
+def _opensearch_remediation(context: Dict[str, Any]) -> List[str]:
+    endpoint = _opensearch_domain_endpoint(context)
     return [
-        "Restrict domain access policies to approved principals only",
+        f"Restrict `{endpoint}`'s access policy to approved principals only",
         "Place domains in private VPC and disable public exposure",
         "Enable fine-grained access control and audit logging",
     ]
@@ -2167,18 +2457,29 @@ def _match_user_data_secret_exposure(
     return False
 
 
-def _user_data_secret_attack_path(_: Dict[str, Any]) -> List[str]:
+def _user_data_secret_instance(context: Dict[str, Any]) -> str:
+    vulns_evidence = _ctx_evidence(context, "vulns")
+    for entry in _extract_items(vulns_evidence.get("ec2-user-data")):
+        flags = entry.get("ContainsSecrets")
+        if isinstance(flags, dict) and any(bool(v) for v in flags.values()):
+            return str(entry.get("InstanceId") or "the instance")
+    return "the affected EC2 instance"
+
+
+def _user_data_secret_attack_path(context: Dict[str, Any]) -> List[str]:
+    instance = _user_data_secret_instance(context)
     return [
-        "Attacker obtains read access to user-data or instance bootstrap scripts",
+        f"Attacker obtains read access to `{instance}`'s user-data or bootstrap scripts",
         "Extracts hardcoded credentials/tokens from bootstrap content",
         "Authenticates to AWS APIs or downstream services with exposed secrets",
         "Escalates access and exfiltrates sensitive data",
     ]
 
 
-def _user_data_secret_remediation(_: Dict[str, Any]) -> List[str]:
+def _user_data_secret_remediation(context: Dict[str, Any]) -> List[str]:
+    instance = _user_data_secret_instance(context)
     return [
-        "Remove static credentials from EC2 user-data scripts",
+        f"Remove static credentials from `{instance}`'s user-data script",
         "Use IAM roles and short-lived credentials instead of embedded secrets",
         "Store sensitive values in Secrets Manager or SSM Parameter Store",
     ]
@@ -2229,17 +2530,28 @@ def _match_api_gateway_without_waf(
     )
 
 
-def _api_gateway_attack_path(_: Dict[str, Any]) -> List[str]:
+def _api_gateway_no_waf_stage(context: Dict[str, Any]) -> str:
+    exp_evidence = _ctx_evidence(context, "exposure")
+    stages = _extract_items(exp_evidence.get("api-gateway-stages"))
+    for s in stages:
+        if isinstance(s, dict) and isinstance(s.get("InvokeUrl"), str) and not s.get("HasWAF"):
+            return s["InvokeUrl"]
+    return "the affected API stage"
+
+
+def _api_gateway_attack_path(context: Dict[str, Any]) -> List[str]:
+    stage = _api_gateway_no_waf_stage(context)
     return [
-        "Attacker enumerates internet-exposed API Gateway stage endpoints",
+        f"Attacker enumerates internet-exposed API Gateway stage `{stage}`",
         "Performs endpoint fuzzing and input abuse attempts",
         "Exploits missing compensating controls without WAF protections",
     ]
 
 
-def _api_gateway_remediation(_: Dict[str, Any]) -> List[str]:
+def _api_gateway_remediation(context: Dict[str, Any]) -> List[str]:
+    stage = _api_gateway_no_waf_stage(context)
     return [
-        "Associate APIs with WAF and managed rule sets",
+        f"Associate `{stage}` with WAF and managed rule sets",
         "Enforce strong authN/authZ and request validation",
         "Limit attack surface by disabling unused stages and routes",
     ]
@@ -2296,17 +2608,29 @@ def _match_resource_policy_wildcard(
     return False
 
 
-def _resource_policy_attack_path(_: Dict[str, Any]) -> List[str]:
+def _resource_policy_wildcard_resource(context: Dict[str, Any]) -> str:
+    for f in _find_sources_wildcard_principal(
+        context.get("findings_by_skill") or {}, {}, context.get("evidence_by_skill") or {}
+    ):
+        r = _first_resource([f])
+        if r != "the affected resource":
+            return r
+    return "the affected resource"
+
+
+def _resource_policy_attack_path(context: Dict[str, Any]) -> List[str]:
+    resource = _resource_policy_wildcard_resource(context)
     return [
-        "Attacker identifies resource policy with wildcard principal",
-        "Invokes cross-account access path against exposed resource",
+        f"Attacker identifies `{resource}`'s resource policy has a wildcard principal",
+        "Invokes cross-account access path against the exposed resource",
         "Reads/modifies queue/topic/function or bucket content",
     ]
 
 
-def _resource_policy_remediation(_: Dict[str, Any]) -> List[str]:
+def _resource_policy_remediation(context: Dict[str, Any]) -> List[str]:
+    resource = _resource_policy_wildcard_resource(context)
     return [
-        "Replace wildcard principals with explicit trusted principals",
+        f"Replace `{resource}`'s wildcard principal with explicit trusted principals",
         "Add strict condition keys (SourceArn/SourceAccount) where applicable",
         "Continuously audit resource policies for cross-account exposure",
     ]
@@ -2380,17 +2704,27 @@ def _match_nat_egress_pivot(
     )
 
 
-def _nat_pivot_attack_path(_: Dict[str, Any]) -> List[str]:
+def _nat_pivot_gateway(context: Dict[str, Any]) -> str:
+    net_evidence = _ctx_evidence(context, "network")
+    for n in _extract_items(net_evidence.get("nat-gateway-routes")):
+        if isinstance(n, dict) and n.get("State") == "available" and n.get("AssociatedRouteTables"):
+            return str(n.get("NatGatewayId") or "the NAT gateway")
+    return "the affected NAT gateway"
+
+
+def _nat_pivot_attack_path(context: Dict[str, Any]) -> List[str]:
+    nat = _nat_pivot_gateway(context)
     return [
-        "Compromise private workload in subnet routed to NAT Gateway",
+        f"Compromise private workload in a subnet routed to `{nat}`",
         "Use NAT egress path for command-and-control and data exfiltration",
         "Blend outbound traffic with expected internet egress",
     ]
 
 
-def _nat_pivot_remediation(_: Dict[str, Any]) -> List[str]:
+def _nat_pivot_remediation(context: Dict[str, Any]) -> List[str]:
+    nat = _nat_pivot_gateway(context)
     return [
-        "Restrict egress with VPC endpoints, firewall controls, and explicit deny rules",
+        f"Restrict egress on subnets routed through `{nat}` with VPC endpoints, firewall controls, and explicit deny rules",
         "Segment sensitive workloads into subnets without direct internet egress",
         "Monitor unusual outbound traffic patterns from private subnets",
     ]
@@ -2465,17 +2799,25 @@ def _match_public_api_plus_overpriv_iam(
     return has_public_lambda or has_public_api
 
 
-def _public_api_overpriv_attack_path(_: Dict[str, Any]) -> List[str]:
+def _public_api_overpriv_attack_path(context: Dict[str, Any]) -> List[str]:
+    identity = _first_resource(
+        [f for f in _ctx_findings(context, "iam") if _is_overprivileged_iam_finding(f)],
+        "an over-privileged identity",
+    )
     return [
         "Attacker targets internet-facing API/Lambda endpoint",
-        "Obtains or abuses over-privileged IAM credentials/tokens",
+        f"Obtains or abuses `{identity}`'s over-privileged credentials/tokens",
         "Uses excessive permissions for lateral movement and data access",
     ]
 
 
-def _public_api_overpriv_remediation(_: Dict[str, Any]) -> List[str]:
+def _public_api_overpriv_remediation(context: Dict[str, Any]) -> List[str]:
+    identity = _first_resource(
+        [f for f in _ctx_findings(context, "iam") if _is_overprivileged_iam_finding(f)],
+        "identities reachable from public application paths",
+    )
     return [
-        "Reduce IAM privileges for identities reachable from public application paths",
+        f"Reduce IAM privileges on `{identity}`",
         "Require auth and WAF controls on internet-facing endpoints",
         "Apply runtime and identity guardrails with SCPs and least privilege",
     ]
@@ -2527,18 +2869,29 @@ def _match_imdsv1_ssrf_chain(
     return any(isinstance(i, dict) and i.get("VulnerableToSSRF") for i in instances)
 
 
-def _imds_attack_path(_: Dict[str, Any]) -> List[str]:
+def _imds_ssrf_instance(context: Dict[str, Any]) -> str:
+    vulns_evidence = _ctx_evidence(context, "vulns")
+    instances = (vulns_evidence.get("imds-configuration") or {}).get("instances") or []
+    for i in instances if isinstance(instances, list) else []:
+        if isinstance(i, dict) and i.get("VulnerableToSSRF"):
+            return str(i.get("InstanceId") or "the instance")
+    return "the affected EC2 instance"
+
+
+def _imds_attack_path(context: Dict[str, Any]) -> List[str]:
+    instance = _imds_ssrf_instance(context)
     return [
-        "Attacker gains SSRF primitive in an internet-facing workload",
+        f"Attacker gains SSRF primitive against `{instance}`'s internet-facing workload",
         "Requests IMDSv1 metadata endpoint from compromised runtime",
         "Extracts temporary credentials from instance metadata",
         "Uses stolen credentials for lateral movement in AWS account",
     ]
 
 
-def _imds_remediation(_: Dict[str, Any]) -> List[str]:
+def _imds_remediation(context: Dict[str, Any]) -> List[str]:
+    instance = _imds_ssrf_instance(context)
     return [
-        "Enforce IMDSv2 by setting HttpTokens=require on all EC2 instances",
+        f"Enforce IMDSv2 by setting HttpTokens=require on `{instance}`",
         "Set restrictive metadata hop limit where applicable",
         "Rotate any potentially exposed credentials and monitor CloudTrail",
     ]
@@ -2589,17 +2942,28 @@ def _match_public_lambda_url(
     return any(isinstance(u, dict) and u.get("IsPublic") for u in urls)
 
 
-def _lambda_url_attack_path(_: Dict[str, Any]) -> List[str]:
+def _public_lambda_url_function(context: Dict[str, Any]) -> str:
+    exp_evidence = _ctx_evidence(context, "exposure")
+    urls = (exp_evidence.get("lambda-function-urls") or {}).get("function_urls") or []
+    for u in urls if isinstance(urls, list) else []:
+        if isinstance(u, dict) and u.get("IsPublic"):
+            return str(u.get("FunctionArn") or u.get("FunctionUrl") or "the function")
+    return "the affected Lambda function"
+
+
+def _lambda_url_attack_path(context: Dict[str, Any]) -> List[str]:
+    fn = _public_lambda_url_function(context)
     return [
-        "Attacker enumerates exposed Lambda Function URLs",
+        f"Attacker finds `{fn}`'s exposed, unauthenticated Function URL",
         "Invokes unauthenticated endpoint repeatedly",
         "Abuses function logic to access internal services or data",
     ]
 
 
-def _lambda_url_remediation(_: Dict[str, Any]) -> List[str]:
+def _lambda_url_remediation(context: Dict[str, Any]) -> List[str]:
+    fn = _public_lambda_url_function(context)
     return [
-        "Set Lambda Function URL AuthType to AWS_IAM",
+        f"Set `{fn}`'s Function URL AuthType to AWS_IAM",
         "Protect function behind API Gateway + WAF where public access is required",
         "Implement strict input validation and runtime least privilege",
     ]
@@ -2655,18 +3019,34 @@ def _match_tgw_lateral_movement(
     return len(attached_vpcs) >= 2
 
 
-def _tgw_attack_path(_: Dict[str, Any]) -> List[str]:
+def _tgw_attached_vpcs(context: Dict[str, Any]) -> List[str]:
+    net_evidence = _ctx_evidence(context, "network")
+    attachments = (net_evidence.get("transit-gateway-topology") or {}).get("attachments") or []
+    return sorted(
+        {
+            a.get("ResourceId")
+            for a in attachments
+            if isinstance(a, dict) and isinstance(a.get("ResourceId"), str)
+        }
+    )
+
+
+def _tgw_attack_path(context: Dict[str, Any]) -> List[str]:
+    vpcs = _tgw_attached_vpcs(context)
+    vpc_list = ", ".join(vpcs[:4]) + (f", and {len(vpcs) - 4} more" if len(vpcs) > 4 else "") if vpcs else "the attached VPCs"
     return [
-        "Compromise workload in lower-trust VPC",
+        f"Compromise workload in a lower-trust VPC among {vpc_list}",
         "Enumerate Transit Gateway routes and reachable CIDRs",
-        "Pivot to connected VPCs through propagated routes",
+        f"Pivot to the other {len(vpcs) - 1 if len(vpcs) > 1 else ''} connected VPC(s) through propagated routes",
         "Access sensitive workloads in production segments",
     ]
 
 
-def _tgw_remediation(_: Dict[str, Any]) -> List[str]:
+def _tgw_remediation(context: Dict[str, Any]) -> List[str]:
+    vpcs = _tgw_attached_vpcs(context)
+    vpc_list = ", ".join(vpcs[:4]) + (f", and {len(vpcs) - 4} more" if len(vpcs) > 4 else "") if vpcs else "the attached VPCs"
     return [
-        "Segment Transit Gateway route tables by environment and trust level",
+        f"Segment Transit Gateway route tables between {vpc_list} by environment and trust level",
         "Deny east-west traffic by default and allow only required flows",
         "Continuously review TGW attachments and route propagations",
     ]
@@ -2712,17 +3092,23 @@ def _match_exposure_api_unauth_mutation_chain(
     return "EXP-021" in ids or "EXP-022" in ids
 
 
-def _exposure_api_unauth_mutation_attack_path(_: Dict[str, Any]) -> List[str]:
+def _exposure_api_unauth_mutation_attack_path(context: Dict[str, Any]) -> List[str]:
+    api = _first_resource(
+        _ctx_findings(context, "exposure", {"EXP-021", "EXP-022"}), "the affected API"
+    )
     return [
-        "Attacker discovers public API Gateway endpoint and stage",
+        f"Attacker discovers `{api}`'s public endpoint and stage",
         "Invokes unauthenticated mutating route (POST/PUT/PATCH/DELETE or ANY/proxy)",
         "Abuses business logic to alter data/state and pivot into internal workflows",
     ]
 
 
-def _exposure_api_unauth_mutation_remediation(_: Dict[str, Any]) -> List[str]:
+def _exposure_api_unauth_mutation_remediation(context: Dict[str, Any]) -> List[str]:
+    api = _first_resource(
+        _ctx_findings(context, "exposure", {"EXP-021", "EXP-022"}), "the affected API"
+    )
     return [
-        "Require strong authorizers for all mutating and wildcard routes",
+        f"Require strong authorizers for all mutating and wildcard routes on `{api}`",
         "Avoid ANY/proxy routes without strict auth and input validation",
         "Enforce least privilege at route, integration, and backend IAM layers",
     ]
@@ -2778,17 +3164,23 @@ def _match_alerting_sns_subscription_exfil_chain(
     return bool({"ALRT-023", "ALRT-024"}.intersection(ids))
 
 
-def _alerting_sns_subscription_exfil_attack_path(_: Dict[str, Any]) -> List[str]:
+def _alerting_sns_subscription_exfil_attack_path(context: Dict[str, Any]) -> List[str]:
+    topic = _first_resource(
+        _ctx_findings(context, "alerting", {"ALRT-023", "ALRT-024"}), "the affected alert topic"
+    )
     return [
-        "Attacker identifies permissive SNS alert topic subscription controls",
+        f"Attacker identifies `{topic}`'s permissive subscription controls",
         "Adds unauthorized endpoint subscription to capture alert payloads",
         "Uses leaked security telemetry to evade detection and incident response",
     ]
 
 
-def _alerting_sns_subscription_exfil_remediation(_: Dict[str, Any]) -> List[str]:
+def _alerting_sns_subscription_exfil_remediation(context: Dict[str, Any]) -> List[str]:
+    topic = _first_resource(
+        _ctx_findings(context, "alerting", {"ALRT-023", "ALRT-024"}), "the affected alert topic"
+    )
     return [
-        "Restrict sns:Subscribe and subscription protocols on alert topics",
+        f"Restrict sns:Subscribe and subscription protocols on `{topic}`",
         "Continuously review and alert on unexpected subscriptions",
         "Use approved, controlled subscriber endpoints only",
     ]
@@ -2834,17 +3226,19 @@ def _match_alerting_sns_publish_spoofing_chain(
     return any(f.id == "ALRT-022" for f in alert_findings)
 
 
-def _alerting_sns_publish_spoofing_attack_path(_: Dict[str, Any]) -> List[str]:
+def _alerting_sns_publish_spoofing_attack_path(context: Dict[str, Any]) -> List[str]:
+    topic = _first_resource(_ctx_findings(context, "alerting", {"ALRT-022"}), "the affected alert topic")
     return [
-        "Attacker abuses broad sns:Publish permissions on alert topics",
+        f"Attacker abuses `{topic}`'s broad sns:Publish permissions",
         "Injects noisy/false alerts to desensitize monitoring workflows",
         "Masks malicious activity during detection fatigue window",
     ]
 
 
-def _alerting_sns_publish_spoofing_remediation(_: Dict[str, Any]) -> List[str]:
+def _alerting_sns_publish_spoofing_remediation(context: Dict[str, Any]) -> List[str]:
+    topic = _first_resource(_ctx_findings(context, "alerting", {"ALRT-022"}), "the affected alert topic")
     return [
-        "Restrict sns:Publish to explicit service principals and expected sources",
+        f"Restrict sns:Publish on `{topic}` to explicit service principals and expected sources",
         "Enforce aws:SourceArn/aws:SourceAccount in topic policies",
         "Alert on unusual publish patterns and sender identities",
     ]
@@ -2895,19 +3289,27 @@ def _match_vulns_userdata_to_iam_pivot(
     return has_userdata_secret and has_iam_escalation_surface
 
 
-def _vulns_userdata_to_iam_attack_path(_: Dict[str, Any]) -> List[str]:
+def _vulns_userdata_to_iam_attack_path(context: Dict[str, Any]) -> List[str]:
+    identity = _first_resource(
+        [f for f in _ctx_findings(context, "iam") if _is_overprivileged_iam_finding(f) or f.id == "IAM-008"],
+        "an over-privileged identity",
+    )
     return [
         "Attacker obtains credential material from EC2 user-data bootstrap scripts",
         "Reuses exposed secrets or tokens to authenticate into AWS APIs",
-        "Pivots through over-privileged IAM permissions for lateral movement",
+        f"Pivots through `{identity}`'s over-privileged permissions for lateral movement",
     ]
 
 
-def _vulns_userdata_to_iam_remediation(_: Dict[str, Any]) -> List[str]:
+def _vulns_userdata_to_iam_remediation(context: Dict[str, Any]) -> List[str]:
+    identity = _first_resource(
+        [f for f in _ctx_findings(context, "iam") if _is_overprivileged_iam_finding(f) or f.id == "IAM-008"],
+        "the affected identity",
+    )
     return [
         "Remove secrets from EC2 user-data and rotate exposed credentials",
         "Use Secrets Manager/SSM Parameter Store for bootstrap secret delivery",
-        "Reduce IAM privileges attached to identities reachable from compute bootstrap",
+        f"Reduce `{identity}`'s privileges",
     ]
 
 
@@ -2962,17 +3364,19 @@ def _match_vulns_lambda_secret_to_public_api_chain(
     return any(isinstance(x, dict) and bool(x.get("IsPublic")) for x in urls)
 
 
-def _vulns_lambda_secret_to_public_api_attack_path(_: Dict[str, Any]) -> List[str]:
+def _vulns_lambda_secret_to_public_api_attack_path(context: Dict[str, Any]) -> List[str]:
+    fn = _first_resource(_ctx_findings(context, "vulns", {"VULN-024", "VULN-025"}), "the affected Lambda")
     return [
-        "Attacker reaches publicly exposed Lambda/API entrypoint",
+        f"Attacker reaches `{fn}`'s publicly exposed entrypoint",
         "Obtains or abuses leaked runtime secrets from Lambda environment configuration",
         "Uses recovered credentials/tokens to access internal AWS resources",
     ]
 
 
-def _vulns_lambda_secret_to_public_api_remediation(_: Dict[str, Any]) -> List[str]:
+def _vulns_lambda_secret_to_public_api_remediation(context: Dict[str, Any]) -> List[str]:
+    fn = _first_resource(_ctx_findings(context, "vulns", {"VULN-024", "VULN-025"}), "the affected Lambda")
     return [
-        "Eliminate plaintext secrets from Lambda environment variables",
+        f"Eliminate plaintext secrets from `{fn}`'s environment variables",
         "Restrict public Lambda/API exposure with auth and WAF controls",
         "Rotate exposed credentials and enforce scoped runtime IAM roles",
     ]
@@ -3021,18 +3425,26 @@ def _match_vulns_s3_ransomware_chain(
     return has_s3_recoverability_gap and has_destructive_iam
 
 
-def _vulns_s3_ransomware_attack_path(_: Dict[str, Any]) -> List[str]:
+def _vulns_s3_ransomware_attack_path(context: Dict[str, Any]) -> List[str]:
+    bucket = _first_resource(
+        _ctx_findings(context, "exposure", {"EXP-001", "EXP-014"}), "the affected bucket"
+    )
+    iam = _first_resource(_ctx_findings(context, "iam", {"IAM-038", "IAM-039"}), "an identity with destructive IAM rights")
     return [
-        "Attacker gains write/delete capability over S3 data paths",
-        "Targets buckets lacking strong recoverability controls (e.g., no versioning)",
+        f"Attacker uses `{iam}` to gain write/delete capability over `{bucket}`",
+        f"`{bucket}` lacks strong recoverability controls (e.g., no versioning)",
         "Overwrites/deletes objects to enforce business-impacting data denial",
     ]
 
 
-def _vulns_s3_ransomware_remediation(_: Dict[str, Any]) -> List[str]:
+def _vulns_s3_ransomware_remediation(context: Dict[str, Any]) -> List[str]:
+    bucket = _first_resource(
+        _ctx_findings(context, "exposure", {"EXP-001", "EXP-014"}), "the affected bucket"
+    )
+    iam = _first_resource(_ctx_findings(context, "iam", {"IAM-038", "IAM-039"}), "identities with destructive IAM rights")
     return [
-        "Enable S3 versioning and additional immutable backup controls for critical buckets",
-        "Restrict destructive IAM permissions (delete/detach/policy mutation)",
+        f"Enable S3 versioning and additional immutable backup controls on `{bucket}`",
+        f"Restrict destructive IAM permissions (delete/detach/policy mutation) on `{iam}`",
         "Monitor anomalous object overwrite/delete bursts and key security changes",
     ]
 
@@ -3077,17 +3489,19 @@ def _match_vulns_public_snapshot_exfil_chain(
     return any(f.id == "VULN-028" for f in vulns_findings)
 
 
-def _vulns_public_snapshot_exfil_attack_path(_: Dict[str, Any]) -> List[str]:
+def _vulns_public_snapshot_exfil_attack_path(context: Dict[str, Any]) -> List[str]:
+    snap = _first_resource(_ctx_findings(context, "vulns", {"VULN-028"}), "the affected snapshot")
     return [
-        "Attacker discovers public EBS snapshot IDs",
+        f"Attacker discovers `{snap}` is publicly restorable",
         "Creates volume from exposed snapshot and mounts data offline",
         "Extracts credentials, source code, and sensitive application artifacts",
     ]
 
 
-def _vulns_public_snapshot_exfil_remediation(_: Dict[str, Any]) -> List[str]:
+def _vulns_public_snapshot_exfil_remediation(context: Dict[str, Any]) -> List[str]:
+    snap = _first_resource(_ctx_findings(context, "vulns", {"VULN-028"}), "the affected snapshot")
     return [
-        "Remove public createVolumePermission from all snapshots",
+        f"Remove public createVolumePermission from `{snap}` (and any other publicly shared snapshots)",
         "Continuously audit snapshot sharing posture across regions",
         "Rotate credentials potentially exposed through historical snapshots",
     ]
@@ -3147,18 +3561,34 @@ def _match_recon_apigw_unauth_to_data_exfil(
     return has_unauth_api and has_sensitive_data
 
 
-def _recon_apigw_unauth_exfil_attack_path(_: Dict[str, Any]) -> List[str]:
+def _recon_apigw_unauth_api(context: Dict[str, Any]) -> str:
+    recon_findings = _ctx_findings(context, "recon")
+    matches = [
+        f
+        for f in recon_findings
+        if f.id in {"RECON-002", "RECON-014"} or "unauthenticated" in f.title.lower()
+    ]
+    return _first_resource(matches, "the affected API endpoint")
+
+
+def _recon_apigw_unauth_exfil_attack_path(context: Dict[str, Any]) -> List[str]:
+    api = _recon_apigw_unauth_api(context)
+    exposure_hits = [
+        f for f in _ctx_findings(context, "exposure") if f.severity in {"Critical", "High"}
+    ]
+    data = _first_resource(exposure_hits, "sensitive backend data")
     return [
-        "Recon phase identifies API Gateway endpoints without authentication",
+        f"Recon phase identifies `{api}` lacks authentication",
         "Attacker enumerates routes using standard API fuzzing tools (ffuf, dirsearch)",
-        "Unauthenticated routes invoke backend services accessing sensitive data",
+        f"Unauthenticated routes on `{api}` invoke backend services accessing `{data}`",
         "Attacker exfiltrates data via unauthenticated API calls without credentials",
     ]
 
 
-def _recon_apigw_unauth_exfil_remediation(_: Dict[str, Any]) -> List[str]:
+def _recon_apigw_unauth_exfil_remediation(context: Dict[str, Any]) -> List[str]:
+    api = _recon_apigw_unauth_api(context)
     return [
-        "Enforce authentication on all API Gateway stages (Cognito, IAM, Lambda authorizer)",
+        f"Enforce authentication on `{api}` (Cognito, IAM, Lambda authorizer)",
         "Implement data-level authorization in backend services (never trust API layer alone)",
         "Enable API Gateway access logging and WAF with rate limiting",
         "Conduct periodic API endpoint inventory to detect unauthenticated routes",
@@ -3248,19 +3678,31 @@ def _find_sources_cross_account_admin_no_externalid(
     return sources
 
 
-def _cross_account_admin_attack_path(_: Dict[str, Any]) -> List[str]:
+def _cross_account_admin_role(context: Dict[str, Any]) -> str:
+    role = _first_resource(_ctx_findings(context, "iam", {"IAM-033"}), "")
+    if role:
+        return role
+    admin_findings = [
+        f for f in _ctx_findings(context, "iam") if f.id in {"IAM-015", "IAM-016"} or "administrator" in f.title.lower()
+    ]
+    return _first_resource(admin_findings, "the affected role")
+
+
+def _cross_account_admin_attack_path(context: Dict[str, Any]) -> List[str]:
+    role = _cross_account_admin_role(context)
     return [
-        "Identify cross-account trust without ExternalId requirement (IAM-033)",
+        f"Identify `{role}`'s cross-account trust without an ExternalId requirement",
         "Construct AssumeRole call from any AWS account (confused deputy attack)",
-        "Gain access to Administrator-level role in target account",
+        f"Gain access to `{role}`, which has Administrator-level permissions",
         "Full account compromise: exfiltrate data, pivot to further accounts, persist access",
     ]
 
 
-def _cross_account_admin_remediation(_: Dict[str, Any]) -> List[str]:
+def _cross_account_admin_remediation(context: Dict[str, Any]) -> List[str]:
+    role = _cross_account_admin_role(context)
     return [
-        "Add ExternalId condition to all cross-account trust policies",
-        "Remove AdministratorAccess from cross-account roles; apply least privilege",
+        f"Add an ExternalId condition to `{role}`'s trust policy",
+        f"Remove AdministratorAccess from `{role}`; apply least privilege",
         "Enable CloudTrail alerts for AssumeRole calls from unexpected accounts",
         "Review all cross-account trusts in IAM > Roles > Trust relationships",
     ]
@@ -3324,18 +3766,36 @@ def _match_lambda_secrets_public_url_chain(
     return has_lambda_secrets and has_public_lambda_url
 
 
-def _lambda_secrets_url_attack_path(_: Dict[str, Any]) -> List[str]:
+def _lambda_secrets_url_function(context: Dict[str, Any]) -> str:
+    vulns_matches = [
+        f
+        for f in _ctx_findings(context, "vulns")
+        if f.id in {"VULN-024", "VULN-025"} or ("lambda" in f.title.lower() and "secret" in f.title.lower())
+    ]
+    fn = _first_resource(vulns_matches, "")
+    if fn:
+        return fn
+    combined = _ctx_findings(context, "recon") + _ctx_findings(context, "exposure")
+    public_matches = [
+        f for f in combined if f.id == "RECON-005" or ("lambda" in f.title.lower() and "public" in f.title.lower())
+    ]
+    return _first_resource(public_matches, "the affected Lambda function")
+
+
+def _lambda_secrets_url_attack_path(context: Dict[str, Any]) -> List[str]:
+    fn = _lambda_secrets_url_function(context)
     return [
-        "Recon identifies Lambda Function URLs with AuthType=NONE (RECON-005)",
+        f"Recon identifies `{fn}`'s Function URL has AuthType=NONE",
         "Attacker invokes public Lambda function and triggers SSRF via event payload",
         "Lambda reads AWS metadata or logs environment variables in error messages",
         "Attacker extracts AWS credentials or API keys from Lambda environment",
     ]
 
 
-def _lambda_secrets_url_remediation(_: Dict[str, Any]) -> List[str]:
+def _lambda_secrets_url_remediation(context: Dict[str, Any]) -> List[str]:
+    fn = _lambda_secrets_url_function(context)
     return [
-        "Set Lambda Function URLs to AuthType=AWS_IAM (require SigV4 signing)",
+        f"Set `{fn}`'s Function URL to AuthType=AWS_IAM (require SigV4 signing)",
         "Move secrets from environment variables to Secrets Manager with encrypted access",
         "Validate all Lambda event payloads to prevent SSRF via input manipulation",
         "Disable verbose error responses that expose environment details",
@@ -3393,18 +3853,29 @@ def _match_compute_unrestricted_egress_exfil(
     return has_unrestricted_egress and has_sensitive_exposure
 
 
-def _compute_unrestricted_egress_attack_path(_: Dict[str, Any]) -> List[str]:
+def _compute_unrestricted_egress_sg(context: Dict[str, Any]) -> str:
+    net_matches = [
+        f
+        for f in _ctx_findings(context, "network")
+        if f.id == "NET-EGR-001" or "egress" in f.title.lower()
+    ]
+    return _first_resource(net_matches, "the affected security group")
+
+
+def _compute_unrestricted_egress_attack_path(context: Dict[str, Any]) -> List[str]:
+    sg = _compute_unrestricted_egress_sg(context)
     return [
         "Attacker compromises compute instance (EC2, ECS, Lambda) via any vulnerability",
-        "Unrestricted egress SG allows direct HTTPS connection to external attacker infrastructure",
+        f"`{sg}` has unrestricted egress, allowing direct HTTPS connection to external attacker infrastructure",
         "Sensitive S3 data or database contents exfiltrated without triggering egress alerts",
         "Exfiltration blends with normal HTTPS traffic — no Network Firewall to inspect/block",
     ]
 
 
-def _compute_unrestricted_egress_remediation(_: Dict[str, Any]) -> List[str]:
+def _compute_unrestricted_egress_remediation(context: Dict[str, Any]) -> List[str]:
+    sg = _compute_unrestricted_egress_sg(context)
     return [
-        "Restrict egress security group rules: allow only specific ports/destinations",
+        f"Restrict `{sg}`'s egress rules: allow only specific ports/destinations",
         "Deploy AWS Network Firewall or DNS Firewall for outbound traffic inspection",
         "Enable VPC Flow Logs and create alerts for anomalous egress volume",
         "Use VPC endpoints to route AWS API calls privately without internet egress",
@@ -3463,16 +3934,23 @@ def _match_guardduty_disabled_cover(
     return other_high >= 2
 
 
-def _guardduty_disabled_attack_path(_: Dict[str, Any]) -> List[str]:
+def _guardduty_disabled_attack_path(context: Dict[str, Any]) -> List[str]:
+    by_skill = context.get("findings_by_skill") or {}
+    all_findings = [f for findings in by_skill.values() for f in findings]
+    other_high = [f for f in all_findings if f.severity in {"Critical", "High"} and f.id != "VULN-GD-001"]
     return [
         "GuardDuty is disabled — no behavioral threat detection active in account",
-        "All other attack chains proceed silently without automated detection",
+        f"This session already found {len(other_high)} other Critical/High finding(s) that would proceed silently without automated detection",
         "Attacker can operate for extended periods without triggering security alerts",
         "Standard AWS detection and response playbooks cannot activate without GuardDuty findings",
     ]
 
 
 def _guardduty_disabled_remediation(_: Dict[str, Any]) -> List[str]:
+    # Left generic on purpose: GuardDuty enablement is an account/region-wide control,
+    # not a per-resource one -- there is no more specific "instance" of this finding
+    # to name. See _guardduty_disabled_attack_path above for the per-instance signal
+    # this pattern DOES have (count of other findings it's masking).
     return [
         "Enable GuardDuty in all regions immediately",
         "Enable enhanced data sources: S3 data events, EKS audit logs, Malware Protection",
@@ -3539,19 +4017,27 @@ def _find_sources_iam_no_mfa_cross_account_pivot(
     return sources
 
 
-def _iam_no_mfa_cross_account_path(_: Dict[str, Any]) -> List[str]:
+def _iam_no_mfa_cross_account_path(context: Dict[str, Any]) -> List[str]:
+    user = _first_resource(
+        [f for f in _ctx_findings(context, "iam") if _is_no_mfa_finding(f)], "the IAM user"
+    )
+    role = _first_resource(_ctx_findings(context, "iam", {"IAM-033"}), "the cross-account role")
     return [
-        "IAM user credentials stolen or brute-forced (no MFA protection)",
+        f"`{user}`'s credentials stolen or brute-forced (no MFA protection)",
         "Attacker uses console access or API keys to enumerate IAM roles",
-        "Discovers cross-account role without ExternalId requirement",
-        "Assumes cross-account role → gains access to target account resources",
+        f"Discovers `{role}`, a cross-account role without ExternalId requirement",
+        f"Assumes `{role}` → gains access to target account resources",
     ]
 
 
-def _iam_no_mfa_cross_account_remediation(_: Dict[str, Any]) -> List[str]:
+def _iam_no_mfa_cross_account_remediation(context: Dict[str, Any]) -> List[str]:
+    user = _first_resource(
+        [f for f in _ctx_findings(context, "iam") if _is_no_mfa_finding(f)], "affected IAM users"
+    )
+    role = _first_resource(_ctx_findings(context, "iam", {"IAM-033"}), "the cross-account role")
     return [
-        "Enable MFA for all IAM users with console access or active access keys",
-        "Add ExternalId condition to all cross-account trust policies",
+        f"Enable MFA for `{user}` (and any other users with console access or active access keys)",
+        f"Add an ExternalId condition to `{role}`'s trust policy",
         "Enforce MFA with IAM condition: aws:MultiFactorAuthPresent=true on sensitive actions",
         "Implement AWS Organizations SCPs to block cross-account assumptions without MFA",
     ]
@@ -3610,19 +4096,25 @@ def _match_recon_public_ip_no_firewall_lateral(
     return has_public_instance_ip and has_no_firewall
 
 
-def _recon_public_ip_no_firewall_path(_: Dict[str, Any]) -> List[str]:
+def _recon_public_ip_instance(context: Dict[str, Any]) -> str:
+    return _first_resource(_ctx_findings(context, "recon", {"RECON-003"}), "the affected instance")
+
+
+def _recon_public_ip_no_firewall_path(context: Dict[str, Any]) -> List[str]:
+    instance = _recon_public_ip_instance(context)
     return [
-        "Recon identifies EC2 instances with fixed public IPs (Elastic IPs)",
-        "Internet traffic reaches instances directly without Network Firewall inspection",
-        "Attacker exploits service vulnerability on public IP → initial access",
+        f"Recon identifies `{instance}` has a fixed public IP (Elastic IP)",
+        "Internet traffic reaches the instance directly without Network Firewall inspection",
+        f"Attacker exploits a service vulnerability on `{instance}` → initial access",
         "No east-west inspection: lateral movement to internal subnets proceeds undetected",
     ]
 
 
-def _recon_public_ip_no_firewall_remediation(_: Dict[str, Any]) -> List[str]:
+def _recon_public_ip_no_firewall_remediation(context: Dict[str, Any]) -> List[str]:
+    instance = _recon_public_ip_instance(context)
     return [
         "Deploy AWS Network Firewall for north-south traffic inspection",
-        "Replace Elastic IPs with ALB/NLB + Security Groups to restrict direct instance access",
+        f"Replace `{instance}`'s Elastic IP with ALB/NLB + Security Groups to restrict direct access",
         "Route internet traffic through inspection VPC before reaching application tier",
         "Enable VPC Flow Logs and Network Firewall logs for traffic visibility",
     ]
@@ -3701,18 +4193,32 @@ def _match_snapshot_persistence_exfil(
     return (has_public_snapshot or has_public_ebs) and has_cves
 
 
-def _snapshot_persistence_exfil_path(_: Dict[str, Any]) -> List[str]:
+def _snapshot_persistence_exfil_snapshot(context: Dict[str, Any]) -> str:
+    exposure_matches = [
+        f
+        for f in _ctx_findings(context, "exposure")
+        if f.id in {"EXP-028", "EXP-029"} or "snapshot" in f.title.lower()
+    ]
+    snap = _first_resource(exposure_matches, "")
+    if snap:
+        return snap
+    return _first_resource(_ctx_findings(context, "vulns", {"VULN-028"}), "the affected snapshot")
+
+
+def _snapshot_persistence_exfil_path(context: Dict[str, Any]) -> List[str]:
+    snap = _snapshot_persistence_exfil_snapshot(context)
     return [
-        "Attacker discovers public EBS snapshot ID via AWS SDK enumeration",
+        f"Attacker discovers `{snap}` is publicly restorable via AWS SDK enumeration",
         "Creates volume from snapshot in attacker-controlled AWS account",
         "Mounts volume to extract application data, database files, and credentials",
         "Uses extracted credentials to authenticate to live environment — persistent access",
     ]
 
 
-def _snapshot_persistence_exfil_remediation(_: Dict[str, Any]) -> List[str]:
+def _snapshot_persistence_exfil_remediation(context: Dict[str, Any]) -> List[str]:
+    snap = _snapshot_persistence_exfil_snapshot(context)
     return [
-        "Remove createVolumePermission Group=all from all EBS snapshots immediately",
+        f"Remove createVolumePermission Group=all from `{snap}` (and any other public snapshots) immediately",
         "Enable AWS Config rule: ec2-snapshot-public-restorable-check",
         "Rotate all credentials that may have been accessible from compromised snapshots",
         "Encrypt all EBS snapshots with customer-managed KMS keys",

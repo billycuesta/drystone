@@ -228,6 +228,16 @@ class CorrelationEngine:
                     session_prefix = session_id[:8] if len(session_id) >= 8 else "00000000"
                     corr_id = f"CORR-{session_prefix}-{self._corr_counter:03d}"
 
+                    # Narrative context: gives attack_path_generator/remediation_generator
+                    # access to the real Finding objects (affected_resources, evidence_snippet,
+                    # title) alongside raw evidence, so narrative text can name the actual
+                    # resources involved instead of returning generic per-pattern text
+                    # (P1: Pentest Skill Quality Audit, rec. A).
+                    narrative_context = {
+                        "evidence_by_skill": evidence_by_skill,
+                        "findings_by_skill": findings_by_skill,
+                    }
+
                     synthetic = CorrelatedFinding(
                         id=corr_id,
                         pattern_id=pattern.id,
@@ -235,12 +245,12 @@ class CorrelationEngine:
                         compound_risk_score=compound_risk,
                         title=pattern.name,
                         description=pattern.description,
-                        attack_path=pattern.attack_path_generator(evidence_by_skill),
+                        attack_path=pattern.attack_path_generator(narrative_context),
                         source_finding_ids=source_ids,
                         source_findings=source_refs,
                         affected_resources=affected_resources,
                         remediation_priority=self._get_remediation_priority(compound_risk),
-                        remediation_steps=pattern.remediation_generator(evidence_by_skill),
+                        remediation_steps=pattern.remediation_generator(narrative_context),
                         cis_reference=None,
                         pci_dss=None,
                     )
