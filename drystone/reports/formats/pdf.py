@@ -43,6 +43,17 @@ class PDFFormatter(BaseFormatter):
             str(finding.get("id", "")),
         )
 
+    def _exploitability_badge_html(self, exploit_status: Any) -> str:
+        """Render a single pill for exploitability confidence."""
+        if not exploit_status:
+            return ""
+
+        status = str(exploit_status).strip().lower()
+        if status not in {"validated", "probable", "theoretical"}:
+            status = "theoretical"
+
+        return f"<span class='exploit-pill exploit-pill-{status}'>{status.title()}</span>"
+
     def _finding_phase_sort_key(self, finding: Dict[str, Any]) -> tuple:
         """Sort key for findings ordered by pentest phase, then severity."""
         fid = str(finding.get("id", "")).lower()
@@ -629,10 +640,7 @@ class PDFFormatter(BaseFormatter):
         self, summary: Dict[str, Any], findings: List[Dict[str, Any]]
     ) -> str:
         def item(label: str, value: str) -> str:
-            return (
-                f"<tr><td>{html.escape(label)}</td>"
-                f"<td>{html.escape(value)}</td></tr>"
-            )
+            return f"<tr><td>{html.escape(label)}</td>" f"<td>{html.escape(value)}</td></tr>"
 
         access_key = self._masked_access_key()
         report_date = self.findings.get("analyzed_at", datetime.utcnow().isoformat())
@@ -985,6 +993,16 @@ class PDFFormatter(BaseFormatter):
         if not architecture:
             return ""
 
+        components = architecture.get("components_detected")
+        if isinstance(components, dict) and isinstance(components.get("vpcs"), list):
+            network_html = self._network_architecture_visual_html(components)
+            if network_html:
+                return network_html
+        if isinstance(components, dict) and self._is_alerting_architecture(components):
+            alerting_html = self._alerting_architecture_visual_html(components)
+            if alerting_html:
+                return alerting_html
+
         flow = html.escape(str(architecture.get("flow_diagram", "")))
         if not flow.strip():
             return ""
@@ -993,6 +1011,410 @@ class PDFFormatter(BaseFormatter):
             '<div class="individual-finding"><pre class="code-block">'
             f"{flow}"
             "</pre></div>"
+        )
+
+    def _is_alerting_architecture(self, components: Dict[str, Any]) -> bool:
+        alerting_keys = {
+            "cloudtrail_enabled",
+            "cloudwatch_integration",
+            "metric_filters_exist",
+            "alarms_configured",
+            "sns_topics_exist",
+        }
+        return bool(alerting_keys & set(components.keys()))
+
+    def _alerting_architecture_visual_html(self, components: Dict[str, Any]) -> str:
+        """Render alerting flow as printable HTML cards for PDF output."""
+
+        region = html.escape(str(components.get("region") or "unknown"))
+        account_id = html.escape(str(components.get("account_id") or "unknown"))
+        counts = components.get("counts") or {}
+        if not isinstance(counts, dict):
+            counts = {}
+
+        def count(name: str) -> int:
+            try:
+                return int(counts.get(name) or 0)
+            except (TypeError, ValueError):
+                return 0
+
+        alert_topic_count = count("alert_topics")
+        missing_alert_topics = count("alert_topics_without_confirmed_subscribers")
+        sns_delivery_status = str(components.get("sns_delivery_status") or "").lower()
+        if sns_delivery_status not in {"ok", "warn", "bad"}:
+            sns_delivery_status = "ok" if components.get("subscriptions_confirmed") else "bad"
+        delivery_examples = components.get("subscription_protocols")
+        if missing_alert_topics:
+            delivery_examples = components.get("alert_topics_without_confirmed_subscribers")
+
+        cards = [
+            self._alerting_component_card_html(
+                "Event Source",
+                "CloudTrail",
+                components.get("cloudtrail_enabled"),
+                [
+                    f"{count('trails')} trail(s)",
+                    (
+                        "multi-region"
+                        if components.get("cloudtrail_multi_region")
+                        else "single-region"
+                    ),
+                ],
+                components.get("cloudtrail_names"),
+            ),
+            self._alerting_component_card_html(
+                "Log Ingestion",
+                "CloudWatch Logs",
+                components.get("cloudwatch_integration"),
+                [f"{count('log_groups')} log group(s)"],
+                components.get("cloudwatch_log_groups"),
+            ),
+            self._alerting_component_card_html(
+                "Detection",
+                "Metric Filters",
+                components.get("metric_filters_exist"),
+                [f"{count('metric_filters')} filter(s)"],
+                components.get("metric_filter_names"),
+            ),
+            self._alerting_component_card_html(
+                "Triggering",
+                "CloudWatch Alarms",
+                components.get("alarms_configured"),
+                [f"{count('alarms')} alarm(s)"],
+                components.get("alarm_names"),
+            ),
+            self._alerting_component_card_html(
+                "Notification",
+                "SNS Topics",
+                (
+                    "warn"
+                    if components.get("sns_topics_exist") and sns_delivery_status == "warn"
+                    else components.get("sns_topics_exist")
+                ),
+                [
+                    f"{count('sns_topics')} topic(s)",
+                    f"{count('subscriptions')} subscription(s)",
+                    f"{alert_topic_count} alert topic(s)" if alert_topic_count else "",
+                ],
+                components.get("alert_topic_names") or components.get("sns_topic_names"),
+            ),
+            self._alerting_component_card_html(
+                "Delivery",
+                "Subscriptions",
+                sns_delivery_status,
+                [
+                    (
+                        "confirmed"
+                        if sns_delivery_status == "ok"
+                        else (
+                            "partial delivery"
+                            if sns_delivery_status == "warn"
+                            else "pending or absent"
+                        )
+                    ),
+                    (
+                        f"{missing_alert_topics} alert topic(s) missing subscribers"
+                        if missing_alert_topics
+                        else ""
+                    ),
+                ],
+                delivery_examples,
+            ),
+        ]
+
+        side_cards = [
+            self._alerting_component_card_html(
+                "Archive",
+                "CloudTrail S3 Bucket",
+                bool(components.get("cloudtrail_s3_buckets")),
+                ["log archive"],
+                components.get("cloudtrail_s3_buckets"),
+                compact=True,
+            ),
+            self._alerting_component_card_html(
+                "Event Route",
+                "CloudTrail EventBridge Rules",
+                components.get("eventbridge_rules_exist"),
+                [
+                    (
+                        "custom security route"
+                        if components.get("eventbridge_rules_exist")
+                        else "no custom security route"
+                    ),
+                    f"{count('eventbridge_rules')} total rule(s)",
+                ],
+                components.get("eventbridge_rule_names"),
+                compact=True,
+            ),
+        ]
+
+        flow_items = []
+        for idx, card in enumerate(cards):
+            flow_items.append(card)
+            if idx < len(cards) - 1:
+                flow_items.append('<span class="alerting-arrow">&#8594;</span>')
+        flow_html = "".join(flow_items)
+        side_html = "".join(side_cards)
+
+        return (
+            "<h2>Architecture Overview</h2>"
+            "<div class='alerting-diagram'>"
+            "<div class='alerting-diagram-toolbar'>"
+            "<div><span class='alerting-diagram-title'>Alerting Flow Diagram</span>"
+            f"<span class='alerting-diagram-subtitle'>{region} | account {account_id}</span></div>"
+            f"<span class='alerting-diagram-count'>{count('trails')} trail | {count('alarms')} alarms | "
+            f"{count('sns_topics')} topics</span>"
+            "</div>"
+            "<div class='alerting-flow'>"
+            f"{flow_html}"
+            "</div>"
+            "<div class='alerting-side-grid'>"
+            f"{side_html}"
+            "<div class='alerting-team-card'>Security Team</div>"
+            "</div>"
+            "</div>"
+        )
+
+    def _alerting_component_card_html(
+        self,
+        stage: str,
+        name: str,
+        healthy: Any,
+        facts: List[str],
+        examples: Any,
+        compact: bool = False,
+    ) -> str:
+        if isinstance(healthy, str):
+            normalized_status = healthy.lower()
+            status_class = (
+                normalized_status if normalized_status in {"ok", "warn", "bad"} else "bad"
+            )
+        else:
+            status_class = "ok" if bool(healthy) else "bad"
+        status_text = {"ok": "Configured", "warn": "Partial", "bad": "Gap"}[status_class]
+        clean_examples = []
+        if isinstance(examples, list):
+            clean_examples = [str(x) for x in examples if str(x).strip()]
+        elif isinstance(examples, str) and examples.strip():
+            clean_examples = [examples]
+        clean_facts = [str(x) for x in facts if str(x).strip()]
+        fact_html = "".join(
+            f"<span class='alerting-fact'>{html.escape(fact)}</span>" for fact in clean_facts[:3]
+        )
+        examples_html = ""
+        if clean_examples:
+            examples_html = (
+                "<div class='alerting-examples'>"
+                + "".join(f"<span>{html.escape(item)}</span>" for item in clean_examples[:2])
+                + "</div>"
+            )
+
+        compact_class = " compact" if compact else ""
+        return (
+            f"<article class='alerting-card {status_class}{compact_class}'>"
+            "<div class='alerting-card-top'>"
+            f"<span class='alerting-stage'>{html.escape(stage)}</span>"
+            f"<span class='alerting-status'>{html.escape(status_text)}</span>"
+            "</div>"
+            f"<div class='alerting-name'>{html.escape(name)}</div>"
+            f"<div class='alerting-facts'>{fact_html}</div>"
+            f"{examples_html}"
+            "</article>"
+        )
+
+    def _network_architecture_visual_html(self, components: Dict[str, Any]) -> str:
+        """Render network topology as printable HTML cards for PDF output."""
+
+        vpcs = [v for v in (components.get("vpcs") or []) if isinstance(v, dict)]
+        if not vpcs:
+            return ""
+
+        def _is_empty_vpc(vpc: Dict[str, Any]) -> bool:
+            subnets = (vpc.get("subnets_public") or []) + (vpc.get("subnets_private") or [])
+            if int(vpc.get("vpc_endpoints_total") or 0) > 0:
+                return False
+            for subnet in subnets:
+                if not isinstance(subnet, dict):
+                    continue
+                if int(subnet.get("eni_total") or 0) > 0:
+                    return False
+                names = subnet.get("resource_names") or {}
+                if isinstance(names, dict) and any(names.get(k) for k in ("EC2", "Lambda", "RDS")):
+                    return False
+            return True
+
+        shown_vpcs = [v for v in vpcs if not _is_empty_vpc(v)]
+        empty_count = len(vpcs) - len(shown_vpcs)
+        if not shown_vpcs and empty_count:
+            shown_vpcs = vpcs[:1]
+
+        region = html.escape(str(components.get("region") or "unknown"))
+        account_id = html.escape(str(components.get("account_id") or "unknown"))
+        header = (
+            "<h2>Architecture Overview</h2>"
+            "<div class='network-diagram'>"
+            "<div class='network-diagram-toolbar'>"
+            "<div><span class='network-diagram-title'>Network Diagram</span>"
+            f"<span class='network-diagram-subtitle'>{region} | account {account_id}</span></div>"
+            f"<span class='network-diagram-count'>{len(shown_vpcs)} VPC shown</span>"
+            "</div>"
+        )
+
+        vpc_blocks = []
+        for vpc in shown_vpcs[:6]:
+            vpc_blocks.append(self._network_vpc_card_html(vpc))
+
+        footer = ""
+        if empty_count:
+            footer = (
+                "<div class='network-empty-note'>"
+                f"{empty_count} empty VPC(s) omitted from the visual diagram"
+                "</div>"
+            )
+
+        return header + "".join(vpc_blocks) + footer + "</div>"
+
+    def _network_vpc_card_html(self, vpc: Dict[str, Any]) -> str:
+        vpc_id = str(vpc.get("vpc_id") or "unknown")
+        vpc_name = str(vpc.get("vpc_name") or vpc_id)
+        cidr = str(vpc.get("cidr") or "?")
+        igws = [str(x) for x in (vpc.get("igw_ids") or []) if x]
+        flow_logs = bool(vpc.get("flow_logs_active"))
+        endpoints = int(vpc.get("vpc_endpoints_total") or 0)
+
+        public_subnets = [s for s in (vpc.get("subnets_public") or []) if isinstance(s, dict)]
+        private_subnets = [s for s in (vpc.get("subnets_private") or []) if isinstance(s, dict)]
+        all_subnets = public_subnets + private_subnets
+        shared = self._network_shared_resources(all_subnets)
+        shared_keys = {
+            (str(item.get("type")), str(item.get("name")))
+            for item in shared
+            if isinstance(item, dict)
+        }
+
+        subnet_cards = []
+        for subnet in private_subnets + public_subnets:
+            subnet_cards.append(self._network_subnet_card_html(subnet, shared_keys))
+
+        if not subnet_cards:
+            subnet_cards.append("<div class='network-subnet-card muted'>No subnets detected</div>")
+
+        shared_html = ""
+        if shared:
+            chips = "".join(
+                "<span class='network-resource-chip shared'>"
+                f"<strong>{html.escape(str(item.get('name')))}</strong>"
+                f"<small>{html.escape(str(item.get('type')))}</small>"
+                "</span>"
+                for item in shared[:12]
+            )
+            shared_html = (
+                "<div class='network-shared'>"
+                "<div class='network-shared-title'>Multi-Subnet Resources</div>"
+                f"<div class='network-resource-row'>{chips}</div>"
+                "</div>"
+            )
+
+        meta = (
+            f"<span class='network-pill'>IGW: {html.escape(', '.join(igws) if igws else 'none')}</span>"
+            f"<span class='network-pill {'ok' if flow_logs else 'warn'}'>FlowLogs: {'enabled' if flow_logs else 'disabled'}</span>"
+            f"<span class='network-pill'>VPC Endpoints: {endpoints}</span>"
+        )
+
+        return (
+            "<section class='network-vpc-card'>"
+            "<div class='network-vpc-header'>"
+            "<div>"
+            f"<div class='network-vpc-name'>{html.escape(vpc_name)}</div>"
+            f"<div class='network-vpc-meta'>{html.escape(vpc_id)} | {html.escape(cidr)} | "
+            f"{len(all_subnets)} subnets | {int(vpc.get('resources_total') or 0)} resources</div>"
+            "</div>"
+            f"<div class='network-vpc-pills'>{meta}</div>"
+            "</div>"
+            f"<div class='network-subnet-grid'>{''.join(subnet_cards)}</div>"
+            f"{shared_html}"
+            "</section>"
+        )
+
+    def _network_shared_resources(self, subnets: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+        locations: Dict[tuple[str, str], set[str]] = {}
+        for subnet in subnets:
+            subnet_id = str(subnet.get("subnet_id") or "")
+            names = subnet.get("resource_names") or {}
+            if not isinstance(names, dict):
+                continue
+            for resource_type in ("RDS", "Lambda"):
+                for name in names.get(resource_type) or []:
+                    key = (resource_type, str(name))
+                    locations.setdefault(key, set()).add(subnet_id)
+        return [
+            {"type": resource_type, "name": name}
+            for (resource_type, name), subnet_ids in sorted(locations.items())
+            if len(subnet_ids) > 1
+        ]
+
+    def _network_subnet_card_html(
+        self,
+        subnet: Dict[str, Any],
+        shared_keys: set[tuple[str, str]],
+    ) -> str:
+        is_public = bool(subnet.get("is_public"))
+        subnet_name = str(subnet.get("subnet_name") or subnet.get("subnet_id") or "unknown")
+        cidr = str(subnet.get("cidr") or "?")
+        az = str(subnet.get("az") or "?")
+        subnet_id = str(subnet.get("subnet_id") or "")
+        card_class = "public" if is_public else "private"
+
+        chips: List[str] = []
+        names = subnet.get("resource_names") or {}
+        if isinstance(names, dict):
+            for resource_type in ("EC2", "Lambda", "RDS"):
+                for name in names.get(resource_type) or []:
+                    if (resource_type, str(name)) in shared_keys:
+                        continue
+                    chips.append(
+                        "<span class='network-resource-chip'>"
+                        f"<strong>{html.escape(str(name))}</strong>"
+                        f"<small>{html.escape(resource_type)}</small>"
+                        "</span>"
+                    )
+
+        eni_types = subnet.get("eni_types") or {}
+        if isinstance(eni_types, dict):
+            for resource_type, label in (("NATGW", "NAT Gateway"), ("VPCE", "VPC Endpoint")):
+                count = int(eni_types.get(resource_type) or 0)
+                for idx in range(count):
+                    suffix = f" {idx + 1}" if count > 1 else ""
+                    chips.append(
+                        "<span class='network-resource-chip infra'>"
+                        f"<strong>{html.escape(label + suffix)}</strong>"
+                        f"<small>{html.escape(resource_type)}</small>"
+                        "</span>"
+                    )
+
+        if not chips:
+            chips.append("<span class='network-resource-empty'>No named resources</span>")
+
+        public_ip_note = ""
+        public_ips = int(subnet.get("eni_public_ip_total") or 0)
+        if public_ips:
+            public_ip_note = (
+                f"<span class='network-subnet-warning'>{public_ips} public IP ENI(s)</span>"
+            )
+
+        return (
+            f"<article class='network-subnet-card {card_class}'>"
+            "<div class='network-subnet-header'>"
+            "<div>"
+            f"<div class='network-subnet-name'>{html.escape(subnet_name)}</div>"
+            f"<div class='network-subnet-meta'>{html.escape(cidr)} | {html.escape(az)}</div>"
+            f"<div class='network-subnet-id'>{html.escape(subnet_id)}</div>"
+            "</div>"
+            f"<span class='network-tier {card_class}'>{'Public' if is_public else 'Private'}</span>"
+            "</div>"
+            f"{public_ip_note}"
+            f"<div class='network-resource-row'>{''.join(chips[:12])}</div>"
+            "</article>"
         )
 
     def _correlation_section_html(self) -> str:
@@ -1239,6 +1661,16 @@ class PDFFormatter(BaseFormatter):
             "what_was_evaluated": "Rotation enforcement, policy scope, stale secret risk, and monitoring for high-risk secret retrieval patterns.",
             "why_this_matters": "Secret-management failures can provide durable access that bypasses perimeter and workload hardening controls.",
         },
+        {
+            "phase": "Phase 2 — Network-Exploitable Systems",
+            "skill": "sistemas_explotables_red",
+            "prefixes": ("SER-",),
+            "description": "Internet-reachable systems with exploitable runtime weaknesses.",
+            "focus_text": "Correlate network reachability with active vulnerability evidence to identify systems where external access and host-level weakness combine into practical compromise paths.",
+            "objective": "Prioritize assets where exposure and vulnerability data jointly indicate immediate attackability.",
+            "what_was_evaluated": "Reachability paths, public service exposure, compute inventory, and Inspector findings on reachable systems.",
+            "why_this_matters": "Combined exposure plus vulnerability evidence is stronger than either signal alone and should drive urgent containment and patching.",
+        },
     ]
 
     def _phase_description_html(self, section: Dict[str, Any]) -> str:
@@ -1312,8 +1744,7 @@ class PDFFormatter(BaseFormatter):
                 f"<div class='section-divider-label'>{section.get('number', '')}</div>"
                 f"<h2>{section['phase']}</h2>"
                 "<hr>"
-                "</div>"
-                + self._phase_description_html(section)
+                "</div>" + self._phase_description_html(section)
             )
             section_block = ["<div class='phase-section'>", phase_header]
             for finding in items_sorted:
@@ -1474,11 +1905,7 @@ class PDFFormatter(BaseFormatter):
             return True
         if any(k in rem for k in ["no action required", "no se requiere acción"]):
             return True
-        return (
-            isinstance(finding.get("affected_resources"), list)
-            and len(finding.get("affected_resources", [])) == 0
-            and not finding.get("evidence_snippet")
-        )
+        return False
 
     def _findings_by_severity_html(self, findings: List[Dict[str, Any]]) -> str:
         if not findings:
@@ -1546,20 +1973,8 @@ class PDFFormatter(BaseFormatter):
             self._exploitation_block_html(finding, commands) if is_pentest_report else ""
         )
 
-        # Exploitability badge (inline style — no CSS class needed, small inline element)
-        exploit_status = finding.get("exploitability_status")
-        _exploit_styles = {
-            "validated": "background:#fee2e2;color:#991b1b;border:1px solid #fca5a5",
-            "probable": "background:#fef9c3;color:#854d0e;border:1px solid #fde047",
-            "theoretical": "background:#f3f4f6;color:#374151;border:1px solid #d1d5db",
-        }
-        exploit_badge_html = ""
-        if exploit_status:
-            _style = _exploit_styles.get(exploit_status, _exploit_styles["theoretical"])
-            exploit_badge_html = (
-                f"<span style='padding:2px 8px;border-radius:12px;font-size:8px;font-weight:700;{_style}'>"
-                f"{exploit_status.title()}</span>"
-            )
+        # Exploitability badge uses dedicated CSS so the pill renders as a single shape.
+        exploit_badge_html = self._exploitability_badge_html(finding.get("exploitability_status"))
 
         attack_vector_block = ""
         if is_ser and has_cve_intel:
@@ -1582,11 +1997,11 @@ class PDFFormatter(BaseFormatter):
 
         header_html = (
             "<div class='finding-header'>"
-            f"<div class='finding-id'>{finding_id}</div>"
             "<div class='finding-title-wrap'>"
             f"<div class='finding-title'>{title}</div>"
             f"<div class='finding-meta'>{''.join(meta_items)}</div>"
             "</div>"
+            f"<div class='finding-id'>{finding_id}</div>"
             "</div>"
         )
 
@@ -1624,15 +2039,11 @@ class PDFFormatter(BaseFormatter):
 
         # Attack Vector (SER skill only)
         if attack_vector_block:
-            body_parts.append(
-                f"<div class='finding-section'>{attack_vector_block}</div>"
-            )
+            body_parts.append(f"<div class='finding-section'>{attack_vector_block}</div>")
 
         # Exploitation (pentest report only)
         if exploitation_block:
-            body_parts.append(
-                f"<div class='finding-section'>{exploitation_block}</div>"
-            )
+            body_parts.append(f"<div class='finding-section'>{exploitation_block}</div>")
 
         # Impact
         raw_impact = finding.get("impact")
@@ -1686,7 +2097,9 @@ class PDFFormatter(BaseFormatter):
                 if cve_id:
                     network_cve_ids.append(cve_id)
 
-        blocks: List[str] = ["<div class='finding-exploitation-box'><h4>Attack Vector Playbook</h4>"]
+        blocks: List[str] = [
+            "<div class='finding-exploitation-box'><h4>Attack Vector Playbook</h4>"
+        ]
         for iid, path_data in list(attack_paths.items())[:3]:
             if not isinstance(path_data, dict):
                 continue
@@ -1899,7 +2312,7 @@ class PDFFormatter(BaseFormatter):
             "<h3>Short-term (8-30 days) - High Priority</h3>"
             f"<ul>{_items(high, 5)}</ul>"
             "<h3>Medium-term (31-90 days) - Medium Priority</h3>"
-            f"<ul>{_items(medium, 3)}</ul>"
+            f"<ul>{_items(medium, len(medium))}</ul>"
         )
 
     def _risk_scale_html(self, summary: Dict[str, Any]) -> str:
@@ -2030,10 +2443,7 @@ class PDFFormatter(BaseFormatter):
             version = "1.0"
 
         def row(label: str, value: str) -> str:
-            return (
-                f"<tr><td>{html.escape(label)}</td>"
-                f"<td>{html.escape(value)}</td></tr>"
-            )
+            return f"<tr><td>{html.escape(label)}</td>" f"<td>{html.escape(value)}</td></tr>"
 
         fields = [
             ("Document Code", doc_code),

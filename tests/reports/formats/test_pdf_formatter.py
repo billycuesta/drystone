@@ -3,6 +3,7 @@
 import json
 import sys
 import types
+from pathlib import Path
 from unittest.mock import Mock
 
 from drystone.reports.formats.pdf import PDFFormatter
@@ -71,6 +72,262 @@ def test_pdf_formatter_generates_pdf_with_weasyprint_stub(tmp_path, monkeypatch)
     assert report_path.suffix == ".pdf"
     assert "Security Audit Report: IAM Security Analysis" in captured["html"]
     assert "██████╗" in captured["html"]
+
+
+def test_pdf_template_uses_physical_page_margins_for_safe_area():
+    template_path = (
+        Path(__file__).parents[3] / "drystone" / "reports" / "templates" / "pdf_report.xml"
+    )
+    template = template_path.read_text()
+
+    assert "margin: 14mm 16mm 14mm 16mm;" in template
+    assert "margin: 0 0 14mm 0;" not in template
+    assert ".report-content {\n      width: 100%;" in template
+    assert "padding: 0 0 10mm 0;" in template
+    assert "margin-left: 16mm;" not in template
+    assert "margin-right: 16mm;" not in template
+
+
+def test_pdf_template_uses_compact_normal_text_size():
+    template_path = (
+        Path(__file__).parents[3] / "drystone" / "reports" / "templates" / "pdf_report.xml"
+    )
+    template = template_path.read_text()
+
+    assert "body {\n      font-family: var(--font-sans);\n      font-size: 10px;" in template
+    assert ".executive-narrative p {\n      font-size: 10px;" in template
+    assert "font-size: 11px;" not in template
+
+
+def test_pdf_formatter_renders_network_architecture_as_visual_diagram(tmp_path, monkeypatch):
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.aws_region = "eu-west-1"
+    config.min_severity = "low"
+
+    findings = {
+        "skill": "network",
+        "analyzed_at": "2026-04-30T10:00:00",
+        "summary": {
+            "total_findings": 0,
+            "critical": 0,
+            "high": 0,
+            "medium": 0,
+            "low": 0,
+            "overall_risk_score": 0.0,
+        },
+        "findings": [],
+        "architecture": {
+            "flow_diagram": "AWS Network Topology\n├── legacy ascii",
+            "components_detected": {
+                "region": "eu-west-1",
+                "account_id": "982725252505",
+                "vpcs": [
+                    {
+                        "vpc_id": "vpc-1",
+                        "vpc_name": "IntouchDev",
+                        "cidr": "10.0.0.0/16",
+                        "igw_ids": ["igw-1"],
+                        "flow_logs_active": True,
+                        "vpc_endpoints_total": 0,
+                        "resources_total": 3,
+                        "subnets_private": [
+                            {
+                                "subnet_id": "subnet-private",
+                                "subnet_name": "IntouchDev Private",
+                                "cidr": "10.0.1.0/24",
+                                "az": "eu-west-1b",
+                                "is_public": False,
+                                "eni_total": 2,
+                                "eni_types": {},
+                                "resource_names": {
+                                    "EC2": ["API - Robicheaux N1 - 2025"],
+                                    "RDS": ["postclear"],
+                                },
+                            }
+                        ],
+                        "subnets_public": [
+                            {
+                                "subnet_id": "subnet-public",
+                                "subnet_name": "IntouchDev Public",
+                                "cidr": "10.0.0.0/24",
+                                "az": "eu-west-1b",
+                                "is_public": True,
+                                "eni_total": 2,
+                                "eni_public_ip_total": 1,
+                                "eni_types": {"NATGW": 1},
+                                "resource_names": {
+                                    "EC2": ["BO - Billy Rocks N1 - 2025"],
+                                    "RDS": ["postclear"],
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+        },
+    }
+
+    captured = {}
+
+    class FakeHTML:
+        def __init__(self, string):
+            captured["html"] = string
+
+        def write_pdf(self, output_path):
+            with open(output_path, "wb") as f:
+                f.write(b"%PDF-1.4 test")
+
+    fake_module = types.SimpleNamespace(HTML=FakeHTML)
+    monkeypatch.setitem(sys.modules, "weasyprint", fake_module)
+
+    formatter = PDFFormatter(findings, session, config)
+    formatter.generate()
+
+    assert "network-diagram" in captured["html"]
+    assert "network-subnet-card private" in captured["html"]
+    assert "network-subnet-card public" in captured["html"]
+    assert "Multi-Subnet Resources" in captured["html"]
+    assert "postclear" in captured["html"]
+    assert "AWS Network Topology" not in captured["html"]
+
+
+def test_pdf_formatter_renders_alerting_architecture_as_visual_diagram(tmp_path, monkeypatch):
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.aws_region = "eu-west-1"
+    config.min_severity = "low"
+
+    findings = {
+        "skill": "alerting",
+        "analyzed_at": "2026-05-01T13:00:00",
+        "summary": {
+            "total_findings": 0,
+            "critical": 0,
+            "high": 0,
+            "medium": 0,
+            "low": 0,
+            "overall_risk_score": 0.0,
+        },
+        "findings": [],
+        "architecture": {
+            "flow_diagram": "AWS SECURITY ALERTING FLOW ARCHITECTURE",
+            "components_detected": {
+                "region": "eu-west-1",
+                "account_id": "982725252505",
+                "cloudtrail_enabled": True,
+                "cloudtrail_multi_region": True,
+                "cloudwatch_integration": True,
+                "eventbridge_rules_exist": False,
+                "metric_filters_exist": True,
+                "alarms_configured": True,
+                "sns_topics_exist": True,
+                "sns_has_subscribers": True,
+                "subscriptions_confirmed": True,
+                "cloudtrail_names": ["MainCloudTrail"],
+                "cloudtrail_s3_buckets": ["maincloudtrailap7"],
+                "cloudwatch_log_groups": ["aws-cloudtrail-logs-maincloudtrail"],
+                "metric_filter_names": ["RootAccountUsage"],
+                "alarm_names": ["RootAccountUsage"],
+                "eventbridge_rule_names": [],
+                "sns_topic_names": ["InfraAlerts"],
+                "subscription_protocols": ["email"],
+                "counts": {
+                    "trails": 1,
+                    "log_groups": 1,
+                    "metric_filters": 12,
+                    "alarms": 12,
+                    "eventbridge_rules": 0,
+                    "sns_topics": 6,
+                    "subscriptions": 6,
+                },
+            },
+        },
+    }
+
+    captured = {}
+
+    class FakeHTML:
+        def __init__(self, string):
+            captured["html"] = string
+
+        def write_pdf(self, output_path):
+            with open(output_path, "wb") as f:
+                f.write(b"%PDF-1.4 test")
+
+    fake_module = types.SimpleNamespace(HTML=FakeHTML)
+    monkeypatch.setitem(sys.modules, "weasyprint", fake_module)
+
+    formatter = PDFFormatter(findings, session, config)
+    formatter.generate()
+
+    assert "alerting-diagram" in captured["html"]
+    assert "Alerting Flow Diagram" in captured["html"]
+    assert "CloudTrail" in captured["html"]
+    assert "CloudWatch Alarms" in captured["html"]
+    assert "SNS Topics" in captured["html"]
+    assert "AWS SECURITY ALERTING FLOW ARCHITECTURE" not in captured["html"]
+
+
+def test_pdf_formatter_renders_alerting_partial_delivery_status(tmp_path, monkeypatch):
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.aws_region = "eu-west-1"
+    config.min_severity = "low"
+
+    findings = {
+        "skill": "alerting",
+        "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0},
+        "findings": [],
+        "architecture": {
+            "components_detected": {
+                "region": "eu-west-1",
+                "account_id": "982725252505",
+                "cloudtrail_enabled": True,
+                "cloudtrail_multi_region": True,
+                "cloudwatch_integration": True,
+                "eventbridge_rules_exist": False,
+                "metric_filters_exist": True,
+                "alarms_configured": True,
+                "sns_topics_exist": True,
+                "sns_delivery_status": "warn",
+                "subscriptions_confirmed": False,
+                "alert_topic_names": ["InfraAlerts"],
+                "alert_topics_without_confirmed_subscribers": ["InfraAlerts"],
+                "subscription_protocols": [],
+                "counts": {
+                    "trails": 1,
+                    "log_groups": 1,
+                    "metric_filters": 15,
+                    "alarms": 17,
+                    "eventbridge_rules": 10,
+                    "sns_topics": 6,
+                    "subscriptions": 1,
+                    "alert_topics": 1,
+                    "alert_topics_without_confirmed_subscribers": 1,
+                },
+            }
+        },
+    }
+
+    captured = {}
+
+    class FakeHTML:
+        def __init__(self, string):
+            captured["html"] = string
+
+        def write_pdf(self, output_path):
+            with open(output_path, "wb") as f:
+                f.write(b"%PDF-1.4 test")
+
+    monkeypatch.setitem(sys.modules, "weasyprint", types.SimpleNamespace(HTML=FakeHTML))
+
+    PDFFormatter(findings, session, config).generate()
+
+    assert "alerting-card warn" in captured["html"]
+    assert "Partial" in captured["html"]
+    assert "1 alert topic(s) missing subscribers" in captured["html"]
+    assert "InfraAlerts" in captured["html"]
 
 
 def test_pdf_formatter_raises_when_weasyprint_missing(tmp_path, monkeypatch):
@@ -157,6 +414,34 @@ def test_pdf_formatter_includes_pentest_inventory_scope(tmp_path, monkeypatch):
     assert "EC2 instances: 2" in captured["html"]
     assert "Global Resources" in captured["html"]
     assert "Environment Description (Inferred)" in captured["html"]
+
+
+def test_pdf_formatter_renders_single_exploitability_pill(tmp_path):
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.aws_region = "us-east-1"
+    config.min_severity = "low"
+
+    formatter = PDFFormatter(_sample_findings(), session, config)
+    finding = dict(_sample_findings()["findings"][0], exploitability_status="validated")
+
+    card = formatter._finding_card_html(finding)
+
+    assert "exploit-pill exploit-pill-validated" in card
+    assert "style='padding:2px 8px" not in card
+    assert card.count("Validated") == 1
+
+
+def test_pdf_formatter_places_finding_id_after_title_content(tmp_path):
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.aws_region = "us-east-1"
+    config.min_severity = "low"
+
+    formatter = PDFFormatter(_sample_findings(), session, config)
+    card = formatter._finding_card_html(_sample_findings()["findings"][0])
+
+    assert card.index("finding-title-wrap") < card.index("finding-id")
 
 
 # ---------------------------------------------------------------------------

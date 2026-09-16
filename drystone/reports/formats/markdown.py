@@ -511,7 +511,7 @@ This report presents security findings from the {self._get_skill_display_name(sk
         section += "\n```\n"
 
         if critical_gaps:
-            section += "\n### 🚨 Critical Gaps Identified\n\n"
+            section += "\n### 🚨 Key Gaps Identified\n\n"
             for gap in critical_gaps:
                 section += f"- {gap}\n"
 
@@ -597,14 +597,27 @@ This report presents security findings from the {self._get_skill_display_name(sk
                     scan_depth = ct_summary.get("scan_depth", "—")
                     start_time = ct_summary.get("start_time", "")
                     end_time = ct_summary.get("end_time", "")
-                    account_id = ct_summary.get("account_id", "—")
+                    account_id = (
+                        ct_summary.get("account_id")
+                        or getattr(self.session, "account_id", "")
+                        or "—"
+                    )
                     # Format period as readable dates
                     try:
                         from datetime import datetime as _dt
-                        start_fmt = _dt.fromisoformat(start_time).strftime("%Y-%m-%d") if start_time else "—"
-                        end_fmt = _dt.fromisoformat(end_time).strftime("%Y-%m-%d") if end_time else "—"
+
+                        start_fmt = (
+                            _dt.fromisoformat(start_time).strftime("%Y-%m-%d")
+                            if start_time
+                            else "—"
+                        )
+                        end_fmt = (
+                            _dt.fromisoformat(end_time).strftime("%Y-%m-%d") if end_time else "—"
+                        )
                     except Exception:
-                        start_fmt, end_fmt = start_time[:10] if start_time else "—", end_time[:10] if end_time else "—"
+                        start_fmt, end_fmt = start_time[:10] if start_time else "—", (
+                            end_time[:10] if end_time else "—"
+                        )
                     section += "### Scan Scope\n\n"
                     section += "| Parameter | Value |\n"
                     section += "|-----------|-------|\n"
@@ -647,7 +660,7 @@ This report presents security findings from the {self._get_skill_display_name(sk
             timeline += f"- [ ] {f.get('id')}: {f.get('title')}\n"
 
         timeline += "\n### Medium-term (31-90 days) - Medium Priority\n"
-        for f in medium_term[:3]:
+        for f in medium_term:
             f = self._normalize_finding_language(f)
             timeline += f"- [ ] {f.get('id')}: {f.get('title')}\n"
 
@@ -869,7 +882,8 @@ These correlations represent multi-stage attack scenarios where findings from di
         for finding in top_findings:
             finding = self._normalize_finding_language(finding)
             finding_id = finding.get("id", "N/A")
-            title = finding.get("title", "Unknown")[:50]  # Truncate to 50 chars
+            raw_title = str(finding.get("title", "Unknown"))
+            title = raw_title if len(raw_title) <= 50 else f"{raw_title[:47]}..."
             severity = finding.get("severity", "Unknown")
             risk_score = finding.get("risk_score", 0.0)
             affected = finding.get("affected_resources", [])
@@ -1036,15 +1050,14 @@ These correlations represent multi-stage attack scenarios where findings from di
                     av = cve.get("attack_vector", "—")
                     ports = cve.get("relevant_open_ports", [])
                     ports_str = ", ".join(str(p) for p in ports[:3]) if ports else "—"
-                    av_str = f"{av} ({ports_str})" if ports else av
+                    av_is_network = str(av or "").upper() == "NETWORK"
+                    av_str = f"{av} ({ports_str})" if ports and av_is_network else av
                     ei = cve.get("exploit_intel") or {}
                     has_exploit = ei.get("has_public_exploit", False)
                     exploit_str = "✅ Yes" if has_exploit else "No"
                     kev = ei.get("cisa_kev") or {}
                     kev_str = "⚠️ **KEV**" if kev.get("listed") else "No"
-                    section += (
-                        f"| {cve_id} | {package} | {installed} | {fixed} | {cvss_str} | {impact} | {av_str} | {exploit_str} | {kev_str} |\n"
-                    )
+                    section += f"| {cve_id} | {package} | {installed} | {fixed} | {cvss_str} | {impact} | {av_str} | {exploit_str} | {kev_str} |\n"
             section += "\n"
 
             # CVE descriptions — show top CVSS CVEs across all instances (up to 15 unique)
@@ -1084,9 +1097,15 @@ These correlations represent multi-stage attack scenarios where findings from di
                 if kev.get("listed"):
                     date = kev.get("date_added", "")
                     rw = kev.get("ransomware_use", "")
-                    notes.append(f"CISA KEV (added {date}" + (f", ransomware: {rw}" if rw and rw != "Unknown" else "") + ")")
+                    notes.append(
+                        f"CISA KEV (added {date}"
+                        + (f", ransomware: {rw}" if rw and rw != "Unknown" else "")
+                        + ")"
+                    )
                 if edb.get("id"):
-                    notes.append(f"[Exploit-DB #{edb['id']}](https://www.exploit-db.com/exploits/{edb['id']}) — {edb.get('type','?')} / {edb.get('platform','?')}")
+                    notes.append(
+                        f"[Exploit-DB #{edb['id']}](https://www.exploit-db.com/exploits/{edb['id']}) — {edb.get('type','?')} / {edb.get('platform','?')}"
+                    )
                 for url in poc_urls[:3]:
                     notes.append(f"[PoC]({url})")
                 if notes:
@@ -1186,6 +1205,7 @@ These correlations represent multi-stage attack scenarios where findings from di
                 c
                 for c in inst_cves
                 if isinstance(c, dict)
+                and str(c.get("id") or "").upper().startswith("CVE-")
                 and (
                     str(c.get("attack_vector", "")).upper() == "NETWORK"
                     or c.get("exploitable_from_internet")
@@ -1202,8 +1222,6 @@ These correlations represent multi-stage attack scenarios where findings from di
                     description = str(cve.get("description", "") or "").strip()
                     open_ports = cve.get("relevant_open_ports", [])
 
-                    is_network_reachability = "reachable from an internet gateway" in cve_id.lower()
-
                     section += f"**{idx}. `{cve_id}`"
                     if package:
                         section += f" ({package})"
@@ -1212,46 +1230,22 @@ These correlations represent multi-stage attack scenarios where findings from di
                         section += f", CVSS: {cvss}"
                     section += "\n\n"
 
-                    if is_network_reachability:
-                        # Network reachability finding — explain what it means
-                        port_hint = ""
-                        if "port 22" in cve_id.lower():
-                            port_hint = "port 22 (SSH)"
-                        elif "port 3389" in cve_id.lower():
-                            port_hint = "port 3389 (RDP)"
-                        elif "port 80" in cve_id.lower():
-                            port_hint = "port 80 (HTTP)"
-                        elif "port 443" in cve_id.lower():
-                            port_hint = "port 443 (HTTPS)"
-                        else:
-                            port_hint = "a network port"
+                    if description:
+                        section += f"> **Vulnerability:** {description}\n\n"
+                    if open_ports:
                         section += (
-                            f"> AWS Inspector confirmed that {port_hint} on this instance is directly "
-                            "reachable from an Internet Gateway. This is not a CVE — it is a network "
-                            "reachability confirmation. This means I can reach the service on that port "
-                            "from the public internet without VPN or any prior access.\n\n"
+                            f"> **Attack surface:** This vulnerability is exploitable via the network "
+                            f"(AV:N). The instance has port(s) `{', '.join(str(p) for p in open_ports)}` "
+                            "open to the internet — traffic to the affected service can reach me from "
+                            "the public internet.\n\n"
                         )
-                        section += (
-                            "**What this means in practice:** Any vulnerability running on this service "
-                            "(SSH brute force, CVE in the SSH daemon, weak credentials) is now remotely "
-                            "exploitable. I would start here as my entry point.\n\n"
-                        )
-                    else:
-                        if description:
-                            section += f"> **Vulnerability:** {description}\n\n"
-                        if open_ports:
-                            section += (
-                                f"> **Attack surface:** This vulnerability is exploitable via the network "
-                                f"(AV:N). The instance has port(s) `{', '.join(str(p) for p in open_ports)}` "
-                                "open to the internet — traffic to the affected service can reach me from "
-                                "the public internet.\n\n"
-                            )
-                        section += (
-                            "**What this means in practice:** I would look up a public exploit or PoC for "
-                            f"`{cve_id}`, confirm the affected package version is installed on the target, "
-                            "and deliver the payload via the exposed network port. Remote code execution "
-                            "would give me a shell in the instance context.\n\n"
-                        )
+                    section += (
+                        "**What this means in practice:** I would validate that the vulnerable package "
+                        "and affected network-facing service are present on the target, then test only "
+                        "approved exploit paths for "
+                        f"`{cve_id}`. Successful exploitation could provide code execution in the "
+                        "instance context.\n\n"
+                    )
 
             # IMDS credential harvesting step
             step_num = 3 if network_cves else 2
@@ -1363,7 +1357,9 @@ These correlations represent multi-stage attack scenarios where findings from di
 
             if snippet_for_json:
                 detail += "```json\n"
-                redacted, _ = redact_secrets(json.dumps(snippet_for_json, indent=2, ensure_ascii=False))
+                redacted, _ = redact_secrets(
+                    json.dumps(snippet_for_json, indent=2, ensure_ascii=False)
+                )
                 detail += redacted
                 detail += "\n```\n"
 
@@ -1460,9 +1456,9 @@ These correlations represent multi-stage attack scenarios where findings from di
                 positives.append("High-severity exposure appears limited in this run.")
 
         if high + critical > 0:
-            concerns.append(
-                f"{critical + high} high-impact findings require prioritized remediation."
-            )
+            noun = "finding" if critical + high == 1 else "findings"
+            verb = "requires" if critical + high == 1 else "require"
+            concerns.append(f"{critical + high} high-impact {noun} {verb} prioritized remediation.")
         if total >= 3:
             concerns.append("Repeated control gaps indicate policy enforcement drift.")
 

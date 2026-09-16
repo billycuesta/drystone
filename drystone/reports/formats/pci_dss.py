@@ -217,7 +217,7 @@ class PCIDSSFormatter(BaseFormatter):
         section += "\n```\n"
 
         if critical_gaps:
-            section += "\n### 🚨 Critical Gaps Identified\n\n"
+            section += "\n### 🚨 Key Gaps Identified\n\n"
             for gap in critical_gaps:
                 section += f"- {gap}\n"
 

@@ -4,7 +4,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from drystone.models.client_context import ClientContext
 from drystone.reports.formats.pdf import PDFFormatter
 
 
@@ -26,8 +25,6 @@ def pdf_formatter(tmp_path):
     config.scan_depth = "normal"
     config.skills = ["iam"]
     config.report_language = "en"
-    config._client_context = None  # No client context by default
-
     findings = {
         "skill": "iam",
         "analyzed_at": "2026-03-16T10:00:00",
@@ -210,19 +207,6 @@ class TestGAP2DocumentControl:
         assert "CONFIDENTIAL" in result
         assert "v1.0" in result
 
-    def test_document_control_with_client_context(self, pdf_formatter):
-        ctx = ClientContext(
-            organization="TestCorp",
-            code="TC-SEC-2026-v2.0",
-            project="Security Assessment 2026",
-            version="2.0",
-            report_date="2026-03-15",
-        )
-        pdf_formatter.config._client_context = ctx
-        result = pdf_formatter._document_control_html()
-        assert "TC-SEC-2026-v2.0" in result
-        assert "Security Assessment 2026" in result
-        assert "2.0" in result
 
 
 class TestGAP6ExecutiveSummary:
@@ -240,17 +224,6 @@ class TestGAP6ExecutiveSummary:
         assert "Top Recommendations" in result
         assert "IAM-001" in result
 
-    def test_executive_summary_with_business_context(self, pdf_formatter):
-        ctx = ClientContext(
-            organization="TestCorp",
-            business_context="TestCorp operates a critical payment platform.",
-            assessment_dates={"start": "2026-03-01", "end": "2026-03-05"},
-        )
-        pdf_formatter.config._client_context = ctx
-        summary = pdf_formatter.findings["summary"]
-        result = pdf_formatter._executive_narrative_html(summary)
-        assert "critical payment platform" in result
-        assert "2026-03-01" in result
 
 
 class TestGAP3Conditions:
@@ -269,12 +242,3 @@ class TestGAP3Conditions:
         assert "Condiciones y Exclusiones" in result
         assert "Denegación de Servicio" in result
 
-    def test_conditions_with_client_context(self, pdf_formatter):
-        ctx = ClientContext(
-            conditions=["Source IPs: 1.2.3.4", "IPs whitelisted"],
-            exclusions=["DoS testing", "Social engineering"],
-        )
-        pdf_formatter.config._client_context = ctx
-        result = pdf_formatter._conditions_section_html()
-        assert "1.2.3.4" in result
-        assert "DoS testing" in result

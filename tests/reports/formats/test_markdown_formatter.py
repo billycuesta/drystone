@@ -1,5 +1,6 @@
 """Tests for MarkdownFormatter pure-logic methods."""
 
+import json
 from unittest.mock import Mock
 
 from drystone.reports.formats.markdown import MarkdownFormatter
@@ -47,6 +48,7 @@ class TestIsEnglishReport:
         f = _make_formatter(tmp_path, report_language="en")
         assert f._is_english_report() is True
 
+
     def test_en_uppercase_case_insensitive(self, tmp_path):
         f = _make_formatter(tmp_path, report_language="EN")
         assert f._is_english_report() is True
@@ -60,6 +62,35 @@ class TestIsEnglishReport:
         del f.config.report_language
         # getattr with default "en"
         assert f._is_english_report() is True
+
+
+class TestResourcesAuditedSection:
+    def test_cloudtrail_scope_uses_session_account_when_summary_account_empty(self, tmp_path):
+        formatter = _make_formatter(
+            tmp_path, findings={"skill": "cloudtrail_events", "findings": []}
+        )
+        evidence_dir = tmp_path / "evidence" / "cloudtrail_events"
+        evidence_dir.mkdir(parents=True)
+        (evidence_dir / "_summary.json").write_text(
+            json.dumps(
+                {
+                    "scan_depth": "normal",
+                    "days_back": 30,
+                    "start_time": "2026-04-08T00:00:00+00:00",
+                    "end_time": "2026-05-08T00:00:00+00:00",
+                    "region": "eu-west-1",
+                    "account_id": "",
+                    "categories_collected": {"audit-tampering-events": 1},
+                }
+            )
+        )
+        (evidence_dir / "audit-tampering-events.json").write_text(
+            json.dumps([{"EventName": "StopLogging"}])
+        )
+
+        section = formatter._resources_audited_section()
+
+        assert "| Account ID | `123456789012` |" in section
 
 
 # ── _looks_spanish ─────────────────────────────────────────────────────────────
@@ -175,6 +206,51 @@ class TestNormalizeFindingLanguage:
         assert original["title"] == "Múltiples hallazgos"
 
 
+class TestRemediationTimeline:
+    def test_includes_all_medium_findings(self, tmp_path):
+        rows = [{"id": "ALRT-001", "title": "Critical", "severity": "Critical"}]
+        rows.extend(
+            {"id": f"ALRT-M{i}", "title": f"Medium {i}", "severity": "Medium"} for i in range(4)
+        )
+        findings = {
+            "skill": "alerting",
+            "findings": rows,
+            "summary": {
+                "total_findings": 5,
+                "critical": 1,
+                "high": 0,
+                "medium": 4,
+                "low": 0,
+                "overall_risk_score": 5.0,
+            },
+        }
+        f = _make_formatter(tmp_path, findings=findings)
+
+        timeline = f._remediation_timeline()
+
+        for i in range(4):
+            assert f"ALRT-M{i}" in timeline
+
+    def test_observations_singular_high_impact_grammar(self, tmp_path):
+        findings = {
+            "skill": "alerting",
+            "findings": [{"id": "ALRT-005", "title": "SNS", "severity": "Critical"}],
+            "summary": {
+                "total_findings": 1,
+                "critical": 1,
+                "high": 0,
+                "medium": 0,
+                "low": 0,
+                "overall_risk_score": 9.0,
+            },
+        }
+        f = _make_formatter(tmp_path, findings=findings)
+
+        observations = f._observations()
+
+        assert "1 high-impact finding requires prioritized remediation" in observations
+
+
 # ── _get_skill_display_name ────────────────────────────────────────────────────
 
 
@@ -198,6 +274,90 @@ class TestGetSkillDisplayName:
     def test_sistemas_explotables_red(self, tmp_path):
         f = _make_formatter(tmp_path)
         assert "Network" in f._get_skill_display_name("sistemas_explotables_red")
+
+
+class TestSerExploitabilitySection:
+    def test_local_cves_do_not_show_public_port_as_attack_vector(self, tmp_path):
+        formatter = _make_formatter(tmp_path)
+        section = formatter._ser_exploitability_section(
+            {
+                "evidence_snippet": {
+                    "cve_details": [
+                        {
+                            "id": "CVE-2026-23231",
+                            "resource": "i-123",
+                            "package": "linux-image-aws",
+                            "installed_version": "6.17.0",
+                            "fixed_version": "0:6.17.0-1013.13",
+                            "cvss_score": 7.8,
+                            "inspector_severity": "HIGH",
+                            "impact_type": "LPE",
+                            "attack_vector": "LOCAL",
+                            "relevant_open_ports": [443],
+                        },
+                        {
+                            "id": "CVE-2026-23112",
+                            "resource": "i-123",
+                            "package": "linux-image-aws",
+                            "installed_version": "6.17.0",
+                            "fixed_version": "0:6.17.0-1013.13",
+                            "cvss_score": 9.8,
+                            "inspector_severity": "CRITICAL",
+                            "impact_type": "RCE",
+                            "attack_vector": "NETWORK",
+                            "relevant_open_ports": [443],
+                        },
+                    ]
+                }
+            }
+        )
+
+        assert "LOCAL (443)" not in section
+        assert "NETWORK (443)" in section
+
+    def test_attack_playbook_excludes_reachability_finding_as_vulnerability(self, tmp_path):
+        formatter = _make_formatter(tmp_path)
+        section = formatter._ser_attack_vector_section(
+            {
+                "evidence_snippet": {
+                    "attack_paths": {"i-123": {"steps": []}},
+                    "cve_details": [
+                        {
+                            "id": "Port 443 is reachable from an Internet Gateway - TCP",
+                            "resource": "i-123",
+                            "attack_vector": "NETWORK",
+                            "exploitable_from_internet": True,
+                            "relevant_open_ports": [443],
+                        },
+                        {
+                            "id": "CVE-2026-23112",
+                            "resource": "i-123",
+                            "package": "linux-image-aws",
+                            "inspector_severity": "CRITICAL",
+                            "cvss_score": 9.8,
+                            "description": "kernel issue",
+                            "attack_vector": "NETWORK",
+                            "exploitable_from_internet": True,
+                            "relevant_open_ports": [443],
+                        },
+                    ],
+                    "sg_rules_context": {
+                        "i-123": [
+                            {
+                                "port": "443",
+                                "protocol": "tcp",
+                                "source": "0.0.0.0/0",
+                                "sg_name": "Webservers",
+                            }
+                        ]
+                    },
+                }
+            }
+        )
+
+        assert "SSH brute force" not in section
+        assert "Port 443 is reachable from an Internet Gateway" not in section
+        assert "CVE-2026-23112" in section
 
 
 # ── _get_risk_level ────────────────────────────────────────────────────────────
@@ -460,6 +620,36 @@ class TestNarrativeExecutiveSummary:
         f = _make_formatter(tmp_path, findings=findings)
         result = f._narrative_executive_summary()
         assert "NEWSKILL" in result
+
+
+class TestFindingsSummaryTable:
+    def test_long_title_truncates_with_ellipsis(self, tmp_path):
+        findings = {
+            "skill": "vulns",
+            "findings": [
+                {
+                    "id": "VULN-004",
+                    "title": "ACTIVE CVEs with exploit availability reported by Inspector",
+                    "severity": "High",
+                    "risk_score": 7.8,
+                    "affected_resources": ["i-1"],
+                }
+            ],
+            "summary": {
+                "total_findings": 1,
+                "critical": 0,
+                "high": 1,
+                "medium": 0,
+                "low": 0,
+                "overall_risk_score": 7.8,
+            },
+        }
+        f = _make_formatter(tmp_path, findings=findings)
+
+        table = f._findings_summary_table()
+
+        assert "reported by  |" not in table
+        assert "ACTIVE CVEs with exploit availability reported ..." in table
 
 
 # ── generate (file output) ────────────────────────────────────────────────────
