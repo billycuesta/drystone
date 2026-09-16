@@ -8,7 +8,7 @@ CHECKLIST = {
     "items": [
         {"id": "NET-004", "severity": "Critical"},
         {"id": "NET-022", "severity": "Medium"},
-        {"id": "NET-011", "severity": "High"},
+        {"id": "NET-011", "severity": "Medium"},
     ],
 }
 

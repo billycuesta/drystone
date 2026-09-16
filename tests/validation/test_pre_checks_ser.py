@@ -255,6 +255,20 @@ def test_ser_ec2_002_fail_when_reachable_ec2_has_inspector_signal() -> None:
     assert result.check_id == "SER-EC2-002"
 
 
+def test_ser_ec2_002_description_template_does_not_claim_multiple_ports() -> None:
+    from drystone.validation.pre_checks import PRE_CHECK_DESCRIPTIONS
+
+    text = PRE_CHECK_DESCRIPTIONS["SER-EC2-002"].format(
+        count=2,
+        resources="i-123 and i-456",
+        service="SISTEMAS_EXPLOTABLES_RED",
+    )
+
+    assert "multiple sensitive ports" not in text
+    assert "broad service exposure" not in text
+    assert "active Amazon Inspector vulnerability findings" in text
+
+
 class TestSerEcs001:
     def test_fail_when_ecs_reachable_via_alb(self) -> None:
         evidence = {

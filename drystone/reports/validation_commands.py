@@ -70,6 +70,8 @@ def _arn_specific_commands(affected_resources: List[str], region: str, skill: st
         elif service == "secretsmanager":
             if rtype == "secret":
                 cmd = f"aws secretsmanager describe-secret --secret-id {arn} --region {region}"
+        elif service == "sns":
+            cmd = f"aws sns get-topic-attributes --topic-arn {arn} --region {region}"
 
         if cmd and cmd not in seen:
             commands.append(cmd)
@@ -181,6 +183,8 @@ def suggest_aws_cli_commands(
         "alerting": {
             "cloudtrail-trails.json": f"aws cloudtrail describe-trails --region {region}",
             "cloudwatch-alarms.json": f"aws cloudwatch describe-alarms --region {region}",
+            "cloudwatch-log-groups.json": f"aws logs describe-log-groups --region {region}",
+            "cloudwatch-metric-filters.json": f"aws logs describe-metric-filters --region {region}",
             "eventbridge-rules.json": f"aws events list-rules --region {region}",
             "sns-topics.json": f"aws sns list-topics --region {region}",
         },
@@ -361,6 +365,12 @@ def suggest_aws_cli_commands(
             return [
                 f"aws ec2 describe-subnets --region {region}",
                 f"aws ec2 describe-network-acls --region {region}",
+            ]
+        if fid == "NET-013":
+            return [
+                f"aws ec2 describe-route-tables --region {region}",
+                f"aws ec2 describe-vpc-endpoints --region {region}",
+                f"aws ec2 describe-nat-gateways --region {region}",
             ]
         if fid in ("NET-007", "NET-EGR-001"):
             return [

@@ -63,18 +63,18 @@
     },
     {
       "id": "VULN-004",
-      "title": "CVEs with known active exploit (0-day, public PoC)",
-      "severity": "Critical",
-      "description": "Detected vulnerabilities have known and active exploits (e.g., public Proof-of-Concept code or 0-day exploits), indicating an immediate and severe threat of targeted attacks.",
-      "remediation": "Isolate or shut down affected systems if necessary. Apply patches or strong mitigating controls immediately. Monitor for signs of exploitation.",
+      "title": "ACTIVE CVEs with exploit availability reported by Inspector",
+      "severity": "High",
+      "description": "AWS Inspector reports ACTIVE vulnerabilities where exploitAvailable=YES. These require accelerated remediation, but should not be described as CRITICAL unless the raw Inspector severity or separate exploit intelligence proves that classification.",
+      "remediation": "Prioritize CVEs where exploitAvailable=YES. Apply available patches, document exceptions where no fix is available, and validate whether affected workloads are reachable from untrusted networks before escalating the issue beyond Inspector's reported severity.",
       "pci_dss": [
         {
           "control": "6.3.3.b",
-          "reason": "Vulnerabilities with active exploits are by definition critical and must be remediated with the highest urgency, aligning with the requirement for prompt installation of security patches."
+          "reason": "Vulnerabilities with exploit availability require prompt prioritization and remediation tracking. Severity should still follow the raw Inspector severity unless additional reachability or exploit-intelligence evidence justifies escalation."
         },
         {
           "control": "6.2.4",
-          "reason": "This control requires preventing common software attacks. CVEs with known exploits represent immediately exploitable attacks that must be mitigated."
+          "reason": "This control requires preventing common software attacks. CVEs with exploit availability represent higher-priority attack paths that must be mitigated or formally risk-accepted."
         }
       ],
       "qsa_visibility": "standard"
@@ -135,10 +135,10 @@
     },
     {
       "id": "VULN-008",
-      "title": "HIGH vulnerabilities without remediation plan",
+      "title": "ACTIVE HIGH Inspector findings require remediation tracking",
       "severity": "High",
-      "description": "High severity vulnerabilities detected by Inspector v2 lack a defined remediation plan, leading to prolonged exposure to significant risks.",
-      "remediation": "Develop and assign clear remediation plans, including responsible teams and timelines (e.g., within 1 week), for all HIGH severity findings.",
+      "description": "High severity vulnerabilities detected by Inspector v2 require an explicit owner, remediation SLA, patch decision, or documented risk acceptance to avoid unmanaged vulnerability backlog.",
+      "remediation": "Develop and assign clear remediation records, including responsible teams, due dates, patch decisions, exception status, and compensating controls where patching is delayed.",
       "pci_dss": [
         {
           "control": "6.3.3.b",
@@ -167,10 +167,10 @@
     },
     {
       "id": "VULN-010",
-      "title": "Vulnerabilities in critical service components",
+      "title": "Application service EC2 instances with active Inspector findings",
       "severity": "High",
-      "description": "Vulnerabilities exist in components directly supporting critical business services, increasing the likelihood of service disruption or compromise if exploited.",
-      "remediation": "Accelerate remediation efforts for vulnerabilities impacting critical service components. Ensure robust monitoring is in place.",
+      "description": "ACTIVE HIGH or CRITICAL Inspector findings affect EC2 instances tagged as application service components, increasing operational risk for those services until patched or otherwise controlled.",
+      "remediation": "Route the affected service instances to owning application teams, patch or replace vulnerable hosts, and document compensating controls such as network isolation or increased monitoring where patching is delayed.",
       "pci_dss": [
         {
           "control": "7.2.1",

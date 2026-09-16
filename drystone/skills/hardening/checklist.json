@@ -223,10 +223,10 @@
     },
     {
       "id": "HRD-014",
-      "title": "No alert integration configured",
-      "severity": "Medium",
-      "description": "Security Hub findings are not integrated with an alerting mechanism (e.g., SNS, EventBridge to PagerDuty/Slack), leading to delayed notification and response to security events.",
-      "remediation": "Configure EventBridge rules to forward Security Hub findings (especially CRITICAL/HIGH) to an appropriate alerting system, ensuring prompt notification of security personnel.",
+      "title": "GuardDuty not enabled",
+      "severity": "High",
+      "description": "Amazon GuardDuty is not enabled in the audited region, leaving the account without AWS-native threat detection for compromised credentials, reconnaissance, suspicious API activity, or malicious network behavior.",
+      "remediation": "Enable Amazon GuardDuty in the audited region, configure organization-wide detector coverage where applicable, and route GuardDuty findings into Security Hub and EventBridge for incident response workflows.",
       "pci_dss": [
         {
           "control": "10.6.1",

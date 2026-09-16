@@ -90,6 +90,36 @@ Focus: Identity, access control, privilege escalation, credentials.
         <field>AssumeRolePolicyDocument with Principal field showing cross-account ARN or "*"</field>
         <field>Condition block (or absence thereof) that restricts external trust</field>
       </for_cross_account>
+      <for_affected_resources>
+        <rule>affected_resources stays an array of bare ARN/identifier strings (see base rule
+        above). Put the per-resource proof below in evidence_snippet instead, keyed by user.</rule>
+        <for_inactive_users>
+          affected_resources: ["arn:aws:iam::...:user/alice"]
+          evidence_snippet: {"user": "alice", "arn": "arn:aws:iam::...:user/alice",
+           "last_console_login": "2025-10-01T08:00:00Z",
+           "last_access_key_use": "2025-10-15T11:00:00Z",
+           "days_since_last_activity": 140}
+        </for_inactive_users>
+        <for_multiple_active_keys>
+          affected_resources: ["arn:aws:iam::...:user/bob"]
+          evidence_snippet: {"user": "bob", "arn": "arn:aws:iam::...:user/bob",
+           "active_access_keys": [
+             {"access_key_id": "AKIA****XYZ1", "create_date": "2025-11-01", "last_used_date": "2026-04-20", "days_since_last_use": 9},
+             {"access_key_id": "AKIA****XYZ2", "create_date": "2026-02-10", "last_used_date": "2026-04-18", "days_since_last_use": 11}
+           ],
+           "rotation_in_progress": false}
+        </for_multiple_active_keys>
+        <for_no_mfa>
+          affected_resources: ["arn:aws:iam::...:user/carol"]
+          evidence_snippet: {"user": "carol", "arn": "arn:aws:iam::...:user/carol",
+           "has_console_access": true, "has_active_keys": true, "mfa_devices": []}
+        </for_no_mfa>
+        <for_old_keys>
+          affected_resources: ["arn:aws:iam::...:user/dave"]
+          evidence_snippet: {"user": "dave", "arn": "arn:aws:iam::...:user/dave",
+           "access_key_id": "AKIA****OLD1", "create_date": "2025-01-01", "days_since_rotation": 118}
+        </for_old_keys>
+      </for_affected_resources>
     </irrefutable_evidence_guide>
 
   </skill_specific>

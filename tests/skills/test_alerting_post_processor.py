@@ -48,6 +48,10 @@ class TestAlertingPostProcessorAddsArchitecture:
         assert "flow_diagram" in result["architecture"]
         assert "components_detected" in result["architecture"]
         assert "critical_gaps" in result["architecture"]
+        components = result["architecture"]["components_detected"]
+        assert components["region"] == "unknown"
+        assert components["cloudtrail_names"] == ["main"]
+        assert components["counts"]["trails"] == 1
 
 
 class TestAlertingFlowAnalysis:
@@ -200,6 +204,95 @@ class TestAlertingFlowAnalysis:
         assert analysis["sns_topics_exist"] is True
         assert analysis["sns_has_subscribers"] is True
         assert analysis["subscriptions_confirmed"] is True
+
+    def test_alert_topic_without_confirmed_subscription_is_partial_delivery(self, tmp_path):
+        """Delivery health should evaluate the SNS topics used by alarm actions."""
+        evidence_dir = tmp_path / "evidence"
+        evidence_dir.mkdir(parents=True)
+        session = _make_session(evidence_dir)
+
+        _write_evidence(
+            evidence_dir,
+            "cloudwatch-alarms.json",
+            [
+                {
+                    "AlarmName": "RootAccountUsage",
+                    "AlarmActions": ["arn:aws:sns:eu-west-1:982725252505:InfraAlerts"],
+                }
+            ],
+        )
+        _write_evidence(
+            evidence_dir,
+            "sns-topics.json",
+            [
+                {
+                    "TopicArn": "arn:aws:sns:eu-west-1:982725252505:InfraAlerts",
+                    "Attributes": {"SubscriptionsConfirmed": "0"},
+                    "Subscriptions": [],
+                },
+                {
+                    "TopicArn": "arn:aws:sns:eu-west-1:982725252505:705DP",
+                    "Attributes": {"SubscriptionsConfirmed": "1"},
+                    "Subscriptions": [],
+                },
+            ],
+        )
+        _write_evidence(evidence_dir, "cloudtrail-trails.json", [])
+        _write_evidence(evidence_dir, "cloudwatch-log-groups.json", [])
+        _write_evidence(evidence_dir, "cloudwatch-metric-filters.json", [])
+        _write_evidence(evidence_dir, "eventbridge-rules.json", [])
+
+        proc = AlertingPostProcessor(session)
+        evidence = proc._load_evidence()
+        analysis = proc._analyze_flow(evidence)
+        gaps = proc._identify_critical_gaps(analysis)
+        diagram = proc._generate_diagram(analysis)
+
+        assert analysis["sns_topics_exist"] is True
+        assert analysis["sns_delivery_status"] == "warn"
+        assert analysis["subscriptions_confirmed"] is False
+        assert analysis["alert_topic_names"] == ["InfraAlerts"]
+        assert analysis["alert_topics_without_confirmed_subscribers"] == ["InfraAlerts"]
+        assert analysis["counts"]["alert_topics_without_confirmed_subscribers"] == 1
+        assert any("InfraAlerts" in gap for gap in gaps)
+        assert "Confirmed: PARTIAL" in diagram
+        assert "Alert topics missing subs: 1/1" in diagram
+
+    def test_eventbridge_gap_mentions_cloudtrail_security_route_not_generic_rules(self, tmp_path):
+        """Managed EventBridge rules should not make the gap wording contradict evidence."""
+        evidence_dir = tmp_path / "evidence"
+        evidence_dir.mkdir(parents=True)
+        session = _make_session(evidence_dir)
+
+        _write_evidence(
+            evidence_dir,
+            "eventbridge-rules.json",
+            [
+                {
+                    "Name": "DO-NOT-DELETE-AmazonInspectorEc2ManagedRule",
+                    "State": "ENABLED",
+                    "EventPattern": '{"source":["aws.ec2"]}',
+                    "Targets": [{"Arn": "arn:aws:inspector2:eu-west-1:::"}],
+                }
+            ],
+        )
+        _write_evidence(evidence_dir, "cloudtrail-trails.json", [])
+        _write_evidence(evidence_dir, "cloudwatch-alarms.json", [])
+        _write_evidence(evidence_dir, "cloudwatch-log-groups.json", [])
+        _write_evidence(evidence_dir, "cloudwatch-metric-filters.json", [])
+        _write_evidence(evidence_dir, "sns-topics.json", [])
+
+        proc = AlertingPostProcessor(session)
+        analysis = proc._analyze_flow(proc._load_evidence())
+        gaps = proc._identify_critical_gaps(analysis)
+        diagram = proc._generate_diagram(analysis)
+
+        assert analysis["eventbridge_total_rules_exist"] is True
+        assert analysis["counts"]["eventbridge_rules"] == 1
+        assert analysis["eventbridge_rules_exist"] is False
+        assert any("CloudTrail security events" in gap for gap in gaps)
+        assert not any(gap.startswith("EventBridge rules not configured") for gap in gaps)
+        assert "CT EventBr." in diagram
 
     def test_no_gaps_when_fully_configured(self, tmp_path):
         """A fully configured alerting stack should produce no gaps."""

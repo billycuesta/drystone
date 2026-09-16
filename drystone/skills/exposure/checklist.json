@@ -30,10 +30,10 @@
     },
     {
       "id": "EXP-015",
-      "title": "S3 bucket policy allows cross-account access without security conditions",
+      "title": "S3 bucket policy allows public or cross-account access without effective conditions",
       "severity": "High",
-      "description": "S3 bucket policies that grant access to principals in other AWS accounts without strong conditions (aws:SourceAccount, aws:SourceArn, or principal scoping to roles) increase exposure risk. This is not public access, but it expands the trust boundary and can lead to data/log tampering or misuse.",
-      "remediation": "Review cross-account bucket policy statements. Restrict principals to specific IAM roles (not account root) and add conditions such as aws:SourceAccount and aws:SourceArn (for AWS services), or external ID patterns where applicable. Validate with AWS Policy Simulator.",
+      "description": "S3 bucket policies that grant access to public or external principals without effective restrictive conditions, including empty aws:PrincipalOrgID values, increase exposure risk and weaken account or organization boundary controls.",
+      "remediation": "Review public and cross-account bucket policy statements. Restrict principals to specific IAM roles, set aws:PrincipalOrgID to the actual organization ID where organization scoping is intended, and add aws:SourceAccount/aws:SourceArn for AWS service integrations where supported. Remove Principal:* Allow statements that are not strictly required and validate with AWS Policy Simulator.",
       "pci_dss": [
         {
           "control": "7.2.1",
@@ -150,10 +150,10 @@
     },
     {
       "id": "EXP-007",
-      "title": "ALB/NLB without WAF on critical applications",
+      "title": "Internet-facing ALB without WAF on critical applications",
       "severity": "Critical",
-      "description": "An internet-facing Application Load Balancer (ALB) or Network Load Balancer (NLB) in front of a critical, public-facing web application does not have AWS WAF associated with it.",
-      "remediation": "Create an AWS WAF Web ACL with AWS Managed Rules (e.g., Core rule set, SQLi rule set) and associate it with the critical ALB.",
+      "description": "An internet-facing Application Load Balancer (ALB) in front of a critical, public-facing web application does not have AWS WAF associated with it.",
+      "remediation": "Create an AWS WAFv2 Web ACL with AWS Managed Rules (for example Core rule set and SQLi rule set), validate it in count mode where needed, and associate it with the critical ALB.",
       "pci_dss": [
         {
           "control": "6.4.2",

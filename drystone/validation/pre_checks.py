@@ -71,11 +71,11 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
         "in failed audits and regulatory penalties."
     ),
     "IAM-002": (
-        "Console users without MFA are a single password away from full account access. "
-        "Phishing or credential stuffing attacks are trivially successful against accounts "
-        "protected only by a password, with no second factor to block unauthorized login.\n\n"
-        "In a PCI DSS v4.0 context, absence of MFA for interactive users directly violates "
-        "Requirement 8.4.2 (MFA for all non-console access into CDE)."
+        "IAM users without MFA rely on a single authentication factor for interactive or "
+        "programmatic access. Phishing, credential stuffing, or access-key leakage can therefore "
+        "lead directly to unauthorized account access with no second factor to interrupt use.\n\n"
+        "In a PCI DSS v4.0 context, absence of MFA for interactive users and unprotected "
+        "programmatic credentials weakens Requirement 8 controls for access into the CDE."
     ),
     "IAM-003": (
         "Inactive credentials are a persistent attack surface. If credentials are leaked "
@@ -87,12 +87,68 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
     ),
     "IAM-004": (
         "An attacker who obtains a leaked or exposed access key with an active rotation gap "
-        "has persistent programmatic access. If the key belongs to a privileged user, the "
-        "attacker can enumerate the entire AWS environment and exfiltrate data without "
-        "triggering console alerts.\n\n"
+        "has persistent programmatic access for the permissions assigned to that identity. "
+        "For read-only audit users this enables broad reconnaissance; for users with scoped "
+        "write permissions, such as S3 backup-bucket access, it can expose or alter the data "
+        "covered by those permissions without using the console.\n\n"
         "Long-lived credentials significantly increase the blast radius of credential "
         "exposure incidents, as organizations have no way to know when the key was first "
         "stolen."
+    ),
+    "IAM-007": (
+        "Inline role policies embed permissions directly into each affected role, making them "
+        "harder to version, compare, reuse, and centrally review than customer-managed policies. "
+        "For operational roles such as AWS QuickSetup roles, this can hide drift in automation "
+        "permissions, including IAM or PassRole-related grants, until a manual role review occurs.\n\n"
+        "From a governance perspective, inline policies increase review effort and weaken change "
+        "control because permission intent is fragmented across role objects instead of managed "
+        "through reusable policy artifacts."
+    ),
+    "IAM-012": (
+        "Inactive accounts with valid credentials are an unmonitored attack vector. An attacker "
+        "who obtains credentials for a dormant user — via phishing, credential dumps, or dark web "
+        "purchases — can operate for extended periods without triggering usage-based alerts, since "
+        "there is no expected baseline of activity to compare against.\n\n"
+        "In a PCI DSS context, dormant accounts violate Requirement 8.2.6, which requires disabling "
+        "or removing inactive accounts within 90 days. Failure to remediate represents a direct "
+        "compliance gap that will be flagged in a QSA assessment."
+    ),
+    "IAM-014": (
+        "An attacker who compromises a user with multiple active access keys obtains redundant "
+        "programmatic access that may go unnoticed longer — if one key is detected and rotated, "
+        "the second key may remain active and undetected. This significantly extends the window "
+        "of unauthorized access and complicates forensic attribution of API calls.\n\n"
+        "From a compliance perspective, PCI DSS Requirement 8.2.1 requires unique identification "
+        "of every user; multiple active keys per user create ambiguity in audit trails that makes "
+        "it difficult to tie API actions to a specific authentication event."
+    ),
+    "IAM-015": (
+        "Directly attached user policies bypass group-based access governance and make it harder "
+        "to review or revoke permissions consistently. In this evidence pattern, the direct policy "
+        "context identifies scoped but powerful service access, such as s3:* on a backup bucket, "
+        "that remains tied to an individual IAM user instead of a role or group.\n\n"
+        "Operationally, direct attachments increase the chance that permissions survive role "
+        "changes, offboarding, or access-review cleanup, leaving sensitive bucket or service "
+        "access harder to track."
+    ),
+    "IAM-016": (
+        "Programmatic-only IAM users rely on long-lived access keys rather than short-lived role "
+        "credentials. If those keys are copied from a host, CI system, script, or operator laptop, "
+        "an attacker can use the exact services shown in the credential report, such as IAM, SSM, "
+        "Inspector, or S3, until the key is revoked.\n\n"
+        "For AWS workloads, IAM roles provide automatic rotation and resource-bound identity. "
+        "Where a user is ambiguous rather than a confirmed service account, the risk is still the "
+        "same long-lived credential lifecycle that must be reviewed and either migrated or tightly "
+        "controlled."
+    ),
+    "IAM-026": (
+        "Privileged roles without permission boundaries can receive or retain broad permissions "
+        "without a maximum-permission guardrail. This is most relevant where the role already has "
+        "AdministratorAccess or IAM policy-manipulation capability such as iam:PassRole over role "
+        "resources.\n\n"
+        "A boundary would not replace least-privilege policies, but it would cap future attached "
+        "or inline permissions and reduce the blast radius of deployment mistakes or compromised "
+        "automation paths."
     ),
     "IAM-030": (
         "Cross-account trust policies without ExternalId conditions are vulnerable to the "
@@ -176,12 +232,54 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
         "the likelihood of finding an exploitable vulnerability in at least one service."
     ),
     # ── EXPOSURE ─────────────────────────────────────────────────────────────
+    "EXP-002": (
+        "The affected RDS instances are internet-reachable at the database network layer. "
+        "For engines such as SQL Server, this exposes the database authentication surface "
+        "directly to global scanning, brute-force attempts, and engine-specific exploitation "
+        "on the open database port.\n\n"
+        "A successful compromise can expose application data stored in the database and can "
+        "provide a foothold for further movement through application credentials, database "
+        "links, or trusted network paths."
+    ),
+    "EXP-007": (
+        "Internet-facing Application Load Balancers without an associated WAF forward HTTP/S "
+        "traffic to backend applications without layer-7 inspection. This removes a key "
+        "control for blocking common web attacks such as SQL injection, cross-site scripting, "
+        "known-bad user agents, request floods, and exploit probes before they reach the app.\n\n"
+        "For public applications in PCI scope, missing WAF coverage weakens the automated "
+        "technical control expected for public-facing web attack detection and prevention."
+    ),
     "EXP-013": (
-        "S3 buckets without enforced TLS encryption allow data in transit to be intercepted "
-        "via man-in-the-middle attacks on any network path between clients and S3. For "
-        "buckets containing sensitive data, this enables credential theft, data tampering, "
-        "and session hijacking.\n\n"
-        "PCI DSS Requirement 4.2.1 mandates encryption in transit for all cardholder data."
+        "S3 buckets without an explicit aws:SecureTransport=false deny do not enforce TLS "
+        "at the bucket policy layer. If any client or integration attempts non-TLS access, "
+        "the bucket policy does not provide a final guardrail to reject the request.\n\n"
+        "For audit or log buckets, this weakens confidentiality and integrity controls for "
+        "security evidence in transit, especially where multiple services or external tools "
+        "write to the bucket."
+    ),
+    "EXP-014": (
+        "Audit and log buckets without versioning are more vulnerable to destructive or "
+        "accidental changes. If an identity with write or delete access overwrites log files, "
+        "the previous object state may not be recoverable from S3 version history.\n\n"
+        "This reduces forensic reliability during incident response because audit evidence "
+        "can be altered or removed without retaining prior versions for investigation."
+    ),
+    "EXP-015": (
+        "S3 bucket policies with public or cross-account principals and missing or malformed "
+        "security conditions can expose objects beyond the intended account boundary. An empty "
+        "aws:PrincipalOrgID condition or a bare Principal:* grant does not provide meaningful "
+        "organizational scoping.\n\n"
+        "Where the statement grants access to operational artifacts such as QuickSetup policy "
+        "files, an unintended principal may be able to read configuration data that should be "
+        "limited to known accounts or organization members."
+    ),
+    "EXP-024": (
+        "Audit and log buckets encrypted only with SSE-S3/AES256 do not provide customer-managed "
+        "key policy controls, independent key revocation, or KMS-level audit and rotation "
+        "governance. The data is encrypted, but key administration remains service-managed.\n\n"
+        "For security evidence such as CloudTrail, Config, SSM, and access logs, customer-managed "
+        "KMS keys provide stronger separation of duties and a clearer control point for who can "
+        "decrypt retained audit data."
     ),
     "EXP-026": (
         "Publicly accessible S3 buckets can be enumerated and read by any internet user. "
@@ -201,11 +299,14 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
     ),
     # ── VULNS ────────────────────────────────────────────────────────────────
     "VULN-004": (
-        "Active CVEs with exploits available represent validated, reproducible attack paths "
-        "to the affected instances. Unlike theoretical vulnerabilities, these findings can "
-        "be directly weaponized using publicly available proof-of-concept code.\n\n"
-        "An attacker with network access to the affected instance can achieve code execution, "
-        "privilege escalation, or data exfiltration depending on the specific CVE chain."
+        "Active Inspector findings with exploitAvailable=YES are higher-priority than "
+        "ordinary vulnerability backlog because exploit activity or exploit material is known "
+        "to AWS. In this evidence set the affected CVE is reported as HIGH severity, so the "
+        "finding should be treated as urgent without calling it CRITICAL unless separate "
+        "evidence proves that escalation.\n\n"
+        "An attacker still needs a viable path to the affected instance or package context. "
+        "Network reachability, workload exposure, and local privilege boundaries determine the "
+        "final blast radius."
     ),
     "VULN-006": (
         "EC2 instances not enrolled in AWS Inspector continuous scanning have no automated "
@@ -216,12 +317,21 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
         "impossible."
     ),
     "VULN-008": (
-        "HIGH severity findings without a documented remediation plan represent accepted "
-        "risk without controls. Attackers can exploit these vulnerabilities knowing that "
-        "no mitigation is in place and no timeline for remediation exists.\n\n"
-        "In a PCI DSS context, unmitigated HIGH findings without compensating controls "
-        "or documented risk acceptance violate Requirement 6.3.3 (all security "
-        "vulnerabilities ranked)."
+        "ACTIVE HIGH Inspector findings require an owner, remediation decision, and SLA. "
+        "When Inspector provides no remediation text or the evidence does not show an assigned "
+        "plan, the reporting should describe that workflow gap without claiming the software is "
+        "end-of-life unless fix or lifecycle evidence proves it.\n\n"
+        "The business impact is delayed vulnerability response: exploitable or high-impact CVEs "
+        "can remain open without a documented patch, exception, or compensating control path."
+    ),
+    "VULN-010": (
+        "Active HIGH or CRITICAL Inspector findings on named application service instances "
+        "increase operational risk for those services. In this evidence pattern, the affected "
+        "instances are tagged as API and BO workloads, so remediation priority should account "
+        "for service ownership and application role as well as CVE severity.\n\n"
+        "This does not prove internet exploitability or an SLA breach by itself. The practical "
+        "impact is that application service availability and integrity depend on timely patching "
+        "or documented compensating controls for the listed package vulnerabilities."
     ),
     "VULN-026": (
         "Terraform state files contain plaintext infrastructure secrets including database "
@@ -241,6 +351,89 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
         "violates Requirement 10.7 (detect and report failures of critical security "
         "controls)."
     ),
+    # ── HARDENING ───────────────────────────────────────────────────────────
+    "HRD-004": (
+        "A Security Hub compliance score below 50% means failed controls materially outnumber "
+        "passed controls in the available evidence. This is not a single exploit path; it is "
+        "a posture-level indicator that foundational controls are failing across services.\n\n"
+        "The practical impact is weak prioritization confidence and elevated audit risk: "
+        "critical and high failed controls must be triaged before the account can be treated "
+        "as having a stable security baseline."
+    ),
+    "HRD-005": (
+        "Active CRITICAL Security Hub findings represent known high-impact weaknesses that "
+        "remain unresolved. The Security Hub sample includes account, EC2, RDS, IAM, and SSM "
+        "control failures, so remediation must be owner-driven rather than summarized as a "
+        "generic posture issue.\n\n"
+        "The business impact is delayed treatment of risks Security Hub has already classified "
+        "as urgent, increasing the chance that exposed resources or vulnerable workloads remain "
+        "available to attackers."
+    ),
+    "HRD-009": (
+        "A backlog of HIGH Security Hub findings indicates that multiple significant control "
+        "failures are active at the same time. These findings may not each be critical, but the "
+        "volume increases the chance that one weakness can be chained with another.\n\n"
+        "The operational impact is remediation debt: teams need prioritization, ownership, and "
+        "SLA tracking for the affected controls and resources."
+    ),
+    "HRD-010": (
+        "Without AWS Config Conformance Packs, the account lacks packaged, framework-oriented "
+        "compliance evaluation for selected control baselines. Individual Config rules may still "
+        "exist, but there is no conformance-pack object to track a complete framework deployment.\n\n"
+        "The impact is weaker continuous compliance governance and more manual evidence assembly "
+        "for audits or policy reviews."
+    ),
+    "HRD-012": (
+        "A large MEDIUM Security Hub backlog creates security debt even when individual findings "
+        "are not urgent. These findings often represent missing hardening controls that can "
+        "increase blast radius when combined with higher-severity issues.\n\n"
+        "The impact is reduced baseline resilience and a growing queue of weaknesses that should "
+        "be batch-remediated with ownership and SLA tracking."
+    ),
+    "HRD-014": (
+        "GuardDuty disabled removes AWS-native threat detection for the audited region. Security "
+        "Hub can still report compliance findings, but GuardDuty-specific detections for credential "
+        "abuse, suspicious API activity, and malicious network behavior will not be generated.\n\n"
+        "The impact is longer detection and response time for active compromise scenarios."
+    ),
+    # ── ALERTING ─────────────────────────────────────────────────────────────
+    "ALRT-002": (
+        "Existing CloudWatch metric filters may already provide direct alert coverage, but "
+        "the absence of custom EventBridge rules removes an additional automation path for "
+        "CloudTrail security events. This limits enrichment, cross-account routing, and "
+        "integration with response workflows.\n\n"
+        "The business impact is slower or less flexible incident automation, not proof that "
+        "CloudTrail security events are entirely unmonitored."
+    ),
+    "ALRT-005": (
+        "CloudWatch alarms that publish only to an SNS topic with zero confirmed subscriptions "
+        "do not reach responders. The affected alarms may transition state, but notifications "
+        "sent to the unsubscribed topic are silently discarded.\n\n"
+        "The business impact is delayed incident detection and response for the alarms using "
+        "that topic. This is an alert-delivery failure, not a direct attacker privilege "
+        "escalation path."
+    ),
+    "ALRT-007": (
+        "The listed event names are absent from configured CloudWatch metric-filter patterns. "
+        "Those specific events may therefore fail to generate the intended alert even when "
+        "other security categories, such as root usage or CloudTrail changes, are covered.\n\n"
+        "The practical impact is a targeted monitoring blind spot for the missing event names, "
+        "not evidence that all critical AWS activity is unmonitored."
+    ),
+    "ALRT-010": (
+        "CloudWatch alarms in INSUFFICIENT_DATA state may not evaluate or notify as intended "
+        "for their monitored condition. For the affected CPU, ALB health, and EC2 status-check "
+        "alarms, this creates an operational monitoring blind spot.\n\n"
+        "The impact is missed service-health or availability notification for those alarms, "
+        "not direct privilege escalation or unauthorized data access."
+    ),
+    "ALRT-017": (
+        "Log groups with retention below 90 days reduce the forensic window available after "
+        "an incident. Relevant CloudWatch Logs data can expire before responders or auditors "
+        "review the period under investigation.\n\n"
+        "The business impact is weaker investigation and compliance evidence retention for "
+        "the affected log groups."
+    ),
     # ── NETWORK ──────────────────────────────────────────────────────────────
     "NET-EGR-001": (
         "Security groups with unrestricted egress (0.0.0.0/0 on all protocols) allow "
@@ -251,14 +444,129 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
         "initial access — an attacker who gains code execution on one instance can "
         "immediately reach all other network destinations."
     ),
+    "NET-001": (
+        "Internet-exposed sensitive ports create a direct network attack path to the "
+        "service behind the Security Group. When the exposed port is a database port such "
+        "as TCP/1433 and the associated workload is publicly accessible, attackers can "
+        "attempt credential attacks, service fingerprinting, and vulnerability exploitation "
+        "against the database listener from any internet source.\n\n"
+        "The business impact is unauthorized access risk to the affected service and any "
+        "data it exposes. The exact blast radius depends on database authentication, patch "
+        "level, and the privileges available after successful login or exploitation."
+    ),
     "NET-007": (
-        "Security groups allowing unrestricted inbound access (0.0.0.0/0) on sensitive "
-        "ports expose services directly to the internet. This eliminates the network "
-        "perimeter as a defense layer, relying entirely on application-level authentication "
-        "to prevent unauthorized access.\n\n"
-        "Internet-facing management ports (SSH/22, RDP/3389) are continuously scanned by "
-        "automated attack infrastructure and are typically exploited within hours of "
-        "becoming public."
+        "Internet-facing VPCs without AWS Network Firewall or equivalent stateful "
+        "inspection have weaker centralized control over north-south traffic. Malicious "
+        "payloads, command-and-control callbacks, and anomalous protocols are less likely "
+        "to be blocked before reaching public subnets or leaving the VPC.\n\n"
+        "The residual risk depends on Security Group, NACL, and workload controls, but the "
+        "architecture lacks a dedicated inspection point for internet-routed traffic."
+    ),
+    "NET-003": (
+        "Allow-all NACL entries remove a subnet-level guardrail that can otherwise limit "
+        "traffic when Security Groups are misconfigured or overly broad. The evidence "
+        "does not prove direct compromise by itself; it proves that subnet filtering is "
+        "not providing an independent control for the associated subnets.\n\n"
+        "The practical risk is weaker segmentation assurance and reduced containment if "
+        "another control, such as a Security Group, later allows unintended traffic."
+    ),
+    "NET-008": (
+        "Critical workloads in public subnets are closer to direct internet exposure than "
+        "expected for databases or internal services. When the workload is also publicly "
+        "accessible or attached to a permissive Security Group, the placement can turn a "
+        "single rule mistake into internet reachability for a sensitive service.\n\n"
+        "The business impact is increased probability of unauthorized access to data-tier "
+        "services and a harder path to prove network segmentation for compliance reviews."
+    ),
+    "NET-009": (
+        "Broad CIDR sources on non-web ports increase the number of hosts that can reach "
+        "management, data, telemetry, or internal service ports. This expands lateral "
+        "movement options for any compromised host inside the allowed network range and "
+        "makes accidental service exposure harder to contain.\n\n"
+        "The proven risk is excessive network reachability, not privilege escalation by "
+        "itself. Business impact depends on the sensitivity of the services behind those "
+        "ports and the trust level of the allowed CIDR ranges."
+    ),
+    "NET-010": (
+        "Permissive default NACLs mean subnet-level filtering is not acting as a "
+        "restrictive backstop for ingress or egress paths. This is most relevant when "
+        "Security Groups, routing, or workload-level controls are changed incorrectly, "
+        "because the default NACL will not independently limit the traffic.\n\n"
+        "The impact is weaker defense-in-depth and auditability rather than direct proof "
+        "of unauthorized access or privilege escalation."
+    ),
+    "NET-011": (
+        "Security Group rules without descriptions weaken review and change-control quality. "
+        "The finding is not directly exploitable and is not privilege escalation by itself; "
+        "the risk is that broad or "
+        "sensitive access can remain undocumented, unowned, and harder to challenge during "
+        "firewall reviews.\n\n"
+        "In incident response or audit scenarios, missing rule intent slows triage and "
+        "increases the likelihood that risky network exceptions remain active longer than "
+        "necessary."
+    ),
+    "NET-013": (
+        "Private subnet AWS service access that relies on NAT instead of VPC endpoints "
+        "reduces network-path control and observability. The evidence proves a design "
+        "hardening gap: private subnet default traffic exits through a NAT Gateway while "
+        "no VPC endpoints are configured for AWS services.\n\n"
+        "This can increase NAT data-processing cost and makes it harder to enforce endpoint "
+        "policies for services such as S3 or DynamoDB. Actual sensitive service traffic is "
+        "not proven by route-table evidence alone and should not be overstated."
+    ),
+    "NET-016": (
+        "Subnets associated with default NACLs lack an explicit subnet-level stateless "
+        "filtering policy. This does not by itself create a direct exploit path, but it "
+        "removes a defense-in-depth layer that can contain accidental Security Group "
+        "exposure or tier-to-tier routing mistakes.\n\n"
+        "The operational impact is weaker segmentation assurance: auditors and operators "
+        "cannot rely on custom NACLs as an independent control aligned to public, private, "
+        "application, or data subnet roles."
+    ),
+    "NET-022": (
+        "Public subnets are valid for internet-facing tiers, but they require strict "
+        "workload placement discipline. The risk is that any sensitive workload placed in "
+        "these subnets is closer to direct internet exposure if a Security Group or resource "
+        "policy is misconfigured.\n\n"
+        "The finding should be treated as a placement and segmentation review item unless "
+        "the evidence also proves sensitive workloads in those public subnets."
+    ),
+    "NET-025": (
+        "Subnets without classification tags weaken governance automation and tier-based "
+        "change control. The issue is not directly exploitable; it reduces confidence that "
+        "public, private, application, and data subnets can be reliably identified by tooling.\n\n"
+        "This can slow audits, make policy-as-code guardrails less precise, and increase "
+        "the chance that future changes are applied to the wrong subnet tier."
+    ),
+    "NET-024": (
+        "Inconsistent network resource naming weakens ownership, triage, and change-control "
+        "workflows. The evidence supports a governance and inventory risk: operators may "
+        "struggle to identify which team owns a Security Group or whether an exception is "
+        "still required.\n\n"
+        "The finding should not imply proven cardholder-data exposure or former-employee "
+        "risk unless separate evidence establishes those facts."
+    ),
+    # ── SISTEMAS EXPLOTABLES EN RED (SER) ─────────────────────────────────────
+    "SER-EC2-002": (
+        "The affected EC2 instances are directly reachable from the internet on HTTPS/443 "
+        "and have active Amazon Inspector findings, including at least one network-vector "
+        "critical kernel CVE when present in the evidence. This creates a realistic initial "
+        "access path through the exposed service, followed by local privilege-escalation "
+        "findings as post-compromise accelerators.\n\n"
+        "If code execution is obtained on the instance, the attached instance profile and "
+        "IMDS become part of the blast radius. Impact should therefore be assessed against "
+        "the exposed service, vulnerable package versions, IMDS posture, and IAM role "
+        "permissions, not only the Security Group rule."
+    ),
+    # ── CLOUDTRAIL EVENTS ──────────────────────────────────────────────────
+    "CTEF-003": (
+        "Stopping and deleting a CloudTrail trail creates an audit-visibility gap for the "
+        "affected account and trail. In this evidence, the same IAM user performed both "
+        "actions within seconds, which is consistent with deliberate log tampering and "
+        "requires incident-response review.\n\n"
+        "The immediate risk is loss of reliable forensic evidence for activity during or "
+        "after the logging interruption. Business impact includes delayed containment, "
+        "weaker incident reconstruction, and potential PCI DSS audit-log protection issues."
     ),
 }
 
@@ -405,20 +713,20 @@ PRE_CHECK_ANALOGIES: Dict[str, str] = {
         "anyone can drive up and start loading goods."
     ),
     "EXP-007": (
-        "Like a database server sitting in a storefront window — visible and reachable "
-        "to every passerby on the internet."
+        "Like a public reception desk with no visitor screening — every request reaches "
+        "the staff before anyone checks whether it is malicious."
     ),
     "EXP-013": (
         "Like sending confidential documents via open postcard instead of sealed envelope — "
         "anyone along the delivery route can read them."
     ),
     "EXP-014": (
-        "Like storing company blueprints in an unlocked public locker — anyone who knows "
-        "the locker number can access them without identification."
+        "Like keeping an audit notebook in pencil with no photocopies — once a page is "
+        "erased or overwritten, the original record is gone."
     ),
     "EXP-015": (
-        "Like a public filing cabinet that also accepts new documents from strangers — "
-        "an attacker can plant malicious files alongside legitimate ones."
+        "Like granting access to a records room based on a blank company-name field — "
+        "the rule exists, but it does not actually identify the trusted organization."
     ),
     "EXP-020": (
         "Like leaving a building's service entrance propped open with no camera or guard — "
@@ -429,8 +737,8 @@ PRE_CHECK_ANALOGIES: Dict[str, str] = {
         "no access log."
     ),
     "EXP-024": (
-        "Like a secure facility where the side gate has no lock because 'only employees "
-        "know about it' — security through obscurity is not security."
+        "Like storing audit archives in a locked room where only the building operator "
+        "controls the master key — protected, but without independent key governance."
     ),
     "EXP-026": (
         "Like storing sensitive files in an unlocked filing cabinet in the lobby — "
@@ -442,28 +750,29 @@ PRE_CHECK_ANALOGIES: Dict[str, str] = {
     ),
     # ── NETWORK ──────────────────────────────────────────────────────────────
     "NET-003": (
-        "Like a building with no internal doors — once someone gets past the front entrance, "
-        "they can walk freely into every room, including the vault."
+        "Like a building where every internal checkpoint is configured to wave traffic "
+        "through by default — other locks may still protect rooms, but the checkpoint "
+        "itself is no longer providing meaningful filtering."
     ),
     "NET-008": (
-        "Like storing cash registers and safes in the lobby instead of behind the counter — "
-        "critical assets are directly exposed to anyone who walks through the front door."
+        "Like placing the payment safe in the storefront rather than a back room — it may "
+        "still have a lock, but a single access-control mistake exposes it directly."
     ),
     "NET-007": (
         "Like removing the fence around a military base and posting signs for each building — "
         "anyone with a map can walk to any facility."
     ),
     "NET-010": (
-        "Like a security checkpoint that only checks employee badges but lets anyone "
-        "in a delivery uniform pass without verification."
+        "Like relying on a default lobby checkpoint that allows every normal route unless "
+        "someone adds a special exception — useful doors still need explicit rules."
     ),
     "NET-011": (
-        "Like connecting two office buildings with an open hallway and no door — "
-        "a breach in one building immediately compromises the other."
+        "Like a door access list with no business reason written next to each exception — "
+        "the access may be intentional, but reviewers cannot tell what should stay."
     ),
     "NET-016": (
-        "Like a building with fire exits that also serve as unrestricted entrances — "
-        "emergency routes become attack paths when they bypass security controls."
+        "Like every floor inheriting the building's generic access policy instead of a "
+        "policy tailored to that floor's role and sensitivity."
     ),
     "NET-022": (
         "Like having an office building entrance connected directly to your vault room "
@@ -471,8 +780,8 @@ PRE_CHECK_ANALOGIES: Dict[str, str] = {
         "should be behind secured doors in restricted zones."
     ),
     "NET-025": (
-        "Like a corporate campus where every building shares the same master key — "
-        "compromising one lock compromises all facilities."
+        "Like a campus map without labels for public areas, staff offices, and restricted "
+        "rooms — automation and reviewers cannot reliably apply the right rules."
     ),
     "NET-EGR-001": (
         "Like having no exit inspection at a secure facility — a thief can walk out with "
@@ -538,34 +847,60 @@ PRE_CHECK_ANALOGIES: Dict[str, str] = {
         "the monitors — events happen but alerts never reach anyone."
     ),
     "ALRT-002": (
-        "Without EventBridge integration, security events in CloudTrail are never processed "
-        "in near-real-time. An attacker can perform privilege escalation, disable logging, or "
-        "exfiltrate data and no automated response is triggered until someone manually reviews "
-        "the logs — typically hours or days later."
+        "CloudWatch metric filters may already provide alert coverage, but the absence of "
+        "custom EventBridge rules removes an additional automation path for enrichment, "
+        "cross-account routing, and incident-response workflows. This is a resilience and "
+        "automation gap, not proof that CloudTrail security events are entirely unmonitored."
     ),
     "ALRT-005": (
         "Like a fire alarm wired to a silent receiver — the alarm triggers but nobody hears "
-        "it. CloudWatch Alarms and EventBridge rules publish to an SNS topic with zero "
-        "confirmed subscribers, so all security notifications are silently discarded. "
-        "Incidents can go undetected indefinitely."
+        "it. CloudWatch Alarms publish to an SNS topic with zero confirmed subscribers, so "
+        "security notifications sent to that topic are silently discarded. This delays "
+        "incident detection and response; it is not a direct privilege-escalation path."
     ),
     "ALRT-007": (
-        "Critical security events (CreateUser, ConsoleLogin, StopLogging) have no metric "
-        "filters or EventBridge alerts. An attacker can create backdoor IAM users, disable "
-        "CloudTrail, or perform mass logins without triggering any notification to security "
-        "personnel. This is a monitoring gap, not a direct access control weakness."
+        "Specific critical event names are missing from the configured metric-filter "
+        "patterns. Those event types may not trigger the intended alert path even when "
+        "other CloudTrail security activity is monitored. This is a targeted monitoring "
+        "gap, not proof that all account-compromise indicators are blind."
     ),
     "ALRT-010": (
         "CloudWatch Alarms in INSUFFICIENT_DATA state are not evaluating their metrics — "
-        "they will never fire, effectively disabling that monitoring channel. This may "
-        "indicate stale alarm configuration, deleted log groups, or metrics that stopped "
-        "publishing. The alarm appears active but provides zero protection."
+        "they may not fire when the monitored condition occurs. This may indicate stale "
+        "dimensions, deleted resources, missing metrics, or intentionally sparse metrics. "
+        "The risk is missed operational or security notification for the affected alarm, "
+        "not direct attacker privilege escalation."
     ),
     "ALRT-017": (
         "CloudWatch log groups with retention below 90 days do not satisfy PCI DSS "
-        "Requirement 10.7 (12-month log availability) or the 3-month immediately-accessible "
+        "Requirement 10.5.1 (12-month log availability and 3 months immediately available) "
         "requirement. Audit evidence needed for forensic investigation or compliance reviews "
         "will be automatically deleted before it can be used."
+    ),
+    # ── WAF ─────────────────────────────────────────────────────────────────
+    "WAF-001": (
+        "Internet-facing ALBs without any WAF association allow web traffic to reach backend "
+        "targets without perimeter inspection for common application-layer attacks. This "
+        "increases exposure to automated exploitation, malicious payloads, and abusive request "
+        "patterns before application controls can respond."
+    ),
+    "WAF-004": (
+        "WAF logs are valuable for incident response, but unredacted authentication headers or "
+        "session material can turn the logging platform into a secondary exposure point. A user "
+        "or process with log-read access could retrieve sensitive request components that should "
+        "not be retained in raw security telemetry."
+    ),
+    "WAF-006": (
+        "A Web ACL that lacks the organization's baseline AWS Managed Rule groups may still have "
+        "some protection, but it does not provide the expected standardized AWS-managed coverage "
+        "for common web attacks, known bad inputs, SQL injection patterns, and AWS IP reputation. "
+        "This weakens consistency and makes rule effectiveness harder to audit across applications."
+    ),
+    "WAF-010": (
+        "Continuing to operate WAF Classic creates a legacy-control dependency and splits WAF "
+        "administration across old and current APIs. That does not mean traffic is unprotected, "
+        "but it increases operational drift and can prevent consistent use of WAFv2 capabilities, "
+        "logging workflows, and managed rule standards."
     ),
     # ── SECRETS MANAGER ──────────────────────────────────────────────────────
     "SM-001": (
@@ -601,8 +936,8 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
     "IAM-002": (
         "During the analysis of the IAM service, it was identified that {count} user account(s) "
         "do not have a multi-factor authentication (MFA) mechanism configured. Specifically, it was "
-        "observed that {resources} lack MFA for both console access and active programmatic "
-        "credentials (access keys).\n\n"
+        "observed that {resources} lack MFA while having console access, active programmatic "
+        "credentials, or both.\n\n"
         "This situation implies that access to these accounts relies on a single authentication "
         "factor (password or access keys), increasing the risk of compromise in the event of "
         "credential exposure or leakage."
@@ -633,11 +968,11 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
         "console credentials."
     ),
     "IAM-007": (
-        "During the analysis of the IAM service, it was identified that the account password "
-        "policy does not enforce password reuse prevention. Specifically, users are permitted "
-        "to reuse previously used passwords upon expiration.\n\n"
-        "This situation implies that compromised historical passwords remain permanently valid "
-        "attack vectors, reducing the effectiveness of forced rotation policies."
+        "During the analysis of the IAM service, it was identified that {count} IAM role(s) "
+        "use inline policies instead of managed policies. Specifically, {resources} carry policy "
+        "documents embedded directly in the role configuration.\n\n"
+        "This situation implies that permissions are decentralized and harder to inventory, "
+        "version, reuse, and review consistently, increasing the risk of unnoticed policy drift."
     ),
     "IAM-008": (
         "During the analysis of the IAM service, it was identified that {count} IAM user(s) "
@@ -678,10 +1013,10 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
     ),
     "IAM-014": (
         "During the analysis of the IAM service, it was identified that {count} IAM user(s) "
-        "have been granted direct AdministratorAccess policies. Specifically, {resources} hold "
-        "full AWS account access without role-based access controls.\n\n"
-        "This situation implies that compromise of any of these accounts results in complete "
-        "control over the AWS environment with no privilege boundary."
+        "have multiple active access keys simultaneously. Specifically, {resources} maintain "
+        "more than one active programmatic credential.\n\n"
+        "This situation implies that the attack surface for credential compromise is doubled, "
+        "and auditing legitimate API usage becomes more complex when multiple active keys exist."
     ),
     "IAM-020": (
         "During the analysis of the IAM service, it was identified that {count} IAM role(s) "
@@ -729,10 +1064,10 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
     ),
     "IAM-041": (
         "During the analysis of the IAM service, it was identified that {count} IAM role(s) "
-        "use wildcard (*) actions or resources in their attached policies. Specifically, "
-        "{resources} grant overly broad permissions that violate the principle of least privilege.\n\n"
-        "This situation implies that any principal assuming these roles gains more access than "
-        "operationally required, increasing the blast radius of a role compromise."
+        "have AWS managed AdministratorAccess or PowerUserAccess attached. Specifically, "
+        "{resources} grant broad privileged access through these managed policies.\n\n"
+        "This situation implies that any principal assuming these roles can perform highly "
+        "privileged operations, increasing the blast radius of a role compromise."
     ),
     "IAM-042": (
         "During the analysis of the IAM service, it was identified that {count} IAM user(s) "
@@ -750,7 +1085,6 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
         "may go undetected indefinitely, widening the window of exposure for unintentional "
         "external access grants."
     ),
-
     # ── EXPOSURE ─────────────────────────────────────────────────────────────
     "EXP-006": (
         "During the analysis of the Exposure service, it was identified that {count} S3 bucket(s) "
@@ -760,18 +1094,18 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
         "media access or storage-layer breaches, and may violate data protection compliance requirements."
     ),
     "EXP-007": (
-        "During the analysis of the Exposure service, it was identified that {count} S3 bucket(s) "
-        "do not have access logging enabled. Specifically, {resources} generate no audit trail "
-        "of access requests.\n\n"
-        "This situation implies that unauthorized data access or exfiltration from these buckets "
-        "cannot be detected or investigated after the fact."
+        "During the analysis of the Exposure service, it was identified that {count} "
+        "internet-facing Application Load Balancer(s) do not have an associated AWS WAF WebACL. "
+        "Specifically, {resources} receive public traffic without layer-7 WAF inspection.\n\n"
+        "This situation implies that common web attack traffic reaches the backend application "
+        "without WAF managed rules, custom request filtering, or centralized web-layer blocking."
     ),
     "EXP-013": (
         "During the analysis of the Exposure service, it was identified that {count} S3 bucket(s) "
-        "have public access enabled without Block Public Access controls. Specifically, {resources} "
-        "are accessible from the internet without authentication.\n\n"
-        "This situation implies that any data stored in these buckets is readable by anonymous "
-        "internet users, creating a direct data exfiltration risk with no authentication barrier."
+        "do not enforce TLS with an explicit bucket policy Deny on aws:SecureTransport=false. "
+        "Specifically, {resources} lack a policy guardrail that rejects non-TLS S3 requests.\n\n"
+        "This situation implies that encryption in transit is not enforced at the bucket policy "
+        "layer for these storage locations."
     ),
     "EXP-026": (
         "During the analysis of the Exposure service, it was identified that {count} RDS "
@@ -788,14 +1122,15 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
         "This situation implies that sensitive resources are reachable without requiring "
         "internal network access, expanding the attack surface to the global internet."
     ),
-
     # ── NETWORK ──────────────────────────────────────────────────────────────
     "NET-007": (
-        "During the analysis of the Network service, it was identified that {count} security "
-        "group(s) allow unrestricted inbound access (0.0.0.0/0) on sensitive ports. "
-        "Specifically, {resources} permit traffic from any source IP address.\n\n"
-        "This situation implies that the affected resources are reachable from the entire "
-        "internet on these ports, removing network-layer access control as a defense-in-depth barrier."
+        "During the analysis of the Network service, it was identified that {count} "
+        "internet-facing VPC(s) have Internet Gateway routing but no AWS Network Firewall "
+        "endpoint in the collected evidence. Specifically, {resources} send north-south "
+        "traffic through direct IGW paths without a visible stateful inspection layer.\n\n"
+        "This situation implies that internet ingress and egress for the affected VPCs "
+        "depends primarily on route tables, Security Groups, and NACLs, reducing the "
+        "ability to inspect or block malicious traffic centrally."
     ),
     "NET-EGR-001": (
         "During the analysis of the Network service, it was identified that {count} security "
@@ -805,14 +1140,13 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
         "can freely communicate with external command-and-control infrastructure, exfiltrate "
         "data, or participate in botnet activity without network-level detection."
     ),
-
     # ── VULNERABILITIES ──────────────────────────────────────────────────────
     "VULN-004": (
         "During the analysis of the Vulnerabilities service, it was identified that {count} "
-        "resource(s) have critical CVEs detected by AWS Inspector. Specifically, {resources} "
-        "contain known exploitable vulnerabilities with public exploit code available.\n\n"
-        "This situation implies that the affected resources can be compromised using "
-        "publicly documented attack techniques, requiring no zero-day capability from an attacker."
+        "ACTIVE Inspector finding(s) have exploitAvailable=YES. Specifically, {resources} "
+        "are affected by CVEs where AWS Inspector reports exploit availability.\n\n"
+        "This situation raises remediation priority, but the severity and exploit path must "
+        "remain aligned with Inspector severity and any separate network reachability evidence."
     ),
     "VULN-006": (
         "During the analysis of the Vulnerabilities service, it was identified that {count} "
@@ -824,10 +1158,11 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
     ),
     "VULN-008": (
         "During the analysis of the Vulnerabilities service, it was identified that {count} "
-        "resource(s) are running end-of-life software versions no longer receiving security "
-        "updates. Specifically, {resources} use components beyond their support lifecycle.\n\n"
-        "This situation implies that newly discovered vulnerabilities in these components "
-        "will never be patched, permanently increasing the risk of compromise over time."
+        "resource(s) have ACTIVE HIGH Inspector findings that require explicit remediation "
+        "ownership, SLA tracking, or documented risk acceptance. Specifically, {resources} "
+        "have active high-severity vulnerability records.\n\n"
+        "This situation indicates a vulnerability-management workflow gap when the evidence "
+        "does not show an assigned plan, exception, or compensating control."
     ),
     "VULN-026": (
         "During the analysis of the Vulnerabilities service, it was identified that {count} "
@@ -836,7 +1171,6 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
         "This situation implies that while immediate exploitation may require additional "
         "conditions, chaining these vulnerabilities with others could enable a successful attack."
     ),
-
     # ── RECON ─────────────────────────────────────────────────────────────────
     "RECON-002": (
         "During the analysis of the Recon service, it was identified that {count} resource(s) "
@@ -862,10 +1196,12 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
     ),
     "RECON-007": (
         "During the analysis of the Recon service, it was identified that {count} resource(s) "
-        "have publicly enumerable metadata. Specifically, {resources} expose configuration "
-        "details that assist targeted attack planning.\n\n"
-        "This situation implies that the information advantage typically held by defenders "
-        "is reduced, enabling more precisely targeted attack campaigns."
+        "are internet-facing load balancers without an associated AWS WAF Web ACL. "
+        "Specifically, {resources} accept internet traffic without web application firewall "
+        "inspection.\n\n"
+        "This situation implies that application-layer traffic reaches the load balancer "
+        "without managed rule evaluation, reducing protection against common web attacks "
+        "and automated abuse."
     ),
     "RECON-015": (
         "During the analysis of the Recon service, it was identified that {count} resource(s) "
@@ -885,10 +1221,12 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
     ),
     "ALRT-002": (
         "During the analysis of the alerting and monitoring configuration, it was identified "
-        "that CloudTrail events are not routed to Amazon EventBridge for real-time processing.\n\n"
-        "This situation implies that API-level security events cannot trigger automated "
-        "workflows or cross-service notifications, limiting the account's ability to respond "
-        "to threats in real time."
+        "that no custom EventBridge rules are configured for CloudTrail security events. "
+        "Existing CloudWatch metric filters may still provide direct alarm coverage, but "
+        "the EventBridge automation path is not being used for these events.\n\n"
+        "This situation limits the account's ability to route security events into richer "
+        "cross-service workflows such as Lambda enrichment, Security Hub ingestion, or "
+        "cross-account event buses."
     ),
     "ALRT-003": (
         "During the analysis of the alerting and monitoring configuration, it was identified "
@@ -906,7 +1244,7 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
     ),
     "ALRT-005": (
         "During the analysis of the alerting and monitoring configuration, it was identified "
-        "that {count} SNS topic(s) used for security notifications have no active confirmed "
+        "that {count} SNS topic(s) used by security alarms have no active confirmed "
         "subscriptions. Specifically, {resources} have no endpoints receiving messages.\n\n"
         "This situation implies that alerts published to these topics are silently discarded "
         "and the security team receives no notifications in the event of an incident."
@@ -920,10 +1258,10 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
     ),
     "ALRT-007": (
         "During the analysis of the alerting and monitoring configuration, it was identified "
-        "that critical AWS API events — including CloudTrail tampering, IAM privilege changes, "
-        "and unauthorized console access — do not have corresponding alarms or rules configured.\n\n"
-        "This situation implies that the most common attacker actions in AWS (gaining access, "
-        "establishing persistence, covering tracks) cannot trigger automated incident response."
+        "that the following critical AWS API event(s) do not appear in the configured "
+        "CloudWatch metric filter patterns: {resources}.\n\n"
+        "This situation implies that these specific event types may not trigger automated "
+        "incident response even though other security event categories may already be covered."
     ),
     "ALRT-008": (
         "During the analysis of the alerting and monitoring configuration, it was identified "
@@ -992,10 +1330,10 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
     ),
     "ALRT-017": (
         "During the analysis of the alerting and monitoring configuration, it was identified "
-        "that no alerts are configured to detect changes to network access control lists "
-        "(NACLs) or VPC routing configurations.\n\n"
-        "This situation implies that unauthorized modifications to network perimeter controls "
-        "could be made without triggering automated detection or notification."
+        "that {count} CloudWatch Log Group(s) retain logs for less than 90 days. "
+        "Specifically, {resources} have retention periods below the minimum review baseline.\n\n"
+        "This situation reduces the forensic window available for incident investigation "
+        "and may cause audit evidence to expire before security or compliance teams can use it."
     ),
     "ALRT-022": (
         "During the analysis of the alerting and monitoring configuration, it was identified "
@@ -1035,7 +1373,6 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
         "or disrupt critical workloads dependent on KMS keys would not trigger immediate "
         "incident response."
     ),
-
     # ── HARDENING ─────────────────────────────────────────────────────────────
     "HRD-001": (
         "During the analysis of the account hardening configuration, it was identified that "
@@ -1136,11 +1473,12 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
     ),
     "HRD-014": (
         "During the analysis of the account hardening configuration, it was identified that "
-        "Security Hub findings are not integrated with SNS or EventBridge for real-time "
-        "notifications.\n\n"
-        "This situation implies that new CRITICAL or HIGH findings discovered by Security Hub "
-        "do not trigger automated alerts, relying entirely on manual dashboard review for "
-        "detection."
+        "Amazon GuardDuty is not enabled in the audited region. No GuardDuty detector is "
+        "present to analyze CloudTrail, DNS, VPC Flow Log, EKS, or runtime signals for "
+        "threat activity.\n\n"
+        "This situation implies that AWS-native threat detection coverage is missing for "
+        "the account, delaying discovery of compromised credentials, reconnaissance, "
+        "malicious network activity, or suspicious workload behavior."
     ),
     "HRD-015": (
         "During the analysis of the account hardening configuration, it was identified that "
@@ -1158,7 +1496,6 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
         "findings may contribute to audit findings and indicate a lack of systematic "
         "remediation discipline."
     ),
-
     # ── EXPOSURE (remaining) ─────────────────────────────────────────────────
     "EXP-001": (
         "During the analysis of the resource exposure configuration, it was identified that "
@@ -1230,12 +1567,11 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
     ),
     "EXP-015": (
         "During the analysis of the resource exposure configuration, it was identified that "
-        "{count} S3 bucket policy(ies) allow cross-account access without restrictive "
-        "security conditions. Specifically, {resources} grant permissions to external "
-        "accounts without requiring aws:SourceAccount or aws:PrincipalOrgID conditions.\n\n"
-        "This situation implies that any compromised identity in the trusted account can "
-        "access the bucket data without additional verification of their organizational "
-        "membership or account identity."
+        "{count} S3 bucket policy statement(s) allow public or cross-account principals without "
+        "effective restrictive security conditions. Specifically, {resources} use bare principals "
+        "or malformed conditions such as an empty aws:PrincipalOrgID value.\n\n"
+        "This situation implies that bucket access is not reliably constrained to the intended "
+        "AWS account or organization boundary."
     ),
     "EXP-016": (
         "During the analysis of the resource exposure configuration, it was identified that "
@@ -1286,7 +1622,6 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
         "This situation implies that the organization cannot independently control, rotate, "
         "or revoke access to the encryption keys protecting audit log data."
     ),
-
     # ── CICD ──────────────────────────────────────────────────────────────────
     "CICD-001": (
         "During the analysis of the CI/CD pipeline configuration (CodeBuild), it was "
@@ -1306,7 +1641,6 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
         "and uploaded artifacts — could be intercepted and modified by a man-in-the-middle "
         "attacker during the build process."
     ),
-
     # ── COMPUTE ───────────────────────────────────────────────────────────────
     "COMP-EC2-001": (
         "During the analysis of the compute service configuration, it was identified that "
@@ -1404,7 +1738,6 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
         "through code injection, event manipulation, or dependency compromise — grants the "
         "attacker broad control over the AWS account."
     ),
-
     # ── ECR ───────────────────────────────────────────────────────────────────
     "ECR-001": (
         "During the analysis of the ECR container registry configuration, it was identified "
@@ -1463,7 +1796,6 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
         "result in unauthorized access to proprietary container images or the injection "
         "of malicious images into the registry."
     ),
-
     # ── IAM (remaining) ───────────────────────────────────────────────────────
     "IAM-015": (
         "During the analysis of the IAM service, it was identified that {count} IAM user(s) "
@@ -1475,11 +1807,12 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
     ),
     "IAM-016": (
         "During the analysis of the IAM service, it was identified that {count} IAM user(s) "
-        "appear to be service accounts with programmatic access keys but no console password. "
-        "Specifically, {resources} use long-lived access keys instead of IAM roles.\n\n"
-        "This situation implies that these service accounts carry the risk of long-lived "
-        "credential exposure, whereas IAM roles would provide short-lived, automatically "
-        "rotated credentials tied to the resource's identity."
+        "use programmatic-only long-lived access keys with no console password. "
+        "Specifically, {resources} match a service-account pattern or require manual review "
+        "because they use access keys instead of role-based temporary credentials.\n\n"
+        "This situation implies that these identities carry long-lived credential exposure "
+        "risk. Where the identity is used by an AWS workload, IAM roles would provide "
+        "short-lived, automatically rotated credentials tied to the resource's identity."
     ),
     "IAM-018": (
         "During the analysis of the IAM service, it was identified that the account password "
@@ -1499,12 +1832,11 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
     ),
     "IAM-026": (
         "During the analysis of the IAM service, it was identified that {count} IAM role(s) "
-        "used for delegated administration do not have permission boundaries configured. "
-        "Specifically, {resources} can grant themselves or others any permission available "
-        "in the account.\n\n"
-        "This situation implies that privilege escalation via policy manipulation is not "
-        "constrained at the permission boundary level, enabling a compromised delegated "
-        "administrator to escalate to full account control."
+        "do not have permission boundaries configured. Specifically, {resources} can receive "
+        "additional permissions without a boundary defining the maximum allowed privilege.\n\n"
+        "This situation implies that future policy changes or compromised deployment paths have "
+        "fewer guardrails, especially for privileged roles or roles with IAM policy-manipulation "
+        "actions such as AdministratorAccess or iam:PassRole."
     ),
     "IAM-034": (
         "During the analysis of the IAM service, it was identified that {count} IAM "
@@ -1567,7 +1899,6 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
         "for an extended period, providing an attacker with a larger window to perform "
         "unauthorized actions before the credential naturally expires."
     ),
-
     # ── KMS ───────────────────────────────────────────────────────────────────
     "KMS-001": (
         "During the analysis of the KMS key management configuration, it was identified "
@@ -1631,7 +1962,6 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
         "principals indefinitely, creating a chain of access that extends beyond the "
         "intended scope and is difficult to fully revoke."
     ),
-
     # ── MESSAGING ─────────────────────────────────────────────────────────────
     "MSG-001": (
         "During the analysis of the messaging services (SQS/SNS), it was identified that "
@@ -1712,7 +2042,6 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
         "notification topics or modify their configuration, disrupting the alerting "
         "and notification infrastructure."
     ),
-
     # ── NETWORK (remaining) ───────────────────────────────────────────────────
     "NET-001": (
         "During the analysis of the network security configuration, it was identified "
@@ -1737,9 +2066,10 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
         "that {count} Network ACL(s) have ALLOW ALL rules that do not restrict traffic. "
         "Specifically, {resources} have subnet-level rules permitting all inbound or "
         "outbound traffic.\n\n"
-        "This situation implies that subnet-level traffic filtering is effectively "
-        "disabled, removing a critical defense-in-depth layer between the internet "
-        "gateway and the resources in these subnets."
+        "This situation implies that NACLs are not providing meaningful stateless "
+        "filtering for the associated subnets. Security Groups may still restrict "
+        "resource access, so the proven issue is loss of a defense-in-depth layer rather "
+        "than direct compromise by the NACL rule alone."
     ),
     "NET-004": (
         "During the analysis of the network security configuration, it was identified "
@@ -1769,39 +2099,49 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
     ),
     "NET-008": (
         "During the analysis of the network security configuration, it was identified "
-        "that {count} Security Group(s) have overlapping or redundant rules that create "
-        "unintended access paths. Specifically, {resources} have rule combinations that "
-        "effectively permit broader access than intended.\n\n"
-        "This situation implies that the effective network access policy is broader than "
-        "the individual rules suggest, making security review and audit more complex "
-        "and error-prone."
+        "that {count} critical workload(s) are deployed in public subnets. Specifically, "
+        "{resources} are associated with subnets that have a route to an Internet Gateway.\n\n"
+        "This situation implies that sensitive services are closer to direct internet "
+        "exposure than expected for a private workload. If the resource or its Security "
+        "Group also permits public access, the workload can become reachable from "
+        "untrusted networks without an additional subnet-routing change."
     ),
     "NET-009": (
         "During the analysis of the network security configuration, it was identified "
-        "that {count} VPC peering connection(s) have route tables allowing overly broad "
-        "CIDR ranges to the peered VPC. Specifically, {resources} route large IP ranges "
-        "across peering boundaries.\n\n"
-        "This situation implies that the lateral movement potential between peered VPCs "
-        "is greater than necessary, violating the principle of network segmentation for "
-        "peered environments."
+        "that {count} Security Group rule(s) allow broad CIDR ranges to non-web ports. "
+        "Specifically, {resources} permit access from /16-or-larger networks to services "
+        "that should normally be scoped to precise peers.\n\n"
+        "This situation implies that lateral movement or unauthorized access from broad "
+        "network ranges is easier than necessary because network access is not limited "
+        "to the smallest practical source set."
     ),
     "NET-010": (
         "During the analysis of the network security configuration, it was identified "
-        "that {count} Transit Gateway route table(s) allow unrestricted routing between "
-        "attached VPCs. Specifically, {resources} enable any-to-any communication across "
-        "the transit gateway.\n\n"
-        "This situation implies that a compromise in any attached VPC can directly reach "
-        "any other VPC without network-layer controls, undermining the segmentation value "
-        "of using separate VPCs."
+        "that {count} default Network ACL(s) contain allow-all rules for 0.0.0.0/0. "
+        "Specifically, {resources} rely on default permissive NACL behavior.\n\n"
+        "This situation implies that subnet-level stateless filtering is not providing "
+        "a restrictive guardrail, so traffic control depends mostly on Security Groups "
+        "and routing. This is a segmentation hardening gap, not proof of direct resource "
+        "reachability on its own."
     ),
     "NET-011": (
         "During the analysis of the network security configuration, it was identified "
-        "that {count} VPC endpoint(s) have policies that allow unrestricted access to "
-        "AWS services. Specifically, {resources} do not restrict which principals or "
-        "resources can use the endpoint.\n\n"
-        "This situation implies that any resource in the VPC can access the associated "
-        "AWS service through the endpoint without restriction, potentially enabling "
-        "unauthorized data access to services like S3 or DynamoDB."
+        "that {count} Security Group(s) have critical ingress or egress rules without "
+        "descriptions. Specifically, {resources} contain sensitive-port or all-protocol "
+        "rules that are not documented at the rule level.\n\n"
+        "This situation implies that reviewers cannot reliably distinguish intentional "
+        "business access from accidental exposure, increasing the chance that risky "
+        "rules persist unnoticed."
+    ),
+    "NET-013": (
+        "During the analysis of the network security configuration, it was identified "
+        "that {count} private route table(s) send default outbound traffic through NAT "
+        "Gateway routes while no VPC endpoints are present in the collected evidence. "
+        "Specifically, {resources} rely on NAT for private subnet egress.\n\n"
+        "This situation implies that AWS service access from those private subnets cannot "
+        "use endpoint policies or private endpoint routing controls unless endpoints are "
+        "added. The evidence proves a network design hardening gap, not observed sensitive "
+        "service traffic."
     ),
     "NET-012": (
         "During the analysis of the network security configuration, it was identified "
@@ -1832,12 +2172,11 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
     ),
     "NET-016": (
         "During the analysis of the network security configuration, it was identified "
-        "that {count} Security Group(s) allow inbound access from other Security Groups "
-        "in an excessively broad manner. Specifically, {resources} trust entire Security "
-        "Groups rather than specific resources.\n\n"
-        "This situation implies that the network access model is coarser than necessary, "
-        "allowing any resource in the trusted Security Group to reach sensitive resources "
-        "regardless of its intended function."
+        "that {count} subnet(s) are associated with default VPC Network ACLs instead of "
+        "dedicated custom NACLs. Specifically, {resources} inherit default subnet-level "
+        "filtering.\n\n"
+        "This situation implies that subnet segmentation lacks an explicit stateless "
+        "control layer and is more dependent on Security Groups for all traffic filtering."
     ),
     "NET-017": (
         "During the analysis of the network security configuration, it was identified "
@@ -1878,29 +2217,28 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
     "NET-022": (
         "During the analysis of the network security configuration, it was identified "
         "that {count} subnet(s) are configured as public (route to Internet Gateway) "
-        "and may host sensitive resources. Specifically, {resources} have direct "
-        "internet routing that should be reviewed.\n\n"
-        "This situation implies that resources in these subnets are directly reachable "
-        "from the internet, and any misconfigured Security Group rule immediately "
-        "exposes those resources without network-layer protection."
+        "and should be reviewed for workload placement. Specifically, {resources} have "
+        "direct internet routing via an Internet Gateway.\n\n"
+        "This situation implies potential exposure if resources in those subnets also "
+        "have public addresses or public-facing resource policies and permissive Security "
+        "Groups. Route-table evidence alone proves public subnet classification, not "
+        "direct reachability of every resource in the subnet."
     ),
     "NET-025": (
         "During the analysis of the network security configuration, it was identified "
-        "that {count} Security Group(s) allow access to administrative ports from "
-        "broad CIDR ranges that are not corporate IP space. Specifically, {resources} "
-        "permit SSH or RDP from IP ranges beyond the organization's known addresses.\n\n"
-        "This situation implies that remote administration access is available from "
-        "IP addresses outside the organization's control, significantly increasing "
-        "the exposure of administrative services."
+        "that {count} subnet(s) are missing classification tags such as Tier, Layer, "
+        "or Classification. Specifically, {resources} do not carry metadata that clearly "
+        "identifies their intended network tier.\n\n"
+        "This situation implies that automated governance, segmentation review, and "
+        "change approval cannot reliably distinguish public, private, application, and "
+        "data subnets."
     ),
     "NET-027": (
         "During the analysis of the network security configuration, it was identified "
-        "that {count} VPC(s) do not have AWS PrivateLink or VPC endpoints configured "
-        "for commonly used AWS services. Specifically, {resources} route AWS API calls "
-        "through the public internet.\n\n"
-        "This situation implies that API calls to AWS services (S3, DynamoDB, SSM, etc.) "
-        "traverse the internet rather than the AWS private network, increasing exposure "
-        "and potentially violating network compliance requirements."
+        "that {count} Security Group(s) are missing tags. Specifically, {resources} have "
+        "no ownership, environment, application, or classification metadata attached.\n\n"
+        "This situation implies that firewall ownership, exception review, and cleanup "
+        "workflows cannot be reliably automated or assigned to the correct team."
     ),
     "NET-029": (
         "During the analysis of the network security configuration, it was identified "
@@ -1911,7 +2249,6 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
         "unrestricted outbound connections to external destinations, facilitating "
         "data exfiltration or C2 communications."
     ),
-
     # ── RECON ─────────────────────────────────────────────────────────────────
     "RECON-001": (
         "During the analysis of the external attack surface, it was identified that "
@@ -2036,7 +2373,6 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
         "positive security posture, it should be validated against the expected "
         "architecture to ensure no legitimate public endpoints are missing."
     ),
-
     # ── SECRETS MANAGER ───────────────────────────────────────────────────────
     "SM-001": (
         "During the analysis of the Secrets Manager service, it was identified that "
@@ -2139,7 +2475,6 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
         "re-encrypt the secret with an attacker-controlled KMS key, effectively making "
         "the secret inaccessible to legitimate consumers while retaining their own access."
     ),
-
     # ── CLOUDTRAIL EVENTS ─────────────────────────────────────────────────────
     "CTEF-001": (
         "During the analysis of the CloudTrail audit logs, it was identified that root "
@@ -2189,7 +2524,6 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
         "more IAM roles were altered. This is a key indicator of privilege escalation "
         "attempts or the establishment of persistence through modified trust chains."
     ),
-
     # ── VULNERABILITIES (remaining) ───────────────────────────────────────────
     "VULN-002": (
         "During the analysis of the vulnerability scan results (AWS Inspector), it was "
@@ -2227,30 +2561,30 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
     ),
     "VULN-009": (
         "During the analysis of the vulnerability scan results (AWS Inspector), it was "
-        "identified that {count} resource(s) have vulnerabilities with known public "
-        "exploits (exploit maturity: PROOF_OF_CONCEPT or IN_THE_WILD). Specifically, "
-        "{resources} are affected by actively exploited CVEs.\n\n"
-        "This situation implies that the bar for exploitation is extremely low — "
-        "working exploit code is publicly available, enabling even low-skilled attackers "
-        "to compromise these resources."
+        "identified that {count} resource(s) each have three or more ACTIVE CVEs. "
+        "Specifically, {resources} concentrate unresolved vulnerability backlog on the "
+        "same assets.\n\n"
+        "This situation increases compromise likelihood and remediation complexity because "
+        "multiple exploitable conditions may coexist on the same runtime. It does not imply "
+        "public exploit availability unless Inspector explicitly reports exploit evidence."
     ),
     "VULN-010": (
         "During the analysis of the vulnerability scan results (AWS Inspector), it was "
-        "identified that {count} EC2 instance(s) have package vulnerabilities that remain "
-        "unpatched beyond the recommended timeframe. Specifically, {resources} have "
-        "pending OS or package patches with known CVEs.\n\n"
-        "This situation implies that the instance operating system or installed packages "
-        "contain known security weaknesses that can be exploited to achieve unauthorized "
-        "code execution or privilege escalation."
+        "identified that {count} EC2 instance(s) supporting named application service components "
+        "have ACTIVE HIGH or CRITICAL package findings. Specifically, {resources} have "
+        "active Inspector records on service instances.\n\n"
+        "This situation increases operational risk for those services. It does not prove an "
+        "SLA breach or internet exploitability unless age and reachability evidence are also "
+        "present."
     ),
     "VULN-011": (
         "During the analysis of the vulnerability scan results (AWS Inspector), it was "
-        "identified that {count} Lambda function(s) use vulnerable package versions in "
-        "their deployment package. Specifically, {resources} include dependencies with "
-        "known CVEs.\n\n"
-        "This situation implies that the Lambda function's business logic executes in "
-        "a runtime environment containing exploitable library vulnerabilities, which "
-        "could be triggered through malicious input or dependency confusion attacks."
+        "identified that ECR scanning is explicitly disabled for {count} repository or "
+        "registry scope(s). Specifically, {resources} lack container image vulnerability "
+        "scanning evidence.\n\n"
+        "This situation creates a container vulnerability visibility gap. It should only be "
+        "reported when scan configuration evidence proves disabled scanning, not merely when "
+        "no image findings are present."
     ),
     "VULN-022": (
         "During the analysis of the vulnerability scan results (AWS Inspector), it was "
@@ -2321,7 +2655,6 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
         "of compromise or malicious activity that warrant immediate investigation and "
         "incident response procedures."
     ),
-
     # ── WAF ───────────────────────────────────────────────────────────────────
     "WAF-001": (
         "During the analysis of the WAF configuration, it was identified that {count} "
@@ -2349,11 +2682,12 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
     ),
     "WAF-004": (
         "During the analysis of the WAF configuration, it was identified that {count} "
-        "Web ACL(s) do not have IP reputation or managed threat intelligence lists "
-        "enabled. Specifically, {resources} do not block known malicious IP addresses.\n\n"
-        "This situation implies that traffic from IP addresses associated with botnets, "
-        "Tor exit nodes, scanners, and known threat actors is allowed to reach the "
-        "application without network-layer blocking."
+        "Web ACL(s) have WAF logging enabled but do not redact all expected sensitive "
+        "request headers. Specifically, {resources} may log Authorization, Cookie, "
+        "X-Api-Key, or X-Auth-Token values if those components are present in requests.\n\n"
+        "This situation implies that security logs may retain credentials, session "
+        "tokens, or API keys, increasing the impact of log disclosure or overly broad "
+        "log-reader permissions."
     ),
     "WAF-005": (
         "During the analysis of the WAF configuration, it was identified that {count} "
@@ -2365,11 +2699,13 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
     ),
     "WAF-006": (
         "During the analysis of the WAF configuration, it was identified that {count} "
-        "Web ACL(s) do not have SQL injection protection rules enabled. Specifically, "
-        "{resources} lack application-layer SQL injection filtering.\n\n"
-        "This situation implies that SQL injection payloads targeting the application's "
-        "database queries are not filtered at the WAF layer, relying entirely on "
-        "application-level input validation for protection."
+        "Web ACL(s) do not include the expected baseline AWS Managed Rule groups. "
+        "Specifically, {resources} do not use AWSManagedRulesCommonRuleSet, "
+        "AWSManagedRulesKnownBadInputsRuleSet, AWSManagedRulesSQLiRuleSet, or "
+        "AWSManagedRulesAmazonIpReputationList.\n\n"
+        "This situation implies that the WAF posture depends on custom or third-party "
+        "rules without the standard AWS-managed baseline for common web attacks, known "
+        "bad inputs, SQL injection patterns, and AWS threat-intelligence IP reputation."
     ),
     "WAF-007": (
         "During the analysis of the WAF configuration, it was identified that {count} "
@@ -2396,11 +2732,12 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
     ),
     "WAF-010": (
         "During the analysis of the WAF configuration, it was identified that {count} "
-        "Web ACL(s) do not have geo-restriction rules configured for the expected "
-        "user base. Specifically, {resources} accept traffic from all geographic regions.\n\n"
-        "This situation implies that traffic from regions with no legitimate users "
-        "can reach the application, increasing exposure to threat actors operating "
-        "from jurisdictions where enforcement is more difficult."
+        "WAF Classic Web ACL(s) are still present. Specifically, {resources} use the "
+        "legacy WAF Classic control plane instead of WAFv2.\n\n"
+        "This situation implies that web application firewall configuration is split "
+        "across legacy and current WAF APIs, reducing maintainability, consistency, "
+        "and access to WAFv2 capabilities such as improved rule statements, capacity "
+        "management, and modern association workflows."
     ),
     "WAF-011": (
         "During the analysis of the WAF configuration, it was identified that {count} "
@@ -2445,7 +2782,6 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
         "without removing existing ones, creating a forced trade-off between "
         "protection coverage and rule capacity."
     ),
-
     # ── SISTEMAS EXPLOTABLES EN RED (SER) ─────────────────────────────────────
     "SER-EC2-001": (
         "During the analysis of the network-exposed services, it was identified that "
@@ -2458,12 +2794,14 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
     ),
     "SER-EC2-002": (
         "During the analysis of the network-exposed services, it was identified that "
-        "{count} EC2 instance(s) have public IP addresses with multiple sensitive ports "
-        "exposed. Specifically, {resources} are internet-facing with a broad service "
-        "exposure profile.\n\n"
-        "This situation implies that these instances present a large attack surface "
-        "from the internet, with multiple services susceptible to direct exploitation "
-        "attempts."
+        "{count} EC2 instance(s) are directly reachable from the internet and have "
+        "active Amazon Inspector vulnerability findings. Specifically, {resources} "
+        "are internet-facing on the service ports confirmed in the evidence and have "
+        "unresolved Inspector findings on the host.\n\n"
+        "This situation creates a combined exposure and vulnerability risk: the public "
+        "listener provides the initial network entry point, while network-vector CVEs "
+        "can enable initial exploitation and local CVEs can increase post-compromise "
+        "impact after access is obtained."
     ),
     "SER-COR-003": (
         "During the analysis of the network-exposed services, it was identified that "
@@ -2521,9 +2859,7 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
 }
 
 
-
 PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
-
     # ── IAM ──────────────────────────────────────────────────────────────────
     "IAM-001": (
         "It is recommended to enable multi-factor authentication (MFA) on the root account "
@@ -2536,15 +2872,16 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "Periodically verify that MFA is still active by reviewing the IAM credential report."
     ),
     "IAM-002": (
-        "It is recommended to enforce MFA for all IAM users with console access by attaching an IAM "
-        "policy that denies all actions except those required to self-enroll an MFA device until MFA "
-        "is configured. This approach ensures users cannot bypass the requirement. "
-        "For users with programmatic access only (no console password), evaluate whether access keys "
-        "can be replaced with IAM roles and temporary credentials via AWS STS, which eliminates the "
-        "long-lived credential risk entirely. "
-        "Implement a scheduled review of the IAM credential report to identify any new user accounts "
-        "that have not yet enrolled MFA, and establish an onboarding process that requires MFA "
-        "enrollment before granting production access."
+        "For users with programmatic access only (no console password), first evaluate whether "
+        "long-lived access keys can be replaced with IAM roles and temporary credentials via AWS STS. "
+        "Where keys must remain, scope their permissions tightly, monitor CloudTrail usage, rotate "
+        "them on a defined schedule, and consider IAM conditions that require MFA for sensitive API "
+        "actions when human use is involved. "
+        "For any affected users that also have console access, enforce MFA enrollment before granting "
+        "production access by using a conditional policy that denies non-enrollment activity except "
+        "the actions required to self-enroll an MFA device. "
+        "Review the IAM credential report regularly to detect new identities without MFA or with "
+        "unprotected active access keys."
     ),
     "IAM-003": (
         "It is recommended to remove all active access keys from the root account without exception. "
@@ -2583,15 +2920,11 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "to reduce reliance on long-lived access keys."
     ),
     "IAM-007": (
-        "It is recommended to configure a strong IAM account password policy requiring a minimum "
-        "length of 14 characters, with a combination of uppercase letters, lowercase letters, "
-        "numbers, and symbols. "
-        "Enable password expiration at 90 days or fewer, prevent reuse of the last 24 passwords, "
-        "and allow users to change their own passwords. "
-        "A strong password policy reduces the feasibility of brute-force and credential stuffing "
-        "attacks against console credentials, limiting the impact of credential exposure. "
-        "Complement the password policy with MFA enforcement to ensure that even a compromised "
-        "password alone cannot grant console access."
+        "It is recommended to migrate role inline policies to customer-managed IAM policies. "
+        "Create managed policies with the same least-privilege statements, attach them to the "
+        "affected roles, validate application behavior, and then remove the inline policy documents. "
+        "Use versioning and tags on customer-managed policies so permission changes can be reviewed, "
+        "reused consistently, and audited across roles."
     ),
     "IAM-008": (
         "It is recommended to review all users and roles currently associated with broad managed "
@@ -2638,20 +2971,22 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "or temporary access over permanent IAM users to prevent accumulation of inactive accounts."
     ),
     "IAM-012": (
-        "It is recommended to assign all IAM users to at least one IAM group and manage permissions "
-        "exclusively at the group level rather than attaching policies directly to individual users. "
-        "This approach centralizes permission management, simplifies access reviews, and ensures "
-        "consistent policy application across users with similar roles. "
-        "Create role-based groups (e.g., Developers, ReadOnly, Admins) that reflect actual job "
-        "functions, assign appropriate policies to each group, and add users accordingly. "
-        "Periodically review group membership to ensure it reflects current organizational roles."
+        "It is recommended to disable or remove IAM users that have shown no activity for 90 or more "
+        "days. Inactive credentials represent an unmonitored attack surface — if compromised, they "
+        "are unlikely to trigger behavioral alerts due to the absence of normal activity baselines. "
+        "Use the IAM credential report to identify dormant accounts, disable them first (set console "
+        "password and access keys to inactive), and delete after confirming no service dependencies. "
+        "Consider automating this process with AWS Config rules or a scheduled Lambda function that "
+        "flags accounts inactive for more than 60 days and triggers a review workflow."
     ),
     "IAM-014": (
-        "It is recommended to update the IAM account password policy to enforce a minimum password "
-        "length of at least 14 characters. Longer passwords significantly increase the entropy "
-        "required to brute-force credentials, reducing the feasibility of password-based attacks. "
-        "Combine this with complexity requirements (uppercase, lowercase, numbers, symbols) and "
-        "MFA enforcement to create a layered authentication defense."
+        "It is recommended to allow only one active access key per IAM user at any time, except "
+        "during active key rotation. Review all users with multiple active keys and deactivate the "
+        "older or less recently used key once the new one is confirmed working. Enforce a 90-day "
+        "rotation policy and consider automating key rotation using AWS Secrets Manager or a "
+        "scheduled Lambda function. Having multiple simultaneous active keys doubles the credential "
+        "attack surface and complicates audit trails, making it harder to attribute API activity "
+        "to a specific credential."
     ),
     "IAM-015": (
         "It is recommended to remove all directly attached policies from IAM users and migrate "
@@ -2665,8 +3000,8 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "permissions that may have been granted individually."
     ),
     "IAM-016": (
-        "It is recommended to replace long-lived access keys used by service accounts with IAM "
-        "roles and temporary credentials wherever technically feasible. "
+        "It is recommended to replace long-lived access keys used by programmatic-only IAM users "
+        "with IAM roles and temporary credentials wherever technically feasible. "
         "For EC2, Lambda, ECS, and other AWS compute services, assign IAM roles directly to the "
         "resource rather than embedding access keys. For external systems, use AWS IAM Identity "
         "Center or cross-account role assumption with STS to obtain short-lived credentials. "
@@ -2698,12 +3033,12 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "reduces the risk of granting inconsistent permissions across users with similar roles."
     ),
     "IAM-026": (
-        "It is recommended to attach permission boundaries to all IAM roles used for delegated "
-        "administration. A permission boundary defines the maximum permissions a role can have, "
+        "It is recommended to attach permission boundaries to customer-managed IAM roles that can "
+        "accumulate elevated permissions. A permission boundary defines the maximum permissions a role can have, "
         "even if broader policies are later attached. "
-        "This prevents privilege escalation scenarios where a delegated administrator creates "
-        "roles or policies granting permissions beyond their own scope. "
-        "Define a boundary policy that reflects the maximum permissions appropriate for delegated "
+        "This reduces privilege escalation risk when roles or deployment processes attach broader "
+        "policies than intended. "
+        "Define a boundary policy that reflects the maximum permissions appropriate for these "
         "roles, attach it at role creation, and enforce it through an SCP or IAM condition that "
         "prevents boundary removal."
     ),
@@ -2810,13 +3145,15 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "and remove the minimum set of permissions required to break each chain."
     ),
     "IAM-041": (
-        "It is recommended to review and restrict IAM role chaining configurations. "
-        "Role chaining occurs when an assumed role can in turn assume another role, "
-        "potentially crossing trust boundaries in unexpected ways. "
-        "Audit trust policies across all roles and ensure that role assumption chains "
-        "do not circumvent intended permission boundaries. "
-        "Where role chaining is required, document the authorization chain and implement "
-        "monitoring for multi-hop AssumeRole activity via CloudTrail."
+        "It is recommended to remove AWS-managed AdministratorAccess or PowerUserAccess from "
+        "the affected role and replace it with a customer-managed least-privilege policy scoped "
+        "to the actions and resources the role actually requires. "
+        "If broad administrative access is temporarily required, document the business "
+        "justification, restrict which principals can assume the role, require compensating "
+        "controls such as short session duration and CloudTrail monitoring, and set a time-bound "
+        "review date. "
+        "Use IAM Access Analyzer and CloudTrail access data to generate a narrowed policy before "
+        "detaching the broad managed policy."
     ),
     "IAM-042": (
         "It is recommended to apply the principle of least privilege to all IAM policies "
@@ -2844,7 +3181,6 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "controls such as CloudTrail monitoring for sustained session activity and anomaly "
         "detection for unexpected session usage patterns."
     ),
-
     # ── ALERTING ─────────────────────────────────────────────────────────────
     "ALRT-001": (
         "It is recommended to configure the CloudTrail trail to deliver log events to a "
@@ -2906,14 +3242,11 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "notification infrastructure."
     ),
     "ALRT-007": (
-        "It is recommended to create CloudWatch metric filters and alarms for the "
-        "following critical event types at minimum: ConsoleLogin failures, IAM privilege "
-        "changes (CreatePolicy, AttachRolePolicy, PutUserPolicy), CloudTrail "
-        "modifications (StopLogging, DeleteTrail), and root account usage. "
-        "These represent the most common attacker actions in AWS environments and "
-        "should trigger immediate notification to the security team. "
-        "Test each alarm by simulating the target event in a non-production context "
-        "and verify end-to-end notification delivery."
+        "It is recommended to add CloudWatch metric-filter coverage for the specific "
+        "missing event names listed in the evidence, then create or map corresponding "
+        "CloudWatch alarms with SNS notification actions. Do not replace existing "
+        "working filters for other event categories; extend the current coverage and "
+        "test each newly added event pattern in a non-production context."
     ),
     "ALRT-008": (
         "It is recommended to enable a multi-region CloudTrail trail that captures API "
@@ -2936,12 +3269,12 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
     "ALRT-010": (
         "It is recommended to investigate and resolve all CloudWatch alarms in "
         "'INSUFFICIENT_DATA' state. This state indicates that the alarm cannot evaluate "
-        "its metric due to missing data, configuration errors, or metric filter mismatches. "
-        "Review each affected alarm, verify the metric filter name matches exactly, "
-        "ensure the log group is receiving CloudTrail events, and check the evaluation "
-        "period and missing data treatment settings. "
-        "An alarm in INSUFFICIENT_DATA provides no detection capability and creates a "
-        "false sense of security."
+        "its metric due to missing data, stale dimensions, deleted resources, intentionally "
+        "sparse metrics, or configuration errors. Review each affected alarm's namespace, "
+        "metric name, dimensions, period, evaluation window, missing-data treatment, and "
+        "notification actions. For metric-filter alarms, also verify the source log group "
+        "and transformation name; for service metrics such as EC2 CPU, ALB health, or EC2 "
+        "status checks, verify that the referenced resource still exists and emits data."
     ),
     "ALRT-011": (
         "It is recommended to apply restrictive resource-based policies to SNS topics "
@@ -3005,13 +3338,12 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "IAM principal that made the change to accelerate triage."
     ),
     "ALRT-017": (
-        "It is recommended to implement monitoring for network access control list "
-        "modifications (CreateNetworkAcl, ReplaceNetworkAclEntry, DeleteNetworkAclEntry) "
-        "and VPC routing changes (CreateRoute, ReplaceRoute, CreateInternetGateway). "
-        "These network-layer changes can silently undermine perimeter controls and should "
-        "trigger immediate review by the network security team. "
-        "Route alerts through an SNS topic with confirmed subscriptions to ensure the "
-        "network team is notified in real time."
+        "It is recommended to set the affected CloudWatch Log Groups to retain logs for "
+        "at least 90 days, or to the organization's stricter compliance baseline where "
+        "applicable. For audit and security log groups, consider 365 days or longer if "
+        "required by incident-response or regulatory retention policy. Validate retention "
+        "after the change with `aws logs describe-log-groups` and document any deliberate "
+        "short-retention exceptions."
     ),
     "ALRT-022": (
         "It is recommended to implement CloudWatch alarms or EventBridge rules to detect "
@@ -3067,7 +3399,6 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "workloads protected by the affected key, enabling immediate escalation and "
         "CancelKeyDeletion invocation if needed."
     ),
-
     # ── HARDENING ─────────────────────────────────────────────────────────────
     "HRD-001": (
         "It is recommended to enable AWS Config in the audited region with a recording "
@@ -3187,13 +3518,12 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "your current configuration to identify any new gaps."
     ),
     "HRD-014": (
-        "It is recommended to integrate Security Hub finding notifications with SNS "
-        "or EventBridge to deliver real-time alerts for new CRITICAL and HIGH findings. "
-        "Create an EventBridge rule matching Security Hub finding events with severity "
-        "CRITICAL or HIGH, and route them to an SNS topic with confirmed subscriptions "
-        "or a ticketing system integration. "
-        "This ensures the security team is notified immediately when new high-impact "
-        "findings are discovered rather than relying on periodic dashboard reviews."
+        "It is recommended to enable Amazon GuardDuty in the audited region and configure "
+        "it across all production accounts through AWS Organizations where applicable. "
+        "After enabling GuardDuty, route findings to Security Hub and EventBridge so "
+        "critical detections can create tickets or notify the security team. "
+        "Review any initial GuardDuty findings after activation and confirm detector "
+        "coverage is enabled for relevant data sources."
     ),
     "HRD-015": (
         "It is recommended to remediate the remaining Security Hub findings to achieve "
@@ -3210,7 +3540,6 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "Implement AWS Systems Manager Automation runbooks for common LOW finding types "
         "to enable bulk remediation and prevent future accumulation."
     ),
-
     # ── EXPOSURE ─────────────────────────────────────────────────────────────
     "EXP-001": (
         "It is recommended to enable S3 Block Public Access at both the account level "
@@ -3268,11 +3597,12 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "accidental public access grants."
     ),
     "EXP-007": (
-        "It is recommended to restrict API Gateway stages by implementing authorization "
-        "on all routes. Add Cognito User Pool authorizers, Lambda authorizers, or "
-        "IAM authorization to routes that should not be publicly accessible. "
-        "Review each stage's deployment and document which routes are intentionally "
-        "public versus those that should require authentication."
+        "It is recommended to associate an AWS WAFv2 WebACL with each internet-facing "
+        "Application Load Balancer that serves public application traffic. Start with AWS "
+        "managed rule groups for common web exploits and known bad inputs, then add custom "
+        "rules for application-specific paths, rate limits, and allow or block lists. "
+        "Validate the rules in count mode before enforcement where downtime risk exists, "
+        "then monitor WAF logs and tune false positives."
     ),
     "EXP-010": (
         "It is recommended to update ALB listener TLS policies to require TLS 1.2 or "
@@ -3291,10 +3621,12 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "and authorization checks."
     ),
     "EXP-013": (
-        "It is recommended to review and restrict cross-account S3 bucket access to "
-        "use specific IAM role ARNs rather than broad account principals. "
-        "Add aws:SourceAccount or aws:PrincipalOrgID conditions to cross-account "
-        "statements to limit access to known accounts within your organization."
+        "It is recommended to add an explicit Deny statement to each affected bucket "
+        "policy for s3:* on both the bucket ARN and object ARN when "
+        "aws:SecureTransport=false. Apply the deny before service-specific Allow "
+        "statements so all principals, including AWS services and cross-account roles, "
+        "are required to use TLS. Validate the final policy with IAM Access Analyzer "
+        "or the AWS Policy Simulator."
     ),
     "EXP-014": (
         "It is recommended to enable versioning on all S3 buckets storing audit logs "
@@ -3305,12 +3637,12 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "the retention period regardless of IAM permissions."
     ),
     "EXP-015": (
-        "It is recommended to add restrictive conditions to cross-account S3 bucket "
-        "policy statements. Replace bare account principal grants with conditions "
-        "requiring aws:SourceAccount or aws:PrincipalOrgID to verify the caller's "
-        "organizational membership. "
-        "This prevents a compromised identity in a trusted account from accessing "
-        "the bucket without additional verification of their organizational context."
+        "It is recommended to replace public or cross-account S3 policy grants with "
+        "explicit trusted principal ARNs and effective conditions. If organization "
+        "scoping is required, set aws:PrincipalOrgID to the actual organization ID; "
+        "do not leave it empty. For service integrations, use aws:SourceAccount and "
+        "aws:SourceArn where supported. Remove any Principal:* Allow statements that "
+        "are not strictly required."
     ),
     "EXP-016": (
         "It is recommended to configure Lambda Function URLs with AuthType=AWS_IAM "
@@ -3361,11 +3693,12 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "to reference the CMK ARN."
     ),
     "EXP-026": (
-        "It is recommended to review and restrict Lambda function resource policies "
-        "that grant invocation permissions to overly broad principals. "
-        "Replace Principal: '*' with specific IAM role ARNs or service principals "
-        "and add aws:SourceAccount or aws:SourceArn conditions to prevent "
-        "cross-account invocation by unintended parties."
+        "It is recommended to disable the PubliclyAccessible flag on all RDS instances "
+        "that do not require direct internet connectivity. Navigate to RDS > Instances > "
+        "Modify and set 'Publicly Accessible' to No. Ensure the instance is only reachable "
+        "through the VPC via private subnets and security groups. If external access is "
+        "genuinely required, restrict it to specific IP ranges via security group inbound "
+        "rules rather than exposing the RDS endpoint to the entire internet."
     ),
     "EXP-028": (
         "It is recommended to audit all internet-facing resources and disable or "
@@ -3374,7 +3707,6 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "decommissioning unused ALB listeners, and disabling API Gateway stages "
         "that are no longer in use."
     ),
-
     # ── CICD ─────────────────────────────────────────────────────────────────
     "CICD-001": (
         "It is recommended to remove source credentials from CodeBuild project "
@@ -3394,7 +3726,6 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "Update each affected project's source configuration to set insecureSSL=false "
         "and validate that all external connections use certificate-verified TLS."
     ),
-
     # ── COMPUTE ──────────────────────────────────────────────────────────────
     "COMP-EC2-001": (
         "It is recommended to enforce IMDSv2 (token-based) on all EC2 instances with "
@@ -3502,7 +3833,6 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "Never attach AdministratorAccess or wildcard action policies to Lambda execution "
         "roles, as a function compromise would grant full account control."
     ),
-
     # ── ECR ──────────────────────────────────────────────────────────────────
     "ECR-001": (
         "It is recommended to update ECR repository policies to replace wildcard "
@@ -3568,7 +3898,6 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "Implement monitoring for unusual cross-account pull activity via CloudTrail "
         "ecr:GetAuthorizationToken and ecr:BatchGetImage events."
     ),
-
     # ── KMS ──────────────────────────────────────────────────────────────────
     "KMS-001": (
         "It is recommended to update KMS key policies to restrict principal grants "
@@ -3634,7 +3963,6 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "Where grant delegation is required, restrict it to specific grantee principals "
         "and add a retiring principal to enable controlled grant retirement."
     ),
-
     # ── MESSAGING ─────────────────────────────────────────────────────────────
     "MSG-001": (
         "It is recommended to restrict SQS queue policies from using aws:PrincipalOrgID "
@@ -3661,7 +3989,7 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "These conditions ensure that only messages from the specific authorized "
         "SNS topic ARN can be delivered to the queue, preventing message injection "
         "from other SNS topics, including attacker-controlled ones. "
-        "Example condition: {\"ArnEquals\": {\"aws:SourceArn\": \"arn:aws:sns:region:account:topic-name\"}}"
+        'Example condition: {"ArnEquals": {"aws:SourceArn": "arn:aws:sns:region:account:topic-name"}}'
     ),
     "MSG-004": (
         "It is recommended to implement CloudTrail monitoring for StartMessageMoveTask "
@@ -3710,7 +4038,6 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "Implement CloudTrail monitoring for DeleteTopic events on security-critical "
         "notification topics to detect unauthorized destruction of alerting infrastructure."
     ),
-
     # ── NETWORK ──────────────────────────────────────────────────────────────
     "NET-001": (
         "It is recommended to restrict Security Group rules that allow unrestricted "
@@ -3767,43 +4094,42 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "lateral movement, and identifying data exfiltration patterns."
     ),
     "NET-007": (
-        "It is recommended to review Security Group rules allowing access from broad "
-        "CIDR ranges and restrict them to the minimum source addresses required. "
-        "Replace large CIDR blocks with specific IP ranges or security group references "
-        "to enforce precise network access boundaries."
+        "It is recommended to deploy AWS Network Firewall, or an equivalent central "
+        "inspection layer, for internet-facing VPC traffic. Route north-south traffic "
+        "through inspection endpoints before it reaches public subnets or exits the VPC. "
+        "Define firewall policies for known malicious destinations, command-and-control "
+        "patterns, and protocol anomalies."
     ),
     "NET-008": (
-        "It is recommended to audit Security Groups for overlapping or redundant rules "
-        "that create unintended access paths. Remove duplicate rules and consolidate "
-        "rules where possible to make the effective access policy clearer and easier "
-        "to audit. "
-        "Use AWS VPC Network Access Analyzer to identify unintended network paths "
-        "that result from rule combinations."
+        "It is recommended to move critical workloads such as databases and internal "
+        "application services to private subnets without direct Internet Gateway routes. "
+        "Expose only the required frontend or ingress components in public subnets, and "
+        "route administrative or application access through controlled private paths."
     ),
     "NET-009": (
-        "It is recommended to update VPC peering route tables to use the most specific "
-        "CIDR ranges possible rather than routing entire VPC address spaces across "
-        "peering connections. "
-        "Restrict peering routes to only the specific subnets that require cross-VPC "
-        "communication, minimizing lateral movement potential across peered environments."
+        "It is recommended to narrow broad Security Group CIDR sources to the smallest "
+        "required ranges or replace them with Security Group references where workloads "
+        "are in the same VPC. Document any intentionally broad rule and add monitoring "
+        "or compensating controls for services that cannot be scoped further."
     ),
     "NET-010": (
-        "It is recommended to implement Transit Gateway route tables that segment "
-        "traffic between attached VPCs based on their classification (production, "
-        "development, shared services). "
-        "Avoid any-to-any routing configurations and instead define explicit route "
-        "tables for each VPC attachment that permit only required cross-VPC traffic flows. "
-        "Use Transit Gateway route table associations and propagations to enforce "
-        "network segmentation at the gateway level."
+        "It is recommended to replace default allow-all Network ACL behavior with "
+        "custom NACLs that explicitly allow only required inbound and outbound traffic "
+        "for each subnet tier. Review both ingress and egress entries and remove broad "
+        "0.0.0.0/0 allow-all rules where they are not required."
     ),
     "NET-011": (
-        "It is recommended to tighten VPC endpoint policies to restrict access to "
-        "specific principals and resources rather than allowing unrestricted access "
-        "to AWS services. "
-        "For S3 endpoints, restrict the policy to specific bucket ARNs. For other "
-        "service endpoints, restrict Principal to specific IAM role ARNs. "
-        "Overly permissive endpoint policies can enable unauthorized data access to "
-        "services through the private network path."
+        "It is recommended to add clear descriptions to all critical Security Group "
+        "rules, especially rules covering sensitive ports, all protocols, broad CIDRs, "
+        "or cross-tier access. Use descriptions to record the business owner, purpose, "
+        "source system, and expected review cadence."
+    ),
+    "NET-013": (
+        "It is recommended to create VPC Gateway Endpoints for S3 and DynamoDB where "
+        "private subnets access those services, and VPC Interface Endpoints for services "
+        "such as SSM, KMS, CloudWatch, ECR, and EC2 APIs when used by private workloads. "
+        "Keep the NAT Gateway for required internet egress, but route supported AWS service "
+        "traffic through endpoints so endpoint policies and private routing can be enforced."
     ),
     "NET-012": (
         "It is recommended to review Security Groups that reference themselves as a "
@@ -3834,13 +4160,9 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "architecture with Transit Gateway to centralize inspection across all VPCs."
     ),
     "NET-016": (
-        "It is recommended to replace broad Security Group-to-Security Group rules "
-        "with more specific rules that target individual instance types or services "
-        "where possible. "
-        "If fine-grained control is required, split the trusted Security Group into "
-        "role-specific groups and create explicit rules between each pair. "
-        "This reduces the trust surface and limits lateral movement within the "
-        "trusted group."
+        "It is recommended to associate subnets with custom Network ACLs aligned to "
+        "their tier and exposure model. Public, private, application, and data subnets "
+        "should have explicit stateless rules instead of inheriting default VPC NACLs."
     ),
     "NET-017": (
         "It is recommended to disable MapPublicIpOnLaunch on subnets that should not "
@@ -3882,21 +4204,16 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "on public-subnet resources implement strict inbound filtering."
     ),
     "NET-025": (
-        "It is recommended to restrict Security Group rules allowing SSH or RDP access "
-        "to management ports from broad CIDR ranges. Limit sources to known corporate "
-        "IP ranges or, preferably, to a dedicated bastion host or VPN Security Group. "
-        "Implement AWS Systems Manager Session Manager as an alternative that "
-        "eliminates the need for any open inbound management ports while providing "
-        "session logging and IAM-controlled access."
+        "It is recommended to tag all subnets with a consistent classification model, "
+        "for example Tier, Layer, Classification, Environment, and Owner. Use these tags "
+        "in compliance checks, routing reviews, and change workflows so public, private, "
+        "application, and data subnets can be governed automatically."
     ),
     "NET-027": (
-        "It is recommended to create VPC endpoints for AWS services commonly used by "
-        "workloads in the VPC, including S3, DynamoDB, SSM, Secrets Manager, and ECR. "
-        "VPC endpoints route API calls through the AWS private network rather than "
-        "the internet, reducing exposure, improving latency, and enabling endpoint "
-        "policies that restrict which resources can be accessed through the endpoint. "
-        "This is particularly important for compliance requirements that prohibit "
-        "sensitive data traversal over public internet paths."
+        "It is recommended to apply consistent tags to all Security Groups, including "
+        "Owner, Application, Environment, DataClassification, and ReviewDate. Enforce "
+        "tagging at creation time and use periodic checks to identify orphaned or "
+        "unowned Security Groups."
     ),
     "NET-029": (
         "It is recommended to implement egress filtering rules in Security Groups "
@@ -3906,7 +4223,6 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "Restrictive egress rules limit the ability of a compromised resource to "
         "exfiltrate data or establish command-and-control communications."
     ),
-
     # ── RECON ─────────────────────────────────────────────────────────────────
     "RECON-001": (
         "It is recommended to remove wildcard DNS records (*.domain) from public "
@@ -3957,10 +4273,12 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "security analysis, anomaly detection, and forensic investigation."
     ),
     "RECON-007": (
-        "It is recommended to review resources with publicly enumerable metadata and "
-        "apply authentication requirements or access restrictions as appropriate. "
-        "Ensure that S3 bucket names, API endpoint paths, and Lambda function URLs "
-        "do not appear in public documentation or error responses unless intentional."
+        "It is recommended to associate AWS WAF Web ACLs with all internet-facing "
+        "Application Load Balancers and any other supported public HTTP entry points. "
+        "Start with AWS Managed Rules, add rate-based rules for abusive clients, and "
+        "enable WAF logging so blocked and counted requests can be reviewed. "
+        "Where WAF is intentionally omitted, document the compensating controls and "
+        "business justification for each load balancer."
     ),
     "RECON-008": (
         "It is recommended to conduct an internet-facing asset inventory review to "
@@ -4066,7 +4384,6 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "Maintain this posture by implementing SCPs that require VPC endpoints for "
         "AWS service access and enforce private subnet placement for compute resources."
     ),
-
     # ── SECRETS MANAGER ───────────────────────────────────────────────────────
     "SM-001": (
         "It is recommended to update Secrets Manager resource policies to replace "
@@ -4183,7 +4500,6 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "the secret with an attacker-controlled key, rendering it inaccessible to "
         "legitimate consumers."
     ),
-
     # ── CLOUDTRAIL EVENTS ─────────────────────────────────────────────────────
     "CTEF-001": (
         "It is recommended to immediately investigate any root account API activity "
@@ -4300,7 +4616,6 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "if the changes appear malicious, and audit all AssumeRole events by the "
         "modified roles in the hours following the policy change."
     ),
-
     # ── VULNERABILITIES ───────────────────────────────────────────────────────
     "VULN-001": (
         "It is recommended to enable AWS Inspector v2 for all required resource types "
@@ -4332,12 +4647,11 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "for specific CVEs while permanent patches are prepared."
     ),
     "VULN-004": (
-        "It is recommended to establish an automated patch management process using "
-        "AWS Systems Manager Patch Manager. Configure patch baselines for each "
-        "operating system, create maintenance windows aligned with operational "
-        "schedules, and assign patch groups to ensure consistent coverage. "
-        "Report on patch compliance via Systems Manager and escalate instances "
-        "that miss maintenance windows."
+        "It is recommended to prioritize the affected CVEs where Inspector reports "
+        "exploitAvailable=YES. Apply the vendor patch where fixAvailable=YES, or document "
+        "a time-bound exception with compensating controls when no fix exists. "
+        "Validate whether the affected workloads are reachable from untrusted networks "
+        "before escalating the issue beyond Inspector's reported severity."
     ),
     "VULN-005": (
         "It is recommended to treat vulnerabilities on business-critical resources "
@@ -4365,39 +4679,31 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "remediate specific finding types such as outdated packages."
     ),
     "VULN-008": (
-        "It is recommended to establish patch compliance monitoring using AWS Config "
-        "and Systems Manager compliance reporting to maintain visibility into "
-        "the organization's vulnerability posture over time. "
-        "Configure compliance thresholds and alert when patch compliance drops "
-        "below acceptable levels."
+        "It is recommended to assign each ACTIVE HIGH Inspector finding to an owner with "
+        "a remediation due date, patch decision, exception status, and compensating control "
+        "where patching is not immediately possible. Track these records in the vulnerability "
+        "management workflow and reconcile them against Inspector until the findings close."
     ),
     "VULN-009": (
-        "It is recommended to treat vulnerabilities with known public exploits "
-        "(PROOF_OF_CONCEPT or IN_THE_WILD exploit maturity) as critical regardless "
-        "of their base CVSS score and remediate within 7 days. "
-        "The availability of working exploit code dramatically lowers the skill "
-        "required for exploitation, making these findings immediately actionable "
-        "for any threat actor. "
-        "If immediate patching is not possible, implement network-layer controls "
-        "to isolate the affected resource and implement AWS WAF rules to block "
-        "known exploit signatures."
+        "It is recommended to prioritize resources with accumulated ACTIVE CVEs as "
+        "remediation bundles rather than handling each CVE independently. "
+        "Assign an owner per affected resource, patch or rebuild the underlying image, "
+        "and verify closure in Inspector after deployment. "
+        "If immediate patching is not possible, isolate the resource, reduce inbound "
+        "reachability, and record a time-bound exception with compensating controls."
     ),
     "VULN-010": (
-        "It is recommended to deploy unpatched EC2 instances through a systematic "
-        "patching process using AWS Systems Manager Patch Manager. "
-        "Configure a Critical and Important patch baseline, create a maintenance "
-        "window that complies with change management requirements, and assign "
-        "the affected instances to the patching schedule. "
-        "For instances that cannot be patched in-place, consider replacing them "
-        "with fresh instances built from a patched AMI."
+        "It is recommended to route the affected EC2 service instances to the owning "
+        "application teams, prioritize fixes by exploitAvailable and fixAvailable status, "
+        "and patch through AWS Systems Manager Patch Manager or replace instances with "
+        "patched AMIs. Where patching is delayed, document service-specific compensating "
+        "controls such as network isolation, monitoring, or temporary feature restrictions."
     ),
     "VULN-011": (
-        "It is recommended to update vulnerable Lambda function dependencies to "
-        "patched versions. Review the Inspector findings to identify the specific "
-        "packages and CVEs, update the requirements file or package.json to "
-        "reference patched versions, and redeploy the function. "
-        "Implement dependency scanning as a CI/CD pipeline gate that blocks "
-        "deployments containing packages with known CVEs above a defined severity threshold."
+        "It is recommended to enable ECR image scanning through ECR Enhanced Scanning or "
+        "repository-level scan-on-push controls, then verify scan coverage with ECR registry "
+        "and repository configuration evidence. Do not use Lambda dependency remediation for "
+        "this finding; Lambda package vulnerabilities require a separate Lambda-specific finding."
     ),
     "VULN-022": (
         "It is recommended to rebuild affected container images from updated base "
@@ -4475,7 +4781,6 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "resource, suspend the associated IAM identity, and begin forensic investigation "
         "before the attacker has time to establish additional persistence mechanisms."
     ),
-
     # ── WAF ───────────────────────────────────────────────────────────────────
     "WAF-001": (
         "It is recommended to associate an AWS WAF Web ACL with all internet-facing "
@@ -4507,12 +4812,12 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "disruption to production traffic."
     ),
     "WAF-004": (
-        "It is recommended to add IP reputation managed rule sets to all Web ACLs "
-        "to block known malicious IP addresses at the perimeter. "
-        "Enable AWSManagedRulesAmazonIpReputationList to block IP addresses associated "
-        "with botnets, scanners, and known threat actors based on AWS threat intelligence. "
-        "This provides immediate protection against a large volume of automated attack "
-        "traffic without requiring custom rule development."
+        "It is recommended to configure WAF log redaction for request components that "
+        "can contain secrets or personal data. "
+        "At minimum, redact Authorization, Cookie, X-Api-Key, and other application-"
+        "specific authentication headers or sensitive parameters before logs are stored. "
+        "Review the current RedactedFields configuration for each Web ACL and align it "
+        "with the application's actual authentication and session-management patterns."
     ),
     "WAF-005": (
         "It is recommended to add rate-based rules to all Web ACLs to protect against "
@@ -4524,12 +4829,13 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "endpoints, which are the most common targets for credential stuffing attacks."
     ),
     "WAF-006": (
-        "It is recommended to enable SQL injection protection in all Web ACLs by "
-        "adding either the AWSManagedRulesSQLiRuleSet managed rule set or custom "
-        "SQL injection match conditions. "
-        "SQL injection rules filter request parameters, URI paths, headers, and "
-        "body content for SQL injection patterns, providing an additional defense "
-        "layer beyond application-level input validation."
+        "It is recommended to add the baseline AWS Managed Rule groups required by "
+        "the organization's WAF standard, such as AWSManagedRulesCommonRuleSet, "
+        "AWSManagedRulesKnownBadInputsRuleSet, AWSManagedRulesSQLiRuleSet, and "
+        "AWSManagedRulesAmazonIpReputationList. "
+        "Deploy new managed rules in Count mode first, review sampled requests and "
+        "false positives, then move tuned rules to enforcement. Keep any third-party "
+        "managed rule group as an additional layer rather than the only baseline."
     ),
     "WAF-007": (
         "It is recommended to enable XSS protection in all Web ACLs by adding "
@@ -4557,13 +4863,11 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "resource or delete it if it is no longer needed."
     ),
     "WAF-010": (
-        "It is recommended to add geo-restriction rules to Web ACLs for applications "
-        "with a known, defined geographic user base. "
-        "Use AWS WAF Geo Match conditions to block traffic from regions with no "
-        "legitimate users, reducing the volume of malicious traffic that must be "
-        "processed by other rules. "
-        "Maintain a documented justification for blocked regions and implement a "
-        "process to review geo-restriction rules periodically as the user base evolves."
+        "It is recommended to migrate WAF Classic Web ACLs and associations to WAFv2. "
+        "Inventory each Classic Web ACL, recreate equivalent protections in WAFv2, "
+        "validate behavior in Count mode, then move ALB or CloudFront associations to "
+        "the WAFv2 Web ACL. Remove Classic ACLs only after traffic behavior, logging, "
+        "and rule metrics have been validated."
     ),
     "WAF-011": (
         "It is recommended to review and tighten Web ACL default actions. "
@@ -4607,7 +4911,6 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "consider splitting protection across multiple Web ACLs if capacity limits "
         "are constraining necessary protections."
     ),
-
     # ── SISTEMAS EXPLOTABLES EN RED (SER) ─────────────────────────────────────
     "SER-EC2-001": (
         "It is recommended to immediately restrict Security Group rules that expose "
@@ -4622,14 +4925,17 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "until their access logs have been reviewed for unauthorized activity."
     ),
     "SER-EC2-002": (
-        "It is recommended to audit the complete Security Group rule set for internet-"
-        "facing EC2 instances and close all ports that are not required for the "
-        "instance's documented function. "
-        "For each open port, verify a specific business justification and restrict "
-        "the source to the minimum required CIDR or security group. "
-        "Apply instance-level security baselines using AWS Systems Manager State "
-        "Manager to enforce consistent Security Group configurations across the "
-        "instance fleet."
+        "It is recommended to treat the finding as a combined exposure and patching "
+        "remediation. First, verify whether the internet-facing listener is required; "
+        "if it is not, remove the public inbound rule, and if it is required, restrict "
+        "the source CIDR or place the service behind the approved edge controls for the "
+        "application. "
+        "Next, remediate the active Amazon Inspector findings on the affected instances, "
+        "prioritizing network-vector critical CVEs and the vulnerable package versions "
+        "identified in the evidence. "
+        "Finally, validate IMDSv2 enforcement and least-privilege permissions for the "
+        "attached instance profile so that a service compromise cannot easily become an "
+        "AWS credential compromise."
     ),
     "SER-COR-003": (
         "It is recommended to address the correlated internet exposure and vulnerability "
@@ -4813,6 +5119,107 @@ def _get_credential_report_by_user(evidence: Dict[str, Any]) -> Dict[str, Dict[s
     return {}
 
 
+def _credential_value_is_date(val: Any) -> bool:
+    """Return true when a credential-report field contains a real timestamp."""
+    if val is None:
+        return False
+    sval = str(val).strip().lower()
+    return bool(sval) and sval not in {
+        "n/a",
+        "no_information",
+        "not_supported",
+        "none",
+        "null",
+        "false",
+    }
+
+
+def _policy_index(evidence: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    policies = evidence.get("policies")
+    out: Dict[str, Dict[str, Any]] = {}
+    if not isinstance(policies, list):
+        return out
+    for policy in policies:
+        if not isinstance(policy, dict):
+            continue
+        for key in ("Arn", "PolicyArn", "PolicyName"):
+            val = policy.get(key)
+            if val:
+                out[str(val)] = policy
+    return out
+
+
+def _user_permission_context(evidence: Dict[str, Any], user: Dict[str, Any]) -> Dict[str, Any]:
+    """Summarize direct/group policy context for user-scoped IAM findings."""
+    policy_map = _policy_index(evidence)
+    group_docs = evidence.get("groups")
+    groups_by_name = (
+        {str(g.get("GroupName")): g for g in group_docs if isinstance(g, dict)}
+        if isinstance(group_docs, list)
+        else {}
+    )
+
+    attached_policy_arns: List[str] = []
+    attached_policy_names: List[str] = []
+    group_names: List[str] = []
+    group_policy_arns: List[str] = []
+    actions: List[str] = []
+
+    def _add_policy(pol: Dict[str, Any]) -> None:
+        pname = str(pol.get("PolicyName") or "")
+        parn = str(pol.get("PolicyArn") or pol.get("Arn") or "")
+        if pname:
+            attached_policy_names.append(pname)
+        if parn:
+            attached_policy_arns.append(parn)
+        resolved = policy_map.get(parn) or policy_map.get(pname) or pol
+        for stmt in _stmts_from_policy(
+            resolved.get("PolicyDocument") if isinstance(resolved, dict) else None
+        ):
+            actions.extend(_actions_from_stmt(stmt))
+
+    for pol in user.get("AttachedPolicies") or []:
+        if isinstance(pol, dict):
+            _add_policy(pol)
+
+    for group_ref in user.get("Groups") or []:
+        if not isinstance(group_ref, dict):
+            continue
+        gname = str(group_ref.get("GroupName") or "")
+        if not gname:
+            continue
+        group_names.append(gname)
+        group = groups_by_name.get(gname) or {}
+        for pol in group.get("AttachedPolicies") or []:
+            if not isinstance(pol, dict):
+                continue
+            parn = str(pol.get("PolicyArn") or "")
+            if parn:
+                group_policy_arns.append(parn)
+            _add_policy(pol)
+
+    return {
+        "groups": group_names,
+        "direct_policy_arns": sorted(set(attached_policy_arns)),
+        "direct_policy_names": sorted(set(attached_policy_names)),
+        "group_policy_arns": sorted(set(group_policy_arns)),
+        "resolved_actions_sample": sorted(set(actions))[:20],
+    }
+
+
+def _resources_from_policy_doc(doc: Any) -> List[str]:
+    resources: List[str] = []
+    for stmt in _stmts_from_policy(doc):
+        if not isinstance(stmt, dict):
+            continue
+        raw = stmt.get("Resource")
+        if isinstance(raw, str):
+            resources.append(raw)
+        elif isinstance(raw, list):
+            resources.extend(str(r) for r in raw if r is not None)
+    return sorted(set(resources))[:20]
+
+
 def _truthy(val: Any) -> bool:
     """Check if a value is truthy in the AWS evidence sense."""
     return val in {1, True, "1", "true", "True"}
@@ -4821,6 +5228,56 @@ def _truthy(val: Any) -> bool:
 def _falsy(val: Any) -> bool:
     """Check if a value is falsy in the AWS evidence sense."""
     return val in {0, False, "0", "false", "False"}
+
+
+def _parse_date(val: Any) -> Optional[datetime]:
+    """Parse datetime string or object to timezone-aware UTC datetime."""
+    if val is None:
+        return None
+    if isinstance(val, datetime):
+        return val.replace(tzinfo=timezone.utc) if val.tzinfo is None else val
+    try:
+        from dateutil.parser import parse as _du_parse
+
+        dt = _du_parse(str(val))
+        return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+    except Exception:
+        return None
+
+
+def _mask_key_id(key_id: str) -> str:
+    """Mask access key ID keeping first 4 and last 4 chars."""
+    if len(key_id) > 8:
+        return f"{key_id[:4]}{'*' * (len(key_id) - 8)}{key_id[-4:]}"
+    return "****"
+
+
+_PORT_SERVICES: Dict[int, str] = {
+    22: "SSH",
+    23: "Telnet",
+    25: "SMTP",
+    53: "DNS",
+    445: "SMB",
+    1433: "MSSQL",
+    1521: "Oracle DB",
+    2181: "Zookeeper",
+    3306: "MySQL",
+    3389: "RDP",
+    5432: "PostgreSQL",
+    6379: "Redis",
+    8080: "HTTP-Alt",
+    8443: "HTTPS-Alt",
+    9200: "Elasticsearch",
+    27017: "MongoDB",
+}
+
+
+def _port_service_name(port: Any) -> str:
+    """Return well-known service name for a port number, or the port string."""
+    try:
+        return _PORT_SERVICES.get(int(port), str(port))
+    except (TypeError, ValueError):
+        return str(port) if port is not None else "unknown"
 
 
 def _items_from_doc(doc: Any) -> list:
@@ -4928,6 +5385,7 @@ def check_iam_002(evidence: Dict[str, Any]) -> PreCheckResult:
     by_user: Dict[str, Any] = cred.get("by_user", {}) if isinstance(cred, dict) else {}
 
     affected: List[str] = []
+    resource_details: List[Dict[str, Any]] = []
     for u in users:
         if not isinstance(u, dict):
             continue
@@ -4944,14 +5402,27 @@ def check_iam_002(evidence: Dict[str, Any]) -> PreCheckResult:
         if not has_mfa:
             arn = str(u.get("Arn") or f"arn:aws:iam::*:user/{uname}")
             affected.append(arn)
+            resource_details.append(
+                {
+                    "user": uname,
+                    "arn": arn,
+                    "password_enabled": has_console,
+                    "has_console_access": has_console,
+                    "has_active_access_keys": has_active_keys,
+                    "mfa_devices": len(u.get("MFADevices") or []),
+                    "permission_context": _user_permission_context(evidence, u),
+                }
+            )
 
     if affected:
-        return PreCheckResult(
+        result = PreCheckResult(
             "IAM-002",
             "FAIL",
             f"{len(affected)} user(s) without MFA (console or active access keys)",
             affected,
         )
+        result.metadata["resource_details"] = resource_details[:10]
+        return result
     return PreCheckResult(
         "IAM-002", "PASS", "all users with console or active access keys have MFA enabled", []
     )
@@ -5002,9 +5473,12 @@ def check_iam_004(evidence: Dict[str, Any]) -> PreCheckResult:
 
     now = datetime.now(timezone.utc)
     old_users = []
+    resource_details = []
     for u in users:
         if not isinstance(u, dict):
             continue
+        uname = str(u.get("UserName") or "unknown")
+        arn = str(u.get("Arn") or f"arn:aws:iam::*:user/{uname}")
         for k in u.get("AccessKeys", []) or []:
             if not isinstance(k, dict):
                 continue
@@ -5019,15 +5493,30 @@ def check_iam_004(evidence: Dict[str, Any]) -> PreCheckResult:
                     created = created.replace(tzinfo=timezone.utc)
             except Exception:
                 continue
-            if (now - created).days > 90:
-                uname = str(u.get("UserName") or "unknown")
-                arn = str(u.get("Arn") or f"arn:aws:iam::*:user/{uname}")
+            key_age_days = (now - created).days
+            if key_age_days > 90:
                 old_users.append(arn)
+                last_used = k.get("LastUsed") if isinstance(k.get("LastUsed"), dict) else {}
+                resource_details.append(
+                    {
+                        "user": uname,
+                        "arn": arn,
+                        "access_key_id": _mask_key_id(str(k.get("AccessKeyId") or "")),
+                        "key_age_days": key_age_days,
+                        "create_date": cd,
+                        "last_used_date": last_used.get("LastUsedDate"),
+                        "last_used_service": last_used.get("ServiceName"),
+                        "last_used_region": last_used.get("Region"),
+                        "permission_context": _user_permission_context(evidence, u),
+                    }
+                )
                 break
 
     if not old_users:
         return PreCheckResult("IAM-004", "PASS", "no active keys >90 days", [])
-    return PreCheckResult("IAM-004", "FAIL", f"{len(old_users)} users with old keys", old_users)
+    result = PreCheckResult("IAM-004", "FAIL", f"{len(old_users)} users with old keys", old_users)
+    result.metadata["resource_details"] = resource_details[:10]
+    return result
 
 
 @_register("iam")
@@ -5132,25 +5621,74 @@ def check_iam_012(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("IAM-012", "SKIP", "no users evidence", [])
 
     inactive = []
+    resource_details = []
+    now = datetime.now(timezone.utc)
+    threshold_days = 90
+    by_user = _get_credential_report_by_user(evidence)
+
     for u in users:
         if not isinstance(u, dict):
             continue
-        uname = u.get("UserName", "")
+        uname = str(u.get("UserName") or "")
         # Skip root
         if uname in ("<root_account>", "root"):
             continue
-        arn = u.get("Arn", "")
+        arn = str(u.get("Arn") or f"arn:aws:iam::*:user/{uname}")
         if isinstance(arn, str) and arn.endswith(":root"):
             continue
 
-        last_used = u.get("PasswordLastUsed")
-        has_keys = bool(u.get("AccessKeys"))
-        if not last_used and not has_keys:
-            inactive.append(f"arn:aws:iam::*:user/{uname}")
+        row = by_user.get(uname, {}) if by_user else {}
+
+        # Credential report is the source of truth for last activity when present.
+        pwd_last_used = row.get("password_last_used") if isinstance(row, dict) else None
+        if not _credential_value_is_date(pwd_last_used):
+            pwd_last_used = u.get("PasswordLastUsed")
+
+        key_last_candidates: List[Any] = []
+        if isinstance(row, dict):
+            for field_name in ("access_key_1_last_used_date", "access_key_2_last_used_date"):
+                val = row.get(field_name)
+                if _credential_value_is_date(val):
+                    key_last_candidates.append(val)
+        for k in u.get("AccessKeys") or []:
+            if not isinstance(k, dict):
+                continue
+            lu = (k.get("LastUsed") or {}).get("LastUsedDate")
+            if _credential_value_is_date(lu):
+                key_last_candidates.append(lu)
+
+        key_last_used_raw = None
+        for candidate in key_last_candidates:
+            candidate_dt = _parse_date(candidate)
+            current_dt = _parse_date(key_last_used_raw)
+            if candidate_dt and (current_dt is None or candidate_dt > current_dt):
+                key_last_used_raw = candidate
+
+        last_console_dt = _parse_date(pwd_last_used)
+        last_key_dt = _parse_date(key_last_used_raw)
+        last_activity_dt = max(filter(None, [last_console_dt, last_key_dt]), default=None)
+        days_inactive = int((now - last_activity_dt).days) if last_activity_dt else 999
+
+        if days_inactive >= threshold_days:
+            user_arn = arn
+            inactive.append(user_arn)
+            resource_details.append(
+                {
+                    "user": uname,
+                    "arn": user_arn,
+                    "last_console_login": str(pwd_last_used) if pwd_last_used else "N/A",
+                    "last_access_key_use": str(key_last_used_raw) if key_last_used_raw else "N/A",
+                    "days_since_last_activity": days_inactive,
+                }
+            )
 
     if not inactive:
-        return PreCheckResult("IAM-012", "PASS", "no inactive non-root users", [])
-    return PreCheckResult("IAM-012", "FAIL", f"{len(inactive)} inactive users", inactive[:10])
+        return PreCheckResult("IAM-012", "PASS", "no inactive non-root users (>90 days)", [])
+    result = PreCheckResult(
+        "IAM-012", "FAIL", f"{len(inactive)} inactive users (>90 days)", inactive[:10]
+    )
+    result.metadata["resource_details"] = resource_details[:10]
+    return result
 
 
 @_register("iam")
@@ -5158,7 +5696,7 @@ def check_iam_014(evidence: Dict[str, Any]) -> PreCheckResult:
     """Users should not have multiple active access keys."""
     users = evidence.get("users")
     if not isinstance(users, list):
-        # Try credential report fallback
+        # Try credential report fallback (no rich metadata available here)
         by_user = _get_credential_report_by_user(evidence)
         if not by_user:
             return PreCheckResult("IAM-014", "SKIP", "no users/credential-report evidence", [])
@@ -5167,10 +5705,27 @@ def check_iam_014(evidence: Dict[str, Any]) -> PreCheckResult:
             if not isinstance(row, dict):
                 continue
             if _truthy(row.get("access_key_1_active")) and _truthy(row.get("access_key_2_active")):
-                return PreCheckResult("IAM-014", "FAIL", f"User '{uname}' has 2 active keys", [])
+                return PreCheckResult(
+                    "IAM-014",
+                    "FAIL",
+                    f"User '{uname}' has 2 active keys",
+                    [f"arn:aws:iam::*:user/{uname}"],
+                    metadata={
+                        "resource_details": [
+                            {
+                                "user": uname,
+                                "arn": f"arn:aws:iam::*:user/{uname}",
+                                "rotation_status": "unknown",
+                            }
+                        ]
+                    },
+                )
         return PreCheckResult("IAM-014", "PASS", "no users with multiple active keys", [])
 
     multi = []
+    resource_details = []
+    now = datetime.now(timezone.utc)
+
     for u in users:
         if not isinstance(u, dict):
             continue
@@ -5184,11 +5739,40 @@ def check_iam_014(evidence: Dict[str, Any]) -> PreCheckResult:
         ]
         if len(active) >= 2:
             uname = u.get("UserName", "unknown")
-            multi.append(f"arn:aws:iam::*:user/{uname}")
+            user_arn = str(u.get("Arn") or f"arn:aws:iam::*:user/{uname}")
+            multi.append(user_arn)
+
+            key_details = []
+            for k in active:
+                lu_raw = (k.get("LastUsed") or {}).get("LastUsedDate")
+                create_raw = k.get("CreateDate")
+                lu_dt = _parse_date(lu_raw)
+                days_last_use = int((now - lu_dt).days) if lu_dt else None
+                key_details.append(
+                    {
+                        "access_key_id": _mask_key_id(k.get("AccessKeyId", "")),
+                        "status": k.get("Status"),
+                        "create_date": str(create_raw) if create_raw else "N/A",
+                        "last_used_date": str(lu_raw) if lu_raw else "N/A",
+                        "days_since_last_use": days_last_use,
+                    }
+                )
+            resource_details.append(
+                {
+                    "user": uname,
+                    "arn": user_arn,
+                    "active_access_keys": key_details,
+                    "rotation_status": "unknown",
+                }
+            )
 
     if not multi:
         return PreCheckResult("IAM-014", "PASS", "no users with multiple active keys", [])
-    return PreCheckResult("IAM-014", "FAIL", f"{len(multi)} users with 2+ active keys", multi[:10])
+    result = PreCheckResult(
+        "IAM-014", "FAIL", f"{len(multi)} users with 2+ active keys", multi[:10]
+    )
+    result.metadata["resource_details"] = resource_details[:10]
+    return result
 
 
 @_register("iam")
@@ -5862,7 +6446,19 @@ def check_iam_015(evidence: Dict[str, Any]) -> PreCheckResult:
     if not isinstance(users, list) or not users:
         return PreCheckResult("IAM-015", "SKIP", "no users evidence", [])
 
+    policies = evidence.get("policies")
+    policy_map: Dict[str, Dict[str, Any]] = {}
+    if isinstance(policies, list):
+        for policy in policies:
+            if not isinstance(policy, dict):
+                continue
+            for key in ("Arn", "PolicyArn", "PolicyName"):
+                val = policy.get(key)
+                if val:
+                    policy_map[str(val)] = policy
+
     affected: List[str] = []
+    resource_details: List[Dict[str, Any]] = []
     for u in users:
         if not isinstance(u, dict):
             continue
@@ -5871,24 +6467,58 @@ def check_iam_015(evidence: Dict[str, Any]) -> PreCheckResult:
         has_inline = bool(u.get("InlinePolicies"))
         in_groups = bool(u.get("Groups"))
         if (has_attached or has_inline) and not in_groups:
-            arn = str(u.get("Arn") or f"arn:aws:iam::*:user/{u.get('UserName', 'unknown')}")
+            uname = str(u.get("UserName") or "unknown")
+            arn = str(u.get("Arn") or f"arn:aws:iam::*:user/{uname}")
             affected.append(arn)
+            direct_policies = []
+            for pol in u.get("AttachedPolicies") or []:
+                if not isinstance(pol, dict):
+                    continue
+                pname = str(pol.get("PolicyName") or "")
+                parn = str(pol.get("PolicyArn") or "")
+                resolved = policy_map.get(parn) or policy_map.get(pname) or {}
+                actions = []
+                doc = resolved.get("PolicyDocument") if isinstance(resolved, dict) else None
+                for stmt in _stmts_from_policy(doc):
+                    actions.extend(_actions_from_stmt(stmt))
+                direct_policies.append(
+                    {
+                        "type": "managed",
+                        "policy_name": pname,
+                        "policy_arn": parn,
+                        "resolved_actions_sample": sorted(set(actions))[:10],
+                        "resources": _resources_from_policy_doc(doc) if doc else [],
+                    }
+                )
+            inline = u.get("InlinePolicies") or []
+            inline_names = list(inline.keys()) if isinstance(inline, dict) else inline
+            resource_details.append(
+                {
+                    "user": uname,
+                    "arn": arn,
+                    "groups": u.get("Groups") or [],
+                    "direct_policies": direct_policies,
+                    "inline_policies": inline_names,
+                }
+            )
 
     if not affected:
         return PreCheckResult(
             "IAM-015", "PASS", "no users with direct permissions outside group", []
         )
-    return PreCheckResult(
+    result = PreCheckResult(
         "IAM-015",
         "FAIL",
         f"{len(affected)} user(s) with direct policy attachments and no group membership",
         affected[:5],
     )
+    result.metadata["resource_details"] = resource_details[:5]
+    return result
 
 
 @_register("iam")
 def check_iam_016(evidence: Dict[str, Any]) -> PreCheckResult:
-    """IAM-016: Service accounts should use IAM roles, not IAM users."""
+    """IAM-016: Programmatic-only IAM users should use roles or temporary credentials."""
     users = evidence.get("users")
     if not isinstance(users, list) or not users:
         return PreCheckResult("IAM-016", "SKIP", "no users evidence", [])
@@ -5897,6 +6527,7 @@ def check_iam_016(evidence: Dict[str, Any]) -> PreCheckResult:
     by_user: Dict[str, Any] = cred.get("by_user", {}) if isinstance(cred, dict) else {}
 
     affected: List[str] = []
+    resource_details: List[Dict[str, Any]] = []
     for u in users:
         if not isinstance(u, dict):
             continue
@@ -5913,15 +6544,40 @@ def check_iam_016(evidence: Dict[str, Any]) -> PreCheckResult:
         if password_enabled == "false" and has_active_key:
             arn = str(u.get("Arn") or f"arn:aws:iam::*:user/{uname}")
             affected.append(arn)
+            classification = (
+                "service_account_pattern"
+                if re.search(r"(svc|service|bot|automation|ci|cd|deploy)", uname, re.IGNORECASE)
+                else "ambiguous"
+            )
+            resource_details.append(
+                {
+                    "user": uname,
+                    "arn": arn,
+                    "classification": classification,
+                    "service_account_pattern": classification == "service_account_pattern",
+                    "has_console_password": False,
+                    "has_active_access_key": True,
+                    "last_used_services": sorted(
+                        {
+                            str((k.get("LastUsed") or {}).get("ServiceName"))
+                            for k in (u.get("AccessKeys") or [])
+                            if isinstance(k, dict) and (k.get("LastUsed") or {}).get("ServiceName")
+                        }
+                    ),
+                    "permission_context": _user_permission_context(evidence, u),
+                }
+            )
 
     if not affected:
-        return PreCheckResult("IAM-016", "PASS", "no service-account-pattern IAM users found", [])
-    return PreCheckResult(
+        return PreCheckResult("IAM-016", "PASS", "no programmatic-only IAM users found", [])
+    result = PreCheckResult(
         "IAM-016",
         "FAIL",
-        f"{len(affected)} IAM user(s) matching service-account pattern (no password, active access key)",
+        f"{len(affected)} programmatic-only IAM user(s) with no console password and active access keys",
         affected[:5],
     )
+    result.metadata["resource_details"] = resource_details[:5]
+    return result
 
 
 @_register("iam")
@@ -6014,19 +6670,19 @@ def check_iam_041(evidence: Dict[str, Any]) -> PreCheckResult:
             continue
 
         role_name = str(role.get("RoleName") or "unknown")
+        role_arn = str(role.get("Arn") or f"role/{role_name}")
         attached = role.get("AttachedPolicies") or []
 
         # Check AWS-managed admin policies
-        has_admin = False
+        matched_admin_policies: List[str] = []
         for policy in attached:
             if not isinstance(policy, dict):
                 continue
             policy_arn = str(policy.get("PolicyArn") or "")
             if policy_arn in admin_policies:
-                has_admin = True
-                break
+                matched_admin_policies.append(policy_arn)
 
-        if not has_admin:
+        if not matched_admin_policies:
             continue
 
         # This role has privileged access; determine severity
@@ -6058,7 +6714,9 @@ def check_iam_041(evidence: Dict[str, Any]) -> PreCheckResult:
         affected_roles.append(
             {
                 "role_name": role_name,
+                "role_arn": role_arn,
                 "role_type": role_type,
+                "attached_admin_policies": matched_admin_policies,
                 "severity": severity,
                 "access_days_ago": access_advisor_days,
                 "has_mfa_condition": has_mfa_condition,
@@ -6081,18 +6739,16 @@ def check_iam_041(evidence: Dict[str, Any]) -> PreCheckResult:
         snippet_roles.append(
             {
                 "RoleName": r["role_name"],
+                "RoleArn": r["role_arn"],
                 "RoleType": r["role_type"],
+                "AttachedAdminPolicies": r["attached_admin_policies"],
                 "Severity": r["severity"],
                 "AccessAdvisorDaysAgo": r["access_days_ago"],
                 "HasMFACondition": r["has_mfa_condition"],
                 "TrustedBy": r["principals"],
             }
         )
-        # Build label with trust context for backward compatibility
-        label = r["role_name"]
-        if r["principals"]:
-            label = f"{r['role_name']} (trusted by: {', '.join(r['principals'])})"
-        affected_labels.append(label)
+        affected_labels.append(r["role_arn"])
 
     # Determine overall severity
     has_critical = any(r["severity"] == "Critical" for r in affected_roles)
@@ -6241,6 +6897,7 @@ def check_iam_007(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("IAM-007", "SKIP", "no roles evidence", [])
 
     affected: List[str] = []
+    resource_details: List[Dict[str, Any]] = []
     for r in roles:
         if not isinstance(r, dict):
             continue
@@ -6248,15 +6905,25 @@ def check_iam_007(evidence: Dict[str, Any]) -> PreCheckResult:
         if inline:
             arn = str(r.get("Arn") or f"arn:aws:iam::*:role/{r.get('RoleName', 'unknown')}")
             affected.append(arn)
+            inline_names = list(inline.keys()) if isinstance(inline, dict) else inline
+            resource_details.append(
+                {
+                    "role_name": r.get("RoleName"),
+                    "arn": arn,
+                    "inline_policies": inline_names,
+                }
+            )
 
     if not affected:
         return PreCheckResult("IAM-007", "PASS", "no roles with inline policies", [])
-    return PreCheckResult(
+    result = PreCheckResult(
         "IAM-007",
         "FAIL",
         f"{len(affected)} role(s) have inline policies",
         affected[:5],
     )
+    result.metadata["resource_details"] = resource_details[:5]
+    return result
 
 
 @_register("iam")
@@ -6363,6 +7030,102 @@ _AWS_SERVICE_ACCOUNTS: Dict[str, str] = {
     # CloudFront access logging
     "210479947434": "CloudFront logs",
 }
+
+
+_IAM_ADMIN_ACTIONS = {
+    "iam:*",
+    "iam:attachrolepolicy",
+    "iam:attachuserpolicy",
+    "iam:attachgrouppolicy",
+    "iam:putrolepolicy",
+    "iam:putuserpolicy",
+    "iam:putgrouppolicy",
+    "iam:createpolicy",
+    "iam:createpolicyversion",
+    "iam:setdefaultpolicyversion",
+    "iam:createaccesskey",
+    "iam:createloginprofile",
+    "iam:updateassumerolepolicy",
+    "iam:passrole",
+}
+
+
+def _policy_doc_has_iam_admin_actions(doc: Any) -> bool:
+    for stmt in _stmts_from_policy(doc):
+        if not isinstance(stmt, dict):
+            continue
+        if str(stmt.get("Effect") or "").upper() != "ALLOW":
+            continue
+        actions = {a.lower() for a in _actions_from_stmt(stmt)}
+        if "*" in actions or actions & _IAM_ADMIN_ACTIONS:
+            return True
+        if any(a.startswith("iam:") and a.endswith("*") for a in actions):
+            return True
+    return False
+
+
+def _role_has_iam_admin_actions(
+    role: Dict[str, Any], policy_map: Dict[str, Dict[str, Any]]
+) -> bool:
+    return bool(_role_iam_admin_evidence(role, policy_map))
+
+
+def _role_iam_admin_evidence(
+    role: Dict[str, Any], policy_map: Dict[str, Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    evidence: List[Dict[str, Any]] = []
+    for inline_doc in (
+        (role.get("InlinePolicies") or {}).values()
+        if isinstance(role.get("InlinePolicies"), dict)
+        else role.get("InlinePolicies") or []
+    ):
+        actions = []
+        for stmt in _stmts_from_policy(inline_doc):
+            if isinstance(stmt, dict) and str(stmt.get("Effect") or "").upper() == "ALLOW":
+                actions.extend(_actions_from_stmt(stmt))
+        if _policy_doc_has_iam_admin_actions(inline_doc):
+            evidence.append(
+                {
+                    "policy_type": "inline",
+                    "policy_arn": None,
+                    "policy_name": None,
+                    "iam_admin_actions": sorted(set(actions))[:20],
+                    "resources": _resources_from_policy_doc(inline_doc),
+                }
+            )
+
+    for policy in role.get("AttachedPolicies") or []:
+        if not isinstance(policy, dict):
+            continue
+        policy_arn = str(policy.get("PolicyArn") or "")
+        policy_name = str(policy.get("PolicyName") or "")
+        if policy_arn == "arn:aws:iam::aws:policy/AdministratorAccess":
+            evidence.append(
+                {
+                    "policy_type": "managed",
+                    "policy_arn": policy_arn,
+                    "policy_name": policy_name,
+                    "iam_admin_actions": ["*"],
+                    "resources": ["*"],
+                }
+            )
+            continue
+        resolved = policy_map.get(policy_arn) or policy_map.get(policy_name)
+        if resolved and _policy_doc_has_iam_admin_actions(resolved.get("PolicyDocument")):
+            actions = []
+            for stmt in _stmts_from_policy(resolved.get("PolicyDocument")):
+                if isinstance(stmt, dict) and str(stmt.get("Effect") or "").upper() == "ALLOW":
+                    actions.extend(_actions_from_stmt(stmt))
+            evidence.append(
+                {
+                    "policy_type": "managed",
+                    "policy_arn": policy_arn,
+                    "policy_name": policy_name,
+                    "iam_admin_actions": sorted(set(actions))[:20],
+                    "resources": _resources_from_policy_doc(resolved.get("PolicyDocument")),
+                }
+            )
+    return evidence
 
 
 @_register("iam")
@@ -6478,17 +7241,55 @@ def check_iam_026(evidence: Dict[str, Any]) -> PreCheckResult:
     if not customer_roles:
         return PreCheckResult("IAM-026", "SKIP", "no customer-managed roles found", [])
 
+    policies = evidence.get("policies")
+    policy_map: Dict[str, Dict[str, Any]] = {}
+    if isinstance(policies, list):
+        for policy in policies:
+            if not isinstance(policy, dict):
+                continue
+            for key in ("Arn", "PolicyArn", "PolicyName"):
+                val = policy.get(key)
+                if val:
+                    policy_map[str(val)] = policy
+
     without_boundary = [r for r in customer_roles if not r.get("PermissionsBoundary")]
+    admin_without_boundary = [
+        r for r in without_boundary if _role_has_iam_admin_actions(r, policy_map)
+    ]
 
     ratio = len(without_boundary) / len(customer_roles)
 
     if ratio >= 0.5:
-        sample = [str(r.get("Arn") or r.get("RoleName") or "unknown") for r in without_boundary[:5]]
+        sample_roles = admin_without_boundary or without_boundary
+        sample = [str(r.get("Arn") or r.get("RoleName") or "unknown") for r in sample_roles[:5]]
+        classification = (
+            "missing_boundary_with_iam_admin_actions"
+            if admin_without_boundary
+            else "missing_boundary_no_iam_admin_actions_detected"
+        )
+        resource_details = [
+            {
+                "role_name": r.get("RoleName"),
+                "arn": str(r.get("Arn") or r.get("RoleName") or "unknown"),
+                "has_permissions_boundary": False,
+                "has_iam_admin_actions": r in admin_without_boundary,
+                "classification": classification,
+                "iam_admin_evidence": _role_iam_admin_evidence(r, policy_map),
+            }
+            for r in sample_roles[:5]
+        ]
         return PreCheckResult(
             "IAM-026",
             "FAIL",
-            f"{len(without_boundary)}/{len(customer_roles)} customer-managed roles lack PermissionsBoundary ({ratio:.0%})",
+            f"{len(without_boundary)}/{len(customer_roles)} customer-managed roles lack PermissionsBoundary ({ratio:.0%}); "
+            f"{len(admin_without_boundary)} have IAM administrative actions",
             sample,
+            metadata={
+                "classification": classification,
+                "resource_details": resource_details,
+                "roles_without_boundary": len(without_boundary),
+                "roles_without_boundary_and_iam_admin_actions": len(admin_without_boundary),
+            },
         )
     return PreCheckResult(
         "IAM-026",
@@ -6623,7 +7424,19 @@ def check_hrd_004(evidence: Dict[str, Any]) -> PreCheckResult:
     score = (passed / denom) * 100.0
     if score >= 50.0:
         return PreCheckResult("HRD-004", "PASS", f"compliance_score={score:.1f}%", [])
-    return PreCheckResult("HRD-004", "FAIL", f"compliance_score={score:.1f}% (<50%)", [])
+    return PreCheckResult(
+        "HRD-004",
+        "FAIL",
+        f"compliance_score={score:.1f}% (<50%)",
+        [],
+        metadata={
+            "count": failed,
+            "compliance_score": round(score, 1),
+            "passed": passed,
+            "failed": failed,
+            "warning": warning,
+        },
+    )
 
 
 @_register("hardening")
@@ -6633,7 +7446,15 @@ def check_hrd_005(evidence: Dict[str, Any]) -> PreCheckResult:
     critical = sev_counts.get("CRITICAL", 0)
     if critical <= 0:
         return PreCheckResult("HRD-005", "PASS", f"CRITICAL count={critical}", [])
-    return PreCheckResult("HRD-005", "FAIL", f"CRITICAL count={critical}", [])
+    samples = _hardening_finding_samples(evidence, "CRITICAL")
+    affected = _hardening_sample_resource_ids(samples)
+    return PreCheckResult(
+        "HRD-005",
+        "FAIL",
+        f"{critical} CRITICAL Security Hub finding(s)",
+        affected,
+        metadata={"count": critical, "severity": "CRITICAL", "sample_findings": samples},
+    )
 
 
 @_register("hardening")
@@ -6686,7 +7507,15 @@ def check_hrd_009(evidence: Dict[str, Any]) -> PreCheckResult:
     high = sev_counts.get("HIGH", 0)
     if high <= 10:
         return PreCheckResult("HRD-009", "PASS", f"HIGH count={high} (<=10)", [])
-    return PreCheckResult("HRD-009", "FAIL", f"HIGH count={high} (>10)", [])
+    samples = _hardening_finding_samples(evidence, "HIGH")
+    affected = _hardening_sample_resource_ids(samples)
+    return PreCheckResult(
+        "HRD-009",
+        "FAIL",
+        f"{high} HIGH Security Hub finding(s) (>10)",
+        affected,
+        metadata={"count": high, "severity": "HIGH", "sample_findings": samples},
+    )
 
 
 @_register("hardening")
@@ -6696,7 +7525,15 @@ def check_hrd_012(evidence: Dict[str, Any]) -> PreCheckResult:
     medium = sev_counts.get("MEDIUM", 0)
     if medium <= 20:
         return PreCheckResult("HRD-012", "PASS", f"MEDIUM count={medium} (<=20)", [])
-    return PreCheckResult("HRD-012", "FAIL", f"MEDIUM count={medium} (>20)", [])
+    samples = _hardening_finding_samples(evidence, "MEDIUM")
+    affected = _hardening_sample_resource_ids(samples)
+    return PreCheckResult(
+        "HRD-012",
+        "FAIL",
+        f"{medium} MEDIUM Security Hub finding(s) (>20)",
+        affected,
+        metadata={"count": medium, "severity": "MEDIUM", "sample_findings": samples},
+    )
 
 
 @_register("hardening")
@@ -6735,7 +7572,13 @@ def check_hrd_014(evidence: Dict[str, Any]) -> PreCheckResult:
         ids = gd_detectors["DetectorIds"]
         if isinstance(ids, list) and len(ids) > 0:
             return PreCheckResult("HRD-014", "PASS", f"{len(ids)} detectors", [])
-    return PreCheckResult("HRD-014", "FAIL", "no GuardDuty detectors", [])
+    return PreCheckResult(
+        "HRD-014",
+        "FAIL",
+        "no GuardDuty detectors",
+        ["AWS::::Account"],
+        metadata={"count": 0, "service": "GuardDuty", "enabled": False},
+    )
 
 
 @_register("hardening")
@@ -6798,7 +7641,13 @@ def check_hrd_010(evidence: Dict[str, Any]) -> PreCheckResult:
     if not isinstance(packs, list):
         return PreCheckResult("HRD-010", "SKIP", "unexpected conformance-packs format", [])
     if len(packs) == 0:
-        return PreCheckResult("HRD-010", "FAIL", "0 conformance packs configured", [])
+        return PreCheckResult(
+            "HRD-010",
+            "FAIL",
+            "0 conformance packs configured",
+            [],
+            metadata={"count": 0, "conformance_pack_count": 0},
+        )
     return PreCheckResult("HRD-010", "PASS", f"{len(packs)} conformance pack(s) configured", [])
 
 
@@ -6871,6 +7720,55 @@ def _get_hardening_counts(evidence: Dict[str, Any]):
                     comp_counts[comp] += 1
 
     return sev_counts, comp_counts
+
+
+def _hardening_finding_samples(
+    evidence: Dict[str, Any],
+    severity: str,
+    limit: int = 5,
+) -> List[Dict[str, Any]]:
+    """Return compact Security Hub finding samples for a severity bucket."""
+    findings = evidence.get("security-hub-findings")
+    if not isinstance(findings, list):
+        return []
+
+    out: List[Dict[str, Any]] = []
+    target = str(severity).upper()
+    for idx, finding in enumerate(findings):
+        if not isinstance(finding, dict):
+            continue
+        sev = str(((finding.get("Severity") or {}).get("Label") or "")).upper()
+        if sev != target:
+            continue
+        out.append(
+            {
+                "index": idx,
+                "id": finding.get("Id"),
+                "title": finding.get("Title"),
+                "severity": sev,
+                "compliance_status": (finding.get("Compliance") or {}).get("Status"),
+                "record_state": finding.get("RecordState"),
+                "workflow_status": (finding.get("Workflow") or {}).get("Status"),
+                "resource_ids": [
+                    r.get("Id")
+                    for r in (finding.get("Resources") or [])
+                    if isinstance(r, dict) and r.get("Id")
+                ],
+            }
+        )
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _hardening_sample_resource_ids(samples: List[Dict[str, Any]]) -> List[str]:
+    """Flatten resource IDs from compact Security Hub samples."""
+    out: List[str] = []
+    for sample in samples:
+        for resource_id in sample.get("resource_ids") or []:
+            if resource_id and str(resource_id) not in out:
+                out.append(str(resource_id))
+    return out[:10]
 
 
 # ============================================================================
@@ -7130,20 +8028,30 @@ def check_alrt_005(evidence: Dict[str, Any]) -> PreCheckResult:
             no_subs.append(arn)
 
     if no_subs:
-        # Collect alarm names that depend on the unsubscribed topics — these are
-        # the effective blind spots for responders (more actionable than topic ARNs).
         affected_alarms = []
+        resource_details: list = []
         for topic_arn in no_subs:
-            affected_alarms.extend(alarm_map.get(topic_arn, []))
+            alarm_names = alarm_map.get(topic_arn, [])
+            affected_alarms.extend(alarm_names)
+            resource_details.append(
+                {
+                    "topic_arn": topic_arn,
+                    "affected_alarms": alarm_names,
+                    "alarm_count": len(alarm_names),
+                    "evidence_ref": f"sns-topics.json#TopicArn.{topic_arn}",
+                }
+            )
 
-        resources = affected_alarms[:13] if affected_alarms else no_subs[:5]
+        resources = no_subs[:10]
         summary = (
-            f"alert SNS topic(s) have no confirmed subscriptions "
-            f"({len(affected_alarms)} alarm(s) are effectively blind)"
+            f"{len(no_subs)} alert SNS topic(s) have no confirmed subscriptions "
+            f"({len(affected_alarms)} alarm(s) publish to them)"
             if affected_alarms
-            else "alert SNS topic(s) have no confirmed subscriptions"
+            else f"{len(no_subs)} alert SNS topic(s) have no confirmed subscriptions"
         )
-        return PreCheckResult("ALRT-005", "FAIL", summary, resources)
+        result = PreCheckResult("ALRT-005", "FAIL", summary, resources)
+        result.metadata["resource_details"] = resource_details
+        return result
 
     return PreCheckResult("ALRT-005", "PASS", "alert SNS topics have confirmed subscriptions", [])
 
@@ -7318,11 +8226,12 @@ def check_alrt_002(evidence: Dict[str, Any]) -> PreCheckResult:
 
     if ct_log_groups and isinstance(metric_filters, list):
         ct_metric_filters = [
-            mf for mf in metric_filters
+            mf
+            for mf in metric_filters
             if isinstance(mf, dict) and mf.get("logGroupName") in ct_log_groups
         ]
         if len(ct_metric_filters) >= 3:
-            return PreCheckResult(
+            result = PreCheckResult(
                 "ALRT-002",
                 "FAIL",
                 (
@@ -7330,15 +8239,31 @@ def check_alrt_002(evidence: Dict[str, Any]) -> PreCheckResult:
                     f"CloudWatch metric filter(s) provide alternative coverage — "
                     f"EventBridge integration is a best-practice improvement (Medium risk)"
                 ),
-                [],
+                ["CloudTrail EventBridge security routing"],
             )
+            result.metadata["resource_details"] = [
+                {
+                    "resource": "CloudTrail EventBridge security routing",
+                    "cloudtrail_log_groups": sorted(ct_log_groups),
+                    "metric_filter_count": len(ct_metric_filters),
+                    "evidence_refs": ["eventbridge-rules.json", "cloudwatch-metric-filters.json"],
+                }
+            ]
+            return result
 
-    return PreCheckResult(
+    result = PreCheckResult(
         "ALRT-002",
         "FAIL",
         "no enabled EventBridge rules processing CloudTrail events and no CloudWatch metric filter coverage",
-        [],
+        ["CloudTrail EventBridge security routing"],
     )
+    result.metadata["resource_details"] = [
+        {
+            "resource": "CloudTrail EventBridge security routing",
+            "evidence_refs": ["eventbridge-rules.json", "cloudwatch-metric-filters.json"],
+        }
+    ]
+    return result
 
 
 @_register("alerting")
@@ -7460,12 +8385,23 @@ def check_alrt_007(evidence: Dict[str, Any]) -> PreCheckResult:
 
     missing = [e for e, covered in critical_events.items() if not covered]
     if missing:
-        return PreCheckResult(
+        risk_override = 4.5 if len(missing) == 1 else None
+        result = PreCheckResult(
             "ALRT-007",
             "FAIL",
             f"critical events not covered by metric filters: {', '.join(missing)}",
             missing,
+            risk_score_override=risk_override,
         )
+        result.metadata["resource_details"] = [
+            {
+                "event_name": event,
+                "evidence_ref": "cloudwatch-metric-filters.json",
+            }
+            for event in missing
+        ]
+        result.metadata["missing_events"] = missing
+        return result
     return PreCheckResult(
         "ALRT-007", "PASS", "all critical security events covered by metric filters", []
     )
@@ -7532,21 +8468,32 @@ def check_alrt_017(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("ALRT-017", "SKIP", "no cloudwatch-log-groups evidence", [])
 
     short_retention: List[str] = []
+    resource_details: List[Dict[str, Any]] = []
     for lg in log_groups:
         if not isinstance(lg, dict):
             continue
         retention = lg.get("RetentionInDays")
         # None means "never expire" — acceptable
         if retention is not None and int(retention) < 90:
-            short_retention.append(str(lg.get("LogGroupName") or "unknown"))
+            name = str(lg.get("LogGroupName") or "unknown")
+            short_retention.append(name)
+            resource_details.append(
+                {
+                    "log_group_name": name,
+                    "retention_in_days": int(retention),
+                    "evidence_ref": f"cloudwatch-log-groups.json#LogGroupName.{name}",
+                }
+            )
 
     if short_retention:
-        return PreCheckResult(
+        result = PreCheckResult(
             "ALRT-017",
             "FAIL",
             f"{len(short_retention)} log group(s) with retention < 90 days",
             short_retention[:15],
         )
+        result.metadata["resource_details"] = resource_details
+        return result
     return PreCheckResult(
         "ALRT-017", "PASS", "all log groups have retention >= 90 days or unlimited", []
     )
@@ -7566,19 +8513,43 @@ def check_alrt_010(evidence: Dict[str, Any]) -> PreCheckResult:
             "ALRT-010", "SKIP", "no StateValue data in alarms (collector may not collect it)", []
         )
 
-    insufficient = [
-        str(a.get("AlarmName") or "unknown")
-        for a in alarms_with_state
-        if str(a.get("StateValue") or "").upper() == "INSUFFICIENT_DATA"
-    ]
+    insufficient: List[str] = []
+    resource_details: List[Dict[str, Any]] = []
+    for alarm in alarms_with_state:
+        if str(alarm.get("StateValue") or "").upper() != "INSUFFICIENT_DATA":
+            continue
+        name = str(alarm.get("AlarmName") or "unknown")
+        insufficient.append(name)
+        resource_details.append(
+            {
+                "alarm_name": name,
+                "state": alarm.get("StateValue"),
+                "metric_name": alarm.get("MetricName"),
+                "namespace": alarm.get("Namespace"),
+                "alarm_actions": alarm.get("AlarmActions") or [],
+                "evidence_ref": f"cloudwatch-alarms.json#AlarmName.{name}",
+            }
+        )
 
     if insufficient:
-        return PreCheckResult(
+        operational_only = all(
+            str(detail.get("namespace") or "") not in {"CustomAlerts", "LogMetrics"}
+            for detail in resource_details
+        )
+        result = PreCheckResult(
             "ALRT-010",
             "FAIL",
             f"{len(insufficient)} alarm(s) in INSUFFICIENT_DATA state",
             insufficient[:10],
+            risk_score_override=4.5 if operational_only else None,
         )
+        result.metadata["resource_details"] = resource_details
+        if operational_only:
+            result.metadata["severity_rationale"] = (
+                "Affected alarms monitor service-health namespaces rather than custom "
+                "CloudTrail security metric filters; treat as an operational monitoring gap."
+            )
+        return result
     return PreCheckResult("ALRT-010", "PASS", "no alarms in INSUFFICIENT_DATA state", [])
 
 
@@ -7830,16 +8801,12 @@ def check_alrt_027(evidence: Dict[str, Any]) -> PreCheckResult:
     """ALRT-027: CloudTrail CloudWatch log group has downstream subscription filter consumers."""
     subscriptions = evidence.get("cloudtrail-log-subscriptions")
     if not isinstance(subscriptions, list) or not subscriptions:
-        return PreCheckResult(
-            "ALRT-027", "SKIP", "no cloudtrail-log-subscriptions evidence", []
-        )
+        return PreCheckResult("ALRT-027", "SKIP", "no cloudtrail-log-subscriptions evidence", [])
 
     # Filter out error entries
     valid = [s for s in subscriptions if isinstance(s, dict) and "error" not in s]
     if not valid:
-        return PreCheckResult(
-            "ALRT-027", "SKIP", "cloudtrail log groups not accessible", []
-        )
+        return PreCheckResult("ALRT-027", "SKIP", "cloudtrail log groups not accessible", [])
 
     filters_found = []
     for entry in valid:
@@ -7906,16 +8873,22 @@ def check_exp_001(evidence: Dict[str, Any]) -> PreCheckResult:
     def _pab_blocks_all(pab):
         if not isinstance(pab, dict):
             return False
-        return all([
-            pab.get("BlockPublicAcls"),
-            pab.get("BlockPublicPolicy"),
-            pab.get("IgnorePublicAcls"),
-            pab.get("RestrictPublicBuckets"),
-        ])
+        return all(
+            [
+                pab.get("BlockPublicAcls"),
+                pab.get("BlockPublicPolicy"),
+                pab.get("IgnorePublicAcls"),
+                pab.get("RestrictPublicBuckets"),
+            ]
+        )
 
     _network_condition_keys = (
-        "aws:sourceVpce", "aws:sourceVpc", "aws:sourcevpce", "aws:sourcevpc",
-        "aws:PrincipalOrgID", "aws:PrincipalOrgPaths",
+        "aws:sourceVpce",
+        "aws:sourceVpc",
+        "aws:sourcevpce",
+        "aws:sourcevpc",
+        "aws:PrincipalOrgID",
+        "aws:PrincipalOrgPaths",
     )
 
     def _has_public_policy(policy):
@@ -7973,11 +8946,86 @@ def check_exp_002(evidence: Dict[str, Any]) -> PreCheckResult:
     if not rds_items:
         return PreCheckResult("EXP-002", "SKIP", "no rds-instances evidence", [])
 
-    public = [i for i in rds_items if isinstance(i, dict) and i.get("PubliclyAccessible") is True]
-    if not public:
-        return PreCheckResult("EXP-002", "PASS", "no publicly accessible RDS", [])
-    names = [p.get("DBInstanceIdentifier", "unknown") for p in public[:5]]
-    return PreCheckResult("EXP-002", "FAIL", f"{len(public)} public RDS instances", names)
+    sg_doc = evidence.get("security-groups")
+    sg_by_id = sg_doc.get("by_id", {}) if isinstance(sg_doc, dict) else {}
+    if not isinstance(sg_by_id, dict):
+        sg_by_id = {}
+
+    engine_ports = {
+        "mysql": [3306],
+        "mariadb": [3306],
+        "postgres": [5432],
+        "postgresql": [5432],
+        "sqlserver": [1433],
+        "oracle": [1521],
+        "docdb": [27017],
+    }
+    default_db_ports = [1433, 1521, 27017, 3306, 5432]
+
+    exposed: List[str] = []
+    resource_details: List[Dict[str, Any]] = []
+    for db in rds_items:
+        if not isinstance(db, dict) or db.get("PubliclyAccessible") is not True:
+            continue
+        engine = str(db.get("Engine") or "").lower()
+        ports = next((v for k, v in engine_ports.items() if k in engine), default_db_ports)
+        open_rules: List[Dict[str, Any]] = []
+        for sg_ref in db.get("VpcSecurityGroups", []) or []:
+            if not isinstance(sg_ref, dict):
+                continue
+            sg_id = str(sg_ref.get("VpcSecurityGroupId") or "")
+            sg = sg_by_id.get(sg_id)
+            if not isinstance(sg, dict):
+                continue
+            for perm in sg.get("IngressRules", []) or []:
+                if not isinstance(perm, dict):
+                    continue
+                for port in ports:
+                    if _sg_allows_world(perm, port=port):
+                        sources = [
+                            str(r.get("CidrIp"))
+                            for r in (perm.get("IpRanges") or [])
+                            if isinstance(r, dict) and r.get("CidrIp")
+                        ] + [
+                            str(r.get("CidrIpv6"))
+                            for r in (perm.get("Ipv6Ranges") or [])
+                            if isinstance(r, dict) and r.get("CidrIpv6")
+                        ]
+                        open_rules.append(
+                            {
+                                "security_group_id": sg_id,
+                                "security_group_name": sg.get("GroupName"),
+                                "protocol": perm.get("IpProtocol", "tcp"),
+                                "port": port,
+                                "sources": sources,
+                            }
+                        )
+                        break
+        if open_rules:
+            name = str(db.get("DBInstanceIdentifier") or "unknown")
+            exposed.append(name)
+            resource_details.append(
+                {
+                    "db_instance_identifier": name,
+                    "engine": db.get("Engine"),
+                    "publicly_accessible": True,
+                    "db_subnet_group": db.get("DBSubnetGroup"),
+                    "open_rules": open_rules,
+                }
+            )
+
+    if not exposed:
+        return PreCheckResult(
+            "EXP-002", "PASS", "no publicly accessible RDS with internet-open DB ports", []
+        )
+    result = PreCheckResult(
+        "EXP-002",
+        "FAIL",
+        f"{len(exposed)} public RDS instances with internet-open DB ports",
+        exposed[:5],
+    )
+    result.metadata["resource_details"] = resource_details[:10]
+    return result
 
 
 @_register("exposure")
@@ -7992,20 +9040,46 @@ def check_exp_003(evidence: Dict[str, Any]) -> PreCheckResult:
     if not sgs:
         return PreCheckResult("EXP-003", "SKIP", "no security-groups evidence", [])
 
-    exposed = []
+    exposed: list = []
+    resource_details: list = []
     for sg in sgs:
         if not isinstance(sg, dict):
             continue
+        sg_id = sg.get("GroupId", "unknown")
         for perm in sg.get("IngressRules", []) or []:
             if not isinstance(perm, dict):
                 continue
-            if _sg_allows_world(perm, port=22) or _sg_allows_world(perm, port=3389):
-                exposed.append(sg.get("GroupId", "unknown"))
-                break
+            for port in (22, 3389):
+                if _sg_allows_world(perm, port=port):
+                    if sg_id not in exposed:
+                        exposed.append(sg_id)
+                        cidr = next(
+                            (
+                                r.get("CidrIp", "0.0.0.0/0")
+                                for r in (perm.get("IpRanges") or [])
+                                if isinstance(r, dict)
+                            ),
+                            "0.0.0.0/0",
+                        )
+                        resource_details.append(
+                            {
+                                "resource": sg_id,
+                                "name": sg.get("GroupName", ""),
+                                "port": port,
+                                "service": _port_service_name(port),
+                                "protocol": perm.get("IpProtocol", "tcp"),
+                                "source": cidr,
+                            }
+                        )
+                    break
 
     if not exposed:
         return PreCheckResult("EXP-003", "PASS", "no SSH/RDP open to world", [])
-    return PreCheckResult("EXP-003", "FAIL", f"{len(exposed)} SGs with SSH/RDP open", exposed[:10])
+    result = PreCheckResult(
+        "EXP-003", "FAIL", f"{len(exposed)} SGs with SSH/RDP open", exposed[:10]
+    )
+    result.metadata["resource_details"] = resource_details[:15]
+    return result
 
 
 @_register("exposure")
@@ -8034,16 +9108,30 @@ def check_exp_007(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("EXP-007", "PASS", "no internet-facing ALBs", [])
 
     unprotected = []
+    resource_details: List[Dict[str, Any]] = []
     for alb in internet_albs:
         arn = alb["LoadBalancerArn"]
         if not (by_alb.get(arn) or []):
             unprotected.append(arn)
+            resource_details.append(
+                {
+                    "load_balancer_arn": arn,
+                    "load_balancer_name": alb.get("LoadBalancerName"),
+                    "scheme": alb.get("Scheme"),
+                    "type": alb.get("Type"),
+                    "dns_name": alb.get("DNSName"),
+                    "security_groups": alb.get("SecurityGroups") or [],
+                    "waf_associations": [],
+                }
+            )
 
     if not unprotected:
         return PreCheckResult("EXP-007", "PASS", "all internet ALBs have WAF", [])
-    return PreCheckResult(
+    result = PreCheckResult(
         "EXP-007", "FAIL", f"{len(unprotected)} ALBs without WAF", unprotected[:5]
     )
+    result.metadata["resource_details"] = resource_details[:10]
+    return result
 
 
 @_register("exposure")
@@ -8124,18 +9212,31 @@ def check_exp_013(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("EXP-013", "SKIP", "no indexed s3-buckets", [])
 
     by_name = s3_doc["by_name"]
-    missing = []
+    missing: List[str] = []
+    resource_details: List[Dict[str, Any]] = []
     for bn, b in by_name.items():
         if not isinstance(b, dict):
             continue
         policy = b.get("BucketPolicy")
         if not isinstance(policy, dict):
             missing.append(bn)
+            resource_details.append(
+                {
+                    "bucket_name": bn,
+                    "bucket_arn": f"arn:aws:s3:::{bn}",
+                    "has_bucket_policy": False,
+                    "has_secure_transport_deny": False,
+                    "policy_statement_ids": [],
+                }
+            )
             continue
         has_tls = False
+        statement_ids: List[str] = []
         for st in policy.get("Statement", []) or []:
             if not isinstance(st, dict) or st.get("Effect") != "Deny":
                 continue
+            if st.get("Sid"):
+                statement_ids.append(str(st.get("Sid")))
             cond = st.get("Condition")
             if isinstance(cond, dict):
                 bl = cond.get("Bool")
@@ -8144,15 +9245,26 @@ def check_exp_013(evidence: Dict[str, Any]) -> PreCheckResult:
                     break
         if not has_tls:
             missing.append(bn)
+            resource_details.append(
+                {
+                    "bucket_name": bn,
+                    "bucket_arn": f"arn:aws:s3:::{bn}",
+                    "has_bucket_policy": True,
+                    "has_secure_transport_deny": False,
+                    "policy_statement_ids": statement_ids,
+                }
+            )
 
     if not missing:
         return PreCheckResult("EXP-013", "PASS", "all buckets enforce TLS", [])
-    return PreCheckResult(
+    result = PreCheckResult(
         "EXP-013",
         "FAIL",
         f"{len(missing)} buckets without TLS enforcement",
-        [f"arn:aws:s3:::{n}" for n in missing[:5]],
+        [f"arn:aws:s3:::{n}" for n in missing],
     )
+    result.metadata["resource_details"] = resource_details[:20]
+    return result
 
 
 @_register("exposure")
@@ -8163,26 +9275,36 @@ def check_exp_014(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("EXP-014", "SKIP", "no indexed s3-buckets", [])
 
     by_name = s3_doc["by_name"]
-    unversioned = []
+    unversioned: List[str] = []
+    resource_details: List[Dict[str, Any]] = []
     for bn, b in by_name.items():
         if not isinstance(b, dict):
             continue
         if (b.get("Versioning") or "") != "Enabled":
             unversioned.append(bn)
+            resource_details.append(
+                {
+                    "bucket_name": bn,
+                    "bucket_arn": f"arn:aws:s3:::{bn}",
+                    "versioning": b.get("Versioning"),
+                }
+            )
 
     if not unversioned:
         return PreCheckResult("EXP-014", "PASS", "all buckets have versioning", [])
-    return PreCheckResult(
+    result = PreCheckResult(
         "EXP-014",
         "FAIL",
         f"{len(unversioned)} buckets without versioning",
-        [f"arn:aws:s3:::{n}" for n in unversioned[:5]],
+        [f"arn:aws:s3:::{n}" for n in unversioned],
     )
+    result.metadata["resource_details"] = resource_details[:20]
+    return result
 
 
 @_register("exposure")
 def check_exp_015(evidence: Dict[str, Any]) -> PreCheckResult:
-    """S3 cross-account bucket policy access."""
+    """S3 public/cross-account bucket policy access without effective conditions."""
     s3_doc = evidence.get("s3-buckets")
     items = _items_from_doc(s3_doc)
     if isinstance(s3_doc, dict) and isinstance(s3_doc.get("by_name"), dict):
@@ -8194,9 +9316,30 @@ def check_exp_015(evidence: Dict[str, Any]) -> PreCheckResult:
     if not audit_account:
         return PreCheckResult("EXP-015", "SKIP", "no audit account metadata", [])
 
+    affected: List[str] = []
+    resource_details: List[Dict[str, Any]] = []
+
+    def _condition_status(condition: Any) -> tuple[bool, str]:
+        if not isinstance(condition, dict) or not condition:
+            return False, "missing_condition"
+        for op_values in condition.values():
+            if not isinstance(op_values, dict):
+                continue
+            for key in ("aws:SourceAccount", "aws:PrincipalOrgID"):
+                if key not in op_values:
+                    continue
+                value = op_values.get(key)
+                values = value if isinstance(value, list) else [value]
+                if any(str(v or "").strip() for v in values):
+                    return True, "effective_condition"
+                return False, f"empty_{key}"
+        return False, "missing_source_or_org_condition"
+
     for b in items:
         if not isinstance(b, dict):
             continue
+        bucket_name = str(b.get("Name") or "")
+        bucket_arn = f"arn:aws:s3:::{bucket_name}"
         policy = b.get("BucketPolicy")
         if not isinstance(policy, dict):
             continue
@@ -8204,13 +9347,24 @@ def check_exp_015(evidence: Dict[str, Any]) -> PreCheckResult:
             if not isinstance(st, dict) or st.get("Effect") != "Allow":
                 continue
             principal = st.get("Principal")
+            condition_ok, condition_status = _condition_status(st.get("Condition"))
             if principal == "*":
-                return PreCheckResult(
-                    "EXP-015",
-                    "FAIL",
-                    f"bucket '{b.get('Name')}' has Principal:*",
-                    [f"arn:aws:s3:::{b.get('Name', '')}"],
+                if condition_ok:
+                    continue
+                affected.append(bucket_arn)
+                resource_details.append(
+                    {
+                        "bucket_name": bucket_name,
+                        "bucket_arn": bucket_arn,
+                        "statement_sid": st.get("Sid"),
+                        "principal": principal,
+                        "action": st.get("Action"),
+                        "resource": st.get("Resource"),
+                        "condition_status": condition_status,
+                        "condition": st.get("Condition"),
+                    }
                 )
+                continue
             if isinstance(principal, dict):
                 aws_p = principal.get("AWS")
                 principals = (
@@ -8226,13 +9380,33 @@ def check_exp_015(evidence: Dict[str, Any]) -> PreCheckResult:
                         # Skip known AWS service accounts (e.g. ELB access logging)
                         if parts[4] in _AWS_SERVICE_ACCOUNTS:
                             continue
-                        return PreCheckResult(
-                            "EXP-015",
-                            "FAIL",
-                            f"cross-account principal {p}",
-                            # Include both bucket and cross-account principal for traceability
-                            [f"arn:aws:s3:::{b.get('Name', '')}", p],
+                        if condition_ok:
+                            continue
+                        affected.append(bucket_arn)
+                        affected.append(p)
+                        resource_details.append(
+                            {
+                                "bucket_name": bucket_name,
+                                "bucket_arn": bucket_arn,
+                                "statement_sid": st.get("Sid"),
+                                "principal": p,
+                                "action": st.get("Action"),
+                                "resource": st.get("Resource"),
+                                "condition_status": condition_status,
+                                "condition": st.get("Condition"),
+                            }
                         )
+
+    if affected:
+        bucket_count = len({d["bucket_arn"] for d in resource_details})
+        result = PreCheckResult(
+            "EXP-015",
+            "FAIL",
+            f"{bucket_count} S3 bucket policy statement(s) with public/cross-account principals and ineffective conditions",
+            affected[:10],
+        )
+        result.metadata["resource_details"] = resource_details[:20]
+        return result
 
     return PreCheckResult("EXP-015", "PASS", "no cross-account S3 policies", [])
 
@@ -8263,6 +9437,15 @@ def check_exp_016(evidence: Dict[str, Any]) -> PreCheckResult:
 @_register("exposure")
 def check_exp_004(evidence: Dict[str, Any]) -> PreCheckResult:
     """EC2 management/database ports (22, 3389, 3306, 5432) open to internet via SG."""
+    ec2_doc = (
+        evidence.get("ec2-instances") or evidence.get("instances") or evidence.get("ec2_instances")
+    )
+    instances = _items_from_doc(ec2_doc)
+    if isinstance(ec2_doc, dict) and isinstance(ec2_doc.get("by_id"), dict):
+        instances = list(ec2_doc["by_id"].values())
+    if not instances:
+        return PreCheckResult("EXP-004", "SKIP", "no EC2 instance evidence", [])
+
     sg_doc = evidence.get("security-groups")
     sgs = _items_from_doc(sg_doc)
     if isinstance(sg_doc, dict) and isinstance(sg_doc.get("by_id"), dict):
@@ -8272,26 +9455,68 @@ def check_exp_004(evidence: Dict[str, Any]) -> PreCheckResult:
 
     mgmt_ports = {22, 3389, 3306, 5432, 1433}
 
+    sg_by_id = {str(sg.get("GroupId")): sg for sg in sgs if isinstance(sg, dict)}
     risky: List[str] = []
-    for sg in sgs:
-        if not isinstance(sg, dict):
+    resource_details: List[Dict[str, Any]] = []
+    for inst in instances:
+        if not isinstance(inst, dict):
             continue
-        sg_id = str(sg.get("GroupId") or "unknown")
-        for perm in sg.get("IngressRules", []) or []:
-            if not isinstance(perm, dict):
+        public_ip = inst.get("PublicIpAddress") or inst.get("PublicIp") or inst.get("public_ip")
+        public_dns = inst.get("PublicDnsName") or inst.get("public_dns")
+        if not public_ip and not public_dns:
+            continue
+        sg_refs = inst.get("SecurityGroups") or inst.get("security_groups") or []
+        for sg_ref in sg_refs:
+            if isinstance(sg_ref, dict):
+                sg_id = str(sg_ref.get("GroupId") or sg_ref.get("group_id") or "")
+            else:
+                sg_id = str(sg_ref)
+            sg = sg_by_id.get(sg_id)
+            if not isinstance(sg, dict):
                 continue
-            if any(_sg_allows_world(perm, port=p) for p in mgmt_ports):
-                risky.append(sg_id)
-                break
+            for perm in sg.get("IngressRules", []) or []:
+                if not isinstance(perm, dict):
+                    continue
+                for port in sorted(mgmt_ports):
+                    if not _sg_allows_world(perm, port=port):
+                        continue
+                    instance_id = str(inst.get("InstanceId") or inst.get("id") or "unknown")
+                    resource = f"{instance_id}:{sg_id}:{port}"
+                    risky.append(resource)
+                    resource_details.append(
+                        {
+                            "instance_id": instance_id,
+                            "public_ip": public_ip,
+                            "public_dns": public_dns,
+                            "security_group_id": sg_id,
+                            "security_group_name": sg.get("GroupName"),
+                            "protocol": perm.get("IpProtocol", "tcp"),
+                            "port": port,
+                            "service": _port_service_name(port),
+                            "sources": [
+                                str(r.get("CidrIp"))
+                                for r in (perm.get("IpRanges") or [])
+                                if isinstance(r, dict) and r.get("CidrIp")
+                            ]
+                            + [
+                                str(r.get("CidrIpv6"))
+                                for r in (perm.get("Ipv6Ranges") or [])
+                                if isinstance(r, dict) and r.get("CidrIpv6")
+                            ],
+                        }
+                    )
+                    break
 
     if not risky:
         return PreCheckResult("EXP-004", "PASS", "no management ports open to internet", [])
-    return PreCheckResult(
+    result = PreCheckResult(
         "EXP-004",
         "FAIL",
-        f"{len(risky)} security group(s) with management/DB ports open to internet",
-        risky[:10],
+        f"{len(resource_details)} EC2 management/DB exposure(s) open to internet",
+        [d["instance_id"] for d in resource_details[:10]],
     )
+    result.metadata["resource_details"] = resource_details[:20]
+    return result
 
 
 @_register("exposure")
@@ -8704,6 +9929,7 @@ def check_exp_024(evidence: Dict[str, Any]) -> PreCheckResult:
 
     no_encryption: List[str] = []  # FAIL: no encryption at all
     aes256_audit: List[str] = []  # WARN: AES256 on audit bucket (should be KMS)
+    resource_details: List[Dict[str, Any]] = []
 
     for bucket in items:
         if not isinstance(bucket, dict):
@@ -8714,10 +9940,28 @@ def check_exp_024(evidence: Dict[str, Any]) -> PreCheckResult:
         if algorithm is None:
             # No server-side encryption configured
             no_encryption.append(name)
+            resource_details.append(
+                {
+                    "bucket_name": name,
+                    "bucket_arn": f"arn:aws:s3:::{name}",
+                    "encryption_algorithm": algorithm,
+                    "kms_master_key_id": bucket.get("KMSMasterKeyID"),
+                    "reason": "no_server_side_encryption",
+                }
+            )
         elif algorithm == "AES256":
             # AES256 is fine for most buckets, but audit buckets should use KMS
             if _audit_pattern.search(name):
                 aes256_audit.append(name)
+                resource_details.append(
+                    {
+                        "bucket_name": name,
+                        "bucket_arn": f"arn:aws:s3:::{name}",
+                        "encryption_algorithm": algorithm,
+                        "kms_master_key_id": bucket.get("KMSMasterKeyID"),
+                        "reason": "audit_log_bucket_without_customer_managed_kms",
+                    }
+                )
         # aws:kms → compliant, no action needed
 
     if not no_encryption and not aes256_audit:
@@ -8728,14 +9972,16 @@ def check_exp_024(evidence: Dict[str, Any]) -> PreCheckResult:
             [],
         )
 
-    affected = no_encryption + aes256_audit
+    affected = [f"arn:aws:s3:::{name}" for name in (no_encryption + aes256_audit)]
     parts = []
     if no_encryption:
         parts.append(f"{len(no_encryption)} bucket(s) with no encryption")
     if aes256_audit:
         parts.append(f"{len(aes256_audit)} audit/log bucket(s) using AES256 instead of KMS")
     status = "FAIL" if no_encryption else "FAIL"
-    return PreCheckResult("EXP-024", status, "; ".join(parts), affected[:10])
+    result = PreCheckResult("EXP-024", status, "; ".join(parts), affected[:10])
+    result.metadata["resource_details"] = resource_details[:20]
+    return result
 
 
 @_register("exposure")
@@ -8847,22 +10093,45 @@ def check_net_001(evidence: Dict[str, Any]) -> PreCheckResult:
 
     sensitive_ports = [22, 3389, 3306, 5432, 1433, 27017, 6379]
     exposed = []
+    resource_details: list = []
     for sg in sgs:
         if not isinstance(sg, dict):
             continue
+        sg_id = sg.get("GroupId", "unknown")
         for perm in sg.get("IngressRules", []) or []:
             if not isinstance(perm, dict):
                 continue
             for p in sensitive_ports:
                 if _sg_allows_world(perm, port=p):
-                    exposed.append(sg.get("GroupId", "unknown"))
+                    if sg_id not in exposed:
+                        exposed.append(sg_id)
+                    cidr = next(
+                        (
+                            r.get("CidrIp", "0.0.0.0/0")
+                            for r in (perm.get("IpRanges") or [])
+                            if isinstance(r, dict)
+                        ),
+                        "0.0.0.0/0",
+                    )
+                    resource_details.append(
+                        {
+                            "resource": sg_id,
+                            "name": sg.get("GroupName", ""),
+                            "port": p,
+                            "service": _port_service_name(p),
+                            "protocol": perm.get("IpProtocol", "tcp"),
+                            "source": cidr,
+                        }
+                    )
                     break
-            if sg.get("GroupId") in exposed:
-                break
 
     if not exposed:
         return PreCheckResult("NET-001", "PASS", "no sensitive ports exposed", [])
-    return PreCheckResult("NET-001", "FAIL", f"{len(exposed)} SGs with exposed ports", exposed[:10])
+    result = PreCheckResult(
+        "NET-001", "FAIL", f"{len(exposed)} SGs with exposed ports", exposed[:10]
+    )
+    result.metadata["resource_details"] = resource_details
+    return result
 
 
 @_register("network")
@@ -8897,6 +10166,7 @@ def check_net_011(evidence: Dict[str, Any]) -> PreCheckResult:
         return False
 
     affected: list = []
+    resource_details: list = []
     for sg in sgs:
         if not isinstance(sg, dict):
             continue
@@ -8906,16 +10176,28 @@ def check_net_011(evidence: Dict[str, Any]) -> PreCheckResult:
             if isinstance(perm, dict) and _perm_matches_critical(perm) and _has_missing_desc(perm):
                 if sg_id not in affected:
                     affected.append(sg_id)
+                    resource_details.append(
+                        {
+                            "resource": sg_id,
+                            "name": sg.get("GroupName", ""),
+                            "port": perm.get("FromPort"),
+                            "protocol": perm.get("IpProtocol"),
+                            "service": _port_service_name(perm.get("FromPort")),
+                            "missing_description": True,
+                        }
+                    )
                 break
 
     if not affected:
         return PreCheckResult("NET-011", "PASS", "all critical rules have descriptions", [])
-    return PreCheckResult(
+    result = PreCheckResult(
         "NET-011",
         "FAIL",
         f"{len(affected)} SG(s) with undescribed critical rules",
-        affected[:10],
+        affected,
     )
+    result.metadata["resource_details"] = resource_details
+    return result
 
 
 @_register("network")
@@ -8992,10 +10274,12 @@ def check_net_003(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("NET-003", "SKIP", "no network-acls evidence", [])
 
     flagged = []
+    resource_details: list = []
     for nacl in nacls:
         if not isinstance(nacl, dict):
             continue
         nacl_id = nacl.get("NetworkAclId", "unknown")
+        matched_entries = []
         for entry in nacl.get("Entries", []) or []:
             if not isinstance(entry, dict):
                 continue
@@ -9007,13 +10291,38 @@ def check_net_003(evidence: Dict[str, Any]) -> PreCheckResult:
             ):
                 if nacl_id not in flagged:
                     flagged.append(nacl_id)
+                    matched_entries.append(
+                        {
+                            "rule_number": entry.get("RuleNumber"),
+                            "protocol": entry.get("Protocol"),
+                            "cidr": entry.get("CidrBlock"),
+                            "egress": entry.get("Egress", False),
+                        }
+                    )
                 break
+        if matched_entries:
+            resource_details.append(
+                {
+                    "resource": nacl_id,
+                    "network_acl_id": nacl_id,
+                    "vpc_id": nacl.get("VpcId"),
+                    "is_default": nacl.get("IsDefault", False),
+                    "associated_subnet_ids": [
+                        assoc.get("SubnetId")
+                        for assoc in (nacl.get("Associations") or [])
+                        if isinstance(assoc, dict) and assoc.get("SubnetId")
+                    ],
+                    "allow_all_entries": matched_entries,
+                }
+            )
 
     if not flagged:
         return PreCheckResult("NET-003", "PASS", "no NACLs with ALLOW ALL from 0.0.0.0/0", [])
-    return PreCheckResult(
+    result = PreCheckResult(
         "NET-003", "FAIL", f"{len(flagged)} NACLs with ALLOW ALL from internet", flagged[:5]
     )
+    result.metadata["resource_details"] = resource_details
+    return result
 
 
 @_register("network")
@@ -9029,7 +10338,8 @@ def check_net_009(evidence: Dict[str, Any]) -> PreCheckResult:
 
     # Standard web ports excluded from check (these are expected to have broad access)
     web_ports = {80, 443}
-    flagged = []
+    flagged: list = []
+    resource_details: list = []
 
     for sg in sgs:
         if not isinstance(sg, dict):
@@ -9063,6 +10373,15 @@ def check_net_009(evidence: Dict[str, Any]) -> PreCheckResult:
                     if fp == tp and fp in web_ports:
                         continue
                     flagged.append(f"{sg_id}:{cidr}:{fp}-{tp}")
+                    resource_details.append(
+                        {
+                            "resource": sg_id,
+                            "name": sg.get("GroupName", ""),
+                            "cidr": cidr,
+                            "port_range": f"{fp}-{tp}" if fp != tp else str(fp),
+                            "protocol": proto,
+                        }
+                    )
                     found = True
                     break
             if found:
@@ -9071,12 +10390,14 @@ def check_net_009(evidence: Dict[str, Any]) -> PreCheckResult:
     if not flagged:
         return PreCheckResult("NET-009", "PASS", "no overly broad CIDRs to non-web ports", [])
     sg_ids = list(dict.fromkeys(f.split(":")[0] for f in flagged))
-    return PreCheckResult(
+    result = PreCheckResult(
         "NET-009",
         "FAIL",
         f"{len(flagged)} SG rule(s) with broad CIDR (>=/16) to non-web port",
         sg_ids[:10],
     )
+    result.metadata["resource_details"] = resource_details
+    return result
 
 
 @_register("network")
@@ -9089,21 +10410,33 @@ def check_net_016(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("NET-016", "SKIP", "no network-acls evidence", [])
 
     default_subnets: list = []
+    resource_details: list = []
     for nacl in nacls:
         if not isinstance(nacl, dict) or not nacl.get("IsDefault", False):
             continue
         for assoc in nacl.get("Associations", []) or []:
             if isinstance(assoc, dict) and assoc.get("SubnetId"):
                 default_subnets.append(assoc["SubnetId"])
+                resource_details.append(
+                    {
+                        "resource": assoc["SubnetId"],
+                        "subnet_id": assoc["SubnetId"],
+                        "network_acl_id": nacl.get("NetworkAclId"),
+                        "vpc_id": nacl.get("VpcId"),
+                        "is_default": True,
+                    }
+                )
 
     if not default_subnets:
         return PreCheckResult("NET-016", "PASS", "all subnets use custom NACLs", [])
-    return PreCheckResult(
+    result = PreCheckResult(
         "NET-016",
         "FAIL",
         f"{len(default_subnets)} subnet(s) using default NACL",
-        default_subnets[:10],
+        default_subnets,
     )
+    result.metadata["resource_details"] = resource_details
+    return result
 
 
 @_register("network")
@@ -9118,21 +10451,34 @@ def check_net_027(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("NET-027", "SKIP", "no security-groups evidence", [])
 
     untagged = []
+    resource_details: list = []
     for sg in sgs:
         if not isinstance(sg, dict):
             continue
         tags = sg.get("Tags", []) or []
         if not tags:
-            untagged.append(sg.get("GroupId", "unknown"))
+            sg_id = sg.get("GroupId", "unknown")
+            untagged.append(sg_id)
+            resource_details.append(
+                {
+                    "resource": sg_id,
+                    "security_group_id": sg_id,
+                    "name": sg.get("GroupName", ""),
+                    "vpc_id": sg.get("VpcId"),
+                    "tags": [],
+                }
+            )
 
     if not untagged:
         return PreCheckResult("NET-027", "PASS", "all security groups have tags", [])
-    return PreCheckResult(
+    result = PreCheckResult(
         "NET-027",
         "FAIL",
         f"{len(untagged)} SG(s) missing tags",
-        untagged[:10],
+        untagged,
     )
+    result.metadata["resource_details"] = resource_details
+    return result
 
 
 @_register("network")
@@ -9259,6 +10605,7 @@ def check_net_008(evidence: Dict[str, Any]) -> PreCheckResult:
 
     # Find public subnet IDs (route tables with IGW routes)
     public_subnet_ids: set = set()
+    public_subnet_route_tables: dict[str, str] = {}
     for rt in rts:
         if not isinstance(rt, dict):
             continue
@@ -9271,11 +10618,13 @@ def check_net_008(evidence: Dict[str, Any]) -> PreCheckResult:
         for assoc in rt.get("Associations") or []:
             if isinstance(assoc, dict) and assoc.get("SubnetId"):
                 public_subnet_ids.add(assoc["SubnetId"])
+                public_subnet_route_tables[assoc["SubnetId"]] = rt.get("RouteTableId", "")
 
     if not public_subnet_ids:
         return PreCheckResult("NET-008", "PASS", "no public subnets detected", [])
 
     critical_in_public: list = []
+    resource_details: list = []
 
     # Check Lambda functions with VPC config
     lambda_doc = evidence.get("lambda-functions")
@@ -9285,10 +10634,24 @@ def check_net_008(evidence: Dict[str, Any]) -> PreCheckResult:
             continue
         vpc_config = fn.get("VpcConfig") or {}
         fn_subnets = vpc_config.get("SubnetIds") or []
-        for sid in fn_subnets:
-            if sid in public_subnet_ids:
-                critical_in_public.append(f"lambda:{fn.get('FunctionName', 'unknown')}")
-                break
+        matching_subnets = [sid for sid in fn_subnets if sid in public_subnet_ids]
+        if matching_subnets:
+            resource = f"lambda:{fn.get('FunctionName', 'unknown')}"
+            critical_in_public.append(resource)
+            resource_details.append(
+                {
+                    "resource": resource,
+                    "resource_type": "lambda",
+                    "identifier": fn.get("FunctionName", "unknown"),
+                    "arn": fn.get("FunctionArn"),
+                    "public_subnet_ids": matching_subnets,
+                    "route_table_ids": [
+                        public_subnet_route_tables.get(sid)
+                        for sid in matching_subnets
+                        if public_subnet_route_tables.get(sid)
+                    ],
+                }
+            )
 
     # Check RDS instances — handle both collector formats:
     #   1. Drystone collector: flat "SubnetIds" array (e.g. ["subnet-abc", ...])
@@ -9300,28 +10663,51 @@ def check_net_008(evidence: Dict[str, Any]) -> PreCheckResult:
             continue
         # Try flat SubnetIds first (Drystone collector format)
         flat_subnets = db.get("SubnetIds") or []
+        matching_subnets: list = []
         if flat_subnets:
-            for sid in flat_subnets:
-                if sid in public_subnet_ids:
-                    critical_in_public.append(f"rds:{db.get('DBInstanceIdentifier', 'unknown')}")
-                    break
+            matching_subnets = [sid for sid in flat_subnets if sid in public_subnet_ids]
         else:
             # Fallback to raw AWS DBSubnetGroup format
             sg_subnets = db.get("DBSubnetGroup", {}).get("Subnets") or []
             for s in sg_subnets:
                 sid = s.get("SubnetIdentifier") if isinstance(s, dict) else s
                 if sid and sid in public_subnet_ids:
-                    critical_in_public.append(f"rds:{db.get('DBInstanceIdentifier', 'unknown')}")
-                    break
+                    matching_subnets.append(sid)
+        if matching_subnets:
+            identifier = db.get("DBInstanceIdentifier", "unknown")
+            resource = f"rds:{identifier}"
+            critical_in_public.append(resource)
+            resource_details.append(
+                {
+                    "resource": resource,
+                    "resource_type": "rds",
+                    "identifier": identifier,
+                    "arn": db.get("DBInstanceArn") or db.get("DBInstanceARN"),
+                    "vpc_id": (
+                        db.get("DBSubnetGroup", {}).get("VpcId")
+                        if isinstance(db.get("DBSubnetGroup"), dict)
+                        else db.get("VpcId")
+                    ),
+                    "publicly_accessible": db.get("PubliclyAccessible"),
+                    "public_subnet_ids": matching_subnets,
+                    "route_table_ids": [
+                        public_subnet_route_tables.get(sid)
+                        for sid in matching_subnets
+                        if public_subnet_route_tables.get(sid)
+                    ],
+                }
+            )
 
     if not critical_in_public:
         return PreCheckResult("NET-008", "PASS", "no critical workloads in public subnets", [])
-    return PreCheckResult(
+    result = PreCheckResult(
         "NET-008",
         "FAIL",
         f"{len(critical_in_public)} critical workload(s) in public subnets",
         critical_in_public[:5],
     )
+    result.metadata["resource_details"] = resource_details
+    return result
 
 
 @_register("network")
@@ -9334,10 +10720,12 @@ def check_net_010(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("NET-010", "SKIP", "no network-acls evidence", [])
 
     permissive: list = []
+    resource_details: list = []
     for nacl in nacls:
         if not isinstance(nacl, dict) or not nacl.get("IsDefault", False):
             continue
         nacl_id = nacl.get("NetworkAclId", "unknown")
+        matched_entries = []
         for entry in nacl.get("Entries") or []:
             if not isinstance(entry, dict):
                 continue
@@ -9347,18 +10735,43 @@ def check_net_010(evidence: Dict[str, Any]) -> PreCheckResult:
                 and entry.get("CidrBlock") == "0.0.0.0/0"
             ):
                 permissive.append(nacl_id)
+                matched_entries.append(
+                    {
+                        "rule_number": entry.get("RuleNumber"),
+                        "protocol": entry.get("Protocol"),
+                        "cidr": entry.get("CidrBlock"),
+                        "egress": entry.get("Egress", False),
+                    }
+                )
                 break
+        if matched_entries:
+            resource_details.append(
+                {
+                    "resource": nacl_id,
+                    "network_acl_id": nacl_id,
+                    "vpc_id": nacl.get("VpcId"),
+                    "is_default": True,
+                    "associated_subnet_ids": [
+                        assoc.get("SubnetId")
+                        for assoc in (nacl.get("Associations") or [])
+                        if isinstance(assoc, dict) and assoc.get("SubnetId")
+                    ],
+                    "allow_all_entries": matched_entries,
+                }
+            )
 
     if not permissive:
         return PreCheckResult(
             "NET-010", "PASS", "no default NACLs with ALLOW ALL from internet", []
         )
-    return PreCheckResult(
+    result = PreCheckResult(
         "NET-010",
         "FAIL",
         f"{len(permissive)} default NACL(s) with ALLOW ALL from 0.0.0.0/0",
         permissive[:5],
     )
+    result.metadata["resource_details"] = resource_details
+    return result
 
 
 @_register("network")
@@ -9575,19 +10988,91 @@ def check_net_007(evidence: Dict[str, Any]) -> PreCheckResult:
     rts = _items_from_doc(rt_doc)
     vpce_doc = evidence.get("vpc-endpoints")
     vpces = _items_from_doc(vpce_doc)
+    subnet_doc = evidence.get("subnets")
+    subnets = _items_from_doc(subnet_doc)
+    ec2_doc = evidence.get("ec2-instances")
+    ec2_instances = _items_from_doc(ec2_doc)
+    rds_doc = evidence.get("rds-instances")
+    rds_instances = _items_from_doc(rds_doc)
+    lambda_doc = evidence.get("lambda-functions")
+    lambda_functions = _items_from_doc(lambda_doc)
 
     if not rts:
         return PreCheckResult("NET-007", "SKIP", "no route-tables evidence", [])
 
-    # Check if any VPC has a route to an Internet Gateway (north-south traffic)
-    has_igw = any(
-        isinstance(r, dict) and str(r.get("GatewayId", "")).startswith("igw-")
-        for rt in rts
-        if isinstance(rt, dict)
-        for r in (rt.get("Routes") or [])
-    )
+    subnet_to_vpc = {
+        str(subnet.get("SubnetId")): str(subnet.get("VpcId"))
+        for subnet in subnets
+        if isinstance(subnet, dict) and subnet.get("SubnetId") and subnet.get("VpcId")
+    }
+    workload_counts: dict[str, int] = {}
 
-    if not has_igw:
+    def _mark_workload(vpc_id: str) -> None:
+        if vpc_id and vpc_id != "unknown":
+            workload_counts[vpc_id] = workload_counts.get(vpc_id, 0) + 1
+
+    for instance in ec2_instances:
+        if not isinstance(instance, dict):
+            continue
+        vpc_id = str(
+            instance.get("VpcId") or subnet_to_vpc.get(str(instance.get("SubnetId"))) or ""
+        )
+        _mark_workload(vpc_id)
+
+    for db in rds_instances:
+        if not isinstance(db, dict):
+            continue
+        vpc_id = str(db.get("VpcId") or "")
+        if not vpc_id:
+            for subnet_id in db.get("SubnetIds") or []:
+                vpc_id = subnet_to_vpc.get(str(subnet_id), "")
+                if vpc_id:
+                    break
+        _mark_workload(vpc_id)
+
+    for fn in lambda_functions:
+        if not isinstance(fn, dict):
+            continue
+        vpc_config = fn.get("VpcConfig") or {}
+        for subnet_id in vpc_config.get("SubnetIds") or []:
+            vpc_id = subnet_to_vpc.get(str(subnet_id), "")
+            if vpc_id:
+                _mark_workload(vpc_id)
+                break
+
+    # Check if any VPC has a route to an Internet Gateway (north-south traffic)
+    internet_facing_vpcs: dict[str, dict] = {}
+    empty_internet_facing_vpcs: list[str] = []
+    for rt in rts:
+        if not isinstance(rt, dict):
+            continue
+        for route in rt.get("Routes") or []:
+            if not isinstance(route, dict) or not str(route.get("GatewayId", "")).startswith(
+                "igw-"
+            ):
+                continue
+            vpc_id = str(rt.get("VpcId") or "unknown")
+            if workload_counts.get(vpc_id, 0) == 0:
+                if vpc_id not in empty_internet_facing_vpcs:
+                    empty_internet_facing_vpcs.append(vpc_id)
+                continue
+            internet_facing_vpcs.setdefault(
+                vpc_id,
+                {
+                    "resource": vpc_id,
+                    "vpc_id": vpc_id,
+                    "route_table_ids": [],
+                    "internet_gateway_ids": [],
+                    "has_network_firewall_endpoint": False,
+                    "workload_count": workload_counts.get(vpc_id, 0),
+                },
+            )
+            if rt.get("RouteTableId"):
+                internet_facing_vpcs[vpc_id]["route_table_ids"].append(rt.get("RouteTableId"))
+            if route.get("GatewayId"):
+                internet_facing_vpcs[vpc_id]["internet_gateway_ids"].append(route.get("GatewayId"))
+
+    if not internet_facing_vpcs:
         return PreCheckResult(
             "NET-007", "PASS", "no Internet Gateway routes — north-south traffic absent", []
         )
@@ -9602,12 +11087,84 @@ def check_net_007(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("NET-007", "PASS", "Network Firewall VPC endpoint detected", [])
 
     # VPC has IGW but no Network Firewall endpoint visible in collected evidence
-    return PreCheckResult(
+    affected = sorted(internet_facing_vpcs)
+    resource_details = list(internet_facing_vpcs.values())
+    result = PreCheckResult(
         "NET-007",
         "FAIL",
         "VPC has Internet Gateway but no AWS Network Firewall endpoint detected in vpc-endpoints",
-        [],
+        affected,
     )
+    result.metadata["resource_details"] = resource_details
+    if empty_internet_facing_vpcs:
+        result.metadata["empty_internet_facing_vpcs_excluded"] = sorted(empty_internet_facing_vpcs)
+    return result
+
+
+@_register("network")
+def check_net_013(evidence: Dict[str, Any]) -> PreCheckResult:
+    """NET-013: Private route tables rely on NAT for AWS service egress while VPC endpoints are absent."""
+    rt_doc = evidence.get("route-tables")
+    rts = _items_from_doc(rt_doc)
+    nat_doc = evidence.get("nat-gateway-routes")
+    nat_routes = _items_from_doc(nat_doc)
+    vpce_doc = evidence.get("vpc-endpoints")
+    vpces = _items_from_doc(vpce_doc)
+
+    if not rts:
+        return PreCheckResult("NET-013", "SKIP", "no route-tables evidence", [])
+    if vpces:
+        return PreCheckResult("NET-013", "PASS", "VPC endpoint evidence present", [])
+
+    nat_by_id = {
+        str(nat.get("NatGatewayId")): nat
+        for nat in nat_routes
+        if isinstance(nat, dict) and nat.get("NatGatewayId")
+    }
+    affected: list[str] = []
+    resource_details: list[dict[str, Any]] = []
+
+    for rt in rts:
+        if not isinstance(rt, dict):
+            continue
+        rt_id = str(rt.get("RouteTableId") or "")
+        vpc_id = str(rt.get("VpcId") or "")
+        for route in rt.get("Routes") or []:
+            if not isinstance(route, dict):
+                continue
+            nat_id = str(route.get("NatGatewayId") or "")
+            if route.get("DestinationCidrBlock") != "0.0.0.0/0" or not nat_id:
+                continue
+            if rt_id:
+                affected.append(rt_id)
+            nat = nat_by_id.get(nat_id, {})
+            resource_details.append(
+                {
+                    "resource": rt_id,
+                    "route_table_id": rt_id,
+                    "vpc_id": vpc_id,
+                    "nat_gateway_id": nat_id,
+                    "nat_gateway_subnet_id": nat.get("SubnetId"),
+                    "destination": "0.0.0.0/0",
+                    "vpc_endpoints_present": False,
+                    "observed_service_traffic": "not_collected",
+                }
+            )
+            break
+
+    if not affected:
+        return PreCheckResult(
+            "NET-013", "PASS", "no private route tables with NAT default route", []
+        )
+
+    result = PreCheckResult(
+        "NET-013",
+        "FAIL",
+        f"{len(affected)} route table(s) rely on NAT default routes and no VPC endpoints are present",
+        affected,
+    )
+    result.metadata["resource_details"] = resource_details
+    return result
 
 
 @_register("network")
@@ -9656,21 +11213,36 @@ def check_net_025(evidence: Dict[str, Any]) -> PreCheckResult:
 
     classification_keys = {"tier", "layer", "classification", "subnet-type", "subnettype"}
     missing: list = []
+    resource_details: list = []
     for s in subnets:
         if not isinstance(s, dict):
             continue
         tag_keys = {t.get("Key", "").lower() for t in (s.get("Tags") or []) if isinstance(t, dict)}
         if not (tag_keys & classification_keys):
-            missing.append(s.get("SubnetId", "unknown"))
+            subnet_id = s.get("SubnetId", "unknown")
+            missing.append(subnet_id)
+            resource_details.append(
+                {
+                    "resource": subnet_id,
+                    "subnet_id": subnet_id,
+                    "vpc_id": s.get("VpcId"),
+                    "cidr_block": s.get("CidrBlock"),
+                    "availability_zone": s.get("AvailabilityZone"),
+                    "tag_keys": sorted(tag_keys),
+                    "missing_classification": True,
+                }
+            )
 
     if not missing:
         return PreCheckResult("NET-025", "PASS", "all subnets have classification tags", [])
-    return PreCheckResult(
+    result = PreCheckResult(
         "NET-025",
         "FAIL",
         f"{len(missing)} subnet(s) missing classification tags (Tier/Layer)",
-        missing[:8],
+        missing,
     )
+    result.metadata["resource_details"] = resource_details
+    return result
 
 
 @_register("network")
@@ -9686,31 +11258,61 @@ def check_net_022(evidence: Dict[str, Any]) -> PreCheckResult:
     if not subnets:
         return PreCheckResult("NET-022", "SKIP", "no subnets evidence", [])
 
-    # Find public subnet IDs (route tables with IGW default route)
-    public_subnet_ids: set = set()
+    explicit_route_by_subnet: dict[str, dict] = {}
+    main_route_by_vpc: dict[str, dict] = {}
     for rt in rts:
         if not isinstance(rt, dict):
             continue
-        igw = any(
+        for assoc in rt.get("Associations") or []:
+            if not isinstance(assoc, dict):
+                continue
+            if assoc.get("SubnetId"):
+                explicit_route_by_subnet[str(assoc["SubnetId"])] = rt
+            elif assoc.get("Main") is True and rt.get("VpcId"):
+                main_route_by_vpc[str(rt.get("VpcId"))] = rt
+
+    # Find public subnet IDs (route tables with IGW default route, including inherited main routes)
+    public_subnet_ids: set = set()
+    resource_details: list = []
+    for subnet in subnets:
+        if not isinstance(subnet, dict) or not subnet.get("SubnetId"):
+            continue
+        subnet_id = str(subnet.get("SubnetId"))
+        vpc_id = str(subnet.get("VpcId") or "")
+        rt = explicit_route_by_subnet.get(subnet_id) or main_route_by_vpc.get(vpc_id)
+        if not isinstance(rt, dict):
+            continue
+        has_igw = any(
             isinstance(r, dict)
             and str(r.get("GatewayId", "")).startswith("igw-")
             and r.get("DestinationCidrBlock") == "0.0.0.0/0"
             for r in (rt.get("Routes") or [])
         )
-        if not igw:
+        if not has_igw:
             continue
-        for assoc in rt.get("Associations") or []:
-            if isinstance(assoc, dict) and assoc.get("SubnetId"):
-                public_subnet_ids.add(assoc["SubnetId"])
+        inherited_main_route = subnet_id not in explicit_route_by_subnet
+        public_subnet_ids.add(subnet_id)
+        resource_details.append(
+            {
+                "resource": subnet_id,
+                "subnet_id": subnet_id,
+                "route_table_id": rt.get("RouteTableId"),
+                "vpc_id": vpc_id or rt.get("VpcId"),
+                "internet_gateway_route": True,
+                "inherited_main_route": inherited_main_route,
+            }
+        )
 
     if not public_subnet_ids:
         return PreCheckResult("NET-022", "PASS", "no public subnets detected", [])
-    return PreCheckResult(
+    result = PreCheckResult(
         "NET-022",
         "FAIL",
         f"{len(public_subnet_ids)} public subnet(s) with IGW route require workload verification",
         sorted(public_subnet_ids)[:8],
     )
+    result.metadata["resource_details"] = resource_details
+    return result
 
 
 @_register("network")
@@ -9793,6 +11395,32 @@ def _waf_collection_has_failures(evidence: Dict[str, Any]) -> bool:
     return False
 
 
+def _waf_classic_alb_associations(evidence: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """Return ALB ARNs associated with WAF Classic Web ACLs."""
+    classic = evidence.get("waf-classic") or {}
+    if not isinstance(classic, dict):
+        return {}
+
+    associations: Dict[str, Dict[str, Any]] = {}
+    regional = classic.get("regional") or {}
+    if not isinstance(regional, dict):
+        return associations
+
+    for region_data in regional.values():
+        if not isinstance(region_data, dict):
+            continue
+        for assoc in region_data.get("alb_associations") or []:
+            if not isinstance(assoc, dict):
+                continue
+            arn = str(assoc.get("LoadBalancerArn") or "")
+            if not arn:
+                continue
+            web_acl = assoc.get("WebACL")
+            if isinstance(web_acl, dict) and (web_acl.get("WebACLId") or web_acl.get("Name")):
+                associations[arn] = assoc
+    return associations
+
+
 @_register("waf")
 def check_waf_001(evidence: Dict[str, Any]) -> PreCheckResult:
     """Internet-facing ALBs should have WAF protection."""
@@ -9801,20 +11429,41 @@ def check_waf_001(evidence: Dict[str, Any]) -> PreCheckResult:
     albs = evidence.get("alb-waf-associations")
     if not isinstance(albs, list) or len(albs) == 0:
         return PreCheckResult("WAF-001", "PASS", "no internet-facing ALBs detected", [])
-    # Full deterministic check: WAFv2WebACL must be a dict without 'error' key
-    unprotected = [
-        a.get("LoadBalancerArn") or a.get("LoadBalancerName", "unknown")
-        for a in albs
-        if not isinstance(a.get("WAFv2WebACL"), dict)
-        or "error" in (a.get("WAFv2WebACL") or {})
-        or not a.get("WAFv2WebACL")
-    ]
+    classic_alb_associations = _waf_classic_alb_associations(evidence)
+    unprotected: List[str] = []
+    resource_details: List[Dict[str, Any]] = []
+    for alb in albs:
+        if not isinstance(alb, dict):
+            continue
+        arn = str(alb.get("LoadBalancerArn") or alb.get("LoadBalancerName") or "unknown")
+        wafv2_acl = alb.get("WAFv2WebACL")
+        has_wafv2 = isinstance(wafv2_acl, dict) and wafv2_acl.get("ARN") and not wafv2_acl.get(
+            "error"
+        )
+        has_classic = arn in classic_alb_associations
+        if has_wafv2 or has_classic:
+            continue
+        unprotected.append(arn)
+        resource_details.append(
+            {
+                "load_balancer_arn": arn,
+                "dns_name": alb.get("DNSName"),
+                "region": alb.get("Region"),
+                "scheme": alb.get("Scheme"),
+                "wafv2_web_acl": wafv2_acl,
+                "waf_classic_web_acl": None,
+            }
+        )
     if unprotected:
         return PreCheckResult(
             "WAF-001",
             "FAIL",
-            f"{len(unprotected)} internet-facing ALB(s) without WAF protection",
+            f"{len(unprotected)} internet-facing ALB(s) without WAFv2 or WAF Classic protection",
             unprotected[:5],
+            metadata={
+                "resource_details": resource_details,
+                "waf_classic_protected_albs": sorted(classic_alb_associations.keys()),
+            },
         )
     return PreCheckResult("WAF-001", "PASS", "all internet-facing ALBs are WAF-protected", [])
 
@@ -9875,6 +11524,7 @@ def check_waf_004(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("WAF-004", "PASS", "no Web ACLs (N/A)", [])
     incomplete: list = []
     all_missing: set = set()
+    resource_details: List[Dict[str, Any]] = []
     for acl in web_acls:
         logging_cfg = acl.get("Logging") or {}
         if not logging_cfg.get("enabled", False):
@@ -9886,7 +11536,17 @@ def check_waf_004(evidence: Dict[str, Any]) -> PreCheckResult:
         missing = _sensitive_headers - redacted
         if missing:
             all_missing |= missing
-            incomplete.append(acl.get("ARN") or acl.get("Name", "unknown"))
+            arn = acl.get("ARN") or acl.get("Name", "unknown")
+            incomplete.append(arn)
+            resource_details.append(
+                {
+                    "web_acl_arn": arn,
+                    "name": acl.get("Name"),
+                    "logging_enabled": True,
+                    "redacted_fields": logging_cfg.get("RedactedFields") or [],
+                    "missing_redactions": sorted(missing),
+                }
+            )
     if incomplete:
         missing_str = "/".join(sorted(all_missing))
         return PreCheckResult(
@@ -9894,6 +11554,7 @@ def check_waf_004(evidence: Dict[str, Any]) -> PreCheckResult:
             "FAIL",
             f"{len(incomplete)} Web ACL(s) with incomplete log redaction (missing: {missing_str})",
             incomplete[:5],
+            metadata={"resource_details": resource_details},
         )
     return PreCheckResult("WAF-004", "PASS", "all Web ACLs have complete log redaction", [])
 
@@ -9940,20 +11601,44 @@ def check_waf_006(evidence: Dict[str, Any]) -> PreCheckResult:
     if not isinstance(web_acls, list) or len(web_acls) == 0:
         return PreCheckResult("WAF-006", "PASS", "no Web ACLs (N/A)", [])
     missing_baseline = []
+    resource_details: List[Dict[str, Any]] = []
     for acl in web_acls:
         rules = (acl.get("WebACL") or {}).get("Rules", [])
         used_managed = {
-            (r.get("Statement") or {}).get("ManagedRuleGroupStatement", {}).get("Name", "")
+            str((r.get("Statement") or {}).get("ManagedRuleGroupStatement", {}).get("Name", ""))
             for r in rules
         }
-        if not used_managed & _WAF_BASELINE_MANAGED_RULES:
-            missing_baseline.append(acl.get("ARN") or acl.get("Name", "unknown"))
+        used_aws_baseline = used_managed & _WAF_BASELINE_MANAGED_RULES
+        if not used_aws_baseline:
+            arn = acl.get("ARN") or acl.get("Name", "unknown")
+            missing_baseline.append(arn)
+            managed_groups = [
+                {
+                    "vendor": (r.get("Statement") or {})
+                    .get("ManagedRuleGroupStatement", {})
+                    .get("VendorName"),
+                    "name": (r.get("Statement") or {})
+                    .get("ManagedRuleGroupStatement", {})
+                    .get("Name"),
+                }
+                for r in rules
+                if (r.get("Statement") or {}).get("ManagedRuleGroupStatement")
+            ]
+            resource_details.append(
+                {
+                    "web_acl_arn": arn,
+                    "name": acl.get("Name"),
+                    "managed_rule_groups": managed_groups,
+                    "missing_aws_baseline_rule_groups": sorted(_WAF_BASELINE_MANAGED_RULES),
+                }
+            )
     if missing_baseline:
         return PreCheckResult(
             "WAF-006",
             "FAIL",
             f"{len(missing_baseline)} Web ACL(s) lack baseline AWS Managed Rules",
             missing_baseline[:5],
+            metadata={"resource_details": resource_details},
         )
     return PreCheckResult("WAF-006", "PASS", "all Web ACLs have baseline managed rules", [])
 
@@ -10045,12 +11730,29 @@ def check_waf_010(evidence: Dict[str, Any]) -> PreCheckResult:
         regional_acls.extend((region_data or {}).get("web_acls", []))
     total = len(global_acls) + len(regional_acls)
     if total > 0:
-        names = [a.get("Name", "unknown") for a in global_acls + regional_acls]
+        resource_details = [
+            {"scope": "CLOUDFRONT", "name": a.get("Name", "unknown"), "web_acl_id": a.get("WebACLId")}
+            for a in global_acls
+            if isinstance(a, dict)
+        ]
+        for region, region_data in (classic.get("regional") or {}).items():
+            for acl in (region_data or {}).get("web_acls", []):
+                if isinstance(acl, dict):
+                    resource_details.append(
+                        {
+                            "scope": "REGIONAL",
+                            "region": region,
+                            "name": acl.get("Name", "unknown"),
+                            "web_acl_id": acl.get("WebACLId"),
+                        }
+                    )
+        names = [d.get("name", "unknown") for d in resource_details]
         return PreCheckResult(
             "WAF-010",
             "FAIL",
             f"{total} WAF Classic Web ACL(s) detected; migrate to WAFv2",
             names[:5],
+            metadata={"resource_details": resource_details},
         )
     return PreCheckResult("WAF-010", "PASS", "no WAF Classic Web ACLs detected", [])
 
@@ -10217,22 +11919,57 @@ def check_vuln_002(evidence: Dict[str, Any]) -> PreCheckResult:
     if not isinstance(findings, list):
         return PreCheckResult("VULN-002", "SKIP", "no inspector-findings evidence", [])
 
-    critical_active = [
-        f.get("resources", [{}])[0].get("id", "unknown")
-        for f in findings
-        if isinstance(f, dict)
-        and str(f.get("severity", "")).upper() == "CRITICAL"
-        and str(f.get("status", "")).upper() == "ACTIVE"
-    ]
+    critical_active: list = []
+    resource_details: list = []
+    now = datetime.now(tz=timezone.utc)
+
+    for idx, f in enumerate(findings):
+        if not isinstance(f, dict):
+            continue
+        if str(f.get("severity", "")).upper() != "CRITICAL":
+            continue
+        if str(f.get("status", "")).upper() != "ACTIVE":
+            continue
+        resources = f.get("resources") or [{}]
+        resource_id = (
+            resources[0].get("id", "unknown") if isinstance(resources[0], dict) else "unknown"
+        )
+        critical_active.append(resource_id)
+
+        vuln_details = f.get("packageVulnerabilityDetails") or f.get("vulnerabilityDetails") or {}
+        pkgs = vuln_details.get("vulnerablePackages") or []
+        pkg = pkgs[0] if pkgs else {}
+        first_observed = f.get("firstObservedAt") or f.get("createdAt")
+        days_open: Optional[int] = None
+        if first_observed:
+            dt = _parse_date(first_observed)
+            if dt:
+                days_open = (now - dt).days
+
+        resource_details.append(
+            {
+                "resource_id": resource_id,
+                "cve_id": vuln_details.get("vulnerabilityId") or f.get("title", ""),
+                "package": pkg.get("name") if isinstance(pkg, dict) else "",
+                "version": pkg.get("version") if isinstance(pkg, dict) else "",
+                "fix_available": (
+                    bool(pkg.get("fixedInVersion")) if isinstance(pkg, dict) else False
+                ),
+                "days_open": days_open,
+                "evidence_ref": f"inspector-findings.json#/{idx}",
+            }
+        )
 
     if not critical_active:
         return PreCheckResult("VULN-002", "PASS", "no CRITICAL active Inspector findings", [])
-    return PreCheckResult(
+    result = PreCheckResult(
         "VULN-002",
         "FAIL",
         f"{len(critical_active)} CRITICAL active Inspector finding(s)",
         critical_active[:10],
     )
+    result.metadata["resource_details"] = resource_details[:15]
+    return result
 
 
 @_register("vulns")
@@ -10245,15 +11982,22 @@ def check_vuln_009(evidence: Dict[str, Any]) -> PreCheckResult:
     from collections import Counter
 
     resource_counts: Counter = Counter()
-    for f in findings:
+    resource_severities: Dict[str, Counter] = {}
+    resource_refs: Dict[str, list[str]] = {}
+    for idx, f in enumerate(findings):
         if not isinstance(f, dict):
             continue
         if str(f.get("status", "")).upper() != "ACTIVE":
             continue
+        sev = str(f.get("severity", "UNKNOWN")).upper()
         for res in f.get("resources", []):
             rid = res.get("id") if isinstance(res, dict) else None
             if rid:
                 resource_counts[rid] += 1
+                if rid not in resource_severities:
+                    resource_severities[rid] = Counter()
+                resource_severities[rid][sev] += 1
+                resource_refs.setdefault(rid, []).append(f"inspector-findings.json#/{idx}")
 
     multi_vuln = {rid: cnt for rid, cnt in resource_counts.items() if cnt >= 3}
     if not multi_vuln:
@@ -10261,12 +12005,23 @@ def check_vuln_009(evidence: Dict[str, Any]) -> PreCheckResult:
 
     top = sorted(multi_vuln.items(), key=lambda x: x[1], reverse=True)
     resources = [f"{rid} ({cnt} CVEs)" for rid, cnt in top[:5]]
-    return PreCheckResult(
+    resource_details = [
+        {
+            "resource_id": rid,
+            "cve_count": cnt,
+            "severities": dict(resource_severities.get(rid, {})),
+            "evidence_refs": resource_refs.get(rid, [])[:10],
+        }
+        for rid, cnt in top[:10]
+    ]
+    result = PreCheckResult(
         "VULN-009",
         "FAIL",
         f"{len(multi_vuln)} resource(s) with 3+ active CVEs",
         resources,
     )
+    result.metadata["resource_details"] = resource_details
+    return result
 
 
 @_register("vulns")
@@ -10303,22 +12058,36 @@ def check_vuln_023(evidence: Dict[str, Any]) -> PreCheckResult:
     if not isinstance(items, list) or not items:
         return PreCheckResult("VULN-023", "SKIP", "no ec2-user-data evidence", [])
 
-    exposed = []
+    exposed: list = []
+    resource_details: list = []
     for it in items:
         if not isinstance(it, dict):
             continue
         flags = it.get("ContainsSecrets")
         if not isinstance(flags, dict):
             continue
-        if any(bool(v) for v in flags.values()):
-            iid = it.get("InstanceId", "unknown")
-            exposed.append(f"arn:aws:ec2:*:*:instance/{iid}")
+        secret_types = {k: v for k, v in flags.items() if bool(v)}
+        if not secret_types:
+            continue
+        iid = it.get("InstanceId", "unknown")
+        arn = f"arn:aws:ec2:*:*:instance/{iid}"
+        exposed.append(arn)
+        resource_details.append(
+            {
+                "instance_id": iid,
+                "instance_name": it.get("InstanceName") or it.get("Name") or "",
+                "secret_types": list(secret_types.keys()),
+                "secret_count": len(secret_types),
+            }
+        )
 
     if not exposed:
         return PreCheckResult("VULN-023", "PASS", "no user-data secret patterns detected", [])
-    return PreCheckResult(
+    result = PreCheckResult(
         "VULN-023", "FAIL", f"{len(exposed)} instances with secret-like user-data", exposed[:10]
     )
+    result.metadata["resource_details"] = resource_details[:15]
+    return result
 
 
 @_register("vulns")
@@ -10329,20 +12098,32 @@ def check_vuln_024(evidence: Dict[str, Any]) -> PreCheckResult:
     if not isinstance(items, list) or not items:
         return PreCheckResult("VULN-024", "SKIP", "no lambda-environment-variables evidence", [])
 
-    exposed = []
+    exposed: list = []
+    resource_details: list = []
     for it in items:
         if not isinstance(it, dict):
             continue
         keys = it.get("PotentialSecretKeys")
-        if isinstance(keys, list) and len(keys) > 0:
-            arn = it.get("FunctionArn") or f"lambda/{it.get('FunctionName', 'unknown')}"
-            exposed.append(str(arn))
+        if not isinstance(keys, list) or len(keys) == 0:
+            continue
+        fn_arn = it.get("FunctionArn") or f"lambda/{it.get('FunctionName', 'unknown')}"
+        exposed.append(str(fn_arn))
+        resource_details.append(
+            {
+                "function_arn": str(fn_arn),
+                "function_name": it.get("FunctionName") or "",
+                "sensitive_keys": keys[:10],
+                "key_count": len(keys),
+            }
+        )
 
     if not exposed:
         return PreCheckResult("VULN-024", "PASS", "no sensitive Lambda env keys detected", [])
-    return PreCheckResult(
+    result = PreCheckResult(
         "VULN-024", "FAIL", f"{len(exposed)} Lambda functions with sensitive env keys", exposed[:10]
     )
+    result.metadata["resource_details"] = resource_details[:15]
+    return result
 
 
 @_register("vulns")
@@ -10532,8 +12313,9 @@ def check_vuln_004(evidence: Dict[str, Any]) -> PreCheckResult:
     if not isinstance(findings, list):
         return PreCheckResult("VULN-004", "SKIP", "no inspector-findings evidence", [])
 
-    exploitable = []
-    for f in findings:
+    exploitable: List[str] = []
+    details: List[Dict[str, Any]] = []
+    for idx, f in enumerate(findings):
         if not isinstance(f, dict):
             continue
         if (
@@ -10544,14 +12326,47 @@ def check_vuln_004(evidence: Dict[str, Any]) -> PreCheckResult:
             resources = f.get("resources", [])
             rid = resources[0].get("id", "unknown") if resources else "unknown"
             exploitable.append(f"{title} @ {rid}")
+            details.append(
+                {
+                    "finding_arn": f.get("findingArn"),
+                    "evidence_ref": (
+                        f"inspector-findings.json#items.{idx}"
+                        if f.get("findingArn") is None
+                        else f"inspector-findings.json#findingArn.{f.get('findingArn')}"
+                    ),
+                    "title": title,
+                    "resource_id": rid,
+                    "resource_type": resources[0].get("type") if resources else None,
+                    "status": f.get("status"),
+                    "severity": f.get("severity"),
+                    "inspector_score": f.get("inspectorScore"),
+                    "exploit_available": f.get("exploitAvailable"),
+                    "fix_available": f.get("fixAvailable"),
+                    "remediation": (
+                        ((f.get("remediation") or {}).get("recommendation") or {}).get("text")
+                        if isinstance(f.get("remediation"), dict)
+                        else None
+                    ),
+                }
+            )
 
     if not exploitable:
         return PreCheckResult("VULN-004", "PASS", "no actively exploitable CVEs detected", [])
+    max_score = max(
+        [
+            float(d.get("inspector_score") or 0.0)
+            for d in details
+            if isinstance(d.get("inspector_score"), (int, float))
+        ]
+        or [7.0]
+    )
     return PreCheckResult(
         "VULN-004",
         "FAIL",
         f"{len(exploitable)} CVE(s) with known active exploit and ACTIVE status",
         exploitable[:10],
+        metadata={"resource_details": details[:25]},
+        risk_score_override=max_score,
     )
 
 
@@ -10630,7 +12445,8 @@ def check_vuln_008(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("VULN-008", "SKIP", "no inspector-findings evidence", [])
 
     high_active = []
-    for f in findings:
+    details: List[Dict[str, Any]] = []
+    for idx, f in enumerate(findings):
         if not isinstance(f, dict):
             continue
         if (
@@ -10640,6 +12456,29 @@ def check_vuln_008(evidence: Dict[str, Any]) -> PreCheckResult:
             resources = f.get("resources", [])
             rid = resources[0].get("id", "unknown") if resources else "unknown"
             high_active.append(rid)
+            details.append(
+                {
+                    "finding_arn": f.get("findingArn"),
+                    "evidence_ref": (
+                        f"inspector-findings.json#items.{idx}"
+                        if f.get("findingArn") is None
+                        else f"inspector-findings.json#findingArn.{f.get('findingArn')}"
+                    ),
+                    "title": f.get("title"),
+                    "resource_id": rid,
+                    "resource_type": resources[0].get("type") if resources else None,
+                    "status": f.get("status"),
+                    "severity": f.get("severity"),
+                    "inspector_score": f.get("inspectorScore"),
+                    "exploit_available": f.get("exploitAvailable"),
+                    "fix_available": f.get("fixAvailable"),
+                    "remediation": (
+                        ((f.get("remediation") or {}).get("recommendation") or {}).get("text")
+                        if isinstance(f.get("remediation"), dict)
+                        else None
+                    ),
+                }
+            )
 
     if not high_active:
         return PreCheckResult("VULN-008", "PASS", "no ACTIVE HIGH Inspector findings", [])
@@ -10648,8 +12487,9 @@ def check_vuln_008(evidence: Dict[str, Any]) -> PreCheckResult:
     return PreCheckResult(
         "VULN-008",
         "FAIL",
-        f"{len(high_active)} ACTIVE HIGH Inspector finding(s) across {len(unique_resources)} resource(s) — no remediation plan evident",
+        f"{len(high_active)} ACTIVE HIGH Inspector finding(s) across {len(unique_resources)} resource(s) requiring remediation tracking",
         unique_resources[:10],
+        metadata={"resource_details": details[:50]},
     )
 
 
@@ -10660,9 +12500,43 @@ def check_vuln_003(evidence: Dict[str, Any]) -> PreCheckResult:
     if not isinstance(findings, list):
         return PreCheckResult("VULN-003", "SKIP", "no inspector-findings evidence", [])
 
-    # Look for ACTIVE findings targeting EC2 instances
-    active_ec2: List[str] = []
-    for f in findings:
+    public_instance_ids: set = set()
+    for key in ("public-vulnerability-paths", "internet-reachable-vulnerabilities"):
+        doc = evidence.get(key)
+        items = doc.get("items") if isinstance(doc, dict) else doc if isinstance(doc, list) else []
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+            rid = item.get("InstanceId") or item.get("instance_id") or item.get("resource_id")
+            if isinstance(rid, str) and rid:
+                public_instance_ids.add(rid)
+
+    for key in ("ec2-instances", "instances"):
+        doc = evidence.get(key)
+        items = doc.get("items") if isinstance(doc, dict) else doc if isinstance(doc, list) else []
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+            rid = str(item.get("InstanceId") or "")
+            if not rid:
+                continue
+            public_ip = item.get("PublicIpAddress") or item.get("PublicIp")
+            publicly_reachable = item.get("PubliclyReachable") or item.get("InternetReachable")
+            if public_ip or publicly_reachable is True:
+                public_instance_ids.add(rid)
+
+    if not public_instance_ids:
+        return PreCheckResult(
+            "VULN-003",
+            "SKIP",
+            "no network reachability evidence proving public EC2 exposure",
+            [],
+        )
+
+    # Look for ACTIVE findings targeting EC2 instances with separate public exposure proof.
+    active_public_ec2: List[str] = []
+    details: List[Dict[str, Any]] = []
+    for idx, f in enumerate(findings):
         if not isinstance(f, dict):
             continue
         if str(f.get("status", "")).upper() != "ACTIVE":
@@ -10670,18 +12544,41 @@ def check_vuln_003(evidence: Dict[str, Any]) -> PreCheckResult:
         for res in f.get("resources") or []:
             if isinstance(res, dict) and res.get("type") == "AWS_EC2_INSTANCE":
                 rid = str(res.get("id") or "unknown")
-                if rid not in active_ec2:
-                    active_ec2.append(rid)
+                if rid not in public_instance_ids:
+                    continue
+                if rid not in active_public_ec2:
+                    active_public_ec2.append(rid)
+                details.append(
+                    {
+                        "finding_arn": f.get("findingArn"),
+                        "evidence_ref": (
+                            f"inspector-findings.json#items.{idx}"
+                            if f.get("findingArn") is None
+                            else f"inspector-findings.json#findingArn.{f.get('findingArn')}"
+                        ),
+                        "title": f.get("title"),
+                        "resource_id": rid,
+                        "status": f.get("status"),
+                        "severity": f.get("severity"),
+                        "exploit_available": f.get("exploitAvailable"),
+                        "fix_available": f.get("fixAvailable"),
+                        "public_exposure_evidence": "network reachability evidence present",
+                    }
+                )
 
-    if not active_ec2:
+    if not active_public_ec2:
         return PreCheckResult(
-            "VULN-003", "PASS", "no ACTIVE Inspector findings on EC2 instances", []
+            "VULN-003",
+            "PASS",
+            "no ACTIVE Inspector findings on publicly reachable EC2 instances",
+            [],
         )
     return PreCheckResult(
         "VULN-003",
         "FAIL",
-        f"{len(active_ec2)} EC2 instance(s) with ACTIVE Inspector findings (potentially publicly accessible)",
-        active_ec2[:5],
+        f"{len(active_public_ec2)} publicly reachable EC2 instance(s) with ACTIVE Inspector findings",
+        active_public_ec2[:5],
+        metadata={"resource_details": details[:25]},
     )
 
 
@@ -10748,8 +12645,25 @@ def check_vuln_010(evidence: Dict[str, Any]) -> PreCheckResult:
     if not isinstance(findings, list):
         return PreCheckResult("VULN-010", "SKIP", "no inspector-findings evidence", [])
 
+    instance_names: Dict[str, str] = {}
+    patch_doc = evidence.get("ec2-patch-status")
+    patch_items = patch_doc if isinstance(patch_doc, list) else []
+    for item in patch_items:
+        if not isinstance(item, dict):
+            continue
+        iid = str(item.get("InstanceId") or "")
+        if not iid:
+            continue
+        name = ""
+        for tag in item.get("Tags") or []:
+            if isinstance(tag, dict) and tag.get("Key") == "Name":
+                name = str(tag.get("Value") or "")
+                break
+        instance_names[iid] = name
+
     affected: List[str] = []
-    for f in findings:
+    details: List[Dict[str, Any]] = []
+    for idx, f in enumerate(findings):
         if not isinstance(f, dict):
             continue
         if str(f.get("status", "")).upper() != "ACTIVE":
@@ -10762,6 +12676,24 @@ def check_vuln_010(evidence: Dict[str, Any]) -> PreCheckResult:
                 rid = str(res.get("id") or "unknown")
                 if rid not in affected:
                     affected.append(rid)
+                details.append(
+                    {
+                        "finding_arn": f.get("findingArn"),
+                        "evidence_ref": (
+                            f"inspector-findings.json#items.{idx}"
+                            if f.get("findingArn") is None
+                            else f"inspector-findings.json#findingArn.{f.get('findingArn')}"
+                        ),
+                        "title": f.get("title"),
+                        "resource_id": rid,
+                        "instance_name": instance_names.get(rid),
+                        "status": f.get("status"),
+                        "severity": f.get("severity"),
+                        "inspector_score": f.get("inspectorScore"),
+                        "exploit_available": f.get("exploitAvailable"),
+                        "fix_available": f.get("fixAvailable"),
+                    }
+                )
 
     if not affected:
         return PreCheckResult(
@@ -10775,12 +12707,13 @@ def check_vuln_010(evidence: Dict[str, Any]) -> PreCheckResult:
         "FAIL",
         f"{len(affected)} EC2 instance(s) with ACTIVE HIGH/CRITICAL Inspector findings",
         affected[:5],
+        metadata={"resource_details": details[:50]},
     )
 
 
 @_register("vulns")
 def check_vuln_011(evidence: Dict[str, Any]) -> PreCheckResult:
-    """VULN-011: ECR scanning not active — no container image findings from Inspector."""
+    """VULN-011: ECR scanning explicitly disabled by configuration evidence."""
     findings = evidence.get("inspector-findings")
     if not isinstance(findings, list):
         return PreCheckResult("VULN-011", "SKIP", "no inspector-findings evidence", [])
@@ -10802,10 +12735,48 @@ def check_vuln_011(evidence: Dict[str, Any]) -> PreCheckResult:
             f"ECR scanning is active ({len(ecr_findings)} container image finding(s) present)",
             [],
         )
+
+    disabled: List[str] = []
+    for key in ("ecr-scanning-config", "scanning-config", "registry"):
+        doc = evidence.get(key)
+        if not isinstance(doc, dict):
+            continue
+        scan_type = str(doc.get("scanType") or doc.get("ScanType") or "").upper()
+        rules = doc.get("rules") or doc.get("Rules") or []
+        if scan_type in {"BASIC", "NONE", "DISABLED"} or rules == []:
+            disabled.append(key)
+
+    repos = evidence.get("repositories")
+    repo_items = (
+        repos.get("items") if isinstance(repos, dict) else repos if isinstance(repos, list) else []
+    )
+    for repo in repo_items or []:
+        if not isinstance(repo, dict):
+            continue
+        name = str(repo.get("repositoryName") or repo.get("RepositoryName") or "")
+        scan_cfg = (
+            repo.get("imageScanningConfiguration") or repo.get("ImageScanningConfiguration") or {}
+        )
+        if isinstance(scan_cfg, dict) and scan_cfg.get("scanOnPush") is False:
+            disabled.append(name or "repository-with-scanOnPush-false")
+
+    if disabled:
+        return PreCheckResult(
+            "VULN-011",
+            "FAIL",
+            f"{len(disabled)} ECR scanning configuration item(s) explicitly disabled",
+            disabled[:10],
+            metadata={
+                "resource_details": [
+                    {"resource": r, "scan_status": "disabled"} for r in disabled[:25]
+                ]
+            },
+        )
+
     return PreCheckResult(
         "VULN-011",
-        "FAIL",
-        "no ECR container image findings from Inspector — scanning may be disabled or no images present",
+        "SKIP",
+        "no ECR image findings and no scan configuration evidence; cannot infer disabled scanning",
         [],
     )
 
@@ -11392,6 +13363,17 @@ def check_sm_011(evidence: Dict[str, Any]) -> PreCheckResult:
 @_register("secretsmanager")
 def check_sm_012(evidence: Dict[str, Any]) -> PreCheckResult:
     """No rotation failure alerting configured (CloudWatch + EventBridge)."""
+    secrets_doc = evidence.get("secrets")
+    if isinstance(secrets_doc, dict):
+        secrets_list = secrets_doc.get("secrets")
+        if isinstance(secrets_list, list) and not secrets_list:
+            return PreCheckResult(
+                "SM-012",
+                "SKIP",
+                "no Secrets Manager secrets found; rotation failure alerting is not applicable",
+                [],
+            )
+
     cw = evidence.get("cloudwatch_alarms", {})
     eb = evidence.get("eventbridge_rules", {})
 
@@ -11415,6 +13397,12 @@ def check_sm_012(evidence: Dict[str, Any]) -> PreCheckResult:
             "FAIL",
             "no CloudWatch alarms or EventBridge rules monitor Secrets Manager rotation failures",
             [],
+            metadata={
+                "evidence_refs": [
+                    "cloudwatch_alarms.json#/regions",
+                    "eventbridge_rules.json#/regions",
+                ]
+            },
         )
     return PreCheckResult(
         "SM-012",
@@ -11750,6 +13738,10 @@ def check_kms_002(evidence: Dict[str, Any]) -> PreCheckResult:
             return True
         return False
 
+    flagged_keys: list = []
+    resource_details: list = []
+    now = datetime.now(tz=timezone.utc)
+
     for g in items:
         if not isinstance(g, dict):
             continue
@@ -11766,14 +13758,36 @@ def check_kms_002(evidence: Dict[str, Any]) -> PreCheckResult:
 
         key_id = str(g.get("KeyId") or "unknown")
         grant_id = str(g.get("GrantId") or "unknown")
-        return PreCheckResult(
-            "KMS-002",
-            "FAIL",
-            f"unexpected sensitive grant {grant_id} on {key_id}",
-            [key_id],
+        creation_date = g.get("CreationDate")
+        days_active: Optional[int] = None
+        if creation_date:
+            dt = _parse_date(creation_date)
+            if dt:
+                days_active = (now - dt).days
+
+        if key_id not in flagged_keys:
+            flagged_keys.append(key_id)
+        resource_details.append(
+            {
+                "key_id": key_id,
+                "grant_id": grant_id,
+                "grantee": str(g.get("GranteePrincipal") or ""),
+                "operations": list(ops),
+                "has_constraints": _has_context_constraints(g),
+                "days_active": days_active,
+            }
         )
 
-    return PreCheckResult("KMS-002", "PASS", "no sensitive grants", [])
+    if not flagged_keys:
+        return PreCheckResult("KMS-002", "PASS", "no sensitive grants", [])
+    result = PreCheckResult(
+        "KMS-002",
+        "FAIL",
+        f"{len(resource_details)} unexpected sensitive grant(s) on {len(flagged_keys)} key(s)",
+        flagged_keys[:10],
+    )
+    result.metadata["resource_details"] = resource_details[:15]
+    return result
 
 
 @_register("kms")
@@ -13093,6 +15107,10 @@ def check_recon_008(evidence: Dict[str, Any]) -> PreCheckResult:
             "FAIL",
             f"{total_entry_points} internet-facing entry points detected (APIs={total_apis}, LBs={lbs}, Lambda={lambdas}, EIPs={eips}, CF={cf})",
             [],
+            metadata={
+                "total_entry_points": total_entry_points,
+                "factors": score_doc.get("factors", []),
+            },
         )
     return PreCheckResult(
         "RECON-008",
@@ -13855,9 +15873,7 @@ def check_ser_ec2_002(evidence: Dict[str, Any]) -> PreCheckResult:
                     "impact_type": cve_entry.get("impact_type", ""),
                     "description": cve_entry.get("description", ""),
                     "attack_vector": cve_entry.get("attack_vector", ""),
-                    "exploitable_from_internet": cve_entry.get(
-                        "exploitable_from_internet", False
-                    ),
+                    "exploitable_from_internet": cve_entry.get("exploitable_from_internet", False),
                     "relevant_open_ports": cve_entry.get("relevant_open_ports", []),
                     "resource": iid,
                 }
@@ -14110,7 +16126,8 @@ def check_ctef_002(evidence: dict) -> PreCheckResult:
     console_events = _load_ctef_events(evidence, "console-login-events")
     # ConsoleLogin failures have ErrorMessage = "Failed authentication"
     failed = [
-        e for e in console_events
+        e
+        for e in console_events
         if e.get("ErrorCode") or "failed" in str(e.get("ErrorMessage", "")).lower()
     ]
     threshold = 5
@@ -14132,13 +16149,32 @@ def check_ctef_003(evidence: dict) -> PreCheckResult:
     """CTEF-003: CloudTrail audit tampering detected (StopLogging / DeleteTrail / UpdateTrail)."""
     tampering = _load_ctef_events(evidence, "audit-tampering-events")
     if tampering:
-        event_names = list({e.get("EventName", "unknown") for e in tampering})
-        usernames = list({e.get("Username", "unknown") for e in tampering})[:5]
+        event_names = sorted({str(e.get("EventName", "unknown")) for e in tampering})
+        usernames = sorted({str(e.get("Username", "unknown")) for e in tampering})[:5]
+        affected_resources: List[str] = []
+        for username in usernames:
+            if username and username != "unknown":
+                affected_resources.append(f"user:{username}")
+        for event in tampering:
+            for resource in event.get("Resources") or []:
+                if not isinstance(resource, dict):
+                    continue
+                resource_name = resource.get("ResourceName")
+                if resource_name:
+                    affected_resources.append(str(resource_name))
+            request_name = (event.get("requestParameters") or {}).get("name")
+            if request_name:
+                affected_resources.append(str(request_name))
+            caller_arn = event.get("callerArn")
+            if caller_arn:
+                affected_resources.append(str(caller_arn))
+
+        affected_resources = list(dict.fromkeys(affected_resources))
         return PreCheckResult(
             "CTEF-003",
             "FAIL",
             f"Audit trail tampering detected: {event_names} by {usernames}",
-            [f"user:{u}" for u in usernames],
+            affected_resources,
             confidence=1.0,
         )
     return PreCheckResult("CTEF-003", "PASS", "No CloudTrail tampering events detected", [])
@@ -14157,9 +16193,7 @@ def check_ctef_004(evidence: dict) -> PreCheckResult:
             f"{len(priv_esc)} privilege escalation event(s): {event_names} by {actors}",
             [f"user:{a}" for a in actors],
         )
-    return PreCheckResult(
-        "CTEF-004", "PASS", "No privilege escalation events detected", []
-    )
+    return PreCheckResult("CTEF-004", "PASS", "No privilege escalation events detected", [])
 
 
 @_register("cloudtrail_events")
@@ -14176,7 +16210,10 @@ def check_ctef_005(evidence: dict) -> PreCheckResult:
             [],
         )
     return PreCheckResult(
-        "CTEF-005", "PASS", f"Throttling events below threshold ({len(throttled)} < {threshold})", []
+        "CTEF-005",
+        "PASS",
+        f"Throttling events below threshold ({len(throttled)} < {threshold})",
+        [],
     )
 
 
@@ -14204,7 +16241,8 @@ def check_ctef_007(evidence: dict) -> PreCheckResult:
     console_events = _load_ctef_events(evidence, "console-login-events")
     # Filter successful logins only
     successful = [
-        e for e in console_events
+        e
+        for e in console_events
         if not e.get("ErrorCode") and "failed" not in str(e.get("ErrorMessage", "")).lower()
     ]
     off_hours = []
@@ -14212,6 +16250,7 @@ def check_ctef_007(evidence: dict) -> PreCheckResult:
         event_time_str = e.get("EventTime", "")
         try:
             from datetime import datetime as _dt, timezone as _tz
+
             if isinstance(event_time_str, str):
                 et = _dt.fromisoformat(event_time_str.replace("Z", "+00:00"))
             else:
@@ -14253,7 +16292,10 @@ def check_ctef_008(evidence: dict) -> PreCheckResult:
             [f"user:{a}" for a in actors],
         )
     return PreCheckResult(
-        "CTEF-008", "PASS", f"Deletion events below threshold ({len(delete_events)} < {threshold})", []
+        "CTEF-008",
+        "PASS",
+        f"Deletion events below threshold ({len(delete_events)} < {threshold})",
+        [],
     )
 
 
@@ -14312,10 +16354,9 @@ def check_ctef_010(evidence: dict) -> PreCheckResult:
 
     threshold = 1
     if len(cross_account) >= threshold:
-        actors = list({
-            e.get("callerArn") or e.get("Username") or "unknown"
-            for e in cross_account
-        })[:5]
+        actors = list(
+            {e.get("callerArn") or e.get("Username") or "unknown" for e in cross_account}
+        )[:5]
         return PreCheckResult(
             "CTEF-010",
             "FAIL",
@@ -14344,25 +16385,28 @@ def check_ctef_011(evidence: dict) -> PreCheckResult:
             f"{len(disabled)} security monitoring service disabling event(s): {event_names} by {actors}",
             [f"actor:{a}" for a in actors],
         )
-    return PreCheckResult("CTEF-011", "PASS", "No security monitoring service disabling events detected", [])
+    return PreCheckResult(
+        "CTEF-011", "PASS", "No security monitoring service disabling events detected", []
+    )
 
 
 @_register("cloudtrail_events")
 def check_ctef_012(evidence: dict) -> PreCheckResult:
     """CTEF-012: Secrets and credentials accessed (Secrets Manager / SSM Parameter Store)."""
-    accessed = (
-        _load_ctef_events(evidence, "get-secret-value-events")
-        + _load_ctef_events(evidence, "get-parameter-events")
+    accessed = _load_ctef_events(evidence, "get-secret-value-events") + _load_ctef_events(
+        evidence, "get-parameter-events"
     )
     if accessed:
         event_names = list({e.get("EventName", "unknown") for e in accessed})[:5]
         actors = list({e.get("Username", "unknown") for e in accessed})[:5]
-        resources = list({
-            r.get("ResourceName", "unknown")
-            for e in accessed
-            for r in (e.get("Resources") or [])
-            if r.get("ResourceName")
-        })[:5]
+        resources = list(
+            {
+                r.get("ResourceName", "unknown")
+                for e in accessed
+                for r in (e.get("Resources") or [])
+                if r.get("ResourceName")
+            }
+        )[:5]
         summary = f"{len(accessed)} secret/parameter access event(s): {event_names} by {actors}"
         if resources:
             summary += f"; resources: {resources}"
@@ -14378,19 +16422,20 @@ def check_ctef_012(evidence: dict) -> PreCheckResult:
 @_register("cloudtrail_events")
 def check_ctef_013(evidence: dict) -> PreCheckResult:
     """CTEF-013: IAM trust or inline policy modified (privilege escalation via trust relationships)."""
-    modified = (
-        _load_ctef_events(evidence, "update-assume-role-events")
-        + _load_ctef_events(evidence, "put-role-policy-events")
+    modified = _load_ctef_events(evidence, "update-assume-role-events") + _load_ctef_events(
+        evidence, "put-role-policy-events"
     )
     if modified:
         event_names = list({e.get("EventName", "unknown") for e in modified})[:5]
         actors = list({e.get("Username", "unknown") for e in modified})[:5]
-        roles = list({
-            r.get("ResourceName", "unknown")
-            for e in modified
-            for r in (e.get("Resources") or [])
-            if r.get("ResourceName")
-        })[:5]
+        roles = list(
+            {
+                r.get("ResourceName", "unknown")
+                for e in modified
+                for r in (e.get("Resources") or [])
+                if r.get("ResourceName")
+            }
+        )[:5]
         summary = f"{len(modified)} IAM trust/inline policy modification event(s): {event_names} by {actors}"
         if roles:
             summary += f"; roles: {roles}"
@@ -14400,4 +16445,6 @@ def check_ctef_013(evidence: dict) -> PreCheckResult:
             summary,
             [f"actor:{a}" for a in actors],
         )
-    return PreCheckResult("CTEF-013", "PASS", "No IAM trust or inline policy modification events detected", [])
+    return PreCheckResult(
+        "CTEF-013", "PASS", "No IAM trust or inline policy modification events detected", []
+    )

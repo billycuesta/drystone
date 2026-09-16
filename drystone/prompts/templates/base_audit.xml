@@ -83,7 +83,11 @@ Extends with skill-specific fields.
         Write in narrative prose, not bullet points. Reference affected resources by name when known.</field>
       <field>evidence_refs: array of strings (at least one)</field>
       <field>evidence_snippet: object (5-20 lines from real evidence)</field>
-      <field>affected_resources: array of ARNs/identifiers</field>
+      <field>affected_resources: array of strings only. Use ARNs or stable AWS identifiers
+        such as user names, role ARNs, security group IDs, subnet IDs, route table IDs,
+        VPC IDs, bucket ARNs, or instance IDs. Do NOT put JSON objects in affected_resources.
+        Put per-resource details (dates, key IDs, CIDRs, ports, route table IDs, tag status,
+        and configuration values) in evidence_snippet instead.</field>
       <field>remediation: string — Narrative recommendation ("It is recommended to..."), explain
         WHY the fix works, not just WHAT to do. Reference specific AWS controls or services.</field>
       <field>security_analogy: string (STRONGLY RECOMMENDED) — One or two sentences comparing this technical risk to a real-world

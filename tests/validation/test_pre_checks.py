@@ -5,6 +5,7 @@ based on known evidence patterns.
 """
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -126,6 +127,7 @@ from drystone.validation.pre_checks import (
     check_net_029,
     check_sm_001,
     check_sm_003,
+    check_sm_012,
     check_sm_013,
     check_sm_014,
     check_sm_015,
@@ -499,7 +501,8 @@ class TestIAM012RichMetadata:
         assert r.status == "SKIP"
 
     def test_pass_when_all_active_recently(self):
-        evidence = {"users": [self._make_user("active", pwd_last_used="2026-04-01T00:00:00Z")]}
+        recent = (datetime.now(timezone.utc) - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        evidence = {"users": [self._make_user("active", pwd_last_used=recent)]}
         r = check_iam_012(evidence)
         assert r.status == "PASS"
 
@@ -538,6 +541,12 @@ class TestIAM012RichMetadata:
         assert r.status == "PASS"
 
     def test_credential_report_recent_activity_excludes_users(self):
+        recent_pwd = (datetime.now(timezone.utc) - timedelta(days=3)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        recent_key = (datetime.now(timezone.utc) - timedelta(days=8)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
         evidence = {
             "users": [
                 {"UserName": "jcgarcia", "Arn": "arn:aws:iam::123:user/jcgarcia"},
@@ -547,8 +556,8 @@ class TestIAM012RichMetadata:
             ],
             "credential-report": {
                 "by_user": {
-                    "jcgarcia": {"password_last_used": "2026-04-15T00:00:00Z"},
-                    "mario": {"access_key_1_last_used_date": "2026-04-10T00:00:00Z"},
+                    "jcgarcia": {"password_last_used": recent_pwd},
+                    "mario": {"access_key_1_last_used_date": recent_key},
                     "old1": {"password_last_used": "2025-01-01T00:00:00Z"},
                     "old2": {"access_key_1_last_used_date": "no_information"},
                 }
@@ -4262,6 +4271,33 @@ class TestSM015:
             }
         )
         assert r.status == "FAIL"
+
+
+class TestSM012:
+    def test_skip_when_no_secrets_exist(self):
+        r = check_sm_012(
+            {
+                "secrets": {"secrets": []},
+                "cloudwatch_alarms": {"regions": {"us-east-1": {"likely_relevant_count": 0}}},
+                "eventbridge_rules": {"regions": {"us-east-1": {"relevant_rule_count": 0}}},
+            }
+        )
+        assert r.status == "SKIP"
+        assert "not applicable" in r.evidence_summary
+
+    def test_fail_includes_alerting_evidence_refs_when_secrets_exist(self):
+        r = check_sm_012(
+            {
+                "secrets": {"secrets": [{"Name": "app/db"}]},
+                "cloudwatch_alarms": {"regions": {"us-east-1": {"likely_relevant_count": 0}}},
+                "eventbridge_rules": {"regions": {"us-east-1": {"relevant_rule_count": 0}}},
+            }
+        )
+        assert r.status == "FAIL"
+        assert r.metadata["evidence_refs"] == [
+            "cloudwatch_alarms.json#/regions",
+            "eventbridge_rules.json#/regions",
+        ]
 
 
 class TestSM017:

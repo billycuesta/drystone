@@ -90,29 +90,75 @@ def _is_no_mfa_finding(finding: Finding) -> bool:
 
 def _is_ssh_exposed_finding(finding: Finding) -> bool:
     """Check if finding is about SSH exposed to internet."""
-    # Strategy 1: Check finding ID
-    if "NET-001" in finding.id or "NET-012" in finding.id:
-        return True
+    def _public_source(value: object) -> bool:
+        return str(value or "") in {"0.0.0.0/0", "::/0"}
 
-    # Strategy 2: Check title/description
-    text = f"{finding.title} {finding.description}".lower()
+    def _port_includes_ssh(value: object) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, int):
+            return value == 22
+        text = str(value)
+        if "-" in text:
+            start, end = text.split("-", 1)
+            try:
+                return int(start) <= 22 <= int(end)
+            except ValueError:
+                return False
+        try:
+            return int(text) == 22
+        except ValueError:
+            return False
 
-    if not ("ssh" in text or "22" in text):
+    def _snippet_has_public_ssh(obj: object) -> bool:
+        if isinstance(obj, dict):
+            port_values = [
+                obj.get("port"),
+                obj.get("Port"),
+                obj.get("from_port"),
+                obj.get("to_port"),
+                obj.get("FromPort"),
+                obj.get("ToPort"),
+                obj.get("port_range"),
+                obj.get("PortRange"),
+            ]
+            source_values = [
+                obj.get("cidr"),
+                obj.get("source"),
+                obj.get("CidrIp"),
+                obj.get("CidrIpv6"),
+            ]
+            for ip_range in obj.get("IpRanges") or []:
+                if isinstance(ip_range, dict):
+                    source_values.append(ip_range.get("CidrIp"))
+            for ip_range in obj.get("Ipv6Ranges") or []:
+                if isinstance(ip_range, dict):
+                    source_values.append(ip_range.get("CidrIpv6"))
+            if any(_port_includes_ssh(v) for v in port_values) and any(
+                _public_source(v) for v in source_values
+            ):
+                return True
+            return any(_snippet_has_public_ssh(v) for v in obj.values())
+        if isinstance(obj, list):
+            return any(_snippet_has_public_ssh(item) for item in obj)
         return False
 
-    # Strategy 3: Validate evidence_snippet (must show 0.0.0.0/0)
-    # Expected structure (from evidence_schemas.py):
-    # {
-    #   "GroupId": "sg-123",
-    #   "IpPermissions": [
-    #     {"IpProtocol": "tcp", "FromPort": 22, "ToPort": 22, "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}
-    #   ]
-    # }
-    if finding.evidence_snippet:
-        snippet_str = str(finding.evidence_snippet).lower()
-        return "0.0.0.0/0" in snippet_str or "::/0" in snippet_str
+    if finding.evidence_snippet and _snippet_has_public_ssh(finding.evidence_snippet):
+        return True
 
-    return False
+    # Text fallback is intentionally strict to avoid treating broad non-web
+    # exposure (for example NET-009 on port 2323) as SSH reachability.
+    text = f"{finding.title} {finding.description}".lower()
+    if "ssh" not in text:
+        return False
+
+    if finding.evidence_snippet:
+        return False
+
+    if not ("NET-001" in finding.id or "NET-012" in finding.id):
+        return False
+
+    return "0.0.0.0/0" in text or "::/0" in text
 
 
 def _extract_users_from_finding(finding: Finding) -> List[str]:
@@ -3556,10 +3602,7 @@ def _match_recon_public_ip_no_firewall_lateral(
     """RECON-003 (Elastic IP with instance) + NET-007 (no Network Firewall)."""
     recon_findings = findings_by_skill.get("recon", [])
     network_findings = findings_by_skill.get("network", [])
-    has_public_instance_ip = any(
-        f.id == "RECON-003" or ("elastic" in f.title.lower() and "ip" in f.title.lower())
-        for f in recon_findings
-    )
+    has_public_instance_ip = any(f.id == "RECON-003" for f in recon_findings)
     has_no_firewall = any(
         f.id in {"NET-007", "NET-EGR-001"} or "firewall" in f.title.lower()
         for f in network_findings
@@ -3593,7 +3636,7 @@ def _find_recon_public_ip_no_firewall_lateral(
     trigger_recon = [
         f
         for f in findings_by_skill.get("recon", [])
-        if f.id == "RECON-003" or ("elastic" in f.title.lower() and "ip" in f.title.lower())
+        if f.id == "RECON-003"
     ]
     trigger_network = [
         f

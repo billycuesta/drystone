@@ -207,10 +207,16 @@ class FindingsNormalizer:
                 )
                 continue
 
-            # 5. Calibrate severity
-            severity, risk_score = self._calibrate_severity(
-                normalized_id, finding.severity, finding.risk_score
-            )
+            # 5. Calibrate severity. Pre-check findings may carry evidence-derived
+            # risk_score_override values that intentionally differ from the static
+            # checklist severity, so preserve them.
+            if normalized_id in self._pre_checked_ids:
+                severity = cast(Severity, finding.severity)
+                risk_score = finding.risk_score
+            else:
+                severity, risk_score = self._calibrate_severity(
+                    normalized_id, finding.severity, finding.risk_score
+                )
 
             severity, risk_score = self._apply_contextual_severity_adjustments(
                 normalized_id, finding, severity, risk_score
@@ -319,13 +325,18 @@ class FindingsNormalizer:
 
         refs = finding.evidence_refs or []
 
-        # If the model omitted evidence_refs, try to infer stable refs from evidence + affected resources.
-        # This prevents false rejections in high-signal deterministic cases (e.g., SG open to world).
-        if finding.severity == "Critical" and not refs and self.evidence:
+        # If refs are missing or too coarse, try to infer stable refs from evidence
+        # + affected resources. This keeps high/critical findings traceable enough
+        # for the final reporting QA gate.
+        if finding.severity in {"Critical", "High"} and self.evidence:
             inferred = self._infer_evidence_refs(finding)
             if inferred:
-                finding.evidence_refs = inferred
-                refs = inferred
+                merged = list(refs)
+                for ref in inferred:
+                    if ref not in merged:
+                        merged.append(ref)
+                finding.evidence_refs = merged
+                refs = merged
 
         # Critical findings must be backed by something usable: evidence_refs, evidence_snippet,
         # or directly discoverable signal in loaded evidence.
@@ -532,6 +543,35 @@ class FindingsNormalizer:
                 idx = _find_in_items("load-balancers", "LoadBalancerArn", r)
                 if isinstance(idx, int):
                     refs.append(f"load-balancers.json#/items/{idx}")
+                    continue
+
+            # IAM role / instance profile ARN.
+            if r.startswith("arn:aws:iam::") and (":role/" in r or ":instance-profile/" in r):
+                profile_doc = evidence.get("instance-profiles")
+                profiles = []
+                if isinstance(profile_doc, dict):
+                    profiles = profile_doc.get("instance_profiles") or []
+                if isinstance(profiles, list):
+                    matched_profile = False
+                    for idx, profile in enumerate(profiles):
+                        if not isinstance(profile, dict):
+                            continue
+                        if ":instance-profile/" in r and str(profile.get("Arn") or "") == r:
+                            refs.append(f"instance-profiles.json#/instance_profiles/{idx}")
+                            matched_profile = True
+                            break
+                        for role_idx, role in enumerate(profile.get("Roles") or []):
+                            if isinstance(role, dict) and str(role.get("Arn") or "") == r:
+                                refs.append(
+                                    f"instance-profiles.json#/instance_profiles/{idx}/Roles/{role_idx}"
+                                )
+                                matched_profile = True
+                                break
+                        else:
+                            continue
+                        break
+                    if matched_profile:
+                        continue
 
         # Deduplicate but preserve order
         out: List[str] = []
@@ -907,8 +947,26 @@ class FindingsNormalizer:
             return self._normalize_evidence_refs_hardening(refs)
         if self.skill_name == "KMS":
             return self._normalize_evidence_refs_kms(refs, evidence)
+        if self.skill_name == "ALERTING":
+            return self._normalize_evidence_refs_alerting(refs, evidence)
 
         return refs
+
+    def _normalize_evidence_refs_alerting(
+        self, refs: List[str], evidence: Dict[str, Any]
+    ) -> List[str]:
+        """Normalize Alerting evidence refs such as 'cloudwatch-metric-filters'."""
+        normalized: List[str] = []
+        evidence_keys = {str(k) for k in evidence.keys()}
+        for ref in refs:
+            rr = str(ref).strip()
+            if not rr:
+                continue
+            base, sep, suffix = rr.partition("#")
+            if not base.endswith(".json") and base in evidence_keys:
+                base = f"{base}.json"
+            normalized.append(f"{base}{sep}{suffix}" if sep else base)
+        return normalized
 
     def _normalize_evidence_refs_hardening(self, refs: List[str]) -> List[str]:
         """Normalize Hardening evidence refs for consistent report traceability."""
@@ -1427,6 +1485,37 @@ class FindingsNormalizer:
 
     def _ensure_impact(self, finding: Finding) -> None:
         """Populate impact field if missing, using severity-based template."""
+        if self.skill_name == "ALERTING" and finding.id in {"ALRT-018", "ALRT-019"}:
+            finding.exploitability_status = "theoretical"
+            finding.impact = (
+                "This is an operational clarity and triage issue rather than a direct "
+                "attacker capability. Missing descriptions or ambiguous names can slow "
+                "responders because they must infer purpose, scope, and owner from other "
+                "configuration fields.\n\n"
+                "The business impact is modest but real: incident response and control "
+                "ownership become less efficient, and audit evidence is harder to review. "
+                "Do not present this as proven attacker dwell-time extension or a direct "
+                "PCI violation unless separate incident or compliance evidence supports it."
+            )
+            return
+        if self.skill_name == "NETWORK" and finding.id == "NET-024":
+            impact = str(finding.impact or "")
+            if (
+                "Compliance auditors flagging" in impact
+                or "prior to attestation" in impact
+                or "cardholder data" in impact.lower()
+            ):
+                finding.impact = (
+                    "Inconsistent security group naming weakens ownership, triage, and "
+                    "change-control workflows. Operators may struggle to identify which "
+                    "team owns a rule set, whether a group is temporary, or whether an "
+                    "exception is still required.\n\n"
+                    "The business impact is slower incident response and less reliable "
+                    "inventory governance. This is an operational control gap; it should "
+                    "not be presented as proven data exposure or a guaranteed audit outcome "
+                    "unless separate evidence establishes that scope."
+                )
+                return
         if finding.impact:
             return
         template = self._IMPACT_TEMPLATES.get(finding.severity, self._IMPACT_TEMPLATES["Medium"])
@@ -1741,16 +1830,18 @@ class FindingsNormalizer:
                 )
                 return False
 
-        # GuardDuty validation (HRD-009, HRD-014)
-        if finding_id in ["HRD-009", "HRD-014"]:
+        # GuardDuty validation (HRD-014)
+        if finding_id == "HRD-014":
             gd_detectors = self.evidence.get("guardduty-detectors", [])
-            # These findings only make sense if GuardDuty is enabled
-            if not gd_detectors or len(gd_detectors) == 0:
+            detector_ids: List[Any] = []
+            if isinstance(gd_detectors, dict):
+                detector_ids = gd_detectors.get("DetectorIds") or []
+            elif isinstance(gd_detectors, list):
+                detector_ids = gd_detectors
+            if not detector_ids:
                 logger.warning(
-                    f"Rejected {finding_id} - GuardDuty is NOT enabled. "
-                    f"Cannot evaluate GuardDuty-specific findings."
+                    f"Accepted {finding_id} - GuardDuty is not enabled and no detectors were found."
                 )
-                return False
 
         # Hardening threshold checks must use global Security Hub summary, not chunk-local snippets.
         if finding_id in {"HRD-005", "HRD-009", "HRD-012", "HRD-016", "HRD-004"}:
@@ -4271,6 +4362,52 @@ class FindingsNormalizer:
                 )
                 return False
 
+        if finding_id == "VULN-003":
+            # Publicly accessible vulnerable resources require explicit reachability evidence;
+            # active EC2 Inspector findings alone only prove vulnerable instances.
+            public_ids: set = set()
+            for key in ("public-vulnerability-paths", "internet-reachable-vulnerabilities"):
+                doc = self.evidence.get(key)
+                items = (
+                    doc.get("items")
+                    if isinstance(doc, dict)
+                    else doc if isinstance(doc, list) else []
+                )
+                for item in items or []:
+                    if not isinstance(item, dict):
+                        continue
+                    rid = (
+                        item.get("InstanceId") or item.get("instance_id") or item.get("resource_id")
+                    )
+                    if isinstance(rid, str) and rid:
+                        public_ids.add(rid)
+
+            for key in ("ec2-instances", "instances"):
+                doc = self.evidence.get(key)
+                items = (
+                    doc.get("items")
+                    if isinstance(doc, dict)
+                    else doc if isinstance(doc, list) else []
+                )
+                for item in items or []:
+                    if not isinstance(item, dict):
+                        continue
+                    rid = str(item.get("InstanceId") or "")
+                    if not rid:
+                        continue
+                    if (
+                        item.get("PublicIpAddress")
+                        or item.get("PublicIp")
+                        or item.get("PubliclyReachable") is True
+                    ):
+                        public_ids.add(rid)
+
+            if not public_ids:
+                logger.warning(
+                    "Rejected VULN-003 - no public reachability evidence for vulnerable resources."
+                )
+                return False
+
         if finding_id == "VULN-009":
             # Accumulation risk requires multiple ACTIVE HIGH/CRITICAL CVEs in same resource.
             per_resource: Dict[str, int] = {}
@@ -4295,6 +4432,37 @@ class FindingsNormalizer:
             # "Unpatched >30 days" needs explicit age evidence, not only upgrade availability.
             if not self._has_vuln_age_evidence_gt_30_days(finding):
                 logger.warning("Rejected VULN-014 - missing explicit age evidence (>30 days).")
+                return False
+
+        if finding_id == "VULN-011":
+            # Empty ECR image findings are ambiguous; disabled scanning needs config proof.
+            has_ecr_finding = any(
+                any(
+                    isinstance(r, dict) and r.get("type") == "AWS_ECR_CONTAINER_IMAGE"
+                    for r in (f.get("resources") or [])
+                )
+                for f in inspector_findings
+            )
+            if has_ecr_finding:
+                logger.warning(
+                    "Rejected VULN-011 - ECR image findings exist, so scanning is not proven disabled."
+                )
+                return False
+
+            config_proves_disabled = False
+            for key in ("ecr-scanning-config", "scanning-config", "registry"):
+                doc = self.evidence.get(key)
+                if not isinstance(doc, dict):
+                    continue
+                scan_type = str(doc.get("scanType") or doc.get("ScanType") or "").upper()
+                rules = doc.get("rules") or doc.get("Rules") or []
+                if scan_type in {"BASIC", "NONE", "DISABLED"} or rules == []:
+                    config_proves_disabled = True
+                    break
+            if not config_proves_disabled:
+                logger.warning(
+                    "Rejected VULN-011 - no ECR scan configuration evidence proving disabled scanning."
+                )
                 return False
 
         return True

@@ -399,19 +399,23 @@
     {
       "id": "IAM-016",
       "cis_id": "1.19",
-      "title": "Service accounts should use roles, not IAM users",
+      "title": "Programmatic-only IAM users should use roles or temporary credentials",
       "severity": "High",
-      "description": "Service accounts (only access keys, no password) should be replaced with roles for better auditability.",
+      "description": "IAM users with active access keys and no console password should be reviewed. Confirmed workload or service identities should use IAM roles or STS temporary credentials, while ambiguous users require owner validation before remediation.",
       "evidence_files": [
-        "users.json"
+        "users.json",
+        "credential-report.csv",
+        "groups.json",
+        "policies.json"
       ],
       "check_keywords": [
+        "programmatic",
+        "access key",
+        "password_enabled=false",
         "service account",
-        "no password",
-        "only access keys",
-        "not_supported"
+        "temporary credentials"
       ],
-      "remediation": "Migrate to IAM roles with STS AssumeRole for service-to-service authentication.",
+      "remediation": "Classify each programmatic-only IAM user as a confirmed workload identity or an ambiguous human or integration account. Migrate AWS workloads to IAM roles and STS temporary credentials. For external integrations that cannot migrate immediately, restrict permissions to the minimum required, rotate keys on a defined schedule, and monitor CloudTrail usage until long-lived keys can be removed.",
       "pci_dss": [
         {
           "control": "7.2.5",
@@ -650,19 +654,19 @@
     {
       "id": "IAM-026",
       "cis_id": "1.22",
-      "title": "Permission boundaries should be used for delegated administration",
+      "title": "Privileged roles should use permission boundaries",
       "severity": "Medium",
-      "description": "Permission boundaries limit maximum permissions for delegated roles, adding security layer.",
+      "description": "Permission boundaries limit the maximum permissions roles can receive. They are especially important for privileged roles and roles with IAM policy-manipulation actions such as AdministratorAccess or iam:PassRole.",
       "evidence_files": [
         "roles.json",
-        "users.json"
+        "policies.json"
       ],
       "check_keywords": [
         "permission boundary",
         "boundary",
-        "delegation"
+        "iam:PassRole"
       ],
-      "remediation": "Define permission boundary policies. Apply to delegated admin roles.",
+      "remediation": "Define permission boundary policies and apply them to privileged customer-managed roles. For each affected role, review the attached and inline IAM actions, scope the maximum allowed permissions, and enforce boundary attachment through IAM conditions or SCPs where available.",
       "pci_dss": [
         {
           "control": "7.2.1",

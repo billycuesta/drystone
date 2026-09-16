@@ -207,3 +207,21 @@ def test_unknown_skill_finding_id_returns_empty():
     )
     # Should still get file-based commands, just not crash
     assert isinstance(commands, list)
+
+
+def test_alerting_sns_topic_arn_suggests_region_specific_topic_command():
+    commands = suggest_aws_cli_commands(
+        skill="alerting",
+        evidence_refs=["sns-topics.json#/0"],
+        region="eu-west-1",
+        finding_id="ALRT-005",
+        affected_resources=["arn:aws:sns:eu-west-1:982725252505:InfraAlerts"],
+    )
+
+    assert any(
+        c == (
+            "aws sns get-topic-attributes --topic-arn "
+            "arn:aws:sns:eu-west-1:982725252505:InfraAlerts --region eu-west-1"
+        )
+        for c in commands
+    )

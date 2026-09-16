@@ -8,6 +8,8 @@ VULNS_CHECKLIST = {
     "items": [
         {"id": "VULN-001", "severity": "Critical"},
         {"id": "VULN-002", "severity": "Critical"},
+        {"id": "VULN-003", "severity": "Critical"},
+        {"id": "VULN-011", "severity": "High"},
         {"id": "VULN-009", "severity": "High"},
         {"id": "VULN-014", "severity": "High"},
     ],
@@ -74,6 +76,42 @@ def test_vuln_002_accepted_with_active_critical_findings():
     assert out[0].id == "VULN-002"
 
 
+def test_vuln_003_rejected_without_public_reachability_evidence():
+    normalizer = FindingsNormalizer(VULNS_CHECKLIST, "vulns")
+    normalizer.evidence = {
+        "inspector-findings": [
+            {
+                "severity": "HIGH",
+                "status": "ACTIVE",
+                "resources": [{"type": "AWS_EC2_INSTANCE", "id": "i-1"}],
+            }
+        ]
+    }
+
+    out = normalizer.normalize([_finding("VULN-003")])
+    assert out == []
+
+
+def test_vuln_003_accepted_with_public_reachability_evidence():
+    normalizer = FindingsNormalizer(VULNS_CHECKLIST, "vulns")
+    normalizer.evidence = {
+        "inspector-findings": [
+            {
+                "severity": "HIGH",
+                "status": "ACTIVE",
+                "resources": [{"type": "AWS_EC2_INSTANCE", "id": "i-1"}],
+            }
+        ],
+        "ec2-instances": {"items": [{"InstanceId": "i-1", "PublicIpAddress": "203.0.113.10"}]},
+    }
+
+    finding = _finding("VULN-003")
+    finding.affected_resources = ["i-1"]
+    out = normalizer.normalize([finding])
+    assert len(out) == 1
+    assert out[0].id == "VULN-003"
+
+
 def test_vuln_009_requires_accumulation_in_same_resource():
     normalizer = FindingsNormalizer(VULNS_CHECKLIST, "vulns")
     normalizer.evidence = {
@@ -119,3 +157,11 @@ def test_vuln_014_accepted_with_age_evidence_gt_30_days():
     out = normalizer.normalize([finding])
     assert len(out) == 1
     assert out[0].id == "VULN-014"
+
+
+def test_vuln_011_rejected_without_ecr_scan_configuration_evidence():
+    normalizer = FindingsNormalizer(VULNS_CHECKLIST, "vulns")
+    normalizer.evidence = {"inspector-findings": [], "ecr-image-scans": []}
+
+    out = normalizer.normalize([_finding("VULN-011")])
+    assert out == []

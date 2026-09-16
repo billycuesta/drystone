@@ -48,7 +48,7 @@
     {
       "id": "NET-003",
       "title": "NACLs with ALLOW ALL rules (overly permissive)",
-      "severity": "Critical",
+      "severity": "High",
       "description": "Network Access Control Lists (NACLs) are configured with rules that allow all traffic (e.g., rule 100, ALL protocol, 0.0.0.0/0), rendering them ineffective as a stateless firewall layer.",
       "remediation": "Replace overly permissive NACL rules with specific inbound and outbound rules that only allow necessary traffic based on the subnet's purpose. All other traffic should be implicitly denied by the default rule.",
       "pci_dss": [
@@ -188,7 +188,7 @@
     {
       "id": "NET-010",
       "title": "Default NACLs are overly permissive (allow all)",
-      "severity": "High",
+      "severity": "Medium",
       "description": "Default NACLs in VPCs are often overly permissive (e.g., allow all inbound/outbound). If custom NACLs are not applied, these permissive defaults will be in effect.",
       "remediation": "Ensure all subnets have custom NACLs applied that implement explicit deny rules for all unnecessary traffic and only permit required traffic.",
       "pci_dss": [
@@ -206,7 +206,7 @@
     {
       "id": "NET-011",
       "title": "Security group critical rules missing descriptions",
-      "severity": "High",
+      "severity": "Medium",
       "description": "Critical Security Group rules lack descriptions, making it difficult for auditors and administrators to understand the purpose or business justification of the rule.",
       "remediation": "Add clear and concise descriptions to all Security Group rules, especially for critical ports or broad access, explaining their purpose and justification.",
       "pci_dss": [
@@ -237,8 +237,8 @@
     },
     {
       "id": "NET-013",
-      "title": "Over-permissive VPC endpoint policies (wildcard Principal/Action)",
-      "severity": "High",
+      "title": "Private subnet AWS service traffic uses NAT instead of VPC endpoints",
+      "severity": "Medium",
       "description": "Instead of using VPC Endpoints, traffic from private subnets to AWS public services (e.g., S3, DynamoDB) is routed over the internet via NAT Gateways, increasing data transfer costs and potential exposure.",
       "remediation": "Create VPC Gateway Endpoints for S3 and DynamoDB, and VPC Interface Endpoints for other supported AWS services (e.g., EC2, CloudWatch, KMS) to keep traffic within the AWS network.",
       "pci_dss": [
@@ -280,7 +280,7 @@
     {
       "id": "NET-016",
       "title": "Subnets using default NACLs (no custom NACL)",
-      "severity": "High",
+      "severity": "Medium",
       "description": "Subnets are using the default NACL, which typically allows all inbound and outbound traffic, providing no additional layer of stateless network filtering.",
       "remediation": "Create and associate custom NACLs to all subnets. Configure custom NACLs with explicit deny rules and only allow necessary traffic for the subnet's function.",
       "pci_dss": [

@@ -27,7 +27,7 @@
     },
     {
       "id": "ALRT-002",
-      "title": "CloudTrail not integrated with EventBridge",
+      "title": "No custom EventBridge rules for CloudTrail security events",
       "severity": "Medium",
       "description": "AWS CloudTrail events are not being routed to Amazon EventBridge. If CloudTrail is already integrated with CloudWatch Logs and metric filters provide equivalent security coverage, this is a best-practice improvement rather than a critical gap. Without any alternative alerting path, real-time event-driven response capability is limited.",
       "remediation": "Create EventBridge rules to capture relevant CloudTrail events (e.g., specific API calls) and route them to targets like SNS, Lambda, or Security Hub for advanced processing and alerting. If CloudWatch Logs metric filters already cover critical events, prioritize closing gaps there first.",
@@ -145,8 +145,8 @@
       "id": "ALRT-010",
       "title": "Alarms in INSUFFICIENT_DATA state",
       "severity": "High",
-      "description": "One or more CloudWatch Alarms intended for security alerts are in 'INSUFFICIENT_DATA' state, indicating that they are not receiving enough data to evaluate their metric, potentially leading to missed alerts.",
-      "remediation": "Investigate the root cause of 'INSUFFICIENT_DATA' alarms. This could be due to incorrect metric filter patterns, missing log events, or misconfigured alarm periods/thresholds. Adjust configurations as needed.",
+      "description": "One or more CloudWatch Alarms are in 'INSUFFICIENT_DATA' state, indicating that they are not receiving enough data to evaluate their metric. Security metric-filter alarms in this state can cause missed security notifications; service-health alarms in this state should be treated as an operational monitoring gap.",
+      "remediation": "Investigate the root cause of 'INSUFFICIENT_DATA' alarms. This could be due to incorrect metric filter patterns, missing log events, deleted or stale resources, intentionally sparse metrics, or misconfigured alarm periods/thresholds. Adjust configurations as needed.",
       "pci_dss": [
         {
           "control": "10.6.1",
@@ -255,8 +255,8 @@
       "id": "ALRT-017",
       "title": "CloudWatch Logs retention too low (<90 days)",
       "severity": "Medium",
-      "description": "The retention policy for CloudWatch Logs Log Groups storing CloudTrail events is set to less than 90 days, potentially violating compliance requirements for audit log retention.",
-      "remediation": "Adjust the retention policy for CloudTrail-related CloudWatch Logs Log Groups to at least 90 days, or longer if required by specific compliance frameworks (e.g., 365 days for PCI DSS).",
+      "description": "The retention policy for security or audit-relevant CloudWatch Logs Log Groups is set to less than 90 days, reducing the immediately available forensic and compliance review window.",
+      "remediation": "Adjust the retention policy for security and audit-relevant CloudWatch Logs Log Groups to at least 90 days, or longer if required by specific compliance frameworks (e.g., 365 days for PCI DSS).",
       "pci_dss": [
         {
           "control": "10.5.1",

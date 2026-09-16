@@ -33,6 +33,18 @@ def test_net025_returns_nacl_command():
     assert any("describe-network-acls" in c or "describe-subnets" in c for c in commands)
 
 
+def test_net013_returns_nat_endpoint_route_commands():
+    commands = suggest_aws_cli_commands(
+        skill="network",
+        evidence_refs=[],
+        region="us-east-1",
+        finding_id="NET-013",
+    )
+    assert any("describe-route-tables" in c for c in commands)
+    assert any("describe-vpc-endpoints" in c for c in commands)
+    assert any("describe-nat-gateways" in c for c in commands)
+
+
 def test_exp021_returns_apigateway_command():
     commands = suggest_aws_cli_commands(
         skill="exposure",

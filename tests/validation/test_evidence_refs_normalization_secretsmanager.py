@@ -53,3 +53,43 @@ def test_secretsmanager_evidence_refs_converted_to_json_pointers():
         "eventbridge_rules.json#/regions/us-east-1",
         "secrets.json#/secrets/1",
     ]
+
+
+def test_iam_instance_profile_refs_expand_to_roles_and_profiles():
+    normalizer = FindingsNormalizer(
+        {"skill": "iam", "items": [{"id": "IAM-031", "severity": "High"}]},
+        "iam",
+    )
+    normalizer.evidence = {
+        "instance-profiles": {
+            "instance_profiles": [
+                {
+                    "Arn": "arn:aws:iam::123:instance-profile/AppProfile",
+                    "Roles": [{"Arn": "arn:aws:iam::123:role/AppRole"}],
+                }
+            ]
+        }
+    }
+
+    f = Finding(
+        id="IAM-031",
+        severity="High",
+        risk_score=7.0,
+        title="Instance profile role policy drift",
+        description="Instance profile has overbroad role permissions",
+        affected_resources=[
+            "arn:aws:iam::123:role/AppRole",
+            "arn:aws:iam::123:instance-profile/AppProfile",
+        ],
+        evidence_refs=["instance-profiles.json"],
+        remediation="Reduce role permissions",
+        cis_reference="N/A",
+    )
+
+    ok, reason = normalizer._verify_finding("IAM-031", f)
+    assert ok is True, reason
+    assert f.evidence_refs == [
+        "instance-profiles.json",
+        "instance-profiles.json#/instance_profiles/0/Roles/0",
+        "instance-profiles.json#/instance_profiles/0",
+    ]

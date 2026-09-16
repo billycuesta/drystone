@@ -35,6 +35,7 @@ class WAFPostProcessor:
             "audit_metadata": "_audit_metadata.json",
             "cloudfront_distributions": "cloudfront-distributions.json",
             "alb_waf_associations": "alb-waf-associations.json",
+            "waf_classic": "waf-classic.json",
             "wafv2_web_acls": "wafv2-web-acls.json",
             "api_entrypoints": "api-entrypoints-waf-associations.json",
             "collection_status": "waf-collection-status.json",
@@ -58,6 +59,7 @@ class WAFPostProcessor:
 
         dists = evidence.get("cloudfront_distributions") or []
         albs = evidence.get("alb_waf_associations") or []
+        classic = evidence.get("waf_classic") or {}
         acls = evidence.get("wafv2_web_acls") or []
         apis = evidence.get("api_entrypoints") or []
         status = evidence.get("collection_status") or {}
@@ -71,10 +73,18 @@ class WAFPostProcessor:
 
         alb_total = len(albs) if isinstance(albs, list) else 0
         alb_protected = 0
+        alb_protected_wafv2 = 0
+        alb_protected_classic = 0
         alb_errors = 0
+        classic_alb_arns = self._classic_alb_arns(classic)
         for a in albs if isinstance(albs, list) else []:
             waf_acl = a.get("WAFv2WebACL")
+            alb_arn = str(a.get("LoadBalancerArn") or "")
             if isinstance(waf_acl, dict) and waf_acl.get("ARN"):
+                alb_protected_wafv2 += 1
+                alb_protected += 1
+            elif alb_arn in classic_alb_arns:
+                alb_protected_classic += 1
                 alb_protected += 1
             elif isinstance(waf_acl, dict) and waf_acl.get("error"):
                 alb_errors += 1
@@ -122,6 +132,8 @@ class WAFPostProcessor:
             "cloudfront_distributions_protected": cf_protected,
             "alb_internet_facing_total": alb_total,
             "alb_internet_facing_protected": alb_protected,
+            "alb_internet_facing_protected_wafv2": alb_protected_wafv2,
+            "alb_internet_facing_protected_classic": alb_protected_classic,
             "alb_association_errors": alb_errors,
             "api_entrypoints_total": api_total,
             "api_entrypoints_protected": api_protected,
@@ -131,6 +143,27 @@ class WAFPostProcessor:
             "wafv2_web_acls_logging_enabled": waf_acl_logging_enabled,
             "waf_log_destinations": uniq_destinations,
         }
+
+    def _classic_alb_arns(self, classic: Any) -> set[str]:
+        arns: set[str] = set()
+        if not isinstance(classic, dict):
+            return arns
+        regional = classic.get("regional") or {}
+        if not isinstance(regional, dict):
+            return arns
+        for region_data in regional.values():
+            if not isinstance(region_data, dict):
+                continue
+            for assoc in region_data.get("alb_associations") or []:
+                if not isinstance(assoc, dict):
+                    continue
+                web_acl = assoc.get("WebACL")
+                if not isinstance(web_acl, dict) or not (web_acl.get("WebACLId") or web_acl.get("Name")):
+                    continue
+                arn = str(assoc.get("LoadBalancerArn") or "")
+                if arn:
+                    arns.add(arn)
+        return arns
 
     def _critical_gaps(self, a: Dict[str, Any]) -> List[str]:
         gaps: List[str] = []
@@ -168,6 +201,8 @@ class WAFPostProcessor:
         cf_prot = int(a.get("cloudfront_distributions_protected") or 0)
         alb_total = int(a.get("alb_internet_facing_total") or 0)
         alb_prot = int(a.get("alb_internet_facing_protected") or 0)
+        alb_prot_wafv2 = int(a.get("alb_internet_facing_protected_wafv2") or 0)
+        alb_prot_classic = int(a.get("alb_internet_facing_protected_classic") or 0)
         alb_errors = int(a.get("alb_association_errors") or 0)
         api_total = int(a.get("api_entrypoints_total") or 0)
         api_prot = int(a.get("api_entrypoints_protected") or 0)
@@ -233,6 +268,10 @@ class WAFPostProcessor:
         lines.append(
             f"  {alb_icon} ALB protected:        {alb_prot}/{alb_total} (assoc errors: {alb_errors})"
         )
+        if alb_total > 0:
+            lines.append(
+                f"     - ALB WAFv2: {alb_prot_wafv2}/{alb_total}; WAF Classic: {alb_prot_classic}/{alb_total}"
+            )
         lines.append(
             f"  {api_icon} API protected:        {api_prot}/{api_total} (assoc errors: {api_errors})"
         )

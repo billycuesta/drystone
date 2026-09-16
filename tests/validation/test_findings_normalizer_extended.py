@@ -119,6 +119,16 @@ ALERTING_CHECKLIST = {
             "title": "Alarmas sin configurar",
             "severity": "High",
         },
+        {
+            "id": "ALRT-018",
+            "title": "Alarms without clear description",
+            "severity": "Low",
+        },
+        {
+            "id": "ALRT-019",
+            "title": "Non-descriptive resource names",
+            "severity": "Low",
+        },
     ],
 }
 
@@ -247,18 +257,23 @@ class TestEvidenceValidation:
         is_valid = normalizer._validate_against_evidence("HRD-003", finding)
         assert is_valid is False
 
-    def test_hrd_009_rejected_without_guardduty(self):
-        """Test that HRD-009 is rejected if GuardDuty is disabled."""
+    def test_hrd_009_not_guardduty_dependent(self):
+        """HRD-009 is a Security Hub severity backlog check, not a GuardDuty detector check."""
         normalizer = FindingsNormalizer(HARDENING_CHECKLIST, "hardening")
 
-        evidence = {"guardduty-detectors": []}  # Empty array = no detectors
+        evidence = {
+            "guardduty-detectors": [],
+            "security-hub-findings-summary": {
+                "severity_counts": {"CRITICAL": 0, "HIGH": 12, "MEDIUM": 0, "LOW": 0},
+                "compliance_status_counts": {"PASSED": 0, "FAILED": 12, "WARNING": 0},
+            },
+        }
         normalizer.evidence = evidence
 
-        finding = make_finding("HRD-009", "High", 8.0, "GuardDuty findings", "Many")
+        finding = make_finding("HRD-009", "High", 8.0, "HIGH findings", "Many")
 
-        # Should reject (requires GuardDuty enabled)
         is_valid = normalizer._validate_against_evidence("HRD-009", finding)
-        assert is_valid is False
+        assert is_valid is True
 
     def test_hrd_002_accepted_when_hub_disabled(self):
         """Test that HRD-002 passes validation when Hub is disabled."""
@@ -561,7 +576,9 @@ class TestPCIDSSAlignment:
                     "AccessKeys": [
                         {
                             "AccessKeyId": "AKIA...",
-                            "CreateDate": (datetime.now() - timedelta(days=30)).isoformat(),  # Recent key
+                            "CreateDate": (
+                                datetime.now() - timedelta(days=30)
+                            ).isoformat(),  # Recent key
                         }
                     ],
                 },
@@ -604,6 +621,34 @@ class TestAlertingEvidenceValidation:
         # Should reject (need trail for logs issue)
         is_valid = normalizer._validate_against_evidence("ALR-003", finding)
         assert is_valid is False
+
+    def test_alerting_evidence_refs_add_json_extension(self):
+        normalizer = FindingsNormalizer(ALERTING_CHECKLIST, "alerting")
+        normalizer.evidence = {"cloudwatch-metric-filters": [{"filterName": "FilterForAlerts"}]}
+
+        refs = normalizer._normalize_evidence_refs(["cloudwatch-metric-filters"])
+
+        assert refs == ["cloudwatch-metric-filters.json"]
+
+    def test_low_alerting_operational_findings_get_proportionate_impact(self):
+        normalizer = FindingsNormalizer(ALERTING_CHECKLIST, "alerting")
+        finding = make_finding(
+            "ALRT-018",
+            "Low",
+            1.5,
+            "Alarms without clear description",
+            "Missing descriptions",
+        )
+        finding.impact = (
+            "An attacker triggering one of these alarms benefits from delayed response."
+        )
+        finding.exploitability_status = "probable"
+
+        normalized = normalizer.normalize([finding])
+
+        assert normalized[0].exploitability_status == "theoretical"
+        assert "operational clarity" in normalized[0].impact
+        assert "attacker triggering" not in normalized[0].impact.lower()
 
 
 class TestMutualExclusionsNewPairs:

@@ -10,6 +10,7 @@ NETWORK_CHECKLIST = {
     "items": [
         {"id": "NET-001", "severity": "Critical"},
         {"id": "NET-018", "severity": "High"},
+        {"id": "NET-024", "severity": "Medium"},
     ],
 }
 
@@ -174,3 +175,22 @@ def test_network_evidence_refs_normalize_sg_by_id():
     out = n.normalize([f])
     assert len(out) == 1
     assert out[0].evidence_refs[0] == "security-groups.json#by_id.sg-1"
+
+
+def test_net_024_sanitizes_unsupported_audit_attestation_impact():
+    n = FindingsNormalizer(NETWORK_CHECKLIST, "network")
+    f = _finding("NET-024", "Medium", 5.0)
+    f.impact = (
+        "Compliance auditors flagging this finding may require remediation evidence "
+        "prior to attestation. The issue can affect cardholder data handling."
+    )
+    f.affected_resources = ["arn:aws:ec2:us-east-1:111111111111:security-group/sg-1"]
+    f.evidence_refs = ["security-groups.json#by_id.sg-1"]
+
+    out = n.normalize([f])
+
+    assert len(out) == 1
+    impact = out[0].impact.lower()
+    assert "prior to attestation" not in impact
+    assert "cardholder data" not in impact
+    assert "guaranteed audit outcome" in impact

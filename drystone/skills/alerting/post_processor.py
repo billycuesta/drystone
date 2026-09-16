@@ -1,7 +1,7 @@
 """Post-processor for alerting skill to add architecture diagram."""
 
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from drystone.storage.session import AuditSession
 
@@ -81,7 +81,7 @@ class AlertingPostProcessor:
 
         return evidence
 
-    def _analyze_flow(self, evidence: Dict[str, Any]) -> Dict[str, bool]:
+    def _analyze_flow(self, evidence: Dict[str, Any]) -> Dict[str, Any]:
         """Analyze alerting flow components and their status.
 
         Returns:
@@ -98,47 +98,102 @@ class AlertingPostProcessor:
             }
         """
         analysis = {
+            "region": "unknown",
+            "account_id": "unknown",
             "cloudtrail_enabled": False,
             "cloudtrail_multi_region": False,
             "cloudwatch_integration": False,
             "eventbridge_rules_exist": False,
+            "eventbridge_total_rules_exist": False,
             "metric_filters_exist": False,
             "alarms_configured": False,
             "sns_topics_exist": False,
             "sns_has_subscribers": False,
             "subscriptions_confirmed": False,
+            "cloudtrail_names": [],
+            "cloudtrail_s3_buckets": [],
+            "cloudwatch_log_groups": [],
+            "metric_filter_names": [],
+            "alarm_names": [],
+            "eventbridge_rule_names": [],
+            "sns_topic_names": [],
+            "subscription_protocols": [],
+            "counts": {
+                "trails": 0,
+                "log_groups": 0,
+                "metric_filters": 0,
+                "alarms": 0,
+                "eventbridge_rules": 0,
+                "sns_topics": 0,
+                "subscriptions": 0,
+                "alert_topics": 0,
+                "alert_topics_without_confirmed_subscribers": 0,
+            },
+            "alert_topic_arns": [],
+            "alert_topic_names": [],
+            "alert_topic_health": {},
+            "alert_topics_without_confirmed_subscribers": [],
+            "sns_delivery_status": "unknown",
         }
 
         # Check CloudTrail
         trails = evidence.get("cloudtrail_trails", [])
         if trails:
+            analysis["counts"]["trails"] = len(trails)
             # Check if any trail is enabled and logging
             for trail in trails:
+                name = trail.get("Name")
+                if isinstance(name, str) and name:
+                    analysis["cloudtrail_names"].append(name)
+                bucket = trail.get("S3BucketName")
+                if isinstance(bucket, str) and bucket:
+                    analysis["cloudtrail_s3_buckets"].append(bucket)
+                region = trail.get("HomeRegion")
+                if analysis["region"] == "unknown" and isinstance(region, str) and region:
+                    analysis["region"] = region
+                self._maybe_set_account_id_from_arn(
+                    analysis,
+                    trail.get("CloudWatchLogsLogGroupArn")
+                    or trail.get("CloudWatchLogsRoleArn")
+                    or trail.get("KMSKeyId"),
+                )
                 status = trail.get("Status", {})
                 if status.get("IsLogging"):
                     analysis["cloudtrail_enabled"] = True
                     if trail.get("IsMultiRegionTrail"):
                         analysis["cloudtrail_multi_region"] = True
-                    break
 
         # Check CloudWatch Log Groups (integration with CloudTrail)
         log_groups = evidence.get("cloudwatch_log_groups", [])
         if log_groups:
+            analysis["counts"]["log_groups"] = len(log_groups)
             # Look for CloudTrail-related log groups
             cloudtrail_logs = [
                 lg for lg in log_groups if "cloudtrail" in lg.get("LogGroupName", "").lower()
             ]
             if cloudtrail_logs:
                 analysis["cloudwatch_integration"] = True
+                analysis["cloudwatch_log_groups"] = [
+                    str(lg.get("LogGroupName"))
+                    for lg in cloudtrail_logs
+                    if isinstance(lg.get("LogGroupName"), str)
+                ]
 
         # Check for metric filters using actual metric filters evidence
         metric_filters = evidence.get("cloudwatch_metric_filters", [])
         if metric_filters:
             analysis["metric_filters_exist"] = True
+            analysis["counts"]["metric_filters"] = len(metric_filters)
+            analysis["metric_filter_names"] = [
+                str(f.get("filterName"))
+                for f in metric_filters
+                if isinstance(f, dict) and isinstance(f.get("filterName"), str)
+            ]
 
         # Check CloudWatch Alarms
         alarms = evidence.get("cloudwatch_alarms", [])
         if alarms:
+            analysis["counts"]["alarms"] = len(alarms)
             # Check for security-related alarms
             security_alarms = [
                 a
@@ -155,10 +210,22 @@ class AlertingPostProcessor:
                 )
             ]
             analysis["alarms_configured"] = len(security_alarms) > 0
+            analysis["alarm_names"] = [
+                str(a.get("AlarmName"))
+                for a in security_alarms
+                if isinstance(a.get("AlarmName"), str)
+            ]
+            for alarm in alarms:
+                for arn in alarm.get("AlarmActions", []) or []:
+                    self._maybe_set_account_id_from_arn(analysis, arn)
+                    if self._is_sns_arn(arn) and arn not in analysis["alert_topic_arns"]:
+                        analysis["alert_topic_arns"].append(arn)
 
         # Check EventBridge Rules
         rules = evidence.get("eventbridge_rules", [])
         if rules:
+            analysis["counts"]["eventbridge_rules"] = len(rules)
+            analysis["eventbridge_total_rules_exist"] = True
             # Check for enabled security-related rules
             security_rules = [
                 r
@@ -170,27 +237,108 @@ class AlertingPostProcessor:
                 )
             ]
             analysis["eventbridge_rules_exist"] = len(security_rules) > 0
+            analysis["eventbridge_rule_names"] = [
+                str(r.get("Name"))
+                for r in security_rules
+                if isinstance(r.get("Name"), str)
+            ]
+            for rule in rules:
+                for target in rule.get("Targets", []) or []:
+                    if not isinstance(target, dict):
+                        continue
+                    arn = target.get("Arn")
+                    self._maybe_set_account_id_from_arn(analysis, arn)
+                    if self._is_sns_arn(arn) and arn not in analysis["alert_topic_arns"]:
+                        analysis["alert_topic_arns"].append(arn)
 
         # Check SNS Topics
         topics = evidence.get("sns_topics", [])
         if topics:
             analysis["sns_topics_exist"] = True
+            analysis["counts"]["sns_topics"] = len(topics)
+            analysis["sns_topic_names"] = [
+                str(t.get("TopicArn", "")).split(":")[-1]
+                for t in topics
+                if isinstance(t, dict) and isinstance(t.get("TopicArn"), str)
+            ]
 
-            # Check for subscribers and confirmed subscriptions
+            topic_confirmed_status = {}
             for topic in topics:
+                topic_arn = topic.get("TopicArn")
+                self._maybe_set_account_id_from_arn(analysis, topic_arn)
                 subscriptions = topic.get("Subscriptions", [])
+                analysis["counts"]["subscriptions"] += len(subscriptions or [])
                 if subscriptions:
                     analysis["sns_has_subscribers"] = True
+                    for sub in subscriptions:
+                        protocol = sub.get("Protocol")
+                        if isinstance(protocol, str) and protocol:
+                            analysis["subscription_protocols"].append(protocol)
 
-                    # Check if any subscriptions are confirmed
-                    confirmed = any(
-                        sub.get("SubscriptionArn") != "PendingConfirmation" for sub in subscriptions
-                    )
-                    if confirmed:
-                        analysis["subscriptions_confirmed"] = True
-                        break
+                confirmed = self._topic_has_confirmed_subscription(topic)
+                if isinstance(topic_arn, str) and topic_arn:
+                    topic_confirmed_status[topic_arn] = confirmed
+
+                if confirmed:
+                    analysis["sns_has_subscribers"] = True
+                    analysis["subscriptions_confirmed"] = True
+
+            alert_topic_arns = analysis["alert_topic_arns"]
+            if alert_topic_arns:
+                missing_arns = [
+                    arn for arn in alert_topic_arns if not topic_confirmed_status.get(arn, False)
+                ]
+                analysis["counts"]["alert_topics"] = len(alert_topic_arns)
+                analysis["counts"]["alert_topics_without_confirmed_subscribers"] = len(missing_arns)
+                analysis["alert_topic_names"] = [self._name_from_arn(arn) for arn in alert_topic_arns]
+                analysis["alert_topic_health"] = {
+                    self._name_from_arn(arn): bool(topic_confirmed_status.get(arn, False))
+                    for arn in alert_topic_arns
+                }
+                analysis["alert_topics_without_confirmed_subscribers"] = [
+                    self._name_from_arn(arn) for arn in missing_arns
+                ]
+                analysis["subscriptions_confirmed"] = len(missing_arns) == 0
+                analysis["sns_has_subscribers"] = any(
+                    topic_confirmed_status.get(arn, False) for arn in alert_topic_arns
+                )
+                analysis["sns_delivery_status"] = "ok" if not missing_arns else "warn"
+            elif analysis["sns_topics_exist"]:
+                analysis["sns_delivery_status"] = (
+                    "ok" if analysis["subscriptions_confirmed"] else "bad"
+                )
 
         return analysis
+
+    def _is_sns_arn(self, arn: Any) -> bool:
+        return isinstance(arn, str) and arn.startswith("arn:aws:sns:")
+
+    def _name_from_arn(self, arn: str) -> str:
+        return arn.split(":")[-1] if isinstance(arn, str) and ":" in arn else str(arn)
+
+    def _topic_has_confirmed_subscription(self, topic: Dict[str, Any]) -> bool:
+        attributes = topic.get("Attributes") or {}
+        if isinstance(attributes, dict):
+            try:
+                if int(attributes.get("SubscriptionsConfirmed") or 0) > 0:
+                    return True
+            except (TypeError, ValueError):
+                pass
+
+        subscriptions = topic.get("Subscriptions", []) or []
+        return any(
+            isinstance(sub, dict)
+            and sub.get("SubscriptionArn")
+            and sub.get("SubscriptionArn") != "PendingConfirmation"
+            for sub in subscriptions
+        )
+
+    def _maybe_set_account_id_from_arn(self, analysis: Dict[str, Any], arn: Optional[str]) -> None:
+        if analysis.get("account_id") != "unknown" or not isinstance(arn, str):
+            return
+        parts = arn.split(":")
+        if len(parts) > 4 and parts[4].isdigit():
+            analysis["account_id"] = parts[4]
 
     def _generate_diagram(self, flow_analysis: Dict[str, bool]) -> str:
         """Generate ASCII flow diagram with status indicators.
@@ -214,6 +362,13 @@ class AlertingPostProcessor:
         def warn_icon(value: bool) -> str:
             return "⚠️" if value else "❌"
 
+        def delivery_icon(status: str) -> str:
+            if status == "ok":
+                return "✅"
+            if status == "warn":
+                return "⚠️"
+            return "❌"
+
         cloudtrail_status = status_icon(flow_analysis["cloudtrail_enabled"])
         cloudtrail_note = (
             "Multi-region trail: YES"
@@ -225,8 +380,22 @@ class AlertingPostProcessor:
         eventbridge_status = warn_icon(flow_analysis["eventbridge_rules_exist"])
         metric_status = status_icon(flow_analysis["metric_filters_exist"])
         alarm_status = status_icon(flow_analysis["alarms_configured"])
+        sns_delivery_status = str(flow_analysis.get("sns_delivery_status") or "unknown")
         sns_status = status_icon(flow_analysis["sns_topics_exist"])
-        subscriptions_status = status_icon(flow_analysis["subscriptions_confirmed"])
+        subscriptions_status = delivery_icon(sns_delivery_status)
+        if sns_delivery_status == "warn":
+            subscription_note = "PARTIAL"
+        else:
+            subscription_note = str(flow_analysis.get("subscriptions_confirmed", False)).upper()
+        alert_topics = flow_analysis.get("counts", {}).get("alert_topics", 0)
+        missing_alert_topics = flow_analysis.get("counts", {}).get(
+            "alert_topics_without_confirmed_subscribers", 0
+        )
+        sns_note = (
+            f"Alert topics missing subs: {missing_alert_topics}/{alert_topics}"
+            if alert_topics
+            else f"Subscriptions: {str(flow_analysis.get('sns_has_subscribers', False)).upper()}"
+        )
 
         diagram = f"""
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -243,8 +412,8 @@ class AlertingPostProcessor:
                   │             │                    │
                   v             v                    v
         ┌─────────────┐  ┌──────────────┐  ┌─────────────────┐
-        │ {cloudwatch_status} CloudWatch │  │ {eventbridge_status} EventBridge │  │ {status_icon(True)} S3 Bucket    │
-        │    Logs       │  │     Rules      │  │   (Archive)     │
+        │ {cloudwatch_status} CloudWatch │  │ {eventbridge_status} CT EventBr. │  │ {status_icon(True)} S3 Bucket    │
+        │    Logs       │  │ Security Rules │  │   (Archive)     │
         └──────┬────────┘  └───────┬────────┘  └─────────────────┘
                │                   │
                v                   │
@@ -263,13 +432,13 @@ class AlertingPostProcessor:
                        │
                        v
               ┌─────────────────┐
-              │ {sns_status} SNS Topics    │  Subscriptions: {str(flow_analysis.get('sns_has_subscribers', False)).upper()}
+              │ {sns_status} SNS Topics    │  {sns_note}
               │  (Notifications) │
               └────────┬─────────┘
                        │
                        v
               ┌─────────────────┐
-              │ {subscriptions_status} Subscriptions │  Confirmed: {str(flow_analysis.get('subscriptions_confirmed', False)).upper()}
+              │ {subscriptions_status} Subscriptions │  Confirmed: {subscription_note}
               │  (Email, HTTPS)  │
               └─────────────────┘
                        │
@@ -321,16 +490,28 @@ LEGEND:
         if flow_analysis["sns_topics_exist"] and not flow_analysis["sns_has_subscribers"]:
             gaps.append("SNS topics exist but have no active subscriptions")
 
+        for topic_name in flow_analysis.get("alert_topics_without_confirmed_subscribers", []):
+            gaps.append(
+                f"SNS topic {topic_name} receives alert actions but has no confirmed subscriptions"
+            )
+
         # High: SNS subscriptions not confirmed
-        if flow_analysis["sns_has_subscribers"] and not flow_analysis["subscriptions_confirmed"]:
+        if (
+            flow_analysis["sns_has_subscribers"]
+            and not flow_analysis["subscriptions_confirmed"]
+            and not flow_analysis.get("alert_topics_without_confirmed_subscribers")
+        ):
             gaps.append("SNS subscriptions exist but are not confirmed (pending)")
 
         # Warning: Single-region CloudTrail
         if flow_analysis["cloudtrail_enabled"] and not flow_analysis["cloudtrail_multi_region"]:
             gaps.append("CloudTrail is single-region only (multi-region recommended)")
 
-        # Warning: EventBridge rules not configured
+        # Warning: CloudTrail security EventBridge routing not configured
         if not flow_analysis["eventbridge_rules_exist"]:
-            gaps.append("EventBridge rules not configured (alternative alerting path unused)")
+            gaps.append(
+                "No custom EventBridge rules route CloudTrail security events "
+                "(alternative alerting path unused)"
+            )
 
         return gaps
