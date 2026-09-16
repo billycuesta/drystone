@@ -400,3 +400,14 @@ class AlertingSkill(BaseSkill):
 
 
 __all__ = ["AlertingSkill"]
+
+
+# --- Skill registry manifest (see drystone/skills/registry.py) ---
+# Declaring these here is what lets drystone auto-discover this skill —
+# no other file needs to list it by name.
+SKILL_NAME = "alerting"
+SKILL_DISPLAY_NAME = "Alerting"
+SKILL_CLASS = AlertingSkill
+SKILL_WIZARD_SELECTABLE = True
+SKILL_WIZARD_LABEL = "Alerting & Monitoring Audit"
+SKILL_WIZARD_ORDER = 5

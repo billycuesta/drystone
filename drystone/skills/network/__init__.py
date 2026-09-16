@@ -480,3 +480,14 @@ class NetworkSkill(BaseSkill):
 
 
 __all__ = ["NetworkSkill"]
+
+
+# --- Skill registry manifest (see drystone/skills/registry.py) ---
+# Declaring these here is what lets drystone auto-discover this skill —
+# no other file needs to list it by name.
+SKILL_NAME = "network"
+SKILL_DISPLAY_NAME = "Network"
+SKILL_CLASS = NetworkSkill
+SKILL_WIZARD_SELECTABLE = True
+SKILL_WIZARD_LABEL = "Network Policies Audit"
+SKILL_WIZARD_ORDER = 3

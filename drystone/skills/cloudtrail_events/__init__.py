@@ -318,3 +318,14 @@ class CloudTrailEventsSkill(BaseSkill):
             f"  ✅ CloudTrail Events: {total_events} events collected across "
             f"{len(summary['categories_collected'])} categories"
         )
+
+
+# --- Skill registry manifest (see drystone/skills/registry.py) ---
+# Declaring these here is what lets drystone auto-discover this skill —
+# no other file needs to list it by name.
+SKILL_NAME = "cloudtrail_events"
+SKILL_DISPLAY_NAME = "CloudTrail Events Audit"
+SKILL_CLASS = CloudTrailEventsSkill
+SKILL_WIZARD_SELECTABLE = True
+SKILL_WIZARD_LABEL = "CloudTrail Events Audit"
+SKILL_WIZARD_ORDER = 6

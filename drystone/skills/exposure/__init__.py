@@ -1006,3 +1006,14 @@ class ExposureSkill(BaseSkill):
 
 
 __all__ = ["ExposureSkill"]
+
+
+# --- Skill registry manifest (see drystone/skills/registry.py) ---
+# Declaring these here is what lets drystone auto-discover this skill —
+# no other file needs to list it by name.
+SKILL_NAME = "exposure"
+SKILL_DISPLAY_NAME = "Exposure"
+SKILL_CLASS = ExposureSkill
+SKILL_WIZARD_SELECTABLE = True
+SKILL_WIZARD_LABEL = "Internet Exposure Audit"
+SKILL_WIZARD_ORDER = 2

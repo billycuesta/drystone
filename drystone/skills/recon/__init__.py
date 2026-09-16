@@ -724,3 +724,12 @@ class ReconSkill(BaseSkill):
 
 
 __all__ = ["ReconSkill"]
+
+
+# --- Skill registry manifest (see drystone/skills/registry.py) ---
+# Declaring these here is what lets drystone auto-discover this skill —
+# no other file needs to list it by name.
+SKILL_NAME = "recon"
+SKILL_DISPLAY_NAME = "Recon"
+SKILL_CLASS = ReconSkill
+SKILL_WIZARD_SELECTABLE = False  # only reachable via the 'pentest' preset

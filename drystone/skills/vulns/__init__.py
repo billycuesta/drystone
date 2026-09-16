@@ -889,3 +889,14 @@ class VulnsSkill(BaseSkill):
 
 
 __all__ = ["VulnsSkill"]
+
+
+# --- Skill registry manifest (see drystone/skills/registry.py) ---
+# Declaring these here is what lets drystone auto-discover this skill —
+# no other file needs to list it by name.
+SKILL_NAME = "vulns"
+SKILL_DISPLAY_NAME = "Vulnerabilities"
+SKILL_CLASS = VulnsSkill
+SKILL_WIZARD_SELECTABLE = True
+SKILL_WIZARD_LABEL = "Vulnerability Scanning"
+SKILL_WIZARD_ORDER = 4

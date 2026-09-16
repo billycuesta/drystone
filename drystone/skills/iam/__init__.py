@@ -803,3 +803,14 @@ class IAMSkill(BaseSkill):
 
 
 __all__ = ["IAMSkill"]
+
+
+# --- Skill registry manifest (see drystone/skills/registry.py) ---
+# Declaring these here is what lets drystone auto-discover this skill —
+# no other file needs to list it by name.
+SKILL_NAME = "iam"
+SKILL_DISPLAY_NAME = "IAM"
+SKILL_CLASS = IAMSkill
+SKILL_WIZARD_SELECTABLE = True
+SKILL_WIZARD_LABEL = "IAM Security Audit"
+SKILL_WIZARD_ORDER = 1

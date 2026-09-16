@@ -1026,3 +1026,14 @@ class WAFSkill(BaseSkill):
 
 
 __all__ = ["WAFSkill"]
+
+
+# --- Skill registry manifest (see drystone/skills/registry.py) ---
+# Declaring these here is what lets drystone auto-discover this skill —
+# no other file needs to list it by name.
+SKILL_NAME = "waf"
+SKILL_DISPLAY_NAME = "WAF"
+SKILL_CLASS = WAFSkill
+SKILL_WIZARD_SELECTABLE = True
+SKILL_WIZARD_LABEL = "WAF Security Audit"
+SKILL_WIZARD_ORDER = 10

@@ -233,3 +233,14 @@ class ECRSkill(BaseSkill):
 
 
 __all__ = ["ECRSkill"]
+
+
+# --- Skill registry manifest (see drystone/skills/registry.py) ---
+# Declaring these here is what lets drystone auto-discover this skill —
+# no other file needs to list it by name.
+SKILL_NAME = "ecr"
+SKILL_DISPLAY_NAME = "ECR"
+SKILL_CLASS = ECRSkill
+SKILL_WIZARD_SELECTABLE = True
+SKILL_WIZARD_LABEL = "ECR Container Registry Audit"
+SKILL_WIZARD_ORDER = 8

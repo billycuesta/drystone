@@ -438,3 +438,14 @@ class SecretsManagerSkill(BaseSkill):
         filepath.parent.mkdir(parents=True, exist_ok=True)
         with open(filepath, "w") as f:
             json.dump(data, f, indent=2, default=str)
+
+
+# --- Skill registry manifest (see drystone/skills/registry.py) ---
+# Declaring these here is what lets drystone auto-discover this skill —
+# no other file needs to list it by name.
+SKILL_NAME = "secretsmanager"
+SKILL_DISPLAY_NAME = "Secrets Manager"
+SKILL_CLASS = SecretsManagerSkill
+SKILL_WIZARD_SELECTABLE = True
+SKILL_WIZARD_LABEL = "Secrets Manager Security Audit"
+SKILL_WIZARD_ORDER = 9

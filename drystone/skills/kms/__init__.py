@@ -244,3 +244,14 @@ class KMSSkill(BaseSkill):
         except Exception as e:
             errors["describe_custom_key_stores"] = str(e)
         return items, errors
+
+
+# --- Skill registry manifest (see drystone/skills/registry.py) ---
+# Declaring these here is what lets drystone auto-discover this skill —
+# no other file needs to list it by name.
+SKILL_NAME = "kms"
+SKILL_DISPLAY_NAME = "KMS"
+SKILL_CLASS = KMSSkill
+SKILL_WIZARD_SELECTABLE = True
+SKILL_WIZARD_LABEL = "KMS Key Management Audit"
+SKILL_WIZARD_ORDER = 11

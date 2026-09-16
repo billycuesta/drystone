@@ -1361,3 +1361,12 @@ class SistemasExplotablesRedSkill(BaseSkill):
 
 
 __all__ = ["SistemasExplotablesRedSkill"]
+
+
+# --- Skill registry manifest (see drystone/skills/registry.py) ---
+# Declaring these here is what lets drystone auto-discover this skill —
+# no other file needs to list it by name.
+SKILL_NAME = "sistemas_explotables_red"
+SKILL_DISPLAY_NAME = "Network-Exploitable Systems Detection"
+SKILL_CLASS = SistemasExplotablesRedSkill
+SKILL_WIZARD_SELECTABLE = False  # only reachable via the 'pentest' preset
