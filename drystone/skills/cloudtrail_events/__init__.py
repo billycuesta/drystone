@@ -223,13 +223,15 @@ class CloudTrailEventsSkill(BaseSkill):
 
         ct_client = boto3.client("cloudtrail", **client_kwargs)
 
+        account_id = aws_client.get_account_id() or getattr(session, "account_id", "") or ""
+
         summary: dict[str, Any] = {
             "scan_depth": scan_depth,
             "days_back": days_back,
             "start_time": start_time.isoformat(),
             "end_time": end_time.isoformat(),
             "region": aws_client.region_name,
-            "account_id": aws_client.get_account_id() or "",
+            "account_id": account_id,
             "categories_collected": {},
         }
 

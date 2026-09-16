@@ -32,10 +32,15 @@ FILE_ALLOWLIST_FIELDS = {
     },
     "inspector-findings": {
         "findingArn",
+        "status",
         "severity",
         "title",
         "description",
-        "resource",
+        "resources",
+        "inspectorScore",
+        "fixAvailable",
+        "exploitAvailable",
+        "remediation",
         "packageVulnerabilityDetails",
     },
 }
@@ -52,11 +57,88 @@ def _prune_dict_fields(resource: Dict[str, Any], file_key: str) -> Dict[str, Any
     out = {k: v for k, v in resource.items() if k in allow}
     if len(out) == 0:
         return resource
+    if file_key == "inspector-findings":
+        out = _compact_inspector_finding(out)
     return out
 
 
+def _truncate_text(value: Any, max_chars: int = 240) -> Any:
+    if not isinstance(value, str):
+        return value
+    if len(value) <= max_chars:
+        return value
+    return value[:max_chars].rstrip() + "..."
+
+
+def _compact_inspector_finding(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep Inspector findings small enough for LLM triage prompts.
+
+    Deterministic pre-checks still receive full raw evidence before distillation.
+    The LLM only needs compact fields to reason about residual checklist items.
+    """
+    compact = dict(item)
+    if "description" in compact:
+        compact["description"] = _truncate_text(compact.get("description"), 240)
+
+    remediation = compact.get("remediation")
+    if isinstance(remediation, dict):
+        compact["remediation"] = {
+            "recommendation": _truncate_text(remediation.get("recommendation"), 240),
+            "url": remediation.get("url"),
+        }
+
+    details = compact.get("packageVulnerabilityDetails")
+    if isinstance(details, dict):
+        packages = details.get("vulnerablePackages") or []
+        compact_packages = []
+        if isinstance(packages, list):
+            for pkg in packages[:3]:
+                if not isinstance(pkg, dict):
+                    continue
+                compact_packages.append(
+                    {
+                        "name": pkg.get("name"),
+                        "version": pkg.get("version"),
+                        "fixedInVersion": pkg.get("fixedInVersion"),
+                        "packageManager": pkg.get("packageManager"),
+                    }
+                )
+        compact["packageVulnerabilityDetails"] = {
+            "vulnerabilityId": details.get("vulnerabilityId"),
+            "source": details.get("source"),
+            "vulnerablePackages": compact_packages,
+            "cvss": (details.get("cvss") or [])[:1] if isinstance(details.get("cvss"), list) else [],
+        }
+
+    resources = compact.get("resources")
+    if isinstance(resources, list):
+        compact["resources"] = [
+            {
+                "id": res.get("id"),
+                "type": res.get("type"),
+            }
+            for res in resources[:2]
+            if isinstance(res, dict)
+        ]
+
+    return compact
+
+
 def _prune_list_items(items: List[Any], file_key: str, keep_count: int) -> List[Any]:
-    trimmed = items[:keep_count]
+    source_items = items
+    if file_key == "inspector-findings":
+        def _inspector_rank(item: Any) -> tuple:
+            if not isinstance(item, dict):
+                return (9, 9, 9)
+            status_rank = 0 if str(item.get("status", "")).upper() == "ACTIVE" else 1
+            sev = str(item.get("severity", "")).upper()
+            severity_rank = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}.get(sev, 4)
+            exploit_rank = 0 if str(item.get("exploitAvailable", "")).upper() == "YES" else 1
+            return (status_rank, severity_rank, exploit_rank)
+
+        source_items = sorted(items, key=_inspector_rank)
+
+    trimmed = source_items[:keep_count]
     pruned: List[Any] = []
     for item in trimmed:
         if isinstance(item, dict):

@@ -81,6 +81,23 @@ class TestShouldChunk:
         assert chunker.should_chunk({"k": value_for_100_tokens}) is False
         assert chunker.should_chunk({"k": value_for_101_tokens}) is True
 
+    def test_policies_require_chunking_even_when_token_estimate_is_small(self):
+        chunker = EvidenceChunker(max_tokens_per_chunk=40000)
+        evidence = {"policies": [{"PolicyName": f"Policy{i}"} for i in range(4)]}
+
+        assert chunker.should_chunk(evidence) is True
+
+    def test_distilled_inspector_findings_require_chunking_even_when_small(self):
+        chunker = EvidenceChunker(max_tokens_per_chunk=40000)
+        evidence = {
+            "inspector-findings": {
+                "_distilled": True,
+                "items": [{"findingArn": f"finding-{i}"} for i in range(6)],
+            }
+        }
+
+        assert chunker.should_chunk(evidence) is True
+
 
 # ── EvidenceChunker: metadata key filtering ───────────────────────────────────
 
@@ -257,6 +274,91 @@ class TestLargeFileChunking:
         # Base fields preserved in every chunk
         for chunk in chunks:
             assert chunk.evidence["api-endpoints"]["region"] == "us-east-1"
+
+    def test_dynamic_chunk_size_keeps_large_dict_chunks_below_budget(self):
+        chunker = EvidenceChunker(max_tokens_per_chunk=14000)
+        items = [
+            {
+                "GroupId": f"sg-{i}",
+                "IngressRules": [
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": 1433,
+                        "ToPort": 1433,
+                        "IpRanges": [{"CidrIp": "0.0.0.0/0", "Description": "x" * 800}],
+                    }
+                ],
+            }
+            for i in range(29)
+        ]
+        chunks = list(chunker.chunk_evidence({"security-groups": {"items": items, "by_id": {}}}))
+
+        assert len(chunks) > 1
+        assert all(
+            chunker._estimate_tokens(chunk.evidence) <= int(chunker.max_tokens * 0.5)
+            for chunk in chunks
+        )
+
+    def test_security_groups_split_even_when_estimator_is_under_half_budget(self):
+        chunker = EvidenceChunker(max_tokens_per_chunk=14000)
+        items = [
+            {
+                "GroupId": f"sg-{i}",
+                "IngressRules": [
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": 443,
+                        "ToPort": 443,
+                        "IpRanges": [{"CidrIp": "10.0.0.0/16"}],
+                    }
+                ],
+            }
+            for i in range(12)
+        ]
+
+        chunks = list(chunker.chunk_evidence({"security-groups": {"items": items, "by_id": {}}}))
+
+        assert len(chunks) > 1
+        assert all(chunk.metadata["source_file"] == "security-groups" for chunk in chunks)
+
+    def test_policies_split_into_small_prompt_chunks(self):
+        chunker = EvidenceChunker(max_tokens_per_chunk=40000)
+        policies = [{"PolicyName": f"Policy{i}", "PolicyDocument": {"Statement": []}} for i in range(9)]
+
+        chunks = list(chunker.chunk_evidence({"policies": policies}))
+
+        assert len(chunks) == 3
+        recovered = []
+        for chunk in chunks:
+            assert len(chunk.evidence["policies"]) <= 4
+            recovered.extend(chunk.evidence["policies"])
+        assert [policy["PolicyName"] for policy in recovered] == [
+            f"Policy{i}" for i in range(9)
+        ]
+
+    def test_distilled_inspector_findings_split_into_small_prompt_chunks(self):
+        chunker = EvidenceChunker(max_tokens_per_chunk=40000)
+        findings = [{"findingArn": f"finding-{i}"} for i in range(12)]
+        evidence = {
+            "inspector-findings": {
+                "_distilled": True,
+                "_original_count": 491,
+                "_kept_count": 12,
+                "items": findings,
+            }
+        }
+
+        chunks = list(chunker.chunk_evidence(evidence))
+
+        assert len(chunks) == 3
+        recovered = []
+        for chunk in chunks:
+            payload = chunk.evidence["inspector-findings"]
+            assert payload["_distilled"] is True
+            assert payload["_original_count"] == 491
+            assert len(payload["items"]) <= 5
+            recovered.extend(payload["items"])
+        assert recovered == findings
 
 
 # ── EvidenceChunker._pick_dominant_list_key ───────────────────────────────────

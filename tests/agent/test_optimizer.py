@@ -138,6 +138,51 @@ class TestHeuristics:
         entry = data["skills"]["claude-cli:iam"]
         assert entry["max_chunks"] == 7  # reduced by 1 from default 8
 
+    def test_partial_skill_reduces_prompt_size(self, metrics_file, tmp_path):
+        _write_metrics(
+            metrics_file,
+            {
+                "iam": {
+                    "status": "partial",
+                    "provider": "claude-cli",
+                    "partial_results": True,
+                    "failed_chunks": 1,
+                    "validation_passed": False,
+                    "retries": [],
+                }
+            },
+        )
+        with patch("pathlib.Path.home", return_value=tmp_path):
+            result = optimize_budgets_from_metrics(metrics_file)
+        assert result["updated"] == 1
+        data = json.loads((tmp_path / ".drystone" / "budget-overrides.json").read_text())
+        entry = data["skills"]["claude-cli:iam"]
+        assert entry["max_tokens_per_chunk"] == 10500
+        assert entry["distill_max_list_items"] == 15
+        assert entry["max_chunks"] == 8
+
+    def test_llm_fallback_reduces_prompt_size_and_chunks(self, metrics_file, tmp_path):
+        _write_metrics(
+            metrics_file,
+            {
+                "vulns": {
+                    "status": "partial",
+                    "provider": "claude-cli",
+                    "llm_fallback_used": True,
+                    "partial_results": True,
+                    "retries": [],
+                }
+            },
+        )
+        with patch("pathlib.Path.home", return_value=tmp_path):
+            result = optimize_budgets_from_metrics(metrics_file)
+        assert result["updated"] == 1
+        data = json.loads((tmp_path / ".drystone" / "budget-overrides.json").read_text())
+        entry = data["skills"]["claude-cli:vulns"]
+        assert entry["max_tokens_per_chunk"] == 10500
+        assert entry["distill_max_list_items"] == 15
+        assert entry["max_chunks"] == 7
+
     def test_clean_run_no_update(self, metrics_file, tmp_path):
         """Successful skill with no retries and llm_skipped=False → no override update."""
         _write_metrics(

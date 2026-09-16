@@ -156,6 +156,11 @@ class MetricsTracker:
         confidence_score: float,
         confidence_level: str,
         llm_skipped: bool,
+        llm_fallback_used: bool = False,
+        partial_results: bool = False,
+        partial_reason: str = "",
+        failed_chunks: int = 0,
+        total_chunks: int = 0,
     ) -> None:
         """Record quality/confidence metrics for a skill."""
         with self.lock:
@@ -169,6 +174,11 @@ class MetricsTracker:
                     "confidence_score": float(confidence_score),
                     "confidence_level": str(confidence_level),
                     "llm_skipped": bool(llm_skipped),
+                    "llm_fallback_used": bool(llm_fallback_used),
+                    "partial_results": bool(partial_results),
+                    "partial_reason": str(partial_reason or ""),
+                    "failed_chunks": int(failed_chunks or 0),
+                    "total_chunks": int(total_chunks or 0),
                 }
             )
             self._write_metrics(metrics)
@@ -247,15 +257,27 @@ class MetricsTracker:
             if skill_name not in metrics.get("skills", {}):
                 metrics["skills"][skill_name] = {}
 
+            skill_metrics = metrics["skills"][skill_name]
+            partial_results = bool(
+                skill_metrics.get("llm_fallback_used", False)
+                or skill_metrics.get("partial_results", False)
+            )
+            effective_validation_passed = bool(validation_passed) and not partial_results
+
             metrics["skills"][skill_name].update(
                 {
                     "end_time": datetime.utcnow().isoformat(),
-                    "status": "complete" if validation_passed else "failed",
-                    "validation_passed": validation_passed,
+                    "status": (
+                        "partial"
+                        if partial_results
+                        else "complete" if validation_passed else "failed"
+                    ),
+                    "validation_passed": effective_validation_passed,
+                    "partial_results": partial_results,
                 }
             )
 
-            if not validation_passed:
+            if not effective_validation_passed:
                 metrics["validation_failures"] = metrics.get("validation_failures", 0) + 1
 
             self._write_metrics(metrics)

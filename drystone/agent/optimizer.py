@@ -10,6 +10,7 @@ def optimize_budgets_from_metrics(metrics_file: Path) -> Dict[str, Any]:
 
     Heuristic:
     - If skill failed with quota/rate issues, reduce max_chunks and distill size.
+    - If skill completed partially or fell back from LLM, reduce per-prompt size.
     - If skill completed with llm_skipped=true, reduce budget modestly.
     """
     if not metrics_file.exists():
@@ -55,8 +56,19 @@ def optimize_budgets_from_metrics(metrics_file: Path) -> Dict[str, Any]:
 
         status = str(data.get("status", ""))
         llm_skipped = bool(data.get("llm_skipped", False))
+        llm_fallback = bool(data.get("llm_fallback_used", False))
+        partial_results = bool(data.get("partial_results", False))
+        validation_failed = data.get("validation_passed") is False
+        failed_chunks = int(data.get("failed_chunks") or 0)
         retries = data.get("retries", [])
         had_quota = any("quota" in str(r.get("reason", "")).lower() for r in retries)
+        had_partial_execution = (
+            status == "partial"
+            or partial_results
+            or llm_fallback
+            or failed_chunks > 0
+            or (validation_failed and status not in {"complete", "success"})
+        )
 
         next_cfg = dict(current)
         if status == "failed" or had_quota:
@@ -64,6 +76,18 @@ def optimize_budgets_from_metrics(metrics_file: Path) -> Dict[str, Any]:
             next_cfg["distill_max_list_items"] = max(
                 12, int(current.get("distill_max_list_items", 20)) - 3
             )
+            next_cfg["max_tokens_per_chunk"] = max(
+                8000, int(int(current.get("max_tokens_per_chunk", 14000)) * 0.75)
+            )
+        elif had_partial_execution:
+            next_cfg["max_tokens_per_chunk"] = max(
+                8000, int(int(current.get("max_tokens_per_chunk", 14000)) * 0.75)
+            )
+            next_cfg["distill_max_list_items"] = max(
+                12, int(current.get("distill_max_list_items", 20)) - 5
+            )
+            if llm_skipped or llm_fallback:
+                next_cfg["max_chunks"] = max(4, int(current.get("max_chunks", 8)) - 1)
         elif llm_skipped:
             next_cfg["max_chunks"] = max(4, int(current.get("max_chunks", 8)) - 1)
 

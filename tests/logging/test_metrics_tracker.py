@@ -1,5 +1,6 @@
 """Tests for thread-safe metrics tracker with atomic updates."""
 
+import json
 import tempfile
 import threading
 import time
@@ -393,6 +394,46 @@ class TestBranchCoverage:
         tracker.record_skill_quality("exposure", 0.7, "UNCERTAIN", llm_skipped=True)
         data = _json.loads(path.read_text())
         assert data["skills"]["exposure"]["llm_skipped"] is True
+
+    def test_record_skill_complete_marks_llm_fallback_as_partial(self, tmp_path):
+        path = tmp_path / "m.json"
+        tracker = MetricsTracker(path)
+        tracker.record_skill_start("alerting")
+        tracker.record_skill_quality(
+            "alerting",
+            0.55,
+            "low",
+            llm_skipped=True,
+            llm_fallback_used=True,
+        )
+        tracker.record_skill_complete("alerting", validation_passed=True)
+
+        data = json.loads(path.read_text())
+        assert data["skills"]["alerting"]["status"] == "partial"
+        assert data["skills"]["alerting"]["validation_passed"] is False
+        assert data["skills"]["alerting"]["partial_results"] is True
+
+    def test_record_skill_complete_marks_chunk_failure_as_partial(self, tmp_path):
+        path = tmp_path / "m.json"
+        tracker = MetricsTracker(path)
+        tracker.record_skill_start("alerting")
+        tracker.record_skill_quality(
+            "alerting",
+            0.56,
+            "low",
+            llm_skipped=False,
+            partial_results=True,
+            partial_reason="one_or_more_llm_chunks_failed",
+            failed_chunks=1,
+            total_chunks=6,
+        )
+        tracker.record_skill_complete("alerting", validation_passed=True)
+
+        data = json.loads(path.read_text())
+        assert data["skills"]["alerting"]["status"] == "partial"
+        assert data["skills"]["alerting"]["validation_passed"] is False
+        assert data["skills"]["alerting"]["failed_chunks"] == 1
+        assert data["skills"]["alerting"]["total_chunks"] == 6
 
     def test_record_llm_budget_stores_metrics(self, tmp_path):
         """record_llm_budget (entire function was uncovered)."""

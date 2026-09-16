@@ -16,6 +16,7 @@ def _make_aws_client(region="us-east-1", token=None):
     c.secret_access_key = "SECRET"
     c.region_name = region
     c.session_token = token
+    c.get_account_id.return_value = "123456789012"
     return c
 
 
@@ -121,6 +122,7 @@ class TestCloudTrailEventsCollect:
 
         assert summary["scan_depth"] == "deep"
         assert summary["days_back"] == 90
+        assert summary["account_id"] == "123456789012"
         assert "start_time" in summary
         assert "end_time" in summary
         assert "categories_collected" in summary
@@ -236,10 +238,13 @@ class TestCloudTrailPreChecks:
 
     # CTEF-003
     def test_ctef_003_fail_when_stop_logging(self):
-        events = [_make_event("StopLogging", "attacker")]
+        trail_arn = "arn:aws:cloudtrail:eu-west-1:123456789012:trail/audit"
+        events = [_make_event("StopLogging", "attacker", resources=[trail_arn])]
         result = _run_check("CTEF-003", {"audit-tampering-events": events})
         assert result.status == "FAIL"
         assert "StopLogging" in result.evidence_summary
+        assert "user:attacker" in result.affected_resources
+        assert trail_arn in result.affected_resources
 
     def test_ctef_003_pass_when_no_tampering(self):
         result = _run_check("CTEF-003", {"audit-tampering-events": []})
@@ -582,7 +587,7 @@ class TestChecklistJson:
 # =============================================================================
 
 
-def _make_event(event_name, username, error_code=None, event_time=None):
+def _make_event(event_name, username, error_code=None, event_time=None, resources=None):
     """Create a minimal distilled event dict (as returned by collector)."""
     t = event_time or datetime(2026, 3, 15, 10, 0, 0, tzinfo=timezone.utc)
     e = {
@@ -592,6 +597,11 @@ def _make_event(event_name, username, error_code=None, event_time=None):
     }
     if error_code:
         e["ErrorCode"] = error_code
+    if resources:
+        e["Resources"] = [
+            {"ResourceType": "AWS::CloudTrail::Trail", "ResourceName": resource}
+            for resource in resources
+        ]
     return e
 
 

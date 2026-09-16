@@ -13,7 +13,6 @@ from .report_validator import (
     validate_report_completeness,
     validate_report_format,
 )
-from .reviewer import FindingsReviewer
 
 __all__ = [
     "validate_checklist_coverage",
@@ -25,3 +24,12 @@ __all__ = [
     "QueueValidator",
     "ValidationResult",
 ]
+
+
+def __getattr__(name):
+    """Lazily load optional validation helpers."""
+    if name == "FindingsReviewer":
+        from .reviewer import FindingsReviewer
+
+        return FindingsReviewer
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -5,7 +5,7 @@ import logging
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from drystone.storage.session import AuditSession
 from drystone.threat_intel.traildiscover import enrich_finding as _td_enrich
@@ -294,7 +294,7 @@ class CloudTrailEventsPostProcessor:
         }
 
     @staticmethod
-    def _parse_day(event_time_str: Any) -> str | None:
+    def _parse_day(event_time_str: Any) -> Optional[str]:
         """Parse EventTime string into YYYY-MM-DD. Returns None if unparseable."""
         if not event_time_str or not isinstance(event_time_str, str):
             return None

@@ -31,6 +31,87 @@ def test_distiller_truncates_long_lists():
     assert len(distilled["roles"]["items"]) == 10
 
 
+def test_distiller_prioritizes_active_inspector_findings():
+    evidence = {
+        "inspector-findings": [
+            {"title": f"closed-{i}", "status": "CLOSED", "severity": "CRITICAL"}
+            for i in range(20)
+        ]
+        + [
+            {
+                "title": "active-exploit",
+                "status": "ACTIVE",
+                "severity": "HIGH",
+                "exploitAvailable": "YES",
+                "fixAvailable": "YES",
+                "resources": [{"id": "i-1", "type": "AWS_EC2_INSTANCE"}],
+            }
+        ]
+    }
+
+    distilled, _ = distill_evidence(evidence, max_list_items=5)
+
+    kept = distilled["inspector-findings"]["items"]
+    assert kept[0]["title"] == "active-exploit"
+    assert kept[0]["status"] == "ACTIVE"
+    assert kept[0]["resources"][0]["id"] == "i-1"
+
+
+def test_distiller_compacts_inspector_finding_payloads():
+    evidence = {
+        "inspector-findings": [
+            {
+                "findingArn": "arn:aws:inspector2:us-east-1:123:finding/1",
+                "status": "ACTIVE",
+                "severity": "CRITICAL",
+                "title": "CVE finding",
+                "description": "d" * 1000,
+                "remediation": {
+                    "recommendation": "r" * 1000,
+                    "url": "https://example.invalid/fix",
+                },
+                "resources": [
+                    {"id": "i-1", "type": "AWS_EC2_INSTANCE", "details": {"large": "x" * 100}},
+                    {"id": "i-2", "type": "AWS_EC2_INSTANCE", "details": {"large": "x" * 100}},
+                    {"id": "i-3", "type": "AWS_EC2_INSTANCE"},
+                ],
+                "packageVulnerabilityDetails": {
+                    "vulnerabilityId": "CVE-2026-0001",
+                    "source": "NVD",
+                    "cvss": [{"baseScore": 9.8}, {"baseScore": 8.1}],
+                    "vulnerablePackages": [
+                        {
+                            "name": f"pkg-{i}",
+                            "version": "1.0",
+                            "fixedInVersion": "1.1",
+                            "packageManager": "OS",
+                            "filePath": "/very/long/path",
+                        }
+                        for i in range(6)
+                    ],
+                },
+                "unusedLargeField": "x" * 1000,
+            }
+        ]
+    }
+
+    distilled, stats = distill_evidence(evidence, max_list_items=20)
+
+    assert stats["files_reduced"] == 0
+    finding = distilled["inspector-findings"][0]
+    assert len(finding["description"]) <= 243
+    assert len(finding["remediation"]["recommendation"]) <= 243
+    assert finding["remediation"]["url"] == "https://example.invalid/fix"
+    assert len(finding["resources"]) == 2
+    assert finding["resources"][0] == {"id": "i-1", "type": "AWS_EC2_INSTANCE"}
+    details = finding["packageVulnerabilityDetails"]
+    assert details["vulnerabilityId"] == "CVE-2026-0001"
+    assert len(details["cvss"]) == 1
+    assert len(details["vulnerablePackages"]) == 3
+    assert "filePath" not in details["vulnerablePackages"][0]
+    assert "unusedLargeField" not in finding
+
+
 def test_budget_policy_by_provider():
     claude_cli = get_budget_policy("claude-cli", "iam")
     claude_api = get_budget_policy("claude-api", "iam")

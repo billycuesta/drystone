@@ -3,7 +3,7 @@
 import json
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Iterator, cast
+from typing import Any, Dict, Iterator, Optional, cast
 
 from drystone.models.findings import Finding, FindingsSummary, SkillFindings
 
@@ -41,6 +41,22 @@ class EvidenceChunker:
 
     def should_chunk(self, evidence: Dict[str, Any]) -> bool:
         """Check if evidence size requires chunking."""
+        # Some evidence types have high prompt-complexity even after token
+        # distillation because every item carries nested policy/CVE semantics.
+        # Force chunking so they cannot become one long-running Claude CLI call.
+        for key, value in evidence.items():
+            normalized = str(key).replace(".json", "").lower()
+            if normalized in {"inspector-findings", "policies"}:
+                if isinstance(value, list) and len(value) > 3:
+                    return True
+                if isinstance(value, dict):
+                    items = value.get("items")
+                    if isinstance(items, list) and len(items) > 3:
+                        return True
+                    for sub_value in value.values():
+                        if isinstance(sub_value, dict) and isinstance(sub_value.get("items"), list):
+                            if len(sub_value["items"]) > 3:
+                                return True
         estimated_tokens = self._estimate_tokens(evidence)
         return estimated_tokens > self.max_tokens
 
@@ -106,7 +122,37 @@ class EvidenceChunker:
             if filename in emitted:
                 continue
             file_tokens = self._estimate_tokens({filename: data})
-            if file_tokens > self.max_tokens:
+            # The LLM prompt also includes the static XML template, full checklist,
+            # and deterministic pre-check addendum. Split list-like evidence before
+            # it reaches the nominal budget so a "single file" chunk does not still
+            # become an oversized prompt.
+            should_split = file_tokens > self.max_tokens
+            if not should_split and file_tokens > int(self.max_tokens * 0.5):
+                if isinstance(data, list):
+                    should_split = True
+                elif isinstance(data, dict) and self._pick_dominant_list_key(data):
+                    should_split = True
+            # Security Group evidence is deceptively expensive for the LLM: a modest
+            # item count can contain many nested ingress/egress rules and long
+            # descriptions. Split it proactively so Claude CLI does not spend the
+            # full timeout on a single oversized SG prompt.
+            if not should_split and filename == "security-groups" and isinstance(data, dict):
+                list_key = self._pick_dominant_list_key(data)
+                items = data.get(list_key) if list_key else None
+                if isinstance(items, list) and len(items) > 8:
+                    should_split = True
+            if not should_split and filename in {"policies", "inspector-findings"}:
+                if isinstance(data, list) and len(data) > 3:
+                    should_split = True
+                elif isinstance(data, dict):
+                    list_key = self._pick_dominant_list_key(data)
+                    items = data.get(list_key) if list_key else None
+                    if isinstance(items, list) and len(items) > 3:
+                        should_split = True
+                    elif isinstance(items, dict) and isinstance(items.get("items"), list):
+                        should_split = len(items["items"]) > 3
+
+            if should_split:
                 yield from self._chunk_large_file(filename, data)
             else:
                 yield EvidenceChunk(
@@ -132,15 +178,53 @@ class EvidenceChunker:
         Yields:
             EvidenceChunk instances with subdivided data
         """
+        if filename == "security-groups":
+            resources_per_chunk = min(resources_per_chunk, 6)
+        if filename == "policies":
+            resources_per_chunk = min(resources_per_chunk, 4)
+        if filename == "inspector-findings":
+            resources_per_chunk = min(resources_per_chunk, 5)
+
+        def _effective_chunk_size(items: list[Any], base: Optional[Dict[str, Any]] = None) -> int:
+            """Choose a chunk size that leaves room for checklist/template context."""
+            if not items:
+                return resources_per_chunk
+
+            # In chunked LLM calls the evidence is only part of the prompt. Keep
+            # each evidence fragment well below the nominal budget so the static
+            # XML template, checklist, and pre-check addendum do not push Claude
+            # CLI into long-running prompts.
+            target_tokens = max(1200, int(self.max_tokens * 0.35))
+            sample = items[: min(len(items), 5)]
+            sample_tokens = max(1, self._estimate_tokens({"items": sample}))
+            avg_item_tokens = max(1, sample_tokens // max(1, len(sample)))
+            base_tokens = self._estimate_tokens(base or {}) if base else 0
+            available_tokens = max(1, target_tokens - base_tokens)
+            dynamic_size = max(1, available_tokens // avg_item_tokens)
+            return max(1, min(resources_per_chunk, dynamic_size))
+
         # If the file is not a simple list, try to chunk a dominant list field
         # (common for dict-shaped evidence like {"items": [...]} or {"endpoints": [...]}).
         if not isinstance(data, list):
             if isinstance(data, dict):
                 list_key = self._pick_dominant_list_key(data)
                 if list_key:
-                    base = {k: v for k, v in data.items() if k != list_key}
-                    items = data.get(list_key)
+                    # Drop secondary indexes such as by_id/by_name while chunking.
+                    # They duplicate the item list and can make every chunk nearly
+                    # as large as the original file.
+                    base = {
+                        k: v
+                        for k, v in data.items()
+                        if k != list_key and not str(k).startswith("by_")
+                    }
+                    items_container = data.get(list_key)
+                    items = items_container
+                    list_wrapper: Dict[str, Any] | None = None
+                    if isinstance(items_container, dict) and isinstance(items_container.get("items"), list):
+                        list_wrapper = {k: v for k, v in items_container.items() if k != "items"}
+                        items = items_container.get("items")
                     if isinstance(items, list):
+                        resources_per_chunk = _effective_chunk_size(items, base)
                         total_resources = len(items)
                         total_chunks = (
                             total_resources + resources_per_chunk - 1
@@ -149,10 +233,13 @@ class EvidenceChunker:
                         for i in range(0, total_resources, resources_per_chunk):
                             chunk_items = items[i : i + resources_per_chunk]
                             chunk_id = i // resources_per_chunk + 1
+                            chunk_value: Any = chunk_items
+                            if list_wrapper is not None:
+                                chunk_value = {**list_wrapper, "items": chunk_items}
                             yield EvidenceChunk(
                                 chunk_id=chunk_id,
                                 total_chunks=total_chunks,
-                                evidence={filename: {**base, list_key: chunk_items}},
+                                evidence={filename: {**base, list_key: chunk_value}},
                                 metadata={
                                     "source_file": filename,
                                     "resource_range": f"{i + 1}-{i + len(chunk_items)}/{total_resources}",
@@ -171,6 +258,7 @@ class EvidenceChunker:
             return
 
         total_resources = len(data)
+        resources_per_chunk = _effective_chunk_size(data)
         total_chunks = (total_resources + resources_per_chunk - 1) // resources_per_chunk
 
         for i in range(0, total_resources, resources_per_chunk):
@@ -202,11 +290,14 @@ class EvidenceChunker:
             "services",
             "interfaces",
             "instances",
+            "findings",
         ]
 
         for key in preferred:
             val = data.get(key)
             if isinstance(val, list) and len(val) > 0:
+                return key
+            if isinstance(val, dict) and isinstance(val.get("items"), list) and len(val["items"]) > 0:
                 return key
 
         best_key = ""
