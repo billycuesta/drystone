@@ -575,6 +575,18 @@ def run_ai_menu(current_config: Optional[dict] = None) -> dict:
         raise KeyboardInterrupt("Wizard cancelled")
     result["scan_depth"] = scan_depth
 
+    # ── Active Verification ──────────────────────────────────────
+    current_active_verification = defaults.get("active_verification", True)
+    active_verification = questionary.confirm(
+        "Enable active verification? (real, non-destructive AssumeRole / S3 HEAD "
+        "calls to confirm exploitability -- appears in the target account's "
+        "CloudTrail logs)",
+        default=current_active_verification,
+    ).ask()
+    if active_verification is None:
+        raise KeyboardInterrupt("Wizard cancelled")
+    result["active_verification"] = active_verification
+
     return result
 
 
@@ -589,6 +601,7 @@ def get_default_ai_config() -> dict:
         "ai_api_key": None,
         "claude_cli_model": "sonnet",
         "scan_depth": "normal",
+        "active_verification": True,
     }
 
 

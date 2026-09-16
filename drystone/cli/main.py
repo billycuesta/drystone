@@ -67,6 +67,18 @@ def cli() -> None:
     type=click.Choice(["shallow", "normal", "deep", "very-deep"]),
     help="Scan depth controlling chunk budget and token usage",
 )
+@click.option(
+    "--no-active-verification",
+    is_flag=True,
+    default=False,
+    help=(
+        "Skip active verification (real, non-destructive AWS API calls -- AssumeRole, "
+        "unauthenticated S3 HEAD/List -- that prove specific findings are exploitable). "
+        "Active verification runs by default; this activity appears in the target "
+        "account's CloudTrail logs, so disable it for engagements whose authorized "
+        "scope doesn't cover active testing."
+    ),
+)
 def audit(
     non_interactive: bool,
     client: Optional[str] = None,
@@ -76,6 +88,7 @@ def audit(
     min_severity: Literal["low", "medium", "high", "critical"] = "low",
     report_type: Optional[Literal["general", "pci-dss", "pentest"]] = None,
     scan_depth: Optional[Literal["shallow", "normal", "deep", "very-deep"]] = None,
+    no_active_verification: bool = False,
 ) -> None:
     """Run AWS security audit."""
 
@@ -95,6 +108,7 @@ def audit(
         or min_severity != "low"
         or report_type
         or scan_depth
+        or no_active_verification
     )
     should_use_interactive = not non_interactive and not has_cli_args
 
@@ -162,6 +176,8 @@ def audit(
         config.report_type = cast(Literal["general", "pci-dss", "pentest"], report_type)
     if scan_depth and config is not None:
         config.scan_depth = scan_depth
+    if no_active_verification and config is not None:
+        config.active_verification = False
     # Show summary
     try:
         print_summary(config)
@@ -422,11 +438,36 @@ def audit(
         except Exception as _corr_err:
             pass  # Non-blocking: report generates with empty chains if correlation fails
 
-    # === PHASE 3c: CHAIN-OF-CUSTODY MANIFEST ===
-    # Hash every evidence/findings JSON now that collection and analysis are
-    # done, so post-audit tampering with either is detectable later via
-    # `drystone verify-integrity`. Non-blocking: a manifest failure shouldn't
-    # stop the audit from producing a report.
+    # === PHASE 3c: ACTIVE VERIFICATION ===
+    # Real, non-destructive AWS API calls (AssumeRole, unauthenticated S3
+    # HEAD/List) that prove specific findings are actually exploitable, not
+    # just inferred. Runs before the integrity manifest below, since it
+    # modifies correlated.json/exposure.json in place -- the manifest must
+    # hash the post-verification state, not a stale one. Non-blocking: a
+    # verification failure shouldn't stop the audit from producing a report.
+    if getattr(config, "active_verification", True):
+        from drystone.verification.runner import WARNING_BANNER, run_active_verification
+
+        click.echo(WARNING_BANNER)
+        try:
+            _verification_summary = run_active_verification(session.base_path, aws_client.session)
+            click.echo(
+                f"  🔒 Active verification: {_verification_summary['attempted']} attempted, "
+                f"{_verification_summary['succeeded']} succeeded, "
+                f"{_verification_summary['denied']} denied, "
+                f"{_verification_summary['errored']} errored "
+                f"(log: {Path(_verification_summary['log_path']).name})\n"
+            )
+        except Exception as _verify_err:
+            click.echo(f"  ⚠️  Active verification failed: {_verify_err}\n")
+    else:
+        click.echo("  ⏭️  Active verification skipped (--no-active-verification)\n")
+
+    # === PHASE 3d: CHAIN-OF-CUSTODY MANIFEST ===
+    # Hash every evidence/findings JSON now that collection, analysis, and
+    # active verification are all done, so post-audit tampering with any of
+    # it is detectable later via `drystone verify-integrity`. Non-blocking:
+    # a manifest failure shouldn't stop the audit from producing a report.
     try:
         from drystone.storage.manifest import write_manifest
 

@@ -96,6 +96,17 @@ class WizardConfig(BaseModel):
         description="QSA visibility level: obvious=only self-evident, standard=normal scope, deep=all checks",
     )
 
+    active_verification: bool = Field(
+        default=True,
+        description=(
+            "Run real, non-destructive AWS API calls (AssumeRole, unauthenticated S3 "
+            "HEAD/List) to confirm specific findings are actually exploitable, not just "
+            "inferred. Defaults to on. This activity appears in the target account's "
+            "CloudTrail logs -- disable for engagements whose authorized scope doesn't "
+            "cover active testing (see drystone/verification/)."
+        ),
+    )
+
     # Report language
     report_language: Literal["en", "es"] = Field(
         default="en",

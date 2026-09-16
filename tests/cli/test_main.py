@@ -213,6 +213,15 @@ class TestAuditCliOverrides:
         _stop_at_credentials(runner, sample_config, "--scan-depth", "deep")
         assert sample_config.scan_depth == "deep"
 
+    def test_no_active_verification_flag_disables_it(self, runner, sample_config):
+        assert sample_config.active_verification is True  # default
+        _stop_at_credentials(runner, sample_config, "--no-active-verification")
+        assert sample_config.active_verification is False
+
+    def test_active_verification_stays_on_by_default(self, runner, sample_config):
+        _stop_at_credentials(runner, sample_config, "--client", "ACME")
+        assert sample_config.active_verification is True
+
     def test_formats_override(self, runner, sample_config):
         _stop_at_credentials(runner, sample_config, "--formats", "json")
         assert "json" in sample_config.output_formats
