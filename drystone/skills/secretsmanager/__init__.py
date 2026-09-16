@@ -16,6 +16,19 @@ from drystone.storage.session import AuditSession
 class SecretsManagerSkill(BaseSkill):
     """Secrets Manager security audit for rotation, encryption, and access control."""
 
+    def _skill_specific_traceability(
+        self,
+        check_id: str,
+        result: Any,
+        evidence: Dict[str, Any],
+    ) -> Optional["tuple[List[str], Optional[Dict[str, Any]]]"]:
+        """P1 #2 (2026-09-16): check-ID-specific evidence traceability, extracted
+        from BaseSkill._build_precheck_traceability into secretsmanager/traceability.py.
+        """
+        from drystone.skills.secretsmanager.traceability import build_traceability
+
+        return build_traceability(check_id, result, evidence)
+
     @property
     def name(self) -> str:
         return "secretsmanager"

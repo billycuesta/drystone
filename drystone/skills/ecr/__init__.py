@@ -22,6 +22,19 @@ from drystone.storage.session import AuditSession
 class ECRSkill(BaseSkill):
     """Amazon ECR security audit."""
 
+    def _skill_specific_traceability(
+        self,
+        check_id: str,
+        result: Any,
+        evidence: Dict[str, Any],
+    ) -> Optional["tuple[List[str], Optional[Dict[str, Any]]]"]:
+        """P1 #2 (2026-09-16): check-ID-specific evidence traceability, extracted
+        from BaseSkill._build_precheck_traceability into ecr/traceability.py.
+        """
+        from drystone.skills.ecr.traceability import build_traceability
+
+        return build_traceability(check_id, result, evidence)
+
     @property
     def name(self) -> str:
         return "ecr"

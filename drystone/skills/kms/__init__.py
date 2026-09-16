@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import boto3
 from botocore.exceptions import ClientError
@@ -24,6 +24,19 @@ logger = get_logger(__name__)
 
 class KMSSkill(BaseSkill):
     """AWS KMS audit skill."""
+
+    def _skill_specific_traceability(
+        self,
+        check_id: str,
+        result: Any,
+        evidence: Dict[str, Any],
+    ) -> Optional["tuple[List[str], Optional[Dict[str, Any]]]"]:
+        """P1 #2 (2026-09-16): check-ID-specific evidence traceability, extracted
+        from BaseSkill._build_precheck_traceability into kms/traceability.py.
+        """
+        from drystone.skills.kms.traceability import build_traceability
+
+        return build_traceability(check_id, result, evidence)
 
     @property
     def name(self) -> str:

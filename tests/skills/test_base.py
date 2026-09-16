@@ -21,12 +21,58 @@ from drystone.skills.base import BaseSkill, _severity_to_risk
 
 
 class _DummySkill(BaseSkill):
+    """Generic test double exercising ALL skills' traceability modules.
+
+    Before P1 #2 (2026-09-16), _build_precheck_traceability's per-check-ID
+    routing lived centrally on BaseSkill, so any skill instance handled
+    every check_id prefix. After the split, routing is per-skill (each real
+    skill class only knows its own prefixes via _skill_specific_traceability).
+    This dummy restores the old centralized-dispatch behavior for tests that
+    exercise many different skills' check IDs through one instance, without
+    needing a separate dummy per skill.
+    """
+
     @property
     def name(self) -> str:
         return "iam"
 
     def collect(self, aws_client, session):
         pass
+
+    def _skill_specific_traceability(self, check_id, result, evidence):
+        from drystone.skills.alerting import traceability as _alerting
+        from drystone.skills.cloudtrail_events import traceability as _cloudtrail_events
+        from drystone.skills.ecr import traceability as _ecr
+        from drystone.skills.exposure import traceability as _exposure
+        from drystone.skills.hardening import traceability as _hardening
+        from drystone.skills.iam import traceability as _iam
+        from drystone.skills.kms import traceability as _kms
+        from drystone.skills.network import traceability as _network
+        from drystone.skills.recon import traceability as _recon
+        from drystone.skills.secretsmanager import traceability as _secretsmanager
+        from drystone.skills.sistemas_explotables_red import traceability as _ser
+        from drystone.skills.vulns import traceability as _vulns
+        from drystone.skills.waf import traceability as _waf
+
+        for module in (
+            _iam,
+            _hardening,
+            _waf,
+            _recon,
+            _secretsmanager,
+            _ser,
+            _exposure,
+            _network,
+            _vulns,
+            _alerting,
+            _kms,
+            _ecr,
+            _cloudtrail_events,
+        ):
+            outcome = module.build_traceability(check_id, result, evidence)
+            if outcome is not None:
+                return outcome
+        return None
 
 
 SKILL = _DummySkill()

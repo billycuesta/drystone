@@ -3,7 +3,7 @@
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import boto3
 from botocore.exceptions import ClientError
@@ -259,6 +259,19 @@ def _analyze_resource_policy(
 
 class ExposureSkill(BaseSkill):
     """Public exposure audit skill - identifies resources exposed to internet."""
+
+    def _skill_specific_traceability(
+        self,
+        check_id: str,
+        result: Any,
+        evidence: Dict[str, Any],
+    ) -> Optional["tuple[List[str], Optional[Dict[str, Any]]]"]:
+        """P1 #2 (2026-09-16): check-ID-specific evidence traceability, extracted
+        from BaseSkill._build_precheck_traceability into exposure/traceability.py.
+        """
+        from drystone.skills.exposure.traceability import build_traceability
+
+        return build_traceability(check_id, result, evidence)
 
     @property
     def name(self) -> str:

@@ -26,6 +26,19 @@ logger = get_logger(__name__)
 class HardeningSkill(BaseSkill):
     """Account hardening audit skill - analyzes Config, Security Hub, and compliance posture."""
 
+    def _skill_specific_traceability(
+        self,
+        check_id: str,
+        result: Any,
+        evidence: Dict[str, Any],
+    ) -> Optional["tuple[List[str], Optional[Dict[str, Any]]]"]:
+        """P1 #2 (2026-09-16): check-ID-specific evidence traceability, extracted
+        from BaseSkill._build_precheck_traceability into hardening/traceability.py.
+        """
+        from drystone.skills.hardening.traceability import build_traceability
+
+        return build_traceability(check_id, result, evidence)
+
     @property
     def name(self) -> str:
         """Skill identifier."""

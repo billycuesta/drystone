@@ -3,7 +3,7 @@
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import boto3
 from botocore.exceptions import ClientError
@@ -15,6 +15,19 @@ from drystone.storage.session import AuditSession
 
 class NetworkSkill(BaseSkill):
     """Network security audit skill - analyzes VPCs, security groups, and network policies."""
+
+    def _skill_specific_traceability(
+        self,
+        check_id: str,
+        result: Any,
+        evidence: Dict[str, Any],
+    ) -> Optional["tuple[List[str], Optional[Dict[str, Any]]]"]:
+        """P1 #2 (2026-09-16): check-ID-specific evidence traceability, extracted
+        from BaseSkill._build_precheck_traceability into network/traceability.py.
+        """
+        from drystone.skills.network.traceability import build_traceability
+
+        return build_traceability(check_id, result, evidence)
 
     @property
     def name(self) -> str:
