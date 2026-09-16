@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class PCIDSSControl(BaseModel):
@@ -70,10 +70,8 @@ class Finding(BaseModel):
         ),
     )
 
-    class Config:
-        """Pydantic config."""
-
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "id": "IAM-001",
                 "severity": "Critical",
@@ -98,6 +96,7 @@ class Finding(BaseModel):
                 "security_analogy": "This is like leaving the master key in the front door of a bank vault — anyone can walk in and take what they want.",
             }
         }
+    )
 
 
 class FindingsSummary(BaseModel):
@@ -112,10 +111,8 @@ class FindingsSummary(BaseModel):
         default=0.0, ge=0.0, le=10.0, description="Average risk score across all findings"
     )
 
-    class Config:
-        """Pydantic config."""
-
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "total_findings": 12,
                 "critical": 2,
@@ -125,6 +122,7 @@ class FindingsSummary(BaseModel):
                 "overall_risk_score": 7.5,
             }
         }
+    )
 
 
 class SkillFindings(BaseModel):
@@ -137,11 +135,8 @@ class SkillFindings(BaseModel):
     evidence_count: int = Field(..., ge=0, description="Number of evidence files analyzed")
     checklist_version: str = Field(default="1.0", description="Version of security checklist used")
 
-    class Config:
-        """Pydantic config."""
-
-        json_encoders = {datetime: lambda v: v.isoformat()}
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "skill": "iam",
                 "findings": [
@@ -170,3 +165,4 @@ class SkillFindings(BaseModel):
                 "checklist_version": "1.0",
             }
         }
+    )

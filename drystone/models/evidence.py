@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class IAMUser(BaseModel):
@@ -64,7 +64,4 @@ class IAMEvidence(BaseModel):
     password_policy: Optional[dict] = Field(default=None, description="Password policy")
     collected_at: datetime = Field(default_factory=datetime.now, description="Collection timestamp")
 
-    class Config:
-        """Pydantic config."""
-
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict()

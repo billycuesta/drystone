@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SourceFindingRef(BaseModel):
@@ -58,8 +58,7 @@ class CorrelationPattern(BaseModel):
     attack_path_steps: List[str] = Field(..., description="Attack chain steps")
     remediation_template: str = Field(..., description="Template for remediation")
 
-    class Config:
-        arbitrary_types_allowed = True  # Allow callable match_condition
+    model_config = ConfigDict(arbitrary_types_allowed=True)  # Allow callable match_condition
 
 
 class CVSSScore(BaseModel):

@@ -482,12 +482,12 @@ class CorrelationEngine:
         self, corr: CorrelatedFinding, evidence_by_skill: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Return correlation dict augmented with pentest context fields."""
-        out = corr.dict()
+        out = corr.model_dump()
         dynamic = PATTERN_REGISTRY.get(corr.pattern_id)
-        out["cvss"] = self.calculate_cvss_score(corr).dict()
-        out["threat_context"] = self.map_to_mitre_attack(corr).dict()
+        out["cvss"] = self.calculate_cvss_score(corr).model_dump()
+        out["threat_context"] = self.map_to_mitre_attack(corr).model_dump()
         if dynamic is not None:
-            out["exploitability"] = dynamic.exploitability.dict()
+            out["exploitability"] = dynamic.exploitability.model_dump()
         out["technical_impact"] = {
             "blast_radius": self.calculate_blast_radius(corr),
             "lateral_movement_paths": corr.attack_path,
@@ -756,8 +756,8 @@ class CorrelationEngine:
             if finding.pci_dss:
                 for control in finding.pci_dss:
                     # Convert to dict if it's a Pydantic model
-                    if hasattr(control, "dict"):
-                        pci_dss.append(control.dict())
+                    if hasattr(control, "model_dump"):
+                        pci_dss.append(control.model_dump())
                     elif isinstance(control, dict):
                         pci_dss.append(control)
                     else:
