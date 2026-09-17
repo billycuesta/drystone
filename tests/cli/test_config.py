@@ -242,6 +242,27 @@ class TestRoundTrip:
         assert data["aws_role_duration_seconds"] == 1800
         assert "aws_external_id" not in data
 
+    def test_pdf_branding_settings_persist(self, tmp_config_dir, tmp_path):
+        client_logo = tmp_path / "client.png"
+        firm_logo = tmp_path / "firm.png"
+        client_logo.write_bytes(b"client-logo")
+        firm_logo.write_bytes(b"firm-logo")
+        config = WizardConfig(
+            client_name="ACME",
+            aws_profile="my-profile",
+            aws_region="us-east-1",
+            skills=["iam"],
+            brand_accent_color="#2563eb",
+            client_logo_path=client_logo,
+            firm_logo_path=firm_logo,
+        )
+        save_config(config)
+        loaded = load_last_config()
+        assert loaded is not None
+        assert loaded.brand_accent_color == "#2563eb"
+        assert loaded.client_logo_path == client_logo
+        assert loaded.firm_logo_path == firm_logo
+
 
 # ── QSA Depth Tests ──────────────────────────────────────────────────────────
 

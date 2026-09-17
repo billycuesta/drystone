@@ -77,6 +77,17 @@ class WizardConfig(BaseModel):
         description="Report type: general security report, PCI DSS compliance report, or pentest technical report",
     )
 
+    # Optional PDF whitelabeling
+    brand_accent_color: Optional[str] = Field(
+        default=None, description="Hex accent color for PDF reports (for example, #2563eb)"
+    )
+    client_logo_path: Optional[Path] = Field(
+        default=None, description="Optional client logo path for PDF cover page"
+    )
+    firm_logo_path: Optional[Path] = Field(
+        default=None, description="Optional auditing firm logo path for PDF cover page"
+    )
+
     # Step 7: AI Provider for analysis
     ai_provider: Literal["claude-api", "claude-cli"] = Field(
         default="claude-api",
@@ -144,6 +155,9 @@ class WizardConfig(BaseModel):
                 "aws_region": "us-east-1",
                 "skills": ["iam", "exposure"],
                 "output_formats": ["markdown", "json"],
+                "brand_accent_color": "#2563eb",
+                "client_logo_path": None,
+                "firm_logo_path": None,
                 "ai_provider": "claude-api",
                 "claude_cli_model": "haiku",
                 "ai_api_key": None,
@@ -351,8 +365,7 @@ class WizardConfig(BaseModel):
         data.pop("aws_external_id", None)
         data.pop("ai_api_key", None)
 
-        # Always preserve aws_credentials_file, aws_profile, and non-secret role settings
-        # They will be None if not used, which is fine
+        # Preserve non-secret paths/settings. They will be None if not used, which is fine.
 
         data["created_at"] = self.created_at.isoformat()
         return data

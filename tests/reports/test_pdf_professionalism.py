@@ -215,6 +215,40 @@ class TestGAP2DocumentControl:
         assert pdf_formatter.REPORT_FORMAT_VERSION in result
 
 
+class TestPDFWhitelabeling:
+    """P2 #1: client/firm whitelabeling for PDF reports."""
+
+    def test_brand_accent_color_uses_valid_hex(self, pdf_formatter):
+        pdf_formatter.config.brand_accent_color = "#2563eb"
+        assert pdf_formatter._brand_accent_color() == "#2563eb"
+
+    def test_brand_accent_color_rejects_invalid_value(self, pdf_formatter):
+        pdf_formatter.config.brand_accent_color = "javascript:alert(1)"
+        assert pdf_formatter._brand_accent_color() == "#7c3aed"
+
+    def test_logo_html_embeds_image_as_data_uri(self, pdf_formatter, tmp_path):
+        logo = tmp_path / "client.png"
+        logo.write_bytes(b"fake-image-bytes")
+        pdf_formatter.config.client_logo_path = logo
+
+        result = pdf_formatter._logo_html("client_logo_path", "Client logo")
+
+        assert "class='whitelabel-logo'" in result
+        assert "data:image/png;base64," in result
+        assert "ZmFrZS1pbWFnZS1ieXRlcw==" in result
+
+    def test_build_placeholders_include_whitelabel_values(self, pdf_formatter, tmp_path):
+        logo = tmp_path / "firm.png"
+        logo.write_bytes(b"firm-logo")
+        pdf_formatter.config.brand_accent_color = "#0f766e"
+        pdf_formatter.config.firm_logo_path = logo
+
+        values = pdf_formatter._build_placeholders()
+
+        assert values["BRAND_ACCENT_COLOR"] == "#0f766e"
+        assert "data:image/png;base64," in values["FIRM_LOGO_HTML"]
+        assert values["CLIENT_LOGO_HTML"] == ""
+
 
 class TestGAP6ExecutiveSummary:
     """GAP 6: Enriched executive summary."""

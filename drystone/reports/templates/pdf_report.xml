@@ -24,10 +24,10 @@
       --navy-100: #c8ccee;
       --navy-50:  #eeeff8;
 
-      /* Accent — single hue, oklch-derived */
-      --accent:       oklch(58% 0.17 250);
-      --accent-light: oklch(72% 0.13 250);
-      --accent-dim:   oklch(92% 0.05 250);
+      /* Accent — whitelabel-aware, sourced from WizardConfig */
+      --accent:       {{BRAND_ACCENT_COLOR}};
+      --accent-light: {{BRAND_ACCENT_COLOR}};
+      --accent-dim:   #f3f4f6;
 
       /* Semantic severity */
       --sev-critical:     #c0292b;
@@ -145,7 +145,7 @@
 
     .cover-stripe {
       height: 4px;
-      background: linear-gradient(90deg, #c084fc 0%, #e879a0 45%, #fb923c 80%, #f97316 100%);
+      background: var(--accent);
       flex-shrink: 0;
     }
 
@@ -164,6 +164,23 @@
       flex-direction: column;
       align-items: flex-start;
       margin-bottom: 52px;
+    }
+
+    .whitelabel-logo-row {
+      display: flex;
+      gap: 18px;
+      align-items: center;
+      margin-bottom: 24px;
+      min-height: 34px;
+    }
+
+    .whitelabel-logo {
+      max-height: 34px;
+      max-width: 150px;
+      object-fit: contain;
+      background: rgba(255,255,255,0.92);
+      border-radius: 8px;
+      padding: 6px;
     }
 
     .cover-ascii-logo {
@@ -1531,6 +1548,7 @@
   <div class="cover-body">
 
     <div class="cover-wordmark">
+      <div class="whitelabel-logo-row">{{FIRM_LOGO_HTML}}{{CLIENT_LOGO_HTML}}</div>
       <pre class="cover-ascii-logo">{{DRYSTONE_BANNER_HTML}}</pre>
       <div class="cover-wordmark-version">v1.0.0 · AWS Security Audit powered by AI</div>
     </div>

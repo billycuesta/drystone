@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import html
 import json
+import mimetypes
 import re
 import xml.etree.ElementTree as ET  # noqa: N817
 from datetime import datetime
@@ -147,6 +149,9 @@ class PDFFormatter(BaseFormatter):
         pagebreak_findings = "<div class='page-break'></div>" if has_findings else ""
 
         return {
+            "BRAND_ACCENT_COLOR": self._brand_accent_color(),
+            "CLIENT_LOGO_HTML": self._logo_html("client_logo_path", "Client logo"),
+            "FIRM_LOGO_HTML": self._logo_html("firm_logo_path", "Firm logo"),
             "DRYSTONE_BANNER_HTML": self._drystone_ascii_banner_gradient_html(),
             "ANALYSIS_TITLE": html.escape(self._analysis_title()),
             "INDEX_SECTION": self._index_section_html(findings),
@@ -186,6 +191,42 @@ class PDFFormatter(BaseFormatter):
             "FOOTER_NOTES": self._footer_notes_html(),
             "PCI_DSS_ANNEX": self._pci_dss_annex_html(),
         }
+
+    def _brand_accent_color(self) -> str:
+        """Return a safe hex accent color for PDF whitelabeling."""
+        value = getattr(self.config, "brand_accent_color", None)
+        if not isinstance(value, str):
+            return "#7c3aed"
+        value = value.strip()
+        if re.fullmatch(r"#[0-9a-fA-F]{6}", value):
+            return value
+        return "#7c3aed"
+
+    def _logo_html(self, config_attr: str, alt_text: str) -> str:
+        """Return an inline logo image tag or empty string.
+
+        Logos are embedded as data URIs so generated PDF reports remain
+        self-contained. Missing or unreadable logos are ignored; whitelabeling
+        must never block report generation.
+        """
+        raw_path = getattr(self.config, config_attr, None)
+        if not isinstance(raw_path, (str, Path)):
+            return ""
+        path = Path(raw_path).expanduser()
+        if not path.is_file():
+            return ""
+        mime_type, _ = mimetypes.guess_type(path.name)
+        if not mime_type or not mime_type.startswith("image/"):
+            return ""
+        try:
+            payload = base64.b64encode(path.read_bytes()).decode("ascii")
+        except OSError:
+            return ""
+        escaped_alt = html.escape(alt_text)
+        return (
+            "<img class='whitelabel-logo' "
+            f"src='data:{mime_type};base64,{payload}' alt='{escaped_alt}' />"
+        )
 
     def _index_section_html(self, findings: List[Dict[str, Any]]) -> str:
         is_pentest = str(getattr(self.config, "report_type", "general")) == "pentest"
