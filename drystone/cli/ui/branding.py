@@ -5,6 +5,7 @@ from rich.console import Console, Group
 from rich.panel import Panel
 from rich.text import Text
 
+from drystone.cli import __version__
 from drystone.models.config import WizardConfig
 
 
@@ -68,7 +69,7 @@ def print_banner() -> None:
             Text("AWS Security Audit powered by BillySlopes with AI", style=f"{border_color} bold")
         ),
         "",
-        Align.center(Text("v1.0.0", style=f"{border_color}")),
+        Align.center(Text(f"v{__version__}", style=f"{border_color}")),
         "",
         Align.center(Text("🐡 Automated AWS Security Assessment 🐡", style=f"{border_color} bold")),
     )

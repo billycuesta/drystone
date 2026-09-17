@@ -41,6 +41,12 @@ class TestFindPreviousSession:
 
         assert find_previous_session("ACME", tmp_path, current) is None
 
+    def test_ignores_client_name_prefix_collisions(self, tmp_path):
+        _make_session_dir(tmp_path, "ACME_Subsidiary", "2026-09-16T10-00-00", {})
+        current = _make_session_dir(tmp_path, "ACME", "2026-09-17T12-00-00", {})
+
+        assert find_previous_session("ACME", tmp_path, current) is None
+
     def test_ignores_sessions_at_or_after_current(self, tmp_path):
         """A concurrent/later run for the same client is never "prior"."""
         current = _make_session_dir(tmp_path, "ACME", "2026-09-17T12-00-00", {})

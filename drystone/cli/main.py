@@ -1,5 +1,6 @@
 """Main CLI entry point for Drystone."""
 
+import json
 import sys
 from pathlib import Path
 from typing import Literal, Optional, cast
@@ -264,10 +265,22 @@ def logs(format: str) -> None:
     audit_logs_dir = Path.cwd() / "audit-logs"
 
     if not audit_logs_dir.exists():
-        click.echo("No audit logs found")
+        if format == "json":
+            click.echo(json.dumps([]))
+        else:
+            click.echo("No audit logs found")
         return
 
     sessions = sorted([d for d in audit_logs_dir.iterdir() if d.is_dir()])
+
+    if format == "json":
+        click.echo(
+            json.dumps(
+                [{"name": session.name, "path": str(session)} for session in sessions],
+                indent=2,
+            )
+        )
+        return
 
     if not sessions:
         click.echo("No audit sessions found")

@@ -6,43 +6,11 @@ from typing import Optional
 
 import questionary
 
-from drystone.cloud.aws import validate_aws_credentials
 from drystone.cloud.aws.client import AWSClient
 from drystone.models import WizardConfig
 from drystone.models.config import PENTEST_CORE_SKILLS
+from drystone.skills.registry import skill_display_names as _registry_skill_display_names
 from drystone.skills.registry import wizard_choices as _registry_wizard_choices
-
-
-def validate_aws_creds(
-    access_key_id: str,
-    secret_access_key: str,
-    session_token: Optional[str] = None,
-    region_name: str = "us-east-1",
-) -> bool:
-    """Validate AWS credentials non-interactively.
-
-    Args:
-        access_key_id: AWS Access Key ID
-        secret_access_key: AWS Secret Access Key
-        session_token: Optional AWS Session Token for temporary credentials
-        region_name: AWS region (default: us-east-1)
-
-    Returns:
-        True if credentials are valid, False otherwise.
-
-    Raises:
-        ValueError: If credentials are empty or invalid format
-    """
-    if not access_key_id or not secret_access_key:
-        raise ValueError("Access Key ID and Secret Access Key cannot be empty")
-
-    print("\nValidating AWS credentials...")
-    is_valid, message, _ = validate_aws_credentials(
-        access_key_id, secret_access_key, region_name, session_token
-    )
-    print(message)
-    print()  # Blank line
-    return is_valid
 
 
 def validate_aws_config(config: WizardConfig) -> bool:
@@ -164,12 +132,6 @@ def validate_ai_provider_credentials(ai_provider: str, ai_api_key: Optional[str]
         return False
 
 
-class AWSValidationError(Exception):
-    """Raised when AWS validation fails."""
-
-    pass
-
-
 def display_config_summary(project_config: dict, ai_config: dict) -> None:
     """Display current configuration summary in a clear, formatted way.
 
@@ -201,24 +163,9 @@ def display_config_summary(project_config: dict, ai_config: dict) -> None:
         print("   AWS Credentials: Environment Variables")
 
     # Skills
-    _skill_display_names = {
-        "sistemas_explotables_red": "Network-Exploitable Systems Detection",
-        "iam": "IAM",
-        "exposure": "Exposure",
-        "network": "Network",
-        "vulns": "Vulnerabilities",
-        "hardening": "Hardening",
-        "secretsmanager": "Secrets Manager",
-        "waf": "WAF",
-        "ecr": "ECR",
-        "alerting": "Alerting",
-        "recon": "Recon",
-        "kms": "KMS",
-        "cicd": "CI/CD",
-        "compute": "Compute",
-    }
+    skill_display_names = _registry_skill_display_names()
     skills_display = (
-        ", ".join(_skill_display_names.get(s, s.capitalize()) for s in project_config["skills"])
+        ", ".join(skill_display_names.get(s, s.capitalize()) for s in project_config["skills"])
         if project_config["skills"]
         else "None"
     )
@@ -248,31 +195,13 @@ def display_config_summary(project_config: dict, ai_config: dict) -> None:
         print(f"   Claude CLI Model: {ai_config.get('claude_cli_model', 'sonnet')}")
     print(f"   Scan Depth: {ai_config.get('scan_depth', 'normal')}")
 
-    if ai_config["ai_provider"] == "bedrock":
-        print("   Bedrock Region: eu-west-1")
-
-        if ai_config.get("bedrock_use_same_credentials"):
-            print("   Bedrock Credentials: Same as AWS Audit")
-        elif ai_config.get("bedrock_credentials_file"):
-            print(f"   Bedrock Credentials: File ({ai_config['bedrock_credentials_file']})")
-        elif ai_config.get("bedrock_profile"):
-            print(f"   Bedrock Credentials: Profile ({ai_config['bedrock_profile']})")
-        elif ai_config.get("bedrock_access_key_id"):
-            key_id = ai_config["bedrock_access_key_id"]
-            masked_bedrock_key = f"{key_id[:4]}...{key_id[-4:]}" if len(key_id) > 8 else "****"
-            print(f"   Bedrock Access Key: {masked_bedrock_key}")
-            if ai_config.get("bedrock_session_token"):
-                print("   Bedrock Session Token: ✅ Configured")
-        else:
-            print("   Bedrock Credentials: Environment Variables")
-
     if ai_config["ai_api_key"]:
         # Mask API key
         key = ai_config["ai_api_key"]
         masked_api_key = f"{key[:4]}...{key[-4:]}" if len(key) > 8 else "****"
         print(f"   API Key: {masked_api_key}")
     else:
-        if ai_config["ai_provider"] not in ["bedrock", "claude-cli"]:
+        if ai_config["ai_provider"] != "claude-cli":
             print("   API Key: not required")
 
     print("\n" + "━" * 60 + "\n")
@@ -516,7 +445,7 @@ def run_ai_menu(current_config: Optional[dict] = None) -> dict:
         current_config: Optional dict with current values to pre-fill
 
     Returns:
-        dict with: ai_provider, ai_api_key, and bedrock credential info
+        dict with: ai_provider, ai_api_key, scan depth, and active verification
     """
     print("\n" + "━" * 50)
     print("🤖 MENU B: AI Configuration")
@@ -659,7 +588,7 @@ def run_setup_wizard() -> WizardConfig:
     # Initialize configs: Menu A is empty, Menu B has defaults
     project_config: Optional[dict] = None
     ai_config = get_default_ai_config()
-    last_validation_status = {"aws": False, "bedrock": False, "ai": False}
+    last_validation_status = {"aws": False, "ai": False}
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # INTERACTIVE NAVIGATION LOOP
@@ -681,13 +610,7 @@ def run_setup_wizard() -> WizardConfig:
             if provider == "claude-cli":
                 last_validation_status["ai"] = True
 
-            if not last_validation_status["ai"]:
-                # keep continue hidden until API provider validates
-                pass
-            # Also check bedrock validation if required
-            elif provider != "bedrock" or (
-                provider == "bedrock" and last_validation_status["bedrock"]
-            ):
+            if last_validation_status["ai"]:
                 choices.append(
                     questionary.Choice("✅ Continue with current configuration", value="continue")
                 )
@@ -709,7 +632,6 @@ def run_setup_wizard() -> WizardConfig:
         elif action == "edit_ai":
             ai_config = run_ai_menu(current_config=ai_config)
             print("\n✅ Menu B updated!")
-            last_validation_status["bedrock"] = False  # Force re-validation
             last_validation_status["ai"] = False  # Force re-validation
 
         elif action == "continue":
@@ -733,29 +655,7 @@ def run_setup_wizard() -> WizardConfig:
                         print(f"🚨 Error getting AWS credentials: {e}")
                         last_validation_status["aws"] = False
 
-                # 2. Validate Bedrock Credentials if needed and AWS is valid
-                if (
-                    last_validation_status["aws"]
-                    and temp_config.ai_provider == "bedrock"
-                    and not last_validation_status["bedrock"]
-                ):
-                    try:
-                        bedrock_creds = temp_config.get_bedrock_credentials()
-                        # bedrock_creds is (access_key_id, secret_access_key, session_token)
-                        is_valid = validate_aws_creds(
-                            bedrock_creds[0],
-                            bedrock_creds[1],
-                            bedrock_creds[2],
-                            region_name=temp_config.aws_region,
-                        )
-                        if not is_valid:
-                            print("🚨 Bedrock credential validation failed. Please edit Menu B.")
-                        last_validation_status["bedrock"] = is_valid
-                    except (ValueError, FileNotFoundError) as e:
-                        print(f"🚨 Error getting Bedrock credentials: {e}")
-                        last_validation_status["bedrock"] = False
-
-                # 3. Validate AI provider credentials (API providers)
+                # 2. Validate AI provider credentials
                 if last_validation_status["aws"] and not last_validation_status["ai"]:
                     last_validation_status["ai"] = validate_ai_provider_credentials(
                         temp_config.ai_provider,
@@ -799,21 +699,3 @@ def run_setup_wizard() -> WizardConfig:
 
         traceback.print_exc()
         raise
-
-
-def confirm_execution(config: WizardConfig) -> bool:
-    """Confirm before starting audit execution.
-
-    Args:
-        config: Configuration to confirm
-
-    Returns:
-        True if user confirmed, False otherwise
-    """
-    confirm = questionary.confirm(
-        "✅ Start audit with this configuration?",
-        default=True,
-        auto_enter=False,
-    ).ask()
-
-    return confirm if confirm is not None else False

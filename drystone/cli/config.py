@@ -49,21 +49,3 @@ def load_last_config() -> Optional[WizardConfig]:
         print(f"⚠️  Could not load saved config: {e}")
         return None
 
-
-def use_last_config() -> bool:
-    """Check if user wants to use last saved config.
-
-    Returns:
-        True if user confirms, False otherwise
-    """
-    import questionary
-
-    if not LAST_RUN_FILE.exists():
-        return False
-
-    reuse = questionary.confirm(
-        "Use last saved configuration?",
-        default=True,
-    ).ask()
-
-    return reuse if reuse is not None else False

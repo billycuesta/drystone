@@ -54,6 +54,10 @@ class TestAuditSessionInit:
         session = make_session(tmp_path, account_id="999888777666")
         assert session.account_id == "999888777666"
 
+    def test_integrity_manifest_sha256_declared(self, tmp_path):
+        session = make_session(tmp_path)
+        assert session.integrity_manifest_sha256 is None
+
     def test_setup_file_logging_called(self, tmp_path):
         with (
             patch("drystone.storage.session.Path.cwd", return_value=tmp_path),

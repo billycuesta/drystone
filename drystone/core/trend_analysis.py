@@ -22,10 +22,22 @@ from typing import Any, Dict, List, Optional, Tuple
 _TIMESTAMP_RE = re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})$")
 
 
+def _session_name_parts(session_dir: Path) -> Optional[Tuple[str, str]]:
+    """Return (client_name, timestamp) parsed from an AuditSession directory."""
+    match = _TIMESTAMP_RE.search(session_dir.name)
+    if not match:
+        return None
+    timestamp = match.group(1)
+    suffix = f"_{timestamp}"
+    if not session_dir.name.endswith(suffix):
+        return None
+    return session_dir.name[: -len(suffix)], timestamp
+
+
 def _session_timestamp(session_dir: Path) -> Optional[str]:
     """Extract the trailing timestamp from an `AuditSession` directory name."""
-    match = _TIMESTAMP_RE.search(session_dir.name)
-    return match.group(1) if match else None
+    parts = _session_name_parts(session_dir)
+    return parts[1] if parts else None
 
 
 def find_previous_session(
@@ -43,16 +55,16 @@ def find_previous_session(
 
     exclude_resolved = exclude.resolve()
     exclude_ts = _session_timestamp(exclude)
-    prefix = f"{client_name}_"
 
     candidates: List[Tuple[str, Path]] = []
     for entry in audit_logs_dir.iterdir():
         if not entry.is_dir() or entry.resolve() == exclude_resolved:
             continue
-        if not entry.name.startswith(prefix):
+        parts = _session_name_parts(entry)
+        if parts is None:
             continue
-        ts = _session_timestamp(entry)
-        if ts is None:
+        entry_client_name, ts = parts
+        if entry_client_name != client_name:
             continue
         if exclude_ts is not None and ts >= exclude_ts:
             continue

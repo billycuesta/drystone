@@ -1,5 +1,6 @@
 """Tests for drystone CLI main entry point."""
 
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -108,6 +109,22 @@ class TestLogsCommand:
         assert result.exit_code == 0
         assert "acme-2026-01-01" in result.output
         assert "acme-2026-01-02" in result.output
+
+    def test_json_format_emits_machine_readable_sessions(self, runner):
+        with runner.isolated_filesystem():
+            Path("audit-logs/acme-2026-01-01").mkdir(parents=True)
+            Path("audit-logs/acme-2026-01-02").mkdir(parents=True)
+            result = runner.invoke(cli, ["logs", "--format", "json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert [s["name"] for s in data] == ["acme-2026-01-01", "acme-2026-01-02"]
+        assert all("path" in s for s in data)
+
+    def test_json_format_no_logs_returns_empty_array(self, runner):
+        with runner.isolated_filesystem():
+            result = runner.invoke(cli, ["logs", "--format", "json"])
+        assert result.exit_code == 0
+        assert json.loads(result.output) == []
 
 
 # ── audit: config resolution branches ─────────────────────────────────────────

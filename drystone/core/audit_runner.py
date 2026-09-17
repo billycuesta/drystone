@@ -168,17 +168,19 @@ def run_audit(
     # This dramatically speeds up multi-skill audits (4-5x faster)
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    max_workers = len(skill_instances)
-    if config.ai_provider == "claude-cli":
-        max_workers = 1
-        _msg("   🚀 Running skills in SEQUENTIAL mode (claude-cli quota-safe)...\n")
-    else:
-        _msg("   🚀 Running skills in PARALLEL for maximum speed...\n")
-
     all_findings: dict[str, Any] = {}
     analysis_total = max(1, len(skill_instances))
     analysis_done = 0
     _msg(f"🔄 Phase 2/3 Analysis: 0/{analysis_total} skills")
+
+    max_workers = len(skill_instances)
+    if not skill_instances:
+        _msg("   ⚠️  No valid skills collected; skipping AI analysis\n")
+    elif config.ai_provider == "claude-cli":
+        max_workers = 1
+        _msg("   🚀 Running skills in SEQUENTIAL mode (claude-cli quota-safe)...\n")
+    else:
+        _msg("   🚀 Running skills in PARALLEL for maximum speed...\n")
 
     chunk_state: dict[str, Any] = {}
     chunk_lock = threading.Lock()
@@ -202,67 +204,68 @@ def run_audit(
 
     agent.progress_callback = _on_chunk_progress
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {}
+    if skill_instances:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {}
 
-        # Submit all skills to executor
-        for skill_name, skill in skill_instances.items():
-            metrics_tracker.record_skill_start(skill_name)
-            metrics_tracker.record_skill_provider(skill_name, config.ai_provider)
-            future = executor.submit(
-                lambda sn=skill_name, sk=skill: (sn, sk.analyze(session, agent))
-            )
-            futures[future] = skill_name
-
-        # Collect results as they complete (order-independent)
-        for future in as_completed(futures):
-            skill_name = futures[future]
-            try:
-                sn, findings_path = future.result()
-
-                # Load findings data
-                with open(findings_path) as f:
-                    findings_data = json.load(f)
-                    all_findings[skill_name] = findings_data
-
-                # Show summary
-                summary = findings_data["summary"]
-                metrics_tracker.record_skill_findings(
-                    skill_name,
-                    int(summary.get("total_findings", 0)),
-                    float(summary.get("overall_risk_score", 0.0)),
+            # Submit all skills to executor
+            for skill_name, skill in skill_instances.items():
+                metrics_tracker.record_skill_start(skill_name)
+                metrics_tracker.record_skill_provider(skill_name, config.ai_provider)
+                future = executor.submit(
+                    lambda sn=skill_name, sk=skill: (sn, sk.analyze(session, agent))
                 )
-                metrics_tracker.record_skill_complete(skill_name, True)
-                _msg(f"   ✅ {skill_display_names.get(skill_name, skill_name.capitalize())}:")
-                _msg(
-                    f"      Total: {summary['total_findings']} | "
-                    f"Critical: {summary['critical']} | "
-                    f"High: {summary['high']} | "
-                    f"Risk: {summary['overall_risk_score']:.1f}/10\n"
-                )
-                analysis_done += 1
-                _msg(f"   Phase 2/3 progress: {analysis_done}/{analysis_total}")
+                futures[future] = skill_name
 
-            except Exception as e:
-                metrics_tracker.record_skill_complete(skill_name, False)
-                _msg(f"   ❌ Analysis error for {skill_name}: {e}\n")
-                analysis_done += 1
-                _msg(f"   Phase 2/3 progress: {analysis_done}/{analysis_total}")
+            # Collect results as they complete (order-independent)
+            for future in as_completed(futures):
+                skill_name = futures[future]
+                try:
+                    sn, findings_path = future.result()
 
-                err = str(e).lower()
-                if "out of extra usage" in err or "quota" in err or "rate limit" in err:
-                    for pending_future, pending_skill in futures.items():
-                        if pending_future is future:
-                            continue
-                        if pending_future.cancel():
-                            metrics_tracker.record_skill_complete(pending_skill, False)
-                            _msg(
-                                f"   ⚠️  Cancelled {pending_skill} analysis due to provider "
-                                "quota exhaustion"
-                            )
-                            analysis_done += 1
-                            _msg(f"   Phase 2/3 progress: {analysis_done}/{analysis_total}")
-                    break
+                    # Load findings data
+                    with open(findings_path) as f:
+                        findings_data = json.load(f)
+                        all_findings[skill_name] = findings_data
+
+                    # Show summary
+                    summary = findings_data["summary"]
+                    metrics_tracker.record_skill_findings(
+                        skill_name,
+                        int(summary.get("total_findings", 0)),
+                        float(summary.get("overall_risk_score", 0.0)),
+                    )
+                    metrics_tracker.record_skill_complete(skill_name, True)
+                    _msg(f"   ✅ {skill_display_names.get(skill_name, skill_name.capitalize())}:")
+                    _msg(
+                        f"      Total: {summary['total_findings']} | "
+                        f"Critical: {summary['critical']} | "
+                        f"High: {summary['high']} | "
+                        f"Risk: {summary['overall_risk_score']:.1f}/10\n"
+                    )
+                    analysis_done += 1
+                    _msg(f"   Phase 2/3 progress: {analysis_done}/{analysis_total}")
+
+                except Exception as e:
+                    metrics_tracker.record_skill_complete(skill_name, False)
+                    _msg(f"   ❌ Analysis error for {skill_name}: {e}\n")
+                    analysis_done += 1
+                    _msg(f"   Phase 2/3 progress: {analysis_done}/{analysis_total}")
+
+                    err = str(e).lower()
+                    if "out of extra usage" in err or "quota" in err or "rate limit" in err:
+                        for pending_future, pending_skill in futures.items():
+                            if pending_future is future:
+                                continue
+                            if pending_future.cancel():
+                                metrics_tracker.record_skill_complete(pending_skill, False)
+                                _msg(
+                                    f"   ⚠️  Cancelled {pending_skill} analysis due to provider "
+                                    "quota exhaustion"
+                                )
+                                analysis_done += 1
+                                _msg(f"   Phase 2/3 progress: {analysis_done}/{analysis_total}")
+                        break
     phase_done += 1
     _print_progress("Analysis complete", phase_done, phase_total)
 
@@ -276,8 +279,8 @@ def run_audit(
             _n_chains = _corr_result.get("total_correlations", 0)
             if _n_chains:
                 _msg(f"  🔗 {_n_chains} attack chain(s) correlated\n")
-        except Exception:
-            pass  # Non-blocking: report generates with empty chains if correlation fails
+        except Exception as _corr_err:
+            _msg(f"  ⚠️  Correlation failed: {_corr_err}\n")
 
     # === PHASE 3b-2: TREND ANALYSIS ===
     # Diff this run's findings against the most recent prior session for the

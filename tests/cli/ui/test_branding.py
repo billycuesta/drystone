@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from rich.console import Console
 
+from drystone.cli import __version__
 from drystone.cli.ui.branding import _interpolate_color, print_banner, print_summary
 
 # ── _interpolate_color ─────────────────────────────────────────────────────────
@@ -80,8 +81,14 @@ class TestPrintBanner:
         with patch("drystone.cli.ui.branding.Console", return_value=console):
             print_banner()
         output = buf.getvalue()
-        # The banner contains "AWS Security Audit" or version string
-        assert "v1.0.0" in output or "AWS" in output or "DRYSTONE" in output.upper()
+        assert "AWS Security Audit" in output or "DRYSTONE" in output.upper()
+
+    def test_banner_uses_package_version(self):
+        buf = StringIO()
+        console = Console(file=buf, force_terminal=False, no_color=True)
+        with patch("drystone.cli.ui.branding.Console", return_value=console):
+            print_banner()
+        assert f"v{__version__}" in buf.getvalue()
 
     def test_console_print_called(self):
         """Console.print should be called at least twice (panel + blank line)."""

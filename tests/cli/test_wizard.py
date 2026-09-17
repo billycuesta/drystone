@@ -4,7 +4,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from drystone.cli.ui.wizard import run_ai_menu, validate_ai_provider_credentials
+from drystone.cli.ui.wizard import (
+    display_config_summary,
+    run_ai_menu,
+    validate_ai_provider_credentials,
+)
 
 
 def _ask_mock(*return_values):
@@ -12,6 +16,31 @@ def _ask_mock(*return_values):
     mock = MagicMock()
     mock.ask.side_effect = list(return_values)
     return mock
+
+
+class TestDisplayConfigSummary:
+    def test_skill_names_use_registry_display_names(self, capsys):
+        display_config_summary(
+            {
+                "client_name": "ACME",
+                "aws_region": "us-east-1",
+                "aws_access_key_id": None,
+                "aws_credentials_file": None,
+                "aws_profile": None,
+                "skills": ["cloudtrail_events", "messaging"],
+                "output_formats": ["markdown"],
+                "report_type": "general",
+            },
+            {
+                "ai_provider": "claude-api",
+                "ai_api_key": None,
+                "scan_depth": "normal",
+            },
+        )
+        out = capsys.readouterr().out
+        assert "CloudTrail Events" in out
+        assert "Messaging" in out
+        assert "Cloudtrail_events" not in out
 
 
 class TestValidateAiProviderCredentialsClaudeCli:

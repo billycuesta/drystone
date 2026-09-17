@@ -23,12 +23,14 @@ def _install_fake_skill_module(session_base_path: Path) -> None:
     """
     module = types.ModuleType(_FAKE_SKILL_MODULE_NAME)
 
-    class FakeIamSkill:
+    class _BaseFakeSkill:
+        skill_name = "iam"
+
         def collect(self, aws_client, session):
             pass
 
         def analyze(self, session, agent):
-            findings_path = session_base_path / "iam_findings.json"
+            findings_path = session_base_path / f"{self.skill_name}_findings.json"
             findings_path.write_text(
                 json.dumps(
                     {
@@ -43,7 +45,14 @@ def _install_fake_skill_module(session_base_path: Path) -> None:
             )
             return str(findings_path)
 
+    class FakeIamSkill(_BaseFakeSkill):
+        skill_name = "iam"
+
+    class FakeNetworkSkill(_BaseFakeSkill):
+        skill_name = "network"
+
     module.FakeIamSkill = FakeIamSkill
+    module.FakeNetworkSkill = FakeNetworkSkill
     sys.modules[_FAKE_SKILL_MODULE_NAME] = module
 
 
@@ -261,6 +270,60 @@ class TestRunAuditTrendAnalysis:
             _stop(patches)
 
         assert result.qa_passed is True
+
+
+class TestRunAuditFailureHandling:
+    def test_empty_skill_instances_do_not_crash_analysis_phase(
+        self, config, mock_aws_client, mock_session, report_file
+    ):
+        config.skills = ["missing_skill"]
+        qa_result = QAGateResult(passed=True, issues=[])
+        patches = _patched(mock_session, qa_result, report_file, mock_aws_client)
+        _apply(patches)
+        messages = []
+        try:
+            result = run_audit(config, "123456789012", on_message=messages.append)
+        finally:
+            _stop(patches)
+
+        assert result.qa_passed is True
+        assert result.all_findings == {}
+        joined = "\n".join(messages)
+        assert "Unknown skill: missing_skill" in joined
+        assert "No valid skills collected; skipping AI analysis" in joined
+
+    def test_correlation_failure_surfaces_warning(
+        self, config, mock_aws_client, mock_session, report_file
+    ):
+        config.skills = ["iam", "network"]
+        qa_result = QAGateResult(passed=True, issues=[])
+        patches = _patched(mock_session, qa_result, report_file, mock_aws_client)
+        _apply(patches)
+        messages = []
+        try:
+            with (
+                patch(
+                    "drystone.skills.registry.skill_import_map",
+                    return_value={
+                        "iam": (_FAKE_SKILL_MODULE_NAME, "FakeIamSkill"),
+                        "network": (_FAKE_SKILL_MODULE_NAME, "FakeNetworkSkill"),
+                    },
+                ),
+                patch(
+                    "drystone.skills.registry.skill_display_names",
+                    return_value={"iam": "IAM", "network": "Network"},
+                ),
+                patch("drystone.correlation.engine.CorrelationEngine") as mock_engine,
+            ):
+                mock_engine.return_value.run.side_effect = RuntimeError("correlation boom")
+                result = run_audit(config, "123456789012", on_message=messages.append)
+        finally:
+            _stop(patches)
+
+        assert result.qa_passed is True
+        assert "iam" in result.all_findings
+        assert "network" in result.all_findings
+        assert any("Correlation failed" in m and "correlation boom" in m for m in messages)
 
 
 class TestRunAuditQaFailure:
