@@ -1,5 +1,6 @@
 """Configuration models for Drystone."""
 
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import List, Literal, Optional
@@ -78,8 +79,8 @@ class WizardConfig(BaseModel):
 
     # Step 7: AI Provider for analysis
     ai_provider: Literal["claude-api", "claude-cli"] = Field(
-        default="claude-cli",
-        description="AI provider for security analysis (claude-cli or claude-api)",
+        default="claude-api",
+        description="AI provider for security analysis (claude-api or claude-cli)",
     )
 
     claude_cli_model: Literal["haiku", "sonnet", "opus"] = Field(
@@ -143,7 +144,7 @@ class WizardConfig(BaseModel):
                 "aws_region": "us-east-1",
                 "skills": ["iam", "exposure"],
                 "output_formats": ["markdown", "json"],
-                "ai_provider": "claude-cli",
+                "ai_provider": "claude-api",
                 "claude_cli_model": "haiku",
                 "ai_api_key": None,
                 "scan_depth": "normal",
@@ -306,20 +307,19 @@ class WizardConfig(BaseModel):
 
     @field_validator("ai_api_key", mode="before")
     @classmethod
-    def validate_ai_api_key(cls, v: Optional[str], info: ValidationInfo) -> Optional[str]:
-        """Validate AI API key based on provider."""
+    def validate_ai_api_key(cls, v: Optional[str]) -> Optional[str]:
+        """Normalize explicit API key or load it from ANTHROPIC_API_KEY."""
         if isinstance(v, str):
             v = v.strip()
             # Common copy/paste mistake from markdown bullets: "- sk-..."
             if v.startswith("- "):
                 v = v[2:].strip()
 
-        ai_provider = info.data.get("ai_provider")
-
-        # If using API-based provider, key must be provided
-        if ai_provider in ["claude-api"]:
-            if not v or not v.strip():
-                raise ValueError(f"API key required for {ai_provider}")
+        # Fallback to environment variable if key is not explicitly set
+        if not v:
+            env_key = os.environ.get("ANTHROPIC_API_KEY")
+            if env_key and env_key.strip():
+                v = env_key.strip()
 
         return v
 

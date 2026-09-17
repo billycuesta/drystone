@@ -515,19 +515,21 @@ def run_ai_menu(current_config: Optional[dict] = None) -> dict:
 
     # Use current values as defaults if provided
     defaults = current_config or {}
-    current_provider = defaults.get("ai_provider", "claude-cli")
+    current_provider = defaults.get("ai_provider", "claude-api")
 
     # Step 7: AI Provider for analysis
     ai_provider = questionary.select(
         "AI Provider for Security Analysis:",
         choices=[
             questionary.Choice(
-                "Claude CLI (Free, Recommended)",
-                "claude-cli",
-                checked=(current_provider == "claude-cli"),
+                "Claude API Key (Recommended)",
+                "claude-api",
+                checked=(current_provider == "claude-api"),
             ),
             questionary.Choice(
-                "Claude API Key", "claude-api", checked=(current_provider == "claude-api")
+                "Claude CLI (Local/dev opt-in)",
+                "claude-cli",
+                checked=(current_provider == "claude-cli"),
             ),
         ],
     ).ask()
@@ -606,13 +608,13 @@ def run_ai_menu(current_config: Optional[dict] = None) -> dict:
 
 
 def get_default_ai_config() -> dict:
-    """Get default AI configuration (Claude CLI, no API key).
+    """Get default AI configuration (Claude API, key loaded from env when available).
 
     Returns:
         dict with default ai_provider and ai_api_key
     """
     return {
-        "ai_provider": "claude-cli",
+        "ai_provider": "claude-api",
         "ai_api_key": None,
         "claude_cli_model": "sonnet",
         "scan_depth": "normal",

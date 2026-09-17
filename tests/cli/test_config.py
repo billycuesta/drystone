@@ -34,6 +34,43 @@ def sample_config():
     )
 
 
+# ── AI provider defaults ──────────────────────────────────────────────────────
+
+
+class TestAIProviderDefaults:
+    def test_defaults_to_claude_api(self):
+        config = WizardConfig(
+            client_name="ACME",
+            aws_access_key_id="AKIAIOSFODNN7EXAMPLE",
+            aws_secret_access_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            aws_region="us-east-1",
+            skills=["iam"],
+        )
+        assert config.ai_provider == "claude-api"
+
+    def test_claude_cli_remains_explicit_opt_in(self):
+        config = WizardConfig(
+            client_name="ACME",
+            aws_access_key_id="AKIAIOSFODNN7EXAMPLE",
+            aws_secret_access_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            aws_region="us-east-1",
+            skills=["iam"],
+            ai_provider="claude-cli",
+        )
+        assert config.ai_provider == "claude-cli"
+
+    def test_claude_api_key_can_come_from_environment(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+        config = WizardConfig(
+            client_name="ACME",
+            aws_access_key_id="AKIAIOSFODNN7EXAMPLE",
+            aws_secret_access_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            aws_region="us-east-1",
+            skills=["iam"],
+        )
+        assert config.ai_api_key == "sk-ant-test"
+
+
 # ── ensure_config_dir ─────────────────────────────────────────────────────────
 
 
