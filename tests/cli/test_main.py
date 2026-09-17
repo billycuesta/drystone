@@ -32,18 +32,17 @@ def _stop_at_credentials(runner, config, *args):
     """Helper: invoke audit, stop execution at credential validation step.
 
     Mocks all cosmetic/IO side effects so tests focus on config resolution logic.
-    validate_aws_credentials raises to terminate the command before Phase 2.
+    AWSClient(config).validate_credentials() raises to terminate the command
+    before Phase 2.
     """
     with (
         patch("drystone.cli.main.load_last_config", return_value=config),
         patch("drystone.cli.main.print_banner"),
         patch("drystone.cli.main.print_summary"),
         patch("drystone.cli.main.save_config", return_value=Path("/tmp/last-run.json")),
-        patch(
-            "drystone.cli.main.validate_aws_credentials",
-            side_effect=Exception("stop here"),
-        ),
+        patch("drystone.cli.main.AWSClient") as mock_aws_client,
     ):
+        mock_aws_client.return_value.validate_credentials.side_effect = Exception("stop here")
         return runner.invoke(cli, ["audit", *args])
 
 
@@ -256,3 +255,58 @@ class TestAuditCredentialSafety:
     def test_secret_key_not_printed(self, runner, sample_config):
         result = _stop_at_credentials(runner, sample_config, "--non-interactive")
         assert sample_config.aws_secret_access_key not in result.output
+
+
+# ── audit: account-ID resolution goes through the full, AssumeRole-aware ──────
+# AWSClient(config) instead of a role-blind reconstruction of raw keys.
+
+
+class TestAuditAccountIdResolution:
+    def _run_past_credentials(self, runner, config, validate_return, *args):
+        """Invoke audit() through to run_audit(), mocking AWSClient's
+        validate_credentials() and capturing what account_id run_audit() is
+        actually called with.
+        """
+        captured = {}
+
+        def _fake_run_audit(cfg, account_id, **kwargs):
+            captured["account_id"] = account_id
+            from drystone.core.audit_runner import AuditRunResult
+
+            return AuditRunResult(session=object(), all_findings={}, qa_passed=True)
+
+        with (
+            patch("drystone.cli.main.load_last_config", return_value=config),
+            patch("drystone.cli.main.print_banner"),
+            patch("drystone.cli.main.print_summary"),
+            patch("drystone.cli.main.save_config", return_value=Path("/tmp/last-run.json")),
+            patch("drystone.cli.main.AWSClient") as mock_aws_client,
+            patch("drystone.core.audit_runner.run_audit", side_effect=_fake_run_audit),
+        ):
+            mock_aws_client.return_value.validate_credentials.return_value = validate_return
+            runner.invoke(cli, ["audit", *args])
+
+        return mock_aws_client, captured
+
+    def test_account_id_comes_from_awsclient_validate_credentials(self, runner, sample_config):
+        """The resolved account_id must be whatever AWSClient(config) resolves --
+        not a value reconstructed from raw keys behind AssumeRole's back."""
+        mock_aws_client, captured = self._run_past_credentials(
+            runner, sample_config, (True, "ok", "999999999999"), "--non-interactive"
+        )
+        assert captured["account_id"] == "999999999999"
+
+    def test_awsclient_constructed_with_the_full_config_object(self, runner, sample_config):
+        """AWSClient must receive the whole config (so it sees aws_role_arn),
+        not a role-blind reconstruction from get_aws_credentials()."""
+        sample_config.aws_role_arn = "arn:aws:iam::999999999999:role/DrystoneAuditRole"
+        mock_aws_client, _ = self._run_past_credentials(
+            runner, sample_config, (True, "ok", "999999999999"), "--non-interactive"
+        )
+        mock_aws_client.assert_called_once_with(sample_config)
+
+    def test_invalid_credentials_still_exits_before_run_audit(self, runner, sample_config):
+        mock_aws_client, captured = self._run_past_credentials(
+            runner, sample_config, (False, "denied", None), "--non-interactive"
+        )
+        assert "account_id" not in captured

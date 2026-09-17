@@ -10,7 +10,7 @@ from drystone.cli import __version__
 from drystone.cli.config import load_last_config, save_config
 from drystone.cli.ui import print_banner, run_setup_wizard
 from drystone.cli.ui.branding import print_summary
-from drystone.cloud.aws import validate_aws_credentials
+from drystone.cloud.aws.client import AWSClient
 from drystone.models import WizardConfig
 from drystone.skills.registry import skill_names as _registry_skill_names
 
@@ -195,15 +195,18 @@ def audit(
         traceback.print_exc()
         sys.exit(1)
 
-    # Extract account ID from validation
+    # Extract account ID from validation. Goes through AWSClient(config)
+    # directly (the full config, not a role-blind reconstruction of raw
+    # keys) so AssumeRole is actually exercised here: the resolved
+    # account_id must reflect the target role's account, not the source
+    # identity's, whenever aws_role_arn is configured.
     account_id: str
     try:
-        aws_access_key_id, aws_secret_access_key, aws_session_token = config.get_aws_credentials()
-        _, _, validated_account_id = validate_aws_credentials(
-            aws_access_key_id, aws_secret_access_key, config.aws_region, aws_session_token
-        )
-        if not validated_account_id:
-            raise ValueError("Could not determine AWS account ID from credential validation")
+        is_valid, message, validated_account_id = AWSClient(config).validate_credentials()
+        if not is_valid or not validated_account_id:
+            raise ValueError(
+                message or "Could not determine AWS account ID from credential validation"
+            )
         account_id = validated_account_id
     except Exception as e:
         click.echo(f"\n❌ Error validating credentials: {e}")
