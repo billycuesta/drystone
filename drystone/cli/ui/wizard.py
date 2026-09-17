@@ -7,6 +7,7 @@ from typing import Optional
 import questionary
 
 from drystone.cloud.aws import validate_aws_credentials
+from drystone.cloud.aws.client import AWSClient
 from drystone.models import WizardConfig
 from drystone.models.config import PENTEST_CORE_SKILLS
 from drystone.skills.registry import wizard_choices as _registry_wizard_choices
@@ -41,6 +42,16 @@ def validate_aws_creds(
     )
     print(message)
     print()  # Blank line
+    return is_valid
+
+
+def validate_aws_config(config: WizardConfig) -> bool:
+    """Validate AWS credentials through the managed AWSClient path."""
+
+    print("\nValidating AWS credentials...")
+    is_valid, message, _ = AWSClient(config).validate_credentials()
+    print(message)
+    print()
     return is_valid
 
 
@@ -323,6 +334,10 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
         "aws_session_token": None,
         "aws_credentials_file": None,
         "aws_profile": None,
+        "aws_role_arn": defaults.get("aws_role_arn"),
+        "aws_role_session_name": defaults.get("aws_role_session_name"),
+        "aws_external_id": None,
+        "aws_role_duration_seconds": defaults.get("aws_role_duration_seconds"),
     }
     aws_region = defaults.get("aws_region", "us-east-1")
 
@@ -686,14 +701,7 @@ def run_setup_wizard() -> WizardConfig:
                 # 1. Validate AWS Credentials if not already done
                 if not last_validation_status["aws"]:
                     try:
-                        aws_creds = temp_config.get_aws_credentials()
-                        # aws_creds is (access_key_id, secret_access_key, session_token)
-                        is_valid = validate_aws_creds(
-                            aws_creds[0],
-                            aws_creds[1],
-                            aws_creds[2],
-                            region_name=temp_config.aws_region,
-                        )
+                        is_valid = validate_aws_config(temp_config)
                         if not is_valid:
                             print("🚨 AWS credential validation failed. Please edit Menu A.")
                         last_validation_status["aws"] = is_valid
@@ -754,7 +762,7 @@ def run_setup_wizard() -> WizardConfig:
         has_profile = project_config.get("aws_profile")
 
         if not (has_direct_creds or has_file or has_profile):
-            raise ValueError("No AWS credentials configured (expected direct, file, or profile)")
+            print("   INFO: No static AWS credentials selected; AWS default credential chain will be used.")
 
         config = WizardConfig(
             **project_config,

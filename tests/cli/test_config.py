@@ -186,6 +186,25 @@ class TestRoundTrip:
         assert "aws_access_key_id" not in data
         assert "aws_secret_access_key" not in data
 
+    def test_assume_role_persists_non_secret_settings_only(self, tmp_config_dir):
+        config = WizardConfig(
+            client_name="ACME",
+            aws_profile="my-profile",
+            aws_region="us-east-1",
+            skills=["iam"],
+            aws_role_arn="arn:aws:iam::123456789012:role/Audit",
+            aws_role_session_name="drystone-audit",
+            aws_external_id="sensitive-external-id",
+            aws_role_duration_seconds=1800,
+        )
+        save_config(config)
+        _, last_run = tmp_config_dir
+        data = json.loads(last_run.read_text())
+        assert data["aws_role_arn"] == "arn:aws:iam::123456789012:role/Audit"
+        assert data["aws_role_session_name"] == "drystone-audit"
+        assert data["aws_role_duration_seconds"] == 1800
+        assert "aws_external_id" not in data
+
 
 # ── QSA Depth Tests ──────────────────────────────────────────────────────────
 

@@ -110,6 +110,9 @@ def _make_config(**overrides):
     )
     config.aws_credentials_file = overrides.get("aws_credentials_file", None)
     config.aws_profile = overrides.get("aws_profile", None)
+    config.aws_role_arn = overrides.get("aws_role_arn", None)
+    config.aws_role_session_name = overrides.get("aws_role_session_name", None)
+    config.aws_role_duration_seconds = overrides.get("aws_role_duration_seconds", None)
     return config
 
 

@@ -1,8 +1,10 @@
 """Tests for AWS credential validation client."""
 
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import botocore.exceptions
+from botocore.credentials import Credentials
 
 from drystone.cloud.aws.client import AWSClient, validate_aws_credentials
 from drystone.models.config import WizardConfig
@@ -64,6 +66,103 @@ class TestAWSClientInit:
         assert aws.get_identity() is None
 
 
+# ── AWSClient managed session/client factory ──────────────────────────────────
+
+
+class TestManagedSession:
+    def test_boto3_session_is_lazy_and_cached(self):
+        config = make_config()
+        aws = AWSClient(config)
+        with patch("boto3.Session") as mock_session_cls:
+            first = aws.boto3_session()
+            second = aws.boto3_session()
+        assert first is second
+        assert mock_session_cls.call_count == 1
+
+    def test_client_uses_managed_session_and_region_override(self):
+        config = make_config()
+        aws = AWSClient(config)
+        session = MagicMock()
+        with patch.object(aws, "boto3_session", return_value=session):
+            aws.client("ec2", region_name="eu-west-1", config="x")
+        session.client.assert_called_once_with("ec2", region_name="eu-west-1", config="x")
+
+    def test_profile_session_does_not_freeze_credentials_at_construction(self):
+        config = make_config(
+            aws_access_key_id=None,
+            aws_secret_access_key=None,
+            aws_profile="audit-profile",
+        )
+        aws = AWSClient(config)
+        with patch("boto3.Session") as mock_session_cls:
+            aws.boto3_session()
+        assert mock_session_cls.call_args.kwargs == {
+            "region_name": "us-east-1",
+            "profile_name": "audit-profile",
+        }
+
+    def test_default_chain_session_does_not_pass_static_credentials(self):
+        config = make_config(aws_access_key_id=None, aws_secret_access_key=None)
+        aws = AWSClient(config)
+        with patch("boto3.Session") as mock_session_cls:
+            aws.boto3_session()
+        assert mock_session_cls.call_args.kwargs == {"region_name": "us-east-1"}
+
+    def test_client_kwargs_derives_current_session_credentials(self):
+        config = make_config(aws_access_key_id=None, aws_secret_access_key=None)
+        aws = AWSClient(config)
+        session = MagicMock()
+        session.get_credentials.return_value = Credentials("fresh-key", "fresh-secret", "fresh-token")
+        with patch.object(aws, "boto3_session", return_value=session):
+            kwargs = aws.client_kwargs(region_name="eu-west-1")
+        assert kwargs == {
+            "aws_access_key_id": "fresh-key",
+            "aws_secret_access_key": "fresh-secret",
+            "aws_session_token": "fresh-token",
+            "region_name": "eu-west-1",
+        }
+
+
+# ── AWSClient AssumeRole ───────────────────────────────────────────────────────
+
+
+class TestAssumeRole:
+    def test_assume_role_args_include_role_settings(self):
+        config = make_config(
+            aws_role_arn="arn:aws:iam::123456789012:role/Audit",
+            aws_role_session_name="drystone-test",
+            aws_external_id="external-secret",
+            aws_role_duration_seconds=1800,
+        )
+        source_session = MagicMock()
+        sts = source_session.client.return_value
+        sts.assume_role.return_value = {
+            "Credentials": {
+                "AccessKeyId": "ASIAKEY",
+                "SecretAccessKey": "secret",
+                "SessionToken": "token",
+                "Expiration": datetime.now(timezone.utc) + timedelta(hours=1),
+            }
+        }
+        with patch("boto3.Session", side_effect=[source_session, MagicMock()]):
+            AWSClient(config).boto3_session()
+        sts.assume_role.assert_called_once_with(
+            RoleArn="arn:aws:iam::123456789012:role/Audit",
+            RoleSessionName="drystone-test",
+            ExternalId="external-secret",
+            DurationSeconds=1800,
+        )
+
+    def test_assume_role_refreshes_when_expiration_is_near(self):
+        config = make_config(aws_role_arn="arn:aws:iam::123456789012:role/Audit")
+        aws = AWSClient(config)
+        aws.session = MagicMock()
+        aws._assumed_expiration = datetime.now(timezone.utc) + timedelta(minutes=1)
+        with patch.object(aws, "_build_session", return_value=MagicMock()) as build:
+            aws.boto3_session()
+        build.assert_called_once()
+
+
 # ── AWSClient.validate_credentials: success ───────────────────────────────────
 
 
@@ -88,6 +187,14 @@ class TestValidateCredentialsSuccess:
             mock_session_cls.return_value.client.return_value = self._mock_sts()
             _, _, account_id = aws.validate_credentials()
         assert account_id == "123456789012"
+
+    def test_validate_populates_session(self):
+        config = make_config()
+        aws = AWSClient(config)
+        with patch("boto3.Session") as mock_session_cls:
+            mock_session_cls.return_value.client.return_value = self._mock_sts()
+            aws.validate_credentials()
+        assert aws.session is mock_session_cls.return_value
 
     def test_message_contains_account_id(self):
         config = make_config()

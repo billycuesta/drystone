@@ -42,6 +42,18 @@ class WizardConfig(BaseModel):
     # OPCIÓN 3: AWS profile estándar (NEW, revierte decisión anterior)
     aws_profile: Optional[str] = Field(default=None, description="AWS profile name")
 
+    # Optional target role for centralized AWSClient AssumeRole.
+    aws_role_arn: Optional[str] = Field(default=None, description="AWS role ARN to assume")
+    aws_role_session_name: Optional[str] = Field(
+        default=None, description="AWS role session name for AssumeRole"
+    )
+    aws_external_id: Optional[str] = Field(
+        default=None, description="External ID for AssumeRole (sensitive)"
+    )
+    aws_role_duration_seconds: Optional[int] = Field(
+        default=None, description="AssumeRole session duration in seconds"
+    )
+
     # Step 4: AWS Region
     aws_region: str = Field(default="us-east-1", description="AWS region")
 
@@ -125,6 +137,9 @@ class WizardConfig(BaseModel):
                 "aws_access_key_id": _EXAMPLE_AWS_ACCESS_KEY,
                 "aws_secret_access_key": _EXAMPLE_AWS_SECRET_KEY,
                 "aws_session_token": None,
+                "aws_role_arn": None,
+                "aws_role_session_name": None,
+                "aws_role_duration_seconds": None,
                 "aws_region": "us-east-1",
                 "skills": ["iam", "exposure"],
                 "output_formats": ["markdown", "json"],
@@ -152,11 +167,13 @@ class WizardConfig(BaseModel):
         if self.aws_profile:
             return self._load_from_aws_profile(self.aws_profile)
 
-        # Priority 3: Environment variables (fallback)
+        # Priority 3: Environment variables (fallback). AWSClient does not use this
+        # for profile/env/default-chain auth so those providers remain refresh-friendly;
+        # this legacy helper is kept only for direct/file credential consumers.
         if env_vars := self._check_env_vars():
             return env_vars
 
-        raise ValueError("No AWS credentials configured")
+        raise ValueError("No static AWS credentials configured; use AWSClient for default-chain auth")
 
     def _load_from_file(self, file_path: Path) -> tuple[str, str, Optional[str]]:
         """Load credentials from custom JSON file."""
@@ -331,9 +348,10 @@ class WizardConfig(BaseModel):
         data.pop("aws_access_key_id", None)
         data.pop("aws_secret_access_key", None)
         data.pop("aws_session_token", None)
+        data.pop("aws_external_id", None)
         data.pop("ai_api_key", None)
 
-        # Always preserve aws_credentials_file and aws_profile (they're not sensitive)
+        # Always preserve aws_credentials_file, aws_profile, and non-secret role settings
         # They will be None if not used, which is fine
 
         data["created_at"] = self.created_at.isoformat()

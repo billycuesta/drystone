@@ -115,8 +115,17 @@ def print_summary(config: WizardConfig) -> None:
         table.add_row("AWS Credentials", "[bold dim]Profile[/bold dim]")
         table.add_row("  Profile", f"[bold dim]{config.aws_profile}[/bold dim]")
     else:
-        # Fallback: environment variables
-        table.add_row("AWS Credentials", "[bold dim]Environment Variables[/bold dim]")
+        # Fallback: environment variables or boto3 default chain
+        table.add_row("AWS Credentials", "[bold dim]Environment Variables / Default Chain[/bold dim]")
+
+    if getattr(config, "aws_role_arn", None):
+        table.add_row("AssumeRole", f"[bold dim]{config.aws_role_arn}[/bold dim]")
+        if getattr(config, "aws_role_session_name", None):
+            table.add_row("  Role Session", f"[bold dim]{config.aws_role_session_name}[/bold dim]")
+        if getattr(config, "aws_role_duration_seconds", None):
+            table.add_row(
+                "  Role Duration", f"[bold dim]{config.aws_role_duration_seconds}s[/bold dim]"
+            )
 
     table.add_row("AWS Region", f"[bold]{config.aws_region}[/bold]")
     table.add_row("Skills", f"[bold]{', '.join(config.skills)}[/bold]")
