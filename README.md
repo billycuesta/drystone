@@ -65,6 +65,19 @@ python -m drystone audit --non-interactive
 python -m drystone audit --client "ACME" --region us-east-1 --skills iam,network,exposure
 ```
 
+**Docker:**
+```bash
+docker build -t drystone .
+
+docker run --rm \
+  -e AWS_ACCESS_KEY_ID=... -e AWS_SECRET_ACCESS_KEY=... \
+  -e ANTHROPIC_API_KEY=... \
+  -v "$(pwd)/audit-logs:/data/audit-logs" \
+  drystone audit --client "ACME" --region us-east-1 --skills iam \
+    --formats markdown --non-interactive
+```
+The wizard's interactive prompts don't fit a container — always pass `--non-interactive` with CLI flags, or reuse a saved config baked into the image.
+
 ---
 
 ## Skills

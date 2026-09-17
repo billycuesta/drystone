@@ -49,8 +49,8 @@ llm = [
 [project.scripts]
 drystone = "drystone.cli.main:cli"
 
-[tool.setuptools]
-packages = ["drystone"]
+[tool.setuptools.packages.find]
+include = ["drystone*"]
 
 [tool.setuptools.package-data]
 drystone = ["py.typed", "reports/templates/*.xml"]

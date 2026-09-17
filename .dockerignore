@@ -1,0 +1,43 @@
+# Keep the build context small and avoid leaking local/dev-only state into
+# the image. Mirrors the spirit of .gitignore plus a few docker-specific
+# exclusions (git history, tests, local venv, tracking docs).
+
+.git/
+.github/
+
+# Virtual environments
+drystone_env/
+venv/
+ENV/
+env/
+.venv/
+
+# Python cruft
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Local output / secrets-adjacent state -- never bake into an image layer
+audit-logs/
+test-results/
+*.env
+.env
+drystone_env/
+
+# Not needed inside the image
+tests/
+scripts/
+drystone-specs/
+PLAN_*.md
+*.md
+!README.md
+
+# Editor/OS
+.vscode/
+.idea/
+.DS_Store
