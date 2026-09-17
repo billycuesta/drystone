@@ -2,6 +2,28 @@
 
 Utility scripts for developing and validating Drystone.
 
+## Prowler Gap Analysis
+
+File: `scripts/prowler_gap_analysis.py`
+
+Cross-validates Drystone's deterministic checks against Prowler's public AWS
+check catalog and its official CIS AWS Foundations compliance mapping (P1.11a
+in `PLAN_PROFESSIONAL_GRADE_ROADMAP.md`). Fetches both straight from Prowler's
+GitHub repo -- no `prowler-cloud` pip install, no AWS credentials needed. The
+comparison is anchored on `cis_id`, a field every Drystone checklist item
+already carries, so matches are verified against Prowler's own mapping, not
+keyword-guessed.
+
+```bash
+# Print the report to stdout
+python3 scripts/prowler_gap_analysis.py
+
+# Save it, and compare against a different CIS version
+python3 scripts/prowler_gap_analysis.py --cis-version 2.0 --output /tmp/gap-report.md
+```
+
+Requires network access to `api.github.com` and `raw.githubusercontent.com`.
+
 ## E2E Test Runner
 
 File: `scripts/e2e_test_runner.py`
