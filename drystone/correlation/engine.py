@@ -83,6 +83,14 @@ class CorrelationEngine:
         """
         start_time = time.time()
         errors = []
+        warnings: List[str] = []
+        truncation_reasons: List[str] = []
+
+        def _mark_truncated(reason: str, message: str) -> None:
+            if reason not in truncation_reasons:
+                truncation_reasons.append(reason)
+            if message not in warnings:
+                warnings.append(message)
 
         try:
             logger.info("Starting cross-skill correlation analysis...")
@@ -131,12 +139,25 @@ class CorrelationEngine:
                     logger.debug(f"Skipping pattern {pattern_meta['id']} (missing required skills)")
                     continue
 
-                # Check timeout
+                # Check timeout and total-result cap before each pattern.
                 if time.time() - start_time > self.MAX_EXECUTION_TIME_SECONDS:
-                    logger.warning(
-                        f"Correlation timeout ({self.MAX_EXECUTION_TIME_SECONDS}s), stopping"
+                    message = (
+                        f"Correlation analysis was truncated after the "
+                        f"{self.MAX_EXECUTION_TIME_SECONDS}s execution limit."
                     )
+                    logger.warning(message)
                     errors.append(f"Timeout after {self.MAX_EXECUTION_TIME_SECONDS}s")
+                    _mark_truncated("timeout", message)
+                    break
+
+                remaining_capacity = self.MAX_TOTAL_CORRELATIONS - len(correlations)
+                if remaining_capacity <= 0:
+                    message = (
+                        f"Correlation analysis was truncated after reaching the "
+                        f"{self.MAX_TOTAL_CORRELATIONS} total correlation cap."
+                    )
+                    logger.warning(message)
+                    _mark_truncated("max_total_correlations", message)
                     break
 
                 try:
@@ -155,6 +176,16 @@ class CorrelationEngine:
                         matches = self._prioritize_matches(
                             matches, self.MAX_CORRELATIONS_PER_PATTERN
                         )
+
+                    remaining_capacity = self.MAX_TOTAL_CORRELATIONS - len(correlations)
+                    if len(matches) > remaining_capacity:
+                        message = (
+                            f"Correlation analysis was truncated after reaching the "
+                            f"{self.MAX_TOTAL_CORRELATIONS} total correlation cap."
+                        )
+                        logger.warning(message)
+                        _mark_truncated("max_total_correlations", message)
+                        matches = self._prioritize_matches(matches, remaining_capacity)
 
                     # Generate correlated findings
                     for match_group in matches:
@@ -178,7 +209,28 @@ class CorrelationEngine:
             dynamic_patterns = PATTERN_REGISTRY.get_patterns_for_skills(
                 list(findings_by_skill.keys())
             )
+            if "timeout" in truncation_reasons:
+                dynamic_patterns = []
             for pattern in dynamic_patterns:
+                if time.time() - start_time > self.MAX_EXECUTION_TIME_SECONDS:
+                    message = (
+                        f"Correlation analysis was truncated after the "
+                        f"{self.MAX_EXECUTION_TIME_SECONDS}s execution limit."
+                    )
+                    logger.warning(message)
+                    errors.append(f"Timeout after {self.MAX_EXECUTION_TIME_SECONDS}s")
+                    _mark_truncated("timeout", message)
+                    break
+
+                if len(correlations) >= self.MAX_TOTAL_CORRELATIONS:
+                    message = (
+                        f"Correlation analysis was truncated after reaching the "
+                        f"{self.MAX_TOTAL_CORRELATIONS} total correlation cap."
+                    )
+                    logger.warning(message)
+                    _mark_truncated("max_total_correlations", message)
+                    break
+
                 try:
                     if not pattern.matcher(
                         findings_by_skill, self._resource_index_cache, evidence_by_skill
@@ -228,11 +280,6 @@ class CorrelationEngine:
                     session_prefix = session_id[:8] if len(session_id) >= 8 else "00000000"
                     corr_id = f"CORR-{session_prefix}-{self._corr_counter:03d}"
 
-                    # Narrative context: gives attack_path_generator/remediation_generator
-                    # access to the real Finding objects (affected_resources, evidence_snippet,
-                    # title) alongside raw evidence, so narrative text can name the actual
-                    # resources involved instead of returning generic per-pattern text
-                    # (P1: Pentest Skill Quality Audit, rec. A).
                     narrative_context = {
                         "evidence_by_skill": evidence_by_skill,
                         "findings_by_skill": findings_by_skill,
@@ -254,6 +301,14 @@ class CorrelationEngine:
                         cis_reference=None,
                         pci_dss=None,
                     )
+                    if len(correlations) >= self.MAX_TOTAL_CORRELATIONS:
+                        message = (
+                            f"Correlation analysis was truncated after reaching the "
+                            f"{self.MAX_TOTAL_CORRELATIONS} total correlation cap."
+                        )
+                        logger.warning(message)
+                        _mark_truncated("max_total_correlations", message)
+                        break
                     correlations.append(synthetic)
                     patterns_applied.append(pattern.id)
                 except Exception as e:
@@ -263,6 +318,7 @@ class CorrelationEngine:
             correlations = self._validate_correlations(correlations, findings_by_skill)
 
             # Step 4: Save results
+            truncated = bool(truncation_reasons)
             output = {
                 "metadata": {
                     "generated_at": datetime.now().isoformat(),
@@ -277,6 +333,16 @@ class CorrelationEngine:
                 "total_correlations": len(correlations),
                 "patterns_applied": patterns_applied,
                 "execution_time_seconds": time.time() - start_time,
+                "truncated": truncated,
+                "warnings": warnings if warnings else [],
+                "truncation": {
+                    "reasons": truncation_reasons,
+                    "max_total_correlations": self.MAX_TOTAL_CORRELATIONS,
+                    "max_execution_time_seconds": self.MAX_EXECUTION_TIME_SECONDS,
+                    "returned_correlations": len(correlations),
+                }
+                if truncated
+                else None,
                 "errors": errors if errors else None,
             }
 

@@ -193,6 +193,105 @@ class TestCorrelationEngine:
         assert result["execution_time_seconds"] < engine.MAX_EXECUTION_TIME_SECONDS
         assert result["execution_time_seconds"] < 60.0
 
+    def _write_many_matchable_findings(self, temp_session_dir, count=10):
+        iam_findings = [
+            Finding(
+                id=f"IAM-{i:03d}",
+                severity="High",
+                risk_score=8.0,
+                title=f"User {i} lacks MFA",
+                description="No MFA configured.",
+                evidence_snippet={"UserName": f"user{i}"},
+                affected_resources=[f"arn:aws:iam::123456789012:user/user{i}"],
+                remediation="Enable MFA",
+                cis_reference="N/A",
+            )
+            for i in range(count)
+        ]
+        network_finding = Finding(
+            id="NET-001",
+            severity="Critical",
+            risk_score=9.0,
+            title="SSH exposed",
+            description="Port 22 open to 0.0.0.0/0.",
+            evidence_snippet={},
+            affected_resources=["arn:aws:ec2:us-east-1:123456789012:security-group/sg-1"],
+            remediation="Restrict",
+            cis_reference="N/A",
+        )
+        for skill, finding_list in {
+            "iam": iam_findings,
+            "network": [network_finding],
+        }.items():
+            findings_file = temp_session_dir / "findings" / f"{skill}.json"
+            with open(findings_file, "w") as f:
+                json.dump([f.model_dump() for f in finding_list], f)
+        return iam_findings, network_finding
+
+    def test_max_total_correlations_enforced(self, temp_session_dir):
+        """Test total correlation cap is enforced and reported visibly in output."""
+        self._write_many_matchable_findings(temp_session_dir, count=10)
+        engine = CorrelationEngine(temp_session_dir)
+        engine.MAX_TOTAL_CORRELATIONS = 3
+        engine.MAX_CORRELATIONS_PER_PATTERN = 50
+
+        def many_matches(findings_by_skill, _resource_index):
+            net = findings_by_skill["network"][0]
+            return [[iam, net] for iam in findings_by_skill["iam"]]
+
+        engine.patterns = [
+            {
+                "id": "test_many_matches",
+                "skills_required": ["iam", "network"],
+                "match_function": many_matches,
+                "amplification_factor": 1.1,
+                "severity": "High",
+                "title_template": "Many matches",
+                "description_template": "Many matches",
+                "attack_path_steps": ["step"],
+                "remediation_template": ["fix"],
+            }
+        ]
+
+        result = engine.run()
+
+        assert result["total_correlations"] == 3
+        assert len(result["correlations"]) == 3
+        assert result["truncated"] is True
+        assert "max_total_correlations" in result["truncation"]["reasons"]
+        assert result["warnings"]
+
+        with open(temp_session_dir / "findings" / "correlated.json") as f:
+            saved = json.load(f)
+        assert saved["total_correlations"] == 3
+        assert saved["truncated"] is True
+
+    def test_timeout_sets_truncation_warning(self, temp_session_dir):
+        """Test timeout produces structured truncation metadata and warning text."""
+        self._write_many_matchable_findings(temp_session_dir, count=1)
+        engine = CorrelationEngine(temp_session_dir)
+        engine.MAX_EXECUTION_TIME_SECONDS = 0
+        engine.patterns = [
+            {
+                "id": "test_timeout",
+                "skills_required": ["iam", "network"],
+                "match_function": lambda findings_by_skill, _resource_index: [],
+                "amplification_factor": 1.1,
+                "severity": "High",
+                "title_template": "Timeout",
+                "description_template": "Timeout",
+                "attack_path_steps": ["step"],
+                "remediation_template": ["fix"],
+            }
+        ]
+
+        result = engine.run()
+
+        assert result["truncated"] is True
+        assert "timeout" in result["truncation"]["reasons"]
+        assert result["warnings"]
+        assert result["errors"] == ["Timeout after 0s"]
+
     def test_max_correlations_limit(self, temp_session_dir):
         """Test limits to 50 correlations per pattern."""
         # Create many IAM findings to trigger limit

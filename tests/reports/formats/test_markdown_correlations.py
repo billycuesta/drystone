@@ -61,6 +61,55 @@ class TestCorrelationSection:
         assert "No cross-skill attack patterns detected" in result
         assert "✅" in result
 
+    def test_truncation_warning_rendered_without_correlations(self, formatter):
+        """Test engine truncation warnings are visible even with no returned chains."""
+        corr_file = formatter.session.base_path / "findings" / "correlated.json"
+        corr_data = {
+            "correlations": [],
+            "metadata": {"skills_analyzed": ["iam", "network"]},
+            "truncated": True,
+            "warnings": ["Correlation analysis was truncated after the 60s execution limit."],
+        }
+        with open(corr_file, "w") as f:
+            json.dump(corr_data, f)
+
+        result = formatter._correlation_section()
+
+        assert "Correlation analysis truncated" in result
+        assert "60s execution limit" in result
+        assert "No cross-skill attack patterns detected" in result
+
+    def test_truncation_warning_rendered_with_correlations(self, formatter):
+        """Test engine truncation warnings are visible above returned chains."""
+        corr_file = formatter.session.base_path / "findings" / "correlated.json"
+        corr_data = {
+            "correlations": [
+                {
+                    "id": "CORR-001",
+                    "title": "Capped Pattern",
+                    "severity": "High",
+                    "compound_risk_score": 8.0,
+                    "description": "Capped",
+                    "attack_path": [],
+                    "source_findings": [],
+                    "affected_resources": [],
+                    "remediation_priority": "Short-term",
+                    "remediation_steps": [],
+                }
+            ],
+            "metadata": {"skills_analyzed": ["iam", "network"]},
+            "truncated": True,
+            "warnings": ["Correlation analysis was truncated after reaching the 200 total correlation cap."],
+        }
+        with open(corr_file, "w") as f:
+            json.dump(corr_data, f)
+
+        result = formatter._correlation_section()
+
+        assert "Correlation analysis truncated" in result
+        assert "200 total correlation cap" in result
+        assert "Capped Pattern" in result
+
     def test_malformed_json(self, formatter):
         """Test when correlated.json is invalid JSON."""
         corr_file = formatter.session.base_path / "findings" / "correlated.json"

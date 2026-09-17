@@ -52,6 +52,33 @@ def test_json_formatter_exports_attack_paths_for_single_skill(tmp_path) -> None:
     assert payload["attack_path_candidates"][0]["skill"] == "sistemas_explotables_red"
 
 
+def test_json_formatter_includes_correlation_warning_summary(tmp_path) -> None:
+    findings_dir = tmp_path / "findings"
+    findings_dir.mkdir(parents=True, exist_ok=True)
+    with open(findings_dir / "correlated.json", "w") as f:
+        json.dump(
+            {
+                "total_correlations": 200,
+                "truncated": True,
+                "warnings": ["Correlation analysis was truncated after reaching the cap."],
+                "truncation": {
+                    "reasons": ["max_total_correlations"],
+                    "max_total_correlations": 200,
+                    "returned_correlations": 200,
+                },
+            },
+            f,
+        )
+
+    formatter = _build_formatter(tmp_path, "aggregated")
+    payload = formatter._build_json()
+
+    assert payload["correlation_summary"]["total_correlations"] == 200
+    assert payload["correlation_summary"]["truncated"] is True
+    assert "max_total_correlations" in payload["correlation_summary"]["truncation"]["reasons"]
+    assert payload["correlation_summary"]["warnings"]
+
+
 def test_json_formatter_exports_attack_paths_for_aggregated_context(tmp_path) -> None:
     ser_dir = tmp_path / "evidence" / "sistemas_explotables_red"
     ser_dir.mkdir(parents=True, exist_ok=True)

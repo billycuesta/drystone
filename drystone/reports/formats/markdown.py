@@ -697,11 +697,16 @@ This report presents security findings from the {self._get_skill_display_name(sk
             return ""
 
         correlations = corr_data.get("correlations", [])
+        warnings = corr_data.get("warnings") or []
+        warning_block = ""
+        if warnings:
+            warning_text = " ".join(str(w) for w in warnings)
+            warning_block = f"> ⚠️ **Correlation analysis truncated:** {warning_text}\n\n"
 
         if not correlations:
-            return """## 🔗 Cross-Skill Correlations
+            return f"""## 🔗 Cross-Skill Correlations
 
-✅ No cross-skill attack patterns detected. Individual findings analyzed separately.
+{warning_block}✅ No cross-skill attack patterns detected. Individual findings analyzed separately.
 """
 
         # Sort by compound risk (highest first)
@@ -724,7 +729,7 @@ This report presents security findings from the {self._get_skill_display_name(sk
 
 These correlations represent multi-stage attack scenarios where findings from different skills combine to create elevated risk.
 
-"""
+{warning_block}"""
 
         # Render each correlation
         for i, corr in enumerate(displayed, 1):
@@ -1028,7 +1033,7 @@ These correlations represent multi-stage attack scenarios where findings from di
                 by_resource.setdefault(resource, []).append(cve)
 
             # Per-instance cap: show top 10 CVEs per instance (sorted by CVSS desc)
-            _MAX_PER_INSTANCE = 10
+            max_per_instance = 10
             cves_to_render: list = []
             for resource, cves in by_resource.items():
                 sorted_cves = sorted(
@@ -1036,7 +1041,7 @@ These correlations represent multi-stage attack scenarios where findings from di
                     key=lambda c: float(c.get("cvss_score") or 0.0),
                     reverse=True,
                 )
-                cves_to_render.append((resource, sorted_cves[:_MAX_PER_INSTANCE]))
+                cves_to_render.append((resource, sorted_cves[:max_per_instance]))
 
             section += "| CVE / Advisory | Package | Installed | Fixed | CVSS | Impact | AV | Exploit | KEV |\n"
             section += "|----------------|---------|-----------|-------|------|--------|----|---------|-----|\n"

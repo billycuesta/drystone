@@ -1429,9 +1429,18 @@ class PDFFormatter(BaseFormatter):
             return ""
 
         correlations = corr_data.get("correlations", []) or []
+        warnings = corr_data.get("warnings") or []
+        warning_html = ""
+        if warnings:
+            warning_text = html.escape(" ".join(str(w) for w in warnings))
+            warning_html = (
+                "<div class='finding-warning'><strong>⚠ Correlation analysis truncated:</strong> "
+                f"{warning_text}</div>"
+            )
         if not correlations:
             return (
                 "<h2>Cross-Skill Correlations</h2>"
+                f"{warning_html}"
                 "<p>No cross-skill attack patterns detected. Individual findings analyzed separately.</p>"
             )
 
@@ -1457,7 +1466,12 @@ class PDFFormatter(BaseFormatter):
             "</div>"
         )
 
-        return f"<h2>Attack Chains ({len(correlations)})</h2>" + intro_html + "".join(blocks)
+        return (
+            f"<h2>Attack Chains ({len(correlations)})</h2>"
+            + warning_html
+            + intro_html
+            + "".join(blocks)
+        )
 
     def _correlation_card_html(self, corr: Dict[str, Any]) -> str:
         """Render a correlation as a full finding card (same depth as technical findings)."""

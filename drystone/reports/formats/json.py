@@ -45,7 +45,32 @@ class JSONFormatter(BaseFormatter):
         attack_paths = self._collect_attack_paths()
         if attack_paths:
             payload["attack_path_candidates"] = attack_paths
+        correlation_summary = self._correlation_summary()
+        if correlation_summary:
+            payload["correlation_summary"] = correlation_summary
         return payload
+
+    def _correlation_summary(self) -> Dict[str, Any]:
+        """Load report-visible correlation truncation metadata without embedding all chains."""
+        corr_path = self.session.base_path / "findings" / "correlated.json"
+        if not corr_path.exists():
+            return {}
+        try:
+            with open(corr_path) as f:
+                data = json.load(f) or {}
+        except Exception:
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        summary = {
+            "total_correlations": data.get("total_correlations", 0),
+            "truncated": bool(data.get("truncated", False)),
+            "warnings": data.get("warnings") or [],
+            "truncation": data.get("truncation"),
+        }
+        if not summary["total_correlations"] and not summary["truncated"] and not summary["warnings"]:
+            return {}
+        return summary
 
     def _collect_attack_paths(self) -> list:
         """Collect attack-path-candidates.json from evidence directories.
