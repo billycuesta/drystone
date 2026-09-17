@@ -115,11 +115,20 @@ def validate_ai_provider_credentials(ai_provider: str, ai_api_key: Optional[str]
     """Validate AI provider credentials early in wizard flow.
 
     Returns True when credentials look valid and provider is reachable.
-    For claude-cli (no API key), returns True.
+    For claude-cli, checks the CLI is actually installed and usable (P2 #7)
+    -- catching a missing/broken CLI here, before any AWS work starts, is
+    far friendlier than letting the audit fail after a full collection pass.
     """
     provider = str(ai_provider or "").strip().lower()
 
     if provider == "claude-cli":
+        from drystone.agent.client import check_claude_cli_available
+
+        available, path_or_message = check_claude_cli_available()
+        if not available:
+            print(f"❌ {path_or_message}")
+            print("   Or switch to the API provider: export ANTHROPIC_API_KEY=sk-ant-...")
+            return False
         return True
 
     if not ai_api_key or not str(ai_api_key).strip():
@@ -558,6 +567,19 @@ def run_ai_menu(current_config: Optional[dict] = None) -> dict:
         if selected_model is None:
             raise KeyboardInterrupt("Wizard cancelled")
         result["claude_cli_model"] = selected_model
+
+        # Preflight (P2 #7): catch a missing/broken CLI here, before any AWS
+        # work starts, instead of after a full evidence-collection pass.
+        if not validate_ai_provider_credentials("claude-cli", None):
+            switch_to_api = questionary.confirm(
+                "Switch to the Claude API provider instead?", default=True
+            ).ask()
+            if switch_to_api is None:
+                raise KeyboardInterrupt("Wizard cancelled")
+            if not switch_to_api:
+                raise KeyboardInterrupt("Wizard cancelled")
+            ai_provider = "claude-api"
+            result["ai_provider"] = "claude-api"
 
     if ai_provider in {"claude-api"}:
         key_prompt = "Enter your Claude API key:"

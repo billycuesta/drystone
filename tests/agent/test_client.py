@@ -8,7 +8,7 @@ import pytest
 
 from drystone.agent.cache import FindingsCache
 from drystone.agent.chunker import EvidenceChunk
-from drystone.agent.client import AgentClient, AgentError
+from drystone.agent.client import AgentClient, AgentError, check_claude_cli_available
 from drystone.models.findings import FindingsSummary, SkillFindings
 
 # ── Constructor helpers ───────────────────────────────────────────────────────
@@ -119,6 +119,38 @@ class TestSanitizeApiKey:
 
     def test_strips_both_dash_and_whitespace(self):
         assert self.client._sanitize_api_key("  - sk-ant-key  ") == "sk-ant-key"
+
+
+# ── check_claude_cli_available ──────────────────────────────────────────────────
+
+
+class TestCheckClaudeCliAvailable:
+    """P2 #7: shared by AgentClient and the wizard's preflight check."""
+
+    def test_not_found_returns_false_with_install_message(self):
+        with patch("shutil.which", return_value=None):
+            found, message = check_claude_cli_available()
+        assert found is False
+        assert "not found in PATH" in message
+        assert "npm install" in message
+
+    def test_not_a_file_returns_false(self):
+        with (
+            patch("shutil.which", return_value="/usr/bin/claude"),
+            patch.object(Path, "is_file", return_value=False),
+        ):
+            found, message = check_claude_cli_available()
+        assert found is False
+        assert "not a file" in message
+
+    def test_found_returns_true_with_path(self):
+        with (
+            patch("shutil.which", return_value="/usr/bin/claude"),
+            patch.object(Path, "is_file", return_value=True),
+        ):
+            found, path = check_claude_cli_available()
+        assert found is True
+        assert path == "/usr/bin/claude"
 
 
 # ── get_display_name ──────────────────────────────────────────────────────────

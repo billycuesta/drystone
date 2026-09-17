@@ -31,6 +31,32 @@ class AgentError(Exception):
     pass
 
 
+def check_claude_cli_available() -> "tuple[bool, str]":
+    """Check whether the `claude` CLI is installed and usable.
+
+    Shared between `AgentClient` (which needs this to actually run analysis)
+    and the setup wizard's preflight check (P2 #7), which needs the same
+    answer *before* any AWS work starts -- so a missing/broken CLI is caught
+    in seconds, not after a full evidence-collection pass.
+
+    Returns:
+        (True, absolute_path) if usable, (False, friendly_error_message) otherwise.
+    """
+    claude_path = shutil.which("claude")
+
+    if not claude_path:
+        return False, (
+            "Claude Code CLI not found in PATH.\n"
+            "Install with: npm install -g @anthropic-ai/claude-code"
+        )
+
+    # Security: verify it's a file before executing.
+    if not Path(claude_path).is_file():
+        return False, f"Claude CLI path is not a file: {claude_path}"
+
+    return True, claude_path
+
+
 class AgentClient:
     """AI agent client for AWS security analysis.
 
@@ -136,19 +162,10 @@ class AgentClient:
         Raises:
             AgentError: If claude CLI not found or is not a file
         """
-        claude_path = shutil.which("claude")
-
-        if not claude_path:
-            raise AgentError(
-                "Claude Code CLI not found in PATH.\n"
-                "Install with: npm install -g @anthropic-ai/claude-code"
-            )
-
-        # Security: Verify it's a file before executing
-        if not Path(claude_path).is_file():
-            raise AgentError(f"Claude CLI path is not a file: {claude_path}")
-
-        return claude_path
+        found, path_or_message = check_claude_cli_available()
+        if not found:
+            raise AgentError(path_or_message)
+        return path_or_message
 
     def get_display_name(self) -> str:
         """Get user-friendly display name for the configured AI provider.
