@@ -187,6 +187,50 @@ class TestGetDisplayName:
         assert client.get_display_name() == "AI Provider"
 
 
+# ── _get_skill_code ───────────────────────────────────────────────────────────
+
+
+class TestGetSkillCode:
+    """Regression tests for deriving finding-ID codes from checklist.json (rec V:
+    the old hardcoded 9/16 map produced wrong prefixes for the other 6 skills).
+    """
+
+    def setup_method(self):
+        self.client = _make_api_client()
+
+    @pytest.mark.parametrize(
+        "skill_name,first_item_id,expected_code",
+        [
+            ("iam", "IAM-001", "IAM"),
+            ("hardening", "HRD-001", "HRD"),
+            ("secretsmanager", "SM-001", "SM"),
+            # These 6 previously fell through to the wrong hardcoded/uppercase-prefix
+            # fallback -- verified against the real checklist.json ID prefixes.
+            ("sistemas_explotables_red", "SER-001", "SER"),
+            ("cloudtrail_events", "CTEF-001", "CTEF"),
+            ("recon", "RECON-001", "RECON"),
+            ("cicd", "CICD-001", "CICD"),
+            ("compute", "COMP-001", "COMP"),
+            ("messaging", "MSG-001", "MSG"),
+        ],
+    )
+    def test_derives_code_from_checklist_first_item(
+        self, skill_name, first_item_id, expected_code
+    ):
+        checklist = {"items": [{"id": first_item_id}, {"id": first_item_id}]}
+        assert self.client._get_skill_code(skill_name, checklist) == expected_code
+
+    def test_no_checklist_falls_back_to_upper_truncated_name(self):
+        assert self.client._get_skill_code("hardening", None) == "HAR"
+
+    def test_empty_checklist_items_falls_back_to_upper_truncated_name(self):
+        assert self.client._get_skill_code("hardening", {"items": []}) == "HAR"
+
+    def test_first_item_id_without_dash_falls_back(self):
+        checklist = {"items": [{"id": "malformed"}]}
+        assert self.client._get_skill_code("hardening", checklist) == "HAR"
+
+
 # ── _estimate_tokens_text ─────────────────────────────────────────────────────
 
 
@@ -533,7 +577,7 @@ class TestAnalyzeEvidence:
         with patch.object(
             client,
             "analyze_evidence",
-            side_effect=[empty, AgentError("Claude CLI call timed out (>300s)")],
+            side_effect=[empty, AgentError("Claude CLI call timed out (>120s)")],
         ):
             result = client.analyze_evidence_chunked(
                 "iam",

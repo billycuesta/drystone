@@ -67,7 +67,28 @@ class MetricsTracker:
             self._ensure_metrics_file()
             return self._read_metrics()
         except Exception as e:
-            logger.error(f"Failed to read metrics: {e}")
+            # Every mutating method does read -> mutate -> write, so returning {}
+            # here means the next write would silently erase everything recorded
+            # so far. Back up the unreadable file first so that data isn't lost,
+            # only quarantined -- then start fresh.
+            backup_path = (
+                self.metrics_file.parent
+                / f"{self.metrics_file.stem}.corrupted-"
+                f"{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}{self.metrics_file.suffix}"
+            )
+            try:
+                self.metrics_file.rename(backup_path)
+                logger.warning(
+                    f"Metrics file {self.metrics_file} could not be read ({e}); "
+                    f"backed it up to {backup_path} and starting fresh. Prior metrics "
+                    "are not lost -- recover them from the backup file if needed."
+                )
+            except Exception as backup_err:
+                logger.error(
+                    f"Failed to read metrics ({e}) and failed to back up the unreadable "
+                    f"file ({backup_err}); prior metrics in {self.metrics_file} will be "
+                    "overwritten on the next write."
+                )
             return {}
 
     def _write_metrics(self, metrics: Dict[str, Any]) -> None:

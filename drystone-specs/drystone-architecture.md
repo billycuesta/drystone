@@ -263,7 +263,7 @@ Check IAM-005 (Password policy complexity):
 | Checklist Router | `drystone/analysis/router.py` | Exclude PASS/FAIL deterministic checks from LLM checklist |
 | Evidence Distiller | `drystone/analysis/distiller.py` | Truncate oversized evidence lists while preserving summary metadata |
 | Budget Policy | `drystone/agent/budget.py` | Cap `max_tokens_per_chunk` and `max_chunks` per provider/skill |
-| Budget Metrics | `drystone/logging/metrics_tracker.py` | Track `llm_checks`, deterministic checks, and distillation reductions |
+| Budget Metrics | `drystone/audit_logging/metrics_tracker.py` | Track `llm_checks`, deterministic checks, and distillation reductions |
 
 ### P0 Runtime Flow (inside `BaseSkill.analyze`)
 
@@ -567,7 +567,7 @@ Valor en el flujo:
 - Entrega final accionable con trazabilidad a evidencia.
 ```
 
-## Modulo Metricas y observabilidad (`drystone/logging/metrics_tracker.py`, `audit.log`)
+## Modulo Metricas y observabilidad (`drystone/audit_logging/metrics_tracker.py`, `audit.log`)
 
 ```
 Objetivo:

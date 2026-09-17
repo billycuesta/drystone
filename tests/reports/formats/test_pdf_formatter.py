@@ -614,3 +614,68 @@ def test_pdf_pentest_index_and_findings_follow_phase_order(tmp_path):
     details_net = details.index("Phase 2 — Network Security")
     details_vuln = details.index("Phase 2 — Vulnerabilities")
     assert details_phase1 < details_iam < details_exp < details_net < details_vuln
+
+
+# ── _masked_access_key (rec AW: must recognize AssumeRole) ────────────────────
+
+
+def _formatter_with_config(tmp_path, config) -> PDFFormatter:
+    session = _mock_session(tmp_path)
+    return PDFFormatter(_sample_findings(), session, config)
+
+
+def test_masked_access_key_recognizes_assume_role(tmp_path):
+    config = Mock()
+    config.aws_role_arn = "arn:aws:iam::123456789012:role/AuditRole"
+    config.aws_access_key_id = None
+    config.aws_profile = None
+    config.aws_credentials_file = None
+
+    formatter = _formatter_with_config(tmp_path, config)
+    assert formatter._masked_access_key() == "AssumeRole: arn:aws:iam::123456789012:role/AuditRole"
+
+
+def test_masked_access_key_assume_role_takes_priority_over_direct_keys(tmp_path):
+    """aws_role_arn changes the identity actually used regardless of the source
+    credential method, so it must be checked before direct keys/profile/file."""
+    config = Mock()
+    config.aws_role_arn = "arn:aws:iam::123456789012:role/AuditRole"
+    config.aws_access_key_id = "AKIAIOSFODNN7EXAMPLE"
+
+    formatter = _formatter_with_config(tmp_path, config)
+    assert formatter._masked_access_key().startswith("AssumeRole:")
+
+
+def test_masked_access_key_falls_back_to_direct_keys(tmp_path):
+    config = Mock()
+    config.aws_role_arn = None
+    config.aws_access_key_id = "AKIAIOSFODNN7EXAMPLE"
+
+    formatter = _formatter_with_config(tmp_path, config)
+    assert formatter._masked_access_key() == "AKIA...MPLE"
+
+
+def test_masked_access_key_falls_back_to_profile(tmp_path):
+    config = Mock()
+    config.aws_role_arn = None
+    config.aws_access_key_id = None
+    config.aws_profile = "prod-audit"
+
+    formatter = _formatter_with_config(tmp_path, config)
+    assert formatter._masked_access_key() == "Profile: prod-audit"
+
+
+def test_masked_access_key_role_arn_only_no_longer_mislabeled_as_env(tmp_path, monkeypatch):
+    """Before rec AW, a role-only config (the intended way to use AssumeRole)
+    fell through every branch and was wrongly labeled 'Environment variables'."""
+    monkeypatch.delenv("AWS_ACCESS_KEY_ID", raising=False)
+    config = Mock()
+    config.aws_role_arn = "arn:aws:iam::123456789012:role/AuditRole"
+    config.aws_access_key_id = None
+    config.aws_profile = None
+    config.aws_credentials_file = None
+
+    formatter = _formatter_with_config(tmp_path, config)
+    result = formatter._masked_access_key()
+    assert result != "Environment variables"
+    assert "AuditRole" in result

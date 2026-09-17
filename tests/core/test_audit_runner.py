@@ -104,7 +104,7 @@ def _patched(mock_session, qa_result, report_file, mock_aws_client):
     return (
         patch("drystone.cloud.aws.client.AWSClient", return_value=mock_aws_client),
         patch("drystone.storage.session.AuditSession", return_value=mock_session),
-        patch("drystone.logging.MetricsTracker"),
+        patch("drystone.audit_logging.MetricsTracker"),
         patch("drystone.agent.client.AgentClient"),
         patch(
             "drystone.skills.registry.skill_import_map",

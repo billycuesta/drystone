@@ -67,7 +67,7 @@ def run_audit(
     _msg(f"   Session: {session.base_path}\n")
 
     # Metrics tracker (per-session)
-    from drystone.logging import MetricsTracker
+    from drystone.audit_logging import MetricsTracker
 
     metrics_file = session.base_path / "metrics.json"
     metrics_tracker = MetricsTracker(metrics_file)

@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from drystone.logging.metrics_tracker import MetricsTracker
+from drystone.audit_logging.metrics_tracker import MetricsTracker
 
 
 def test_record_token_usage_aggregates_per_skill_and_total(tmp_path: Path):

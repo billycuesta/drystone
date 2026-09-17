@@ -1,6 +1,9 @@
 """Evidence distillation to reduce prompt/token size."""
 
+import logging
 from typing import Any, Dict, List, Tuple
+
+logger = logging.getLogger(__name__)
 
 FILE_ALLOWLIST_FIELDS = {
     "vpcs": {"VpcId", "CidrBlock", "State", "IsDefault", "Tags"},
@@ -56,6 +59,15 @@ def _prune_dict_fields(resource: Dict[str, Any], file_key: str) -> Dict[str, Any
         return resource
     out = {k: v for k, v in resource.items() if k in allow}
     if len(out) == 0:
+        logger.warning(
+            "distiller: allowlist for %r matched none of this resource's fields "
+            "(%s) -- distillation had no effect, keeping the resource unpruned. "
+            "This usually means the resource's real field names drifted from "
+            "FILE_ALLOWLIST_FIELDS[%r].",
+            file_key,
+            sorted(resource.keys()),
+            file_key,
+        )
         return resource
     if file_key == "inspector-findings":
         out = _compact_inspector_finding(out)

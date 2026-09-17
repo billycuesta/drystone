@@ -6,7 +6,7 @@ import threading
 import time
 from pathlib import Path
 
-from drystone.logging import MetricsTracker
+from drystone.audit_logging import MetricsTracker
 
 
 class TestMetricsTracker:
@@ -330,6 +330,35 @@ class TestBranchCoverage:
         tracker = MetricsTracker(path)
         path.write_text("NOT JSON{{")
         result = tracker._read_metrics()
+        assert result == {}
+
+    def test_read_metrics_backs_up_corrupt_file_instead_of_losing_it(self, tmp_path):
+        """rec AQ: a corrupted metrics file is quarantined, not silently discarded --
+        so a subsequent write doesn't erase prior progress with no trace left behind.
+        """
+        path = tmp_path / "m.json"
+        tracker = MetricsTracker(path)
+        path.write_text('{"skills": {"iam": {"findings": 5}}}broken')
+
+        result = tracker._read_metrics()
+
+        assert result == {}
+        assert not path.exists()
+        backups = list(tmp_path.glob("m.corrupted-*.json"))
+        assert len(backups) == 1
+        assert "iam" in backups[0].read_text()
+
+    def test_read_metrics_still_returns_empty_dict_if_backup_itself_fails(self, tmp_path, monkeypatch):
+        """If even the rename fails, still degrade to {} instead of raising."""
+        path = tmp_path / "m.json"
+        tracker = MetricsTracker(path)
+        path.write_text("NOT JSON{{")
+        monkeypatch.setattr(
+            Path, "rename", lambda self, target: (_ for _ in ()).throw(OSError("locked"))
+        )
+
+        result = tracker._read_metrics()
+
         assert result == {}
 
     def test_record_skill_start_creates_skills_key_if_absent(self, tmp_path):

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from drystone.logging import CrashSafeLogger
+from drystone.audit_logging import CrashSafeLogger
 
 
 class TestCrashSafeLogger:

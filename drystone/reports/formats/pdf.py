@@ -952,6 +952,14 @@ class PDFFormatter(BaseFormatter):
     def _masked_access_key(self) -> str:
         import os
 
+        # Checked first: with aws_role_arn configured, the audit actually ran
+        # under the assumed role's temporary credentials regardless of which
+        # source-identity method (keys/profile/file/default chain) supplied
+        # them -- labeling by the source method alone would be misleading.
+        role_arn = getattr(self.config, "aws_role_arn", None)
+        if isinstance(role_arn, str) and role_arn:
+            return f"AssumeRole: {role_arn}"
+
         access_key = getattr(self.config, "aws_access_key_id", None)
         if isinstance(access_key, str) and access_key:
             return f"{access_key[:4]}...{access_key[-4:]}"

@@ -98,6 +98,13 @@ class PatternRegistry:
         self._patterns: Dict[str, DynamicCorrelationPattern] = {}
 
     def register(self, pattern: DynamicCorrelationPattern) -> None:
+        if pattern.id in self._patterns:
+            raise ValueError(
+                f"Duplicate correlation pattern id {pattern.id!r}: already registered as "
+                f"{self._patterns[pattern.id].name!r}, cannot also register {pattern.name!r}. "
+                "Pattern ids must be unique -- a silent overwrite here would make one of "
+                "the two patterns vanish from correlation results with no error."
+            )
         self._patterns[pattern.id] = pattern
 
     def all(self) -> List[DynamicCorrelationPattern]:

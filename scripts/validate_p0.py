@@ -21,7 +21,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, List
 
-from drystone.logging import CrashSafeLogger, MetricsTracker
+from drystone.audit_logging import CrashSafeLogger, MetricsTracker
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
