@@ -64,6 +64,28 @@ class TestIsEnglishReport:
         assert f._is_english_report() is True
 
 
+class TestThreatIntelBlock:
+    def test_includes_traildiscover_catalog_metadata(self, tmp_path):
+        formatter = _make_formatter(tmp_path)
+        block = formatter._threat_intel_block(
+            {
+                "mitre_tactics": ["TA0005 - Defense Evasion"],
+                "mitre_techniques": ["T1562.001 - Disable or Modify Tools"],
+                "used_in_wild": True,
+                "real_incidents": ["LUCR-3: CloudTrail tampering"],
+                "catalog": {
+                    "event_count": 381,
+                    "source_commit": "cb600790fe0a9b24b497a7da5e4512326b40e046",
+                    "refreshed_at": "2026-09-17T12:00:00Z",
+                },
+            }
+        )
+        assert "TrailDiscover catalog" in block
+        assert "381 events" in block
+        assert "version `cb60079`" in block
+        assert "refreshed 2026-09-17" in block
+
+
 class TestResourcesAuditedSection:
     def test_cloudtrail_scope_uses_session_account_when_summary_account_empty(self, tmp_path):
         formatter = _make_formatter(

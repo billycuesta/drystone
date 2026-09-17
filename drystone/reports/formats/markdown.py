@@ -1010,6 +1010,17 @@ These correlations represent multi-stage attack scenarios where findings from di
         else:
             block += "**Used in real attacks:** No documented incidents\n"
 
+        catalog = threat_intel.get("catalog") or {}
+        if isinstance(catalog, dict) and catalog:
+            source_commit = catalog.get("source_commit")
+            version = str(source_commit)[:7] if source_commit else str(catalog.get("sha256", "unknown"))[:7]
+            refreshed_at = str(catalog.get("refreshed_at") or "unknown").split("T")[0]
+            count = catalog.get("event_count", "?")
+            block += (
+                f"**TrailDiscover catalog:** {count} events · version `{version}` · "
+                f"refreshed {refreshed_at}\n"
+            )
+
         return block
 
     def _ser_exploitability_section(self, finding: Dict[str, Any]) -> str:

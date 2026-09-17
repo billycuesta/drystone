@@ -1,11 +1,9 @@
 """Tests for drystone.threat_intel.traildiscover module."""
 
-import pytest
-from unittest.mock import patch
-
 from drystone.threat_intel.traildiscover import (
     _load_catalog,
     enrich_finding,
+    get_catalog_metadata,
     get_event_context,
     get_incidents,
     get_mitre_context,
@@ -29,6 +27,20 @@ class TestLoadCatalog:
         c1 = _load_catalog()
         c2 = _load_catalog()
         assert c1 is c2
+
+
+class TestCatalogMetadata:
+    def test_metadata_loads(self):
+        metadata = get_catalog_metadata()
+        assert metadata["source"] == "TrailDiscover"
+        assert metadata["event_count"] >= 377
+        assert metadata["sha256"]
+
+    def test_metadata_identifies_source(self):
+        metadata = get_catalog_metadata()
+        assert metadata["repository"] == "https://github.com/adanalvarez/TrailDiscover"
+        assert metadata["source_url"].endswith("/docs/events.json")
+        assert "source_commit" in metadata
 
 
 class TestGetEventContext:
@@ -109,6 +121,7 @@ class TestEnrichFinding:
         finding = {"id": "CTEF-003", "severity": "Critical"}
         enrich_finding(finding, ["DeleteTrail"])
         ti = finding["threat_intel"]
+        assert "catalog" in ti
         assert "mitre_tactics" in ti
         assert "mitre_techniques" in ti
         assert "used_in_wild" in ti

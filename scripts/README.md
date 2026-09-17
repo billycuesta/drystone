@@ -2,6 +2,25 @@
 
 Utility scripts for developing and validating Drystone.
 
+## TrailDiscover Refresh
+
+File: `scripts/update_traildiscover.py`
+
+Refreshes Drystone's bundled TrailDiscover threat-intelligence catalog from
+`adanalvarez/TrailDiscover` (`docs/events.json`) and writes a sibling metadata
+file with source URL, source commit, refresh timestamp, event count, and SHA-256.
+No runtime dependency is added to the audit path; this is a maintainer tool.
+
+```bash
+# Validate upstream reachability and schema without writing files
+python3 scripts/update_traildiscover.py --dry-run
+
+# Refresh drystone/threat_intel/traildiscover_events.json and metadata
+python3 scripts/update_traildiscover.py
+```
+
+Requires network access to `api.github.com` and `raw.githubusercontent.com`.
+
 ## Prowler Gap Analysis
 
 File: `scripts/prowler_gap_analysis.py`

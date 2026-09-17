@@ -21,6 +21,24 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 _CATALOG_PATH = Path(__file__).parent / "traildiscover_events.json"
+_METADATA_PATH = Path(__file__).parent / "traildiscover_metadata.json"
+
+
+@lru_cache(maxsize=1)
+def get_catalog_metadata() -> Dict[str, Any]:
+    """Return bundled TrailDiscover catalog metadata.
+
+    The metadata makes the otherwise-static threat-intel bundle auditable: report
+    consumers can see source URL, source commit, refresh time, event count, and
+    content hash. Returns an empty dict if metadata is unavailable.
+    """
+    try:
+        with open(_METADATA_PATH) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception as exc:
+        logger.warning("Failed to load TrailDiscover metadata: %s", exc)
+        return {}
 
 
 @lru_cache(maxsize=1)
@@ -138,6 +156,7 @@ def enrich_finding(finding: Dict[str, Any], event_names: List[str]) -> Dict[str,
     # Only add threat_intel block if we found something useful
     if any_wild or all_tactics or all_incidents:
         finding["threat_intel"] = {
+            "catalog": get_catalog_metadata(),
             "mitre_tactics": all_tactics,
             "mitre_techniques": all_techniques,
             "mitre_sub_techniques": all_sub_techniques,
