@@ -91,3 +91,5 @@ drystone-specs/PROJECT_PLAN.md
 # OS
 .DS_Store
 Thumbs.db
+# Local Pi runtime state
+.atl/
