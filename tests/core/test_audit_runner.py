@@ -72,7 +72,9 @@ def mock_aws_client():
 def mock_session(tmp_path):
     session = MagicMock()
     session.base_path = tmp_path
-    session.get_findings_path.return_value = tmp_path / "findings"
+    findings_dir = tmp_path / "findings"
+    findings_dir.mkdir(exist_ok=True)
+    session.get_findings_path.return_value = findings_dir
     return session
 
 
@@ -174,6 +176,91 @@ class TestRunAuditHappyPath:
         assert "Executing IAM Security Audit" in joined
         assert "QA Gate: PASS" in joined
         assert "Audit Complete" in joined
+
+
+class TestRunAuditTrendAnalysis:
+    """P2 #3: multi-run trend analysis is wired into the pipeline."""
+
+    def test_no_baseline_writes_empty_trend_json(
+        self, config, mock_aws_client, mock_session, report_file
+    ):
+        qa_result = QAGateResult(passed=True, issues=[])
+        patches = _patched(mock_session, qa_result, report_file, mock_aws_client)
+        _apply(patches)
+        try:
+            with patch(
+                "drystone.core.trend_analysis.find_previous_session", return_value=None
+            ):
+                run_audit(config, "123456789012")
+        finally:
+            _stop(patches)
+
+        trend_path = mock_session.get_findings_path() / "trend.json"
+        assert trend_path.exists()
+        data = json.loads(trend_path.read_text())
+        assert data == {"previous_session": None, "skills": []}
+
+    def test_baseline_found_reports_new_and_fixed_counts(
+        self, config, mock_aws_client, mock_session, report_file
+    ):
+        from drystone.core.trend_analysis import SkillTrend, TrendResult
+
+        qa_result = QAGateResult(passed=True, issues=[])
+        patches = _patched(mock_session, qa_result, report_file, mock_aws_client)
+        _apply(patches)
+        messages = []
+        canned_result = TrendResult(
+            previous_session="ACME Corp_2026-09-01T10-00-00",
+            skills=[
+                SkillTrend(
+                    skill="iam",
+                    new=[{"id": "IAM-002"}],
+                    fixed=[{"id": "IAM-099"}],
+                    persisting_count=1,
+                )
+            ],
+        )
+        try:
+            with (
+                patch(
+                    "drystone.core.trend_analysis.find_previous_session",
+                    return_value=Path("/fake/ACME Corp_2026-09-01T10-00-00"),
+                ),
+                patch(
+                    "drystone.core.trend_analysis.compute_trend", return_value=canned_result
+                ),
+            ):
+                run_audit(config, "123456789012", on_message=messages.append)
+        finally:
+            _stop(patches)
+
+        joined = "\n".join(messages)
+        assert "Trend vs. ACME Corp_2026-09-01T10-00-00" in joined
+        assert "1 new" in joined
+        assert "1 fixed" in joined
+
+        trend_path = mock_session.get_findings_path() / "trend.json"
+        data = json.loads(trend_path.read_text())
+        assert data["previous_session"] == "ACME Corp_2026-09-01T10-00-00"
+        assert data["skills"][0]["new"] == [{"id": "IAM-002"}]
+        assert data["skills"][0]["fixed"] == [{"id": "IAM-099"}]
+
+    def test_trend_failure_does_not_abort_audit(
+        self, config, mock_aws_client, mock_session, report_file
+    ):
+        qa_result = QAGateResult(passed=True, issues=[])
+        patches = _patched(mock_session, qa_result, report_file, mock_aws_client)
+        _apply(patches)
+        try:
+            with patch(
+                "drystone.core.trend_analysis.find_previous_session",
+                side_effect=RuntimeError("boom"),
+            ):
+                result = run_audit(config, "123456789012")
+        finally:
+            _stop(patches)
+
+        assert result.qa_passed is True
 
 
 class TestRunAuditQaFailure:

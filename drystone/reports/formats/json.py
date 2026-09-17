@@ -48,7 +48,24 @@ class JSONFormatter(BaseFormatter):
         correlation_summary = self._correlation_summary()
         if correlation_summary:
             payload["correlation_summary"] = correlation_summary
+        trend = self._trend_summary()
+        if trend:
+            payload["trend"] = trend
         return payload
+
+    def _trend_summary(self) -> Dict[str, Any]:
+        """Load findings/trend.json (P2 #3), if this client has a prior audit."""
+        trend_path = self.session.base_path / "findings" / "trend.json"
+        if not trend_path.exists():
+            return {}
+        try:
+            with open(trend_path) as f:
+                data = json.load(f) or {}
+        except Exception:
+            return {}
+        if not isinstance(data, dict) or not data.get("previous_session"):
+            return {}
+        return data
 
     def _correlation_summary(self) -> Dict[str, Any]:
         """Load report-visible correlation truncation metadata without embedding all chains."""

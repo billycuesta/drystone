@@ -87,6 +87,45 @@ def test_json_formatter_includes_correlation_warning_summary(tmp_path) -> None:
     assert payload["correlation_summary"]["warnings"]
 
 
+def test_json_formatter_includes_trend_when_baseline_exists(tmp_path) -> None:
+    """P2 #3: multi-run trend analysis surfaces in the JSON export."""
+    findings_dir = tmp_path / "findings"
+    findings_dir.mkdir(parents=True, exist_ok=True)
+    with open(findings_dir / "trend.json", "w") as f:
+        json.dump(
+            {
+                "previous_session": "TestClient_2026-09-01T10-00-00",
+                "skills": [{"skill": "iam", "new": [{"id": "IAM-002"}], "fixed": [], "persisting_count": 3}],
+            },
+            f,
+        )
+
+    formatter = _build_formatter(tmp_path, "iam")
+    payload = formatter._build_json()
+
+    assert payload["trend"]["previous_session"] == "TestClient_2026-09-01T10-00-00"
+    assert payload["trend"]["skills"][0]["new"] == [{"id": "IAM-002"}]
+
+
+def test_json_formatter_omits_trend_when_no_baseline(tmp_path) -> None:
+    findings_dir = tmp_path / "findings"
+    findings_dir.mkdir(parents=True, exist_ok=True)
+    with open(findings_dir / "trend.json", "w") as f:
+        json.dump({"previous_session": None, "skills": []}, f)
+
+    formatter = _build_formatter(tmp_path, "iam")
+    payload = formatter._build_json()
+
+    assert "trend" not in payload
+
+
+def test_json_formatter_omits_trend_when_file_absent(tmp_path) -> None:
+    formatter = _build_formatter(tmp_path, "iam")
+    payload = formatter._build_json()
+
+    assert "trend" not in payload
+
+
 def test_json_formatter_exports_attack_paths_for_aggregated_context(tmp_path) -> None:
     ser_dir = tmp_path / "evidence" / "sistemas_explotables_red"
     ser_dir.mkdir(parents=True, exist_ok=True)

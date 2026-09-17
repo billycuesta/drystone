@@ -558,3 +558,106 @@ class TestIntegrationFullReport:
         assert "## 🔗 Cross-Skill Correlations" in report
         assert "CORR-001" in report
         assert "SSH Account Compromise" in report
+
+
+class TestTrendSection:
+    """Tests for _trend_section() (P2 #3: multi-run trend analysis)."""
+
+    @pytest.fixture
+    def mock_session(self, tmp_path):
+        session = Mock(spec=AuditSession)
+        session.base_path = tmp_path
+        session.account_id = "123456789012"
+        session.client_name = "TestClient"
+        session.get_reports_path.return_value = tmp_path / "reports"
+        session.get_findings_path.return_value = tmp_path / "findings"
+        (tmp_path / "findings").mkdir(parents=True)
+        (tmp_path / "reports").mkdir(parents=True)
+        return session
+
+    @pytest.fixture
+    def mock_config(self):
+        config = Mock()
+        config.report_type = "general"
+        return config
+
+    @pytest.fixture
+    def formatter(self, mock_session, mock_config):
+        findings = {"skill": "iam", "findings": [], "summary": {"total_findings": 0}}
+        return MarkdownFormatter(findings, mock_session, mock_config)
+
+    def test_no_trend_file(self, formatter):
+        assert formatter._trend_section() == ""
+
+    def test_no_baseline_returns_empty(self, formatter):
+        trend_file = formatter.session.base_path / "findings" / "trend.json"
+        with open(trend_file, "w") as f:
+            json.dump({"previous_session": None, "skills": []}, f)
+        assert formatter._trend_section() == ""
+
+    def test_baseline_with_no_changes(self, formatter):
+        trend_file = formatter.session.base_path / "findings" / "trend.json"
+        with open(trend_file, "w") as f:
+            json.dump({"previous_session": "TestClient_2026-09-01T10-00-00", "skills": []}, f)
+
+        result = formatter._trend_section()
+        assert "## 📈 Trend Since Last Audit" in result
+        assert "TestClient_2026-09-01T10-00-00" in result
+        assert "no changes" in result
+
+    def test_new_and_fixed_findings_rendered(self, formatter):
+        trend_file = formatter.session.base_path / "findings" / "trend.json"
+        with open(trend_file, "w") as f:
+            json.dump(
+                {
+                    "previous_session": "TestClient_2026-09-01T10-00-00",
+                    "skills": [
+                        {
+                            "skill": "iam",
+                            "new": [{"id": "IAM-002", "title": "New MFA gap"}],
+                            "fixed": [{"id": "IAM-001", "title": "Root MFA now enabled"}],
+                            "persisting_count": 2,
+                        }
+                    ],
+                },
+                f,
+            )
+
+        result = formatter._trend_section()
+        assert "🆕 New: 1" in result
+        assert "✅ Fixed: 1" in result
+        assert "➖ Still open: 2" in result
+        assert "IAM-002" in result
+        assert "New MFA gap" in result
+        assert "IAM-001" in result
+        assert "Root MFA now enabled" in result
+
+    def test_malformed_trend_json_returns_empty(self, formatter):
+        trend_file = formatter.session.base_path / "findings" / "trend.json"
+        trend_file.write_text("{not valid json")
+        assert formatter._trend_section() == ""
+
+    def test_appears_in_full_report_between_correlations_and_findings(self, formatter):
+        with (
+            patch.object(formatter, "_header", return_value=""),
+            patch.object(formatter, "_narrative_executive_summary", return_value=""),
+            patch.object(formatter, "_executive_summary", return_value=""),
+            patch.object(formatter, "_architecture_diagram", return_value=""),
+            patch.object(formatter, "_resources_audited_section", return_value=""),
+            patch.object(formatter, "_correlation_section", return_value="## 🔗 Correlations\n"),
+            patch.object(formatter, "_findings_by_severity", return_value="## Findings\n"),
+            patch.object(formatter, "_observations", return_value=""),
+            patch.object(formatter, "_remediation_timeline", return_value=""),
+            patch.object(formatter, "_references", return_value=""),
+            patch.object(formatter, "_footer", return_value=""),
+            patch.object(formatter, "_pci_dss_annex_md", return_value=""),
+        ):
+            trend_file = formatter.session.base_path / "findings" / "trend.json"
+            with open(trend_file, "w") as f:
+                json.dump({"previous_session": "TestClient_x", "skills": []}, f)
+            report = formatter._build_markdown()
+
+        corr_pos = report.index("## 🔗 Correlations")
+        trend_pos = report.index("## 📈 Trend Since Last Audit")
+        findings_pos = report.index("## Findings")
+        assert corr_pos < trend_pos < findings_pos

@@ -279,6 +279,30 @@ def run_audit(
         except Exception:
             pass  # Non-blocking: report generates with empty chains if correlation fails
 
+    # === PHASE 3b-2: TREND ANALYSIS ===
+    # Diff this run's findings against the most recent prior session for the
+    # same client, if one exists, so reports can surface new/fixed findings.
+    # Non-blocking, and a no-op (empty trend.json) for a client's first audit.
+    if all_findings:
+        try:
+            from drystone.core.trend_analysis import compute_trend, find_previous_session
+
+            _previous_session = find_previous_session(
+                config.client_name, session.base_path.parent, session.base_path
+            )
+            _trend = compute_trend(all_findings, _previous_session)
+            trend_path = session.get_findings_path() / "trend.json"
+            trend_path.write_text(json.dumps(_trend.to_dict(), indent=2, default=str))
+            if _trend.has_baseline:
+                _total_new = sum(len(s.new) for s in _trend.skills)
+                _total_fixed = sum(len(s.fixed) for s in _trend.skills)
+                _msg(
+                    f"  📈 Trend vs. {_trend.previous_session}: "
+                    f"{_total_new} new, {_total_fixed} fixed\n"
+                )
+        except Exception as _trend_err:
+            _msg(f"  ⚠️  Trend analysis failed: {_trend_err}\n")
+
     # === PHASE 3c: ACTIVE VERIFICATION ===
     # Real, non-destructive AWS API calls (AssumeRole, unauthenticated S3
     # HEAD/List) that prove specific findings are actually exploitable, not

@@ -51,6 +51,7 @@ class MarkdownFormatter(BaseFormatter):
             self._architecture_diagram(),
             self._resources_audited_section(),
             self._correlation_section(),
+            self._trend_section(),
         ]
 
         parts.extend(
@@ -673,6 +674,70 @@ This report presents security findings from the {self._get_skill_display_name(sk
             timeline += f"- [ ] {f.get('id')}: {f.get('title')}\n"
 
         return timeline
+
+    def _trend_section(self) -> str:
+        """Generate the multi-run trend section (P2 #3), if a prior audit
+        for this client exists.
+
+        Returns:
+            Markdown section, or empty string if there's no trend.json or
+            no prior baseline to compare against.
+        """
+        trend_file = self.session.base_path / "findings" / "trend.json"
+        if not trend_file.exists():
+            return ""
+
+        try:
+            with open(trend_file, "r") as f:
+                trend_data = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Failed to parse trend.json: {e}")
+            return ""
+
+        previous_session = trend_data.get("previous_session")
+        if not previous_session:
+            return ""
+
+        skills = trend_data.get("skills") or []
+        total_new = sum(len(s.get("new") or []) for s in skills)
+        total_fixed = sum(len(s.get("fixed") or []) for s in skills)
+        total_persisting = sum(int(s.get("persisting_count") or 0) for s in skills)
+
+        if not skills:
+            return (
+                f"## 📈 Trend Since Last Audit\n\n"
+                f"Compared against the previous audit for this client (`{previous_session}`): "
+                "no changes in any commonly-audited skill."
+            )
+
+        lines = [
+            "## 📈 Trend Since Last Audit",
+            "",
+            f"Compared against the previous audit for this client: `{previous_session}`",
+            "",
+            f"- 🆕 New: {total_new}",
+            f"- ✅ Fixed: {total_fixed}",
+            f"- ➖ Still open: {total_persisting}",
+            "",
+        ]
+        for skill_trend in skills:
+            skill_name = str(skill_trend.get("skill", "unknown")).upper()
+            new_items = skill_trend.get("new") or []
+            fixed_items = skill_trend.get("fixed") or []
+            if not new_items and not fixed_items:
+                continue
+            lines.append(f"### {skill_name}")
+            if new_items:
+                lines.append("**New:**")
+                for f in new_items:
+                    lines.append(f"- `{f.get('id', '?')}` {f.get('title', '')}".rstrip())
+            if fixed_items:
+                lines.append("**Fixed since last audit:**")
+                for f in fixed_items:
+                    lines.append(f"- `{f.get('id', '?')}` {f.get('title', '')}".rstrip())
+            lines.append("")
+
+        return "\n".join(lines)
 
     def _correlation_section(self) -> str:
         """Generate cross-skill correlation section.
