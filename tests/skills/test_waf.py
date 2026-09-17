@@ -27,6 +27,11 @@ class TestWAFSkill:
         client.secret_access_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
         client.session_token = None
         client.region_name = "us-east-1"
+        client.client_kwargs.side_effect = lambda region_name=None: {
+            "aws_access_key_id": client.access_key_id,
+            "aws_secret_access_key": client.secret_access_key,
+            "region_name": region_name or client.region_name,
+        }
         return client
 
     @pytest.fixture

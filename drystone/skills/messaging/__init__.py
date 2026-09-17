@@ -12,7 +12,6 @@ import json
 from datetime import datetime
 from typing import Any, Dict, List, Tuple
 
-import boto3
 from botocore.exceptions import ClientError
 
 from drystone.cloud.aws.client import AWSClient
@@ -35,14 +34,7 @@ class MessagingSkill(BaseSkill):
         evidence_path = session.get_evidence_path(self.name)
         evidence_path.mkdir(parents=True, exist_ok=True)
 
-        client_kwargs: Dict[str, Any] = {
-            "aws_access_key_id": aws_client.access_key_id,
-            "aws_secret_access_key": aws_client.secret_access_key,
-        }
-        if getattr(aws_client, "session_token", None):
-            client_kwargs["aws_session_token"] = aws_client.session_token
-
-        session_obj = boto3.Session(**client_kwargs)
+        session_obj = aws_client.boto3_session()
         sqs = session_obj.client("sqs", region_name=region)
         sns = session_obj.client("sns", region_name=region)
 

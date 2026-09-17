@@ -17,6 +17,18 @@ def _make_aws_client(region="us-east-1", token=None):
     c.region_name = region
     c.session_token = token
     c.get_account_id.return_value = "123456789012"
+
+    def _client_kwargs(region_name=None):
+        kwargs = {
+            "aws_access_key_id": "AKID",
+            "aws_secret_access_key": "SECRET",
+            "region_name": region_name or region,
+        }
+        if token:
+            kwargs["aws_session_token"] = token
+        return kwargs
+
+    c.client_kwargs.side_effect = _client_kwargs
     return c
 
 
@@ -141,8 +153,8 @@ class TestCloudTrailEventsCollect:
             # Essential fields should be present
             assert "EventName" in event or "EventTime" in event
 
-    def test_session_token_passed_to_boto3(self, tmp_path):
-        """When session_token is set, it must be included in client_kwargs."""
+    def test_collect_uses_managed_client_kwargs(self, tmp_path):
+        """CloudTrail collection must use AWSClient's managed credential adapter."""
         from drystone.skills.cloudtrail_events import CloudTrailEventsSkill
 
         aws_client = _make_aws_client(token="MY-SESSION-TOKEN")
@@ -156,8 +168,7 @@ class TestCloudTrailEventsCollect:
             skill = CloudTrailEventsSkill()
             skill.collect(aws_client, session)
 
-            call_kwargs = mock_boto3.call_args[1]
-            assert call_kwargs.get("aws_session_token") == "MY-SESSION-TOKEN"
+        aws_client.client_kwargs.assert_called()
 
     def test_scan_depth_shallow_uses_7_days(self, tmp_path):
         """shallow scan_depth should configure 7-day time range."""

@@ -10,7 +10,6 @@ import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-import boto3
 from botocore.exceptions import ClientError
 
 from drystone.cloud.aws.client import AWSClient
@@ -47,14 +46,7 @@ class ECRSkill(BaseSkill):
         evidence_path.mkdir(parents=True, exist_ok=True)
 
         # Session (use same creds as the audit)
-        client_kwargs: Dict[str, Any] = {
-            "aws_access_key_id": aws_client.access_key_id,
-            "aws_secret_access_key": aws_client.secret_access_key,
-        }
-        if getattr(aws_client, "session_token", None):
-            client_kwargs["aws_session_token"] = aws_client.session_token
-
-        session_obj = boto3.Session(**client_kwargs)
+        session_obj = aws_client.boto3_session()
         ecr = session_obj.client("ecr", region_name=region)
 
         collection_status: Dict[str, Any] = {

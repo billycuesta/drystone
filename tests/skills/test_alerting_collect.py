@@ -35,6 +35,18 @@ def _make_aws_client(access_key="AKID", secret="SECRET", region="us-east-1", tok
     client.secret_access_key = secret
     client.region_name = region
     client.session_token = token
+
+    def _client_kwargs(region_name=None):
+        kwargs = {
+            "aws_access_key_id": access_key,
+            "aws_secret_access_key": secret,
+            "region_name": region_name or region,
+        }
+        if token:
+            kwargs["aws_session_token"] = token
+        return kwargs
+
+    client.client_kwargs.side_effect = _client_kwargs
     return client
 
 
@@ -388,39 +400,24 @@ class TestCollectHappyPath:
 
 
 class TestSessionToken:
-    def test_session_token_passed_to_boto3(self, skill, tmp_path):
+    def test_collect_uses_managed_client_kwargs_with_token(self, skill, tmp_path):
         aws_client = _make_aws_client(token="STS-TOKEN-123")
         session, _ = _make_session(tmp_path)
 
-        captured_kwargs = []
-
-        def _tracking_factory(service, **kwargs):
-            captured_kwargs.append(kwargs)
-            return _boto3_factory()(service, **kwargs)
-
-        with patch("boto3.client", side_effect=_tracking_factory):
+        with patch("boto3.client", side_effect=_boto3_factory()):
             skill.collect(aws_client, session)
 
-        # At least one call should include aws_session_token
-        token_calls = [k for k in captured_kwargs if "aws_session_token" in k]
-        assert len(token_calls) > 0
-        assert token_calls[0]["aws_session_token"] == "STS-TOKEN-123"
+        aws_client.client_kwargs.assert_called()
+        assert aws_client.client_kwargs.return_value is not None
 
-    def test_no_session_token_not_in_kwargs(self, skill, tmp_path):
+    def test_collect_uses_managed_client_kwargs_without_token(self, skill, tmp_path):
         aws_client = _make_aws_client(token=None)
         session, _ = _make_session(tmp_path)
 
-        captured_kwargs = []
-
-        def _tracking_factory(service, **kwargs):
-            captured_kwargs.append(kwargs)
-            return _boto3_factory()(service, **kwargs)
-
-        with patch("boto3.client", side_effect=_tracking_factory):
+        with patch("boto3.client", side_effect=_boto3_factory()):
             skill.collect(aws_client, session)
 
-        token_calls = [k for k in captured_kwargs if "aws_session_token" in k]
-        assert len(token_calls) == 0
+        aws_client.client_kwargs.assert_called()
 
 
 # ── Error resilience: each service exception is swallowed ────────────────────

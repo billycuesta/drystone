@@ -40,6 +40,12 @@ def aws_client():
     c.secret_access_key = "wJalrXUtnFEMI/K7MDENG"
     c.session_token = None
     c.region_name = "us-east-1"
+    c.client_kwargs.side_effect = lambda region_name=None: {
+        "aws_access_key_id": c.access_key_id,
+        "aws_secret_access_key": c.secret_access_key,
+        "region_name": region_name or c.region_name,
+        **({"aws_session_token": c.session_token} if c.session_token else {}),
+    }
     return c
 
 

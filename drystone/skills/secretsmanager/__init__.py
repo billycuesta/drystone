@@ -45,14 +45,7 @@ class SecretsManagerSkill(BaseSkill):
         print("  🔍 Scanning all AWS regions for secrets...")
 
         # Create boto3 session
-        client_kwargs = {
-            "aws_access_key_id": aws_client.access_key_id,
-            "aws_secret_access_key": aws_client.secret_access_key,
-        }
-        if aws_client.session_token:
-            client_kwargs["aws_session_token"] = aws_client.session_token
-
-        session_obj = boto3.Session(**client_kwargs)
+        session_obj = aws_client.boto3_session()
 
         # Get all regions
         try:

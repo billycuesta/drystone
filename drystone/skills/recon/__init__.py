@@ -51,13 +51,7 @@ class ReconSkill(BaseSkill):
             cloudfront-origins.json       CloudFront distributions + origins
             attack-surface-score.json     Aggregated scoring summary
         """
-        client_kwargs: Dict[str, Any] = {
-            "aws_access_key_id": aws_client.access_key_id,
-            "aws_secret_access_key": aws_client.secret_access_key,
-            "region_name": aws_client.region_name,
-        }
-        if aws_client.session_token:
-            client_kwargs["aws_session_token"] = aws_client.session_token
+        client_kwargs = aws_client.client_kwargs(region_name=aws_client.region_name)
 
         evidence_path = session.get_evidence_path(self.name)
 

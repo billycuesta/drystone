@@ -1,7 +1,7 @@
 """Unit tests for ECR security skill."""
 
 import json
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, Mock
 
 import pytest
 from botocore.exceptions import ClientError
@@ -37,29 +37,28 @@ class TestECRSkill:
         assert skill.name == "ecr"
 
     def test_collect_writes_expected_files(self, skill, mock_aws_client, mock_session):
-        with patch("boto3.Session") as mock_boto_session:
-            mock_ecr = MagicMock()
+        mock_ecr = MagicMock()
 
-            # Minimal registry calls
-            mock_ecr.describe_registry.return_value = {"registryId": "123"}
-            mock_ecr.get_registry_policy.side_effect = ClientError(
-                {"Error": {"Code": "RegistryPolicyNotFoundException", "Message": "not found"}},
-                "GetRegistryPolicy",
-            )
-            # SDK may expose either get_* or describe_*; set both to keep test stable.
-            mock_ecr.get_registry_scanning_configuration.return_value = {"scanType": "BASIC"}
-            mock_ecr.describe_registry_scanning_configuration.return_value = {"scanType": "BASIC"}
+        # Minimal registry calls
+        mock_ecr.describe_registry.return_value = {"registryId": "123"}
+        mock_ecr.get_registry_policy.side_effect = ClientError(
+            {"Error": {"Code": "RegistryPolicyNotFoundException", "Message": "not found"}},
+            "GetRegistryPolicy",
+        )
+        # SDK may expose either get_* or describe_*; set both to keep test stable.
+        mock_ecr.get_registry_scanning_configuration.return_value = {"scanType": "BASIC"}
+        mock_ecr.describe_registry_scanning_configuration.return_value = {"scanType": "BASIC"}
 
-            # No repositories
-            paginator = MagicMock()
-            paginator.paginate.return_value = [{"repositories": []}]
-            mock_ecr.get_paginator.return_value = paginator
+        # No repositories
+        paginator = MagicMock()
+        paginator.paginate.return_value = [{"repositories": []}]
+        mock_ecr.get_paginator.return_value = paginator
 
-            mock_boto_session.return_value.client.side_effect = lambda service, **kwargs: (
-                mock_ecr if service == "ecr" else MagicMock()
-            )
+        mock_aws_client.boto3_session.return_value.client.side_effect = lambda service, **kwargs: (
+            mock_ecr if service == "ecr" else MagicMock()
+        )
 
-            skill.collect(mock_aws_client, mock_session)
+        skill.collect(mock_aws_client, mock_session)
 
         evidence_dir = mock_session.get_evidence_path.return_value
         expected = {
@@ -97,12 +96,11 @@ class TestECRSkill:
                 p.paginate.return_value = [{"repositories": []}]
                 return p
 
-        with patch("boto3.Session") as mock_boto_session:
-            mock_boto_session.return_value.client.side_effect = lambda service, **kwargs: (
-                _ECRStub() if service == "ecr" else MagicMock()
-            )
+        mock_aws_client.boto3_session.return_value.client.side_effect = lambda service, **kwargs: (
+            _ECRStub() if service == "ecr" else MagicMock()
+        )
 
-            skill.collect(mock_aws_client, mock_session)
+        skill.collect(mock_aws_client, mock_session)
 
         evidence_dir = mock_session.get_evidence_path.return_value
         with open(evidence_dir / "registry.json") as f:
@@ -128,12 +126,11 @@ class TestECRSkill:
                 p.paginate.return_value = [{"repositories": []}]
                 return p
 
-        with patch("boto3.Session") as mock_boto_session:
-            mock_boto_session.return_value.client.side_effect = lambda service, **kwargs: (
-                _ECRStub() if service == "ecr" else MagicMock()
-            )
+        mock_aws_client.boto3_session.return_value.client.side_effect = lambda service, **kwargs: (
+            _ECRStub() if service == "ecr" else MagicMock()
+        )
 
-            skill.collect(mock_aws_client, mock_session)
+        skill.collect(mock_aws_client, mock_session)
 
         evidence_dir = mock_session.get_evidence_path.return_value
         with open(evidence_dir / "registry.json") as f:

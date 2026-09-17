@@ -228,6 +228,11 @@ def test_recon_collect_writes_all_evidence_files(tmp_path: Path):
     aws_client.secret_access_key = "x" * 40
     aws_client.region_name = "us-east-1"
     aws_client.session_token = None
+    aws_client.client_kwargs.return_value = {
+        "aws_access_key_id": aws_client.access_key_id,
+        "aws_secret_access_key": aws_client.secret_access_key,
+        "region_name": aws_client.region_name,
+    }
 
     session = Mock()
     session.get_evidence_path.return_value = tmp_path
@@ -266,6 +271,11 @@ def test_recon_collect_detects_public_lambda_url(tmp_path: Path):
     aws_client.secret_access_key = "x" * 40
     aws_client.region_name = "us-east-1"
     aws_client.session_token = None
+    aws_client.client_kwargs.return_value = {
+        "aws_access_key_id": aws_client.access_key_id,
+        "aws_secret_access_key": aws_client.secret_access_key,
+        "region_name": aws_client.region_name,
+    }
 
     session = Mock()
     session.get_evidence_path.return_value = tmp_path
@@ -295,6 +305,11 @@ def test_recon_attack_surface_score_computed(tmp_path: Path):
     aws_client.secret_access_key = "x" * 40
     aws_client.region_name = "us-east-1"
     aws_client.session_token = None
+    aws_client.client_kwargs.return_value = {
+        "aws_access_key_id": aws_client.access_key_id,
+        "aws_secret_access_key": aws_client.secret_access_key,
+        "region_name": aws_client.region_name,
+    }
 
     session = Mock()
     session.get_evidence_path.return_value = tmp_path

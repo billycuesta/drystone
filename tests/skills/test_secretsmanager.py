@@ -2,7 +2,7 @@
 
 import json
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
@@ -26,6 +26,8 @@ class TestSecretsManagerSkill:
         client.access_key_id = "AKIAIOSFODNN7EXAMPLE"
         client.secret_access_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
         client.session_token = None
+        client.region_name = "us-east-1"
+        client.boto3_session.return_value = MagicMock()
         return client
 
     @pytest.fixture
@@ -213,48 +215,46 @@ class TestSecretsManagerSkill:
 
     def test_evidence_file_creation(self, skill, mock_aws_client, mock_session):
         """Test evidence file is created with proper structure."""
-        # Mock boto3 session and clients
-        with patch("boto3.Session") as mock_boto_session:
-            mock_ec2 = MagicMock()
-            mock_secrets = MagicMock()
-            mock_cw = MagicMock()
-            mock_events = MagicMock()
+        mock_ec2 = MagicMock()
+        mock_secrets = MagicMock()
+        mock_cw = MagicMock()
+        mock_events = MagicMock()
 
-            # Setup region discovery
-            mock_ec2.describe_regions.return_value = {"Regions": [{"RegionName": "us-east-1"}]}
+        # Setup region discovery
+        mock_ec2.describe_regions.return_value = {"Regions": [{"RegionName": "us-east-1"}]}
 
-            # Setup secrets listing (empty)
-            mock_secrets.get_paginator.return_value.paginate.return_value = [{"SecretList": []}]
+        # Setup secrets listing (empty)
+        mock_secrets.get_paginator.return_value.paginate.return_value = [{"SecretList": []}]
 
-            # Setup CloudWatch alarms listing (empty)
-            mock_cw.get_paginator.return_value.paginate.return_value = [{"MetricAlarms": []}]
+        # Setup CloudWatch alarms listing (empty)
+        mock_cw.get_paginator.return_value.paginate.return_value = [{"MetricAlarms": []}]
 
-            # Setup EventBridge rules listing (empty)
-            mock_events.get_paginator.return_value.paginate.return_value = [{"Rules": []}]
+        # Setup EventBridge rules listing (empty)
+        mock_events.get_paginator.return_value.paginate.return_value = [{"Rules": []}]
 
-            def _client(service, **kwargs):
-                if service == "ec2":
-                    return mock_ec2
-                if service == "secretsmanager":
-                    return mock_secrets
-                if service == "cloudwatch":
-                    return mock_cw
-                if service == "events":
-                    return mock_events
-                raise AssertionError(f"Unexpected boto3 client service: {service}")
+        def _client(service, **kwargs):
+            if service == "ec2":
+                return mock_ec2
+            if service == "secretsmanager":
+                return mock_secrets
+            if service == "cloudwatch":
+                return mock_cw
+            if service == "events":
+                return mock_events
+            raise AssertionError(f"Unexpected boto3 client service: {service}")
 
-            mock_boto_session.return_value.client.side_effect = _client
+        mock_aws_client.boto3_session.return_value.client.side_effect = _client
 
-            # Run collect
-            skill.collect(mock_aws_client, mock_session)
+        # Run collect
+        skill.collect(mock_aws_client, mock_session)
 
-            # Verify evidence file was created
-            # The file should be created in the mocked path
-            assert mock_session.get_evidence_path.called
+        # Verify evidence file was created
+        # The file should be created in the mocked path
+        assert mock_session.get_evidence_path.called
 
-            # Verify new alerting evidence files are created
-            assert (mock_session.get_evidence_path.return_value / "cloudwatch_alarms.json").exists()
-            assert (mock_session.get_evidence_path.return_value / "eventbridge_rules.json").exists()
+        # Verify new alerting evidence files are created
+        assert (mock_session.get_evidence_path.return_value / "cloudwatch_alarms.json").exists()
+        assert (mock_session.get_evidence_path.return_value / "eventbridge_rules.json").exists()
 
     def test_get_resource_policy_no_policy(self, skill):
         """Test getting resource policy when none exists."""

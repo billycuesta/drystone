@@ -48,13 +48,7 @@ class SistemasExplotablesRedSkill(BaseSkill):
         region = aws_client.region_name
         evidence_path = session.get_evidence_path(self.name)
 
-        client_kwargs: Dict[str, Any] = {
-            "aws_access_key_id": aws_client.access_key_id,
-            "aws_secret_access_key": aws_client.secret_access_key,
-            "region_name": region,
-        }
-        if aws_client.session_token:
-            client_kwargs["aws_session_token"] = aws_client.session_token
+        client_kwargs = aws_client.client_kwargs(region_name=region)
 
         ec2 = boto3.client("ec2", **client_kwargs)
         elbv2 = boto3.client("elbv2", **client_kwargs)

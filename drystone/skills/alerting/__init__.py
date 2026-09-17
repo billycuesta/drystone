@@ -50,13 +50,7 @@ class AlertingSkill(BaseSkill):
             aws_client: Authenticated AWS client
             session: Audit session for evidence storage
         """
-        client_kwargs = {
-            "aws_access_key_id": aws_client.access_key_id,
-            "aws_secret_access_key": aws_client.secret_access_key,
-            "region_name": aws_client.region_name,
-        }
-        if aws_client.session_token:
-            client_kwargs["aws_session_token"] = aws_client.session_token
+        client_kwargs = aws_client.client_kwargs()
 
         evidence_path = session.get_evidence_path(self.name)
 

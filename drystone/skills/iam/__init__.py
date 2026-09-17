@@ -55,14 +55,7 @@ class IAMSkill(BaseSkill):
             session: Audit session for evidence storage
         """
         # Create IAM client using credentials
-        client_kwargs = {
-            "aws_access_key_id": aws_client.access_key_id,
-            "aws_secret_access_key": aws_client.secret_access_key,
-            "region_name": aws_client.region_name,
-        }
-        # Add session token only if provided (for temporary credentials)
-        if aws_client.session_token:
-            client_kwargs["aws_session_token"] = aws_client.session_token
+        client_kwargs = aws_client.client_kwargs(region_name=aws_client.region_name)
 
         iam_client = boto3.client("iam", **client_kwargs)
 
