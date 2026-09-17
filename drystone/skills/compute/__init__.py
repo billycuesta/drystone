@@ -14,10 +14,8 @@ attack surface without performing active exploitation.
 from __future__ import annotations
 
 import base64
-import json
 import re
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import boto3
@@ -378,12 +376,6 @@ class ComputeSkill(BaseSkill):
                 errors[f"list_nodegroups:{name}"] = str(e)
 
         return out, errors
-
-    def _save_json(self, filepath: Path, data: Any) -> None:
-        filepath.parent.mkdir(parents=True, exist_ok=True)
-        with open(filepath, "w") as f:
-            json.dump(data, f, indent=2, default=str)
-
 
 # --- Skill registry manifest (see drystone/skills/registry.py) ---
 # Declaring these here is what lets drystone auto-discover this skill —

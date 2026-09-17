@@ -14,7 +14,6 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import boto3
@@ -406,7 +405,6 @@ class SistemasExplotablesRedSkill(BaseSkill):
         c = parts.get("C", "N")
         i = parts.get("I", "N")
         a = parts.get("A", "N")
-        pr = parts.get("PR", "N")
 
         # Full CIA impact = RCE (or near-RCE)
         if c in ("H",) and i in ("H",):
@@ -1004,11 +1002,6 @@ class SistemasExplotablesRedSkill(BaseSkill):
         )
 
         return {"narrative": narrative, "steps": steps}
-
-    def _save_json(self, filepath: Path, data: Any) -> None:
-        filepath.parent.mkdir(parents=True, exist_ok=True)
-        with open(filepath, "w") as f:
-            json.dump(data, f, indent=2, default=str)
 
     def _collect_inspector_findings(self, client_kwargs: Dict[str, Any]) -> Dict[str, Any]:
         findings: List[Dict[str, Any]] = []

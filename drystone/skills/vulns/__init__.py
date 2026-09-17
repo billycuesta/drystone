@@ -1,9 +1,7 @@
 """Vulnerability management skill for AWS audit."""
 
 import base64
-import json
 import re
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import boto3
@@ -894,12 +892,6 @@ class VulnsSkill(BaseSkill):
             else:
                 logger.warning(f"Could not collect ECS task definition secrets: {e}")
             return out, err_str
-
-    def _save_json(self, filepath: Path, data):
-        """Save data to JSON file with proper datetime serialization."""
-        with open(filepath, "w") as f:
-            json.dump(data, f, indent=2, default=str)
-
 
 __all__ = ["VulnsSkill"]
 

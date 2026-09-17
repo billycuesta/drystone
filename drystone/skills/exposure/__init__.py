@@ -319,20 +319,6 @@ class ExposureSkill(BaseSkill):
             self._save_json(filepath, data)
             audit_metadata["evidence_files"].append(filepath.name)
 
-        def _wrap_indexed(items: List[Dict[str, Any]], *, by_key: str) -> Dict[str, Any]:
-            by_id: Dict[str, Any] = {}
-            for it in items:
-                if not isinstance(it, dict):
-                    continue
-                k = it.get(by_key)
-                if isinstance(k, str) and k:
-                    by_id[k] = it
-            return {
-                "_meta": {"_region": region},
-                "items": items,
-                "by_id": by_id,
-            }
-
         # === S3 BUCKETS ===
         print("  Collecting S3 bucket configurations...")
         try:
@@ -391,13 +377,12 @@ class ExposureSkill(BaseSkill):
                 buckets_list.append(bucket_detail)
 
             # Index by bucket name for stable evidence references.
-            s3_doc = {
-                "_meta": {"_region": region},
-                "items": buckets_list,
-                "by_name": {
-                    b.get("Name"): b for b in buckets_list if isinstance(b.get("Name"), str)
-                },
-            }
+            s3_doc = self._wrap_indexed(
+                buckets_list,
+                by_key="Name",
+                index_name="by_name",
+                region=region,
+            )
             _save(evidence_path / "s3-buckets.json", s3_doc)
         except Exception as e:
             print(f"    Warning: Could not collect S3 data: {e}")
@@ -424,7 +409,7 @@ class ExposureSkill(BaseSkill):
 
             _save(
                 evidence_path / "rds-instances.json",
-                _wrap_indexed(rds_list, by_key="DBInstanceIdentifier"),
+                self._wrap_indexed(rds_list, by_key="DBInstanceIdentifier", region=region),
             )
         except Exception as e:
             print(f"    Warning: Could not collect RDS data: {e}")
@@ -458,7 +443,7 @@ class ExposureSkill(BaseSkill):
 
             _save(
                 evidence_path / "ami-images.json",
-                _wrap_indexed(images_list, by_key="ImageId"),
+                self._wrap_indexed(images_list, by_key="ImageId", region=region),
             )
         except Exception as e:
             print(f"    Warning: Could not collect AMI data: {e}")
@@ -483,7 +468,7 @@ class ExposureSkill(BaseSkill):
 
             _save(
                 evidence_path / "security-groups.json",
-                _wrap_indexed(sgs_list, by_key="GroupId"),
+                self._wrap_indexed(sgs_list, by_key="GroupId", region=region),
             )
         except Exception as e:
             print(f"    Warning: Could not collect security group data: {e}")
@@ -507,7 +492,7 @@ class ExposureSkill(BaseSkill):
 
             _save(
                 evidence_path / "cloudfront-distributions.json",
-                _wrap_indexed(dists_list, by_key="Id"),
+                self._wrap_indexed(dists_list, by_key="Id", region=region),
             )
         except Exception as e:
             print(f"    Warning: Could not collect CloudFront data: {e}")
@@ -542,7 +527,7 @@ class ExposureSkill(BaseSkill):
 
             _save(
                 evidence_path / "load-balancers.json",
-                _wrap_indexed(lbs, by_key="LoadBalancerArn"),
+                self._wrap_indexed(lbs, by_key="LoadBalancerArn", region=region),
             )
 
             listeners: List[Dict[str, Any]] = []
@@ -913,11 +898,6 @@ class ExposureSkill(BaseSkill):
         _save(evidence_path / "_audit_metadata.json", audit_metadata)
 
         print("\n✅ Exposure collection complete")
-
-    def _save_json(self, filepath: Path, data):
-        """Save data to JSON file with proper datetime serialization."""
-        with open(filepath, "w") as f:
-            json.dump(data, f, indent=2, default=str)
 
     def analyze(self, session: AuditSession, agent_client: "AgentClient") -> Path:
         """Analyze exposure evidence via the full 3-Tier pipeline.

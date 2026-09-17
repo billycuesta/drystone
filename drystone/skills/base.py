@@ -1,6 +1,8 @@
 """Base skill interface for AWS security audits."""
 
+import json
 from abc import ABC, abstractmethod
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
@@ -79,6 +81,78 @@ class BaseSkill(ABC):
             Exception: If AWS API calls fail or evidence cannot be saved
         """
         pass
+
+    def _save_json(self, filepath: Path, data: Any) -> None:
+        """Save JSON evidence with stable formatting and datetime serialization."""
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        with open(filepath, "w") as f:
+            json.dump(data, f, indent=2, default=str)
+
+    def _audit_metadata(
+        self,
+        session: AuditSession,
+        region: str,
+        *,
+        scope: str = "single-region",
+        evidence_files: Optional[List[str]] = None,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Build backward-compatible audit metadata for evidence collections."""
+        timestamp = datetime.now(timezone.utc).isoformat()
+        metadata: Dict[str, Any] = {
+            "_region": region,
+            "_timestamp": timestamp,
+            "_collected_at": timestamp,
+            "_scope": scope,
+            "_skill": self.name,
+            "evidence_files": list(evidence_files or []),
+        }
+        account_id = getattr(session, "account_id", None)
+        if account_id:
+            metadata["_account_id"] = account_id
+        if extra:
+            metadata.update(extra)
+        return metadata
+
+    def _wrap_indexed(
+        self,
+        items: List[Dict[str, Any]],
+        *,
+        by_key: str,
+        index_name: str = "by_id",
+        region: Optional[str] = None,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Wrap list evidence with a stable secondary index for traceability."""
+        index: Dict[str, Any] = {}
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            key = item.get(by_key)
+            if isinstance(key, str) and key:
+                index[key] = item
+
+        wrapped: Dict[str, Any] = {"items": items, index_name: index}
+        if region:
+            wrapped["_meta"] = {"_region": region}
+        if extra:
+            wrapped.update(extra)
+        return wrapped
+
+    def _wrap_items(
+        self,
+        items: List[Dict[str, Any]],
+        *,
+        region: Optional[str] = None,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Wrap list evidence in the common `items` shape."""
+        wrapped: Dict[str, Any] = {"items": items}
+        if region:
+            wrapped["_meta"] = {"_region": region}
+        if extra:
+            wrapped.update(extra)
+        return wrapped
 
     def _load_extra_evidence(self, evidence: Dict[str, Any], evidence_path: "Path") -> None:
         """Hook for subclasses to load non-JSON evidence (e.g. CSV, XML).
@@ -265,6 +339,7 @@ class BaseSkill(ABC):
                 )
             except Exception as ai_error:
                 import logging as _logging
+
                 from drystone.validation.confidence import compute_skill_confidence
 
                 llm_fallback_used = True

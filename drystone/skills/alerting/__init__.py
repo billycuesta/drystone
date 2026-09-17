@@ -1,7 +1,5 @@
 """Alerting and monitoring skill for AWS audit."""
 
-import json
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import boto3
@@ -405,12 +403,6 @@ class AlertingSkill(BaseSkill):
             print(f"    Warning: Could not collect Config rules: {e}")
 
         print("\n✅ Alerting collection complete")
-
-    def _save_json(self, filepath: Path, data):
-        """Save data to JSON file with proper datetime serialization."""
-        with open(filepath, "w") as f:
-            json.dump(data, f, indent=2, default=str)
-
 
 __all__ = ["AlertingSkill"]
 

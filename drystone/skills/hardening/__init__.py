@@ -6,8 +6,6 @@ Collector design goals:
 - Align evidence files with checklist applicability
 """
 
-import json
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import boto3
@@ -724,12 +722,6 @@ class HardeningSkill(BaseSkill):
         self._save_json(evidence_path / "hardening-collection-status.json", collection_status)
 
         print("\n✅ Hardening collection complete")
-
-    def _save_json(self, filepath: Path, data):
-        """Save data to JSON file with proper datetime serialization."""
-        with open(filepath, "w") as f:
-            json.dump(data, f, indent=2, default=str)
-
 
 __all__ = ["HardeningSkill"]
 

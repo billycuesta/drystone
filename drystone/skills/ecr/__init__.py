@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import boto3
@@ -238,12 +237,6 @@ class ECRSkill(BaseSkill):
             if isinstance(principal, dict) and principal.get("AWS") == "*":
                 return True
         return False
-
-    def _save_json(self, filepath: Path, data: Any) -> None:
-        filepath.parent.mkdir(parents=True, exist_ok=True)
-        with open(filepath, "w") as f:
-            json.dump(data, f, indent=2, default=str)
-
 
 __all__ = ["ECRSkill"]
 

@@ -10,6 +10,7 @@ Covers:
 """
 
 import json
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Dict
 from unittest.mock import MagicMock, patch
@@ -167,6 +168,64 @@ class TestSeverityToRisk:
 
     def test_empty_returns_default(self):
         assert _severity_to_risk("") == 5.0
+
+
+class TestBaseEvidenceHelpers:
+    def test_save_json_creates_parent_and_serializes_datetime(self, tmp_path):
+        target = tmp_path / "nested" / "evidence.json"
+        moment = datetime(2026, 9, 16, 12, 0, tzinfo=timezone.utc)
+
+        SKILL._save_json(target, {"collected_at": moment})
+
+        assert target.exists()
+        saved = target.read_text()
+        assert "  \"collected_at\"" in saved
+        assert "2026-09-16 12:00:00+00:00" in saved
+
+    def test_wrap_indexed_builds_region_and_secondary_index(self):
+        items = [
+            {"GroupId": "sg-1", "Name": "one"},
+            {"GroupId": "", "Name": "empty"},
+            {"Name": "missing"},
+            "not-a-dict",
+        ]
+
+        wrapped = SKILL._wrap_indexed(items, by_key="GroupId", region="eu-west-1")
+
+        assert wrapped["_meta"] == {"_region": "eu-west-1"}
+        assert wrapped["items"] == items
+        assert wrapped["by_id"] == {"sg-1": {"GroupId": "sg-1", "Name": "one"}}
+
+    def test_wrap_indexed_supports_custom_index_name(self):
+        items = [{"Name": "bucket-a"}]
+
+        wrapped = SKILL._wrap_indexed(
+            items,
+            by_key="Name",
+            index_name="by_name",
+            region="us-east-1",
+        )
+
+        assert wrapped["by_name"] == {"bucket-a": {"Name": "bucket-a"}}
+        assert "by_id" not in wrapped
+
+    def test_audit_metadata_includes_backward_compatible_fields(self):
+        session = MagicMock(account_id="123456789012")
+
+        metadata = SKILL._audit_metadata(
+            session,
+            "us-east-1",
+            evidence_files=["users.json"],
+            extra={"custom": True},
+        )
+
+        assert metadata["_region"] == "us-east-1"
+        assert metadata["_scope"] == "single-region"
+        assert metadata["_skill"] == "iam"
+        assert metadata["_account_id"] == "123456789012"
+        assert metadata["evidence_files"] == ["users.json"]
+        assert metadata["_timestamp"] == metadata["_collected_at"]
+        assert metadata["custom"] is True
 
 
 class TestPrecheckSeverityPreservation:

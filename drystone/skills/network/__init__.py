@@ -1,6 +1,5 @@
 """Network security skill for AWS audit."""
 
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -77,20 +76,6 @@ class NetworkSkill(BaseSkill):
             self._save_json(filepath, data)
             audit_metadata["evidence_files"].append(filepath.name)
 
-        def _wrap_indexed(items: List[Dict[str, Any]], *, by_key: str) -> Dict[str, Any]:
-            by_id: Dict[str, Any] = {}
-            for it in items:
-                if not isinstance(it, dict):
-                    continue
-                k = it.get(by_key)
-                if isinstance(k, str) and k:
-                    by_id[k] = it
-            return {
-                "_meta": {"_region": region},
-                "items": items,
-                "by_id": by_id,
-            }
-
         # === VPCs ===
         print("  Collecting VPC configurations...")
         try:
@@ -117,7 +102,7 @@ class NetworkSkill(BaseSkill):
 
                 vpcs_list.append(vpc_detail)
 
-            _save(evidence_path / "vpcs.json", _wrap_indexed(vpcs_list, by_key="VpcId"))
+            _save(evidence_path / "vpcs.json", self._wrap_indexed(vpcs_list, by_key="VpcId", region=region))
         except Exception as e:
             print(f"    Warning: Could not collect VPC data: {e}")
 
@@ -141,7 +126,7 @@ class NetworkSkill(BaseSkill):
 
             _save(
                 evidence_path / "security-groups.json",
-                _wrap_indexed(sgs_list, by_key="GroupId"),
+                self._wrap_indexed(sgs_list, by_key="GroupId", region=region),
             )
         except Exception as e:
             print(f"    Warning: Could not collect security group data: {e}")
@@ -165,7 +150,7 @@ class NetworkSkill(BaseSkill):
 
             _save(
                 evidence_path / "network-acls.json",
-                _wrap_indexed(nacls_list, by_key="NetworkAclId"),
+                self._wrap_indexed(nacls_list, by_key="NetworkAclId", region=region),
             )
         except Exception as e:
             print(f"    Warning: Could not collect NACL data: {e}")
@@ -188,7 +173,7 @@ class NetworkSkill(BaseSkill):
 
             _save(
                 evidence_path / "route-tables.json",
-                _wrap_indexed(rts_list, by_key="RouteTableId"),
+                self._wrap_indexed(rts_list, by_key="RouteTableId", region=region),
             )
         except Exception as e:
             print(f"    Warning: Could not collect route table data: {e}")
@@ -214,7 +199,7 @@ class NetworkSkill(BaseSkill):
 
             _save(
                 evidence_path / "subnets.json",
-                _wrap_indexed(subnets_list, by_key="SubnetId"),
+                self._wrap_indexed(subnets_list, by_key="SubnetId", region=region),
             )
         except Exception as e:
             print(f"    Warning: Could not collect subnet data: {e}")
@@ -255,7 +240,7 @@ class NetworkSkill(BaseSkill):
 
             _save(
                 evidence_path / "ec2-instances.json",
-                _wrap_indexed(instances_list, by_key="InstanceId"),
+                self._wrap_indexed(instances_list, by_key="InstanceId", region=region),
             )
         except Exception as e:
             print(f"    Warning: Could not collect EC2 instances: {e}")
@@ -296,7 +281,7 @@ class NetworkSkill(BaseSkill):
 
             _save(
                 evidence_path / "rds-instances.json",
-                _wrap_indexed(rds_list, by_key="DBInstanceIdentifier"),
+                self._wrap_indexed(rds_list, by_key="DBInstanceIdentifier", region=region),
             )
         except Exception as e:
             print(f"    Warning: Could not collect RDS instances: {e}")
@@ -363,7 +348,7 @@ class NetworkSkill(BaseSkill):
 
             _save(
                 evidence_path / "vpc-endpoints.json",
-                _wrap_indexed(endpoints_list, by_key="VpcEndpointId"),
+                self._wrap_indexed(endpoints_list, by_key="VpcEndpointId", region=region),
             )
         except Exception as e:
             print(f"    Warning: Could not collect VPC endpoint data: {e}")
@@ -389,7 +374,7 @@ class NetworkSkill(BaseSkill):
 
             _save(
                 evidence_path / "vpn-connections.json",
-                _wrap_indexed(vpn_list, by_key="VpnConnectionId"),
+                self._wrap_indexed(vpn_list, by_key="VpnConnectionId", region=region),
             )
         except Exception as e:
             print(f"    Warning: Could not collect VPN data: {e}")
@@ -410,7 +395,7 @@ class NetworkSkill(BaseSkill):
 
             _save(
                 evidence_path / "internet-gateways.json",
-                _wrap_indexed(igws_list, by_key="InternetGatewayId"),
+                self._wrap_indexed(igws_list, by_key="InternetGatewayId", region=region),
             )
         except Exception as e:
             print(f"    Warning: Could not collect IGW data: {e}")
@@ -485,12 +470,6 @@ class NetworkSkill(BaseSkill):
         _save(evidence_path / "_audit_metadata.json", audit_metadata)
 
         print("\n✅ Network collection complete")
-
-    def _save_json(self, filepath: Path, data):
-        """Save data to JSON file with proper datetime serialization."""
-        with open(filepath, "w") as f:
-            json.dump(data, f, indent=2, default=str)
-
 
 __all__ = ["NetworkSkill"]
 

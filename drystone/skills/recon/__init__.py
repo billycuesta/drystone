@@ -1,7 +1,5 @@
 """Reconnaissance skill for AWS attack surface mapping."""
 
-import json
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import boto3
@@ -729,12 +727,6 @@ class ReconSkill(BaseSkill):
             "cloudfront_distributions": cf.get("total_distributions", 0),
             "factors": factors,
         }
-
-    def _save_json(self, filepath: Path, data: Any) -> None:
-        """Save data to JSON file."""
-        with open(filepath, "w") as f:
-            json.dump(data, f, indent=2, default=str)
-
 
 __all__ = ["ReconSkill"]
 

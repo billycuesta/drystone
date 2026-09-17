@@ -4,9 +4,7 @@ Collects AWS WAF (WAFv2 + legacy WAF Classic) configuration and associations to
 support security and compliance analysis (e.g., PCI DSS 6.4.2).
 """
 
-import json
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import boto3
@@ -269,10 +267,6 @@ class WAFSkill(BaseSkill):
     # -----------------
     # Helpers
     # -----------------
-
-    def _save_json(self, filepath: Path, data: Any) -> None:
-        with open(filepath, "w") as f:
-            json.dump(data, f, indent=2, default=str)
 
     def _get_regions(self, client_kwargs: Dict[str, Any]) -> List[str]:
         """Legacy helper (not used by default).

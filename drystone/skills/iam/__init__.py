@@ -773,16 +773,6 @@ class IAMSkill(BaseSkill):
         except Exception as e:
             return [], str(e)
 
-    def _save_json(self, filepath: Path, data):
-        """Save data to JSON file with proper datetime serialization.
-
-        Args:
-            filepath: Target file path
-            data: Data to serialize (handles datetime objects)
-        """
-        with open(filepath, "w") as f:
-            json.dump(data, f, indent=2, default=str)
-
     def _load_extra_evidence(self, evidence: dict, evidence_path: Path) -> None:
         """Load credential-report.csv into evidence dict.
 

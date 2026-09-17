@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import boto3
@@ -221,12 +220,6 @@ class KMSSkill(BaseSkill):
                 errors[f"list_grants:{key_id}"] = str(e)
 
         return items, errors
-
-    def _save_json(self, filepath: Path, data: Any) -> None:
-        """Save JSON evidence to disk."""
-        filepath.parent.mkdir(parents=True, exist_ok=True)
-        with open(filepath, "w") as f:
-            json.dump(data, f, indent=2, default=str)
 
     def _collect_aliases(self, kms) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
         items: List[Dict[str, Any]] = []

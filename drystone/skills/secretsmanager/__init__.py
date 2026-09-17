@@ -2,7 +2,6 @@
 
 import json
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import boto3
@@ -445,13 +444,6 @@ class SecretsManagerSkill(BaseSkill):
             score -= 5
 
         return max(0, min(100, score))
-
-    def _save_json(self, filepath: Path, data: Dict):
-        """Save JSON with datetime serialization."""
-        filepath.parent.mkdir(parents=True, exist_ok=True)
-        with open(filepath, "w") as f:
-            json.dump(data, f, indent=2, default=str)
-
 
 # --- Skill registry manifest (see drystone/skills/registry.py) ---
 # Declaring these here is what lets drystone auto-discover this skill —
