@@ -11,6 +11,12 @@ from drystone.storage.session import AuditSession
 class BaseFormatter(ABC):
     """Abstract base class for report formatters."""
 
+    # Schema/shape version of the report output itself (JSON/PDF/Markdown),
+    # distinct from a per-skill checklist_version. Bump when the structure a
+    # downstream consumer (SIEM/ticket export, trend analysis) relies on
+    # changes in a way that isn't backward compatible.
+    REPORT_FORMAT_VERSION = "1.0"
+
     def __init__(self, findings_data: Dict[str, Any], session: AuditSession, config: WizardConfig):
         """Initialize formatter.
 

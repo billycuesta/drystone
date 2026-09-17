@@ -431,6 +431,7 @@ This security assessment evaluated the {scope} for **{client}**. {findings_text}
  **AWS Account:** {account_id}
  **Generated:** {timestamp}
  **Version:** {self.findings.get("checklist_version", "1.0")}
+ **Report Format Version:** {self.REPORT_FORMAT_VERSION}
  **Report Min Severity:** {str(min_sev).upper()}
 {filter_note}
 

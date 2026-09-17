@@ -2465,6 +2465,7 @@ class PDFFormatter(BaseFormatter):
             ("Client", client),
             ("Date", report_date_clean),
             ("Version", version),
+            ("Report Format Version", self.REPORT_FORMAT_VERSION),
             ("Classification", "CONFIDENTIAL"),
         ]
 

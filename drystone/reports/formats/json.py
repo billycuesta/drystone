@@ -127,6 +127,7 @@ class JSONFormatter(BaseFormatter):
             "skill": self.findings.get("skill", "unknown"),
             "analyzed_at": self.findings.get("analyzed_at", datetime.utcnow().isoformat()),
             "checklist_version": self.findings.get("checklist_version", "1.0"),
+            "report_format_version": self.REPORT_FORMAT_VERSION,
             "evidence_count": self.findings.get("evidence_count", 0),
         }
         integrity_hash = report_meta.get("integrity_manifest_sha256")

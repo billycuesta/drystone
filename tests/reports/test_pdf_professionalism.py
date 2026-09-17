@@ -207,6 +207,13 @@ class TestGAP2DocumentControl:
         assert "CONFIDENTIAL" in result
         assert "v1.0" in result
 
+    def test_document_control_includes_report_format_version(self, pdf_formatter):
+        """P2: Report schema versioning, distinct from the client-facing
+        document Version row above."""
+        result = pdf_formatter._document_control_html()
+        assert "Report Format Version" in result
+        assert pdf_formatter.REPORT_FORMAT_VERSION in result
+
 
 
 class TestGAP6ExecutiveSummary:

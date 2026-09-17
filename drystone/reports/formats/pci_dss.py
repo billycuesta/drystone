@@ -165,6 +165,7 @@ class PCIDSSFormatter(BaseFormatter):
 # PCI DSS v4.0 Compliance Report - {client_name}
 
 **AWS Account:** {account_id} | **Skills Audited:** {skills_audited} | **Date:** {timestamp}
+**Report Format Version:** {self.REPORT_FORMAT_VERSION}
 """
 
     def _executive_summary(self) -> str:

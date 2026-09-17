@@ -27,6 +27,14 @@ def _build_formatter(tmp_path, skill: str) -> JSONFormatter:
     return JSONFormatter(findings, session, config)
 
 
+def test_json_formatter_includes_report_format_version(tmp_path) -> None:
+    """P2: Report schema versioning -- downstream consumers (SIEM/ticket
+    export, trend analysis) need a stable field to know the JSON shape."""
+    formatter = _build_formatter(tmp_path, "iam")
+    payload = formatter._build_json()
+    assert payload["metadata"]["report_format_version"] == JSONFormatter.REPORT_FORMAT_VERSION
+
+
 def test_json_formatter_exports_attack_paths_for_single_skill(tmp_path) -> None:
     evidence_dir = tmp_path / "evidence" / "sistemas_explotables_red"
     evidence_dir.mkdir(parents=True, exist_ok=True)
