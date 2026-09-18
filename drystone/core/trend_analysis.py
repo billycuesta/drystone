@@ -19,19 +19,25 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-_TIMESTAMP_RE = re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})$")
+_SESSION_NAME_RE = re.compile(
+    r"^(?P<client>.+)_(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})"
+    r"(?:_(?P<rand>[0-9a-f]{6}))?$"
+)
 
 
 def _session_name_parts(session_dir: Path) -> Optional[Tuple[str, str]]:
-    """Return (client_name, timestamp) parsed from an AuditSession directory."""
-    match = _TIMESTAMP_RE.search(session_dir.name)
+    """Return (client_name, timestamp) parsed from an AuditSession directory.
+
+    Tolerates the optional trailing collision-guard suffix `AuditSession`
+    appends (`_<6 hex chars>`, see rec BG) -- matching is still done on
+    client name + timestamp alone, since two sessions differing only by
+    that random suffix would mean the same client started an audit within
+    the same second, which the suffix exists specifically to make safe.
+    """
+    match = _SESSION_NAME_RE.match(session_dir.name)
     if not match:
         return None
-    timestamp = match.group(1)
-    suffix = f"_{timestamp}"
-    if not session_dir.name.endswith(suffix):
-        return None
-    return session_dir.name[: -len(suffix)], timestamp
+    return match.group("client"), match.group("timestamp")
 
 
 def _session_timestamp(session_dir: Path) -> Optional[str]:

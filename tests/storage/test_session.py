@@ -3,6 +3,8 @@
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from drystone.storage.session import AuditSession
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -84,6 +86,43 @@ class TestAuditSessionInit:
     def test_base_path_under_audit_logs(self, tmp_path):
         session = make_session(tmp_path)
         assert session.base_path.parent.name == "audit-logs"
+
+    def test_two_sessions_same_client_same_second_get_different_paths(self, tmp_path):
+        """BG: same client, same (mocked) timestamp -- must not collide."""
+        with (
+            patch("drystone.storage.session.Path.cwd", return_value=tmp_path),
+            patch("drystone.storage.session.setup_file_logging"),
+            patch("drystone.storage.session.datetime") as mock_dt,
+        ):
+            mock_dt.now.return_value.strftime.return_value = "2026-09-18T10-00-00"
+            session_a = AuditSession(client_name="acme", account_id="1")
+            session_b = AuditSession(client_name="acme", account_id="1")
+
+        assert session_a.base_path != session_b.base_path
+        assert session_a.base_path.exists()
+        assert session_b.base_path.exists()
+
+    def test_directory_name_still_contains_timestamp_for_trend_matching(self, tmp_path):
+        session = make_session(tmp_path)
+        assert f"_{session.timestamp}_" in f"{session.base_path.name}_"
+
+    def test_raises_on_existing_non_empty_directory(self, tmp_path):
+        """BG: never silently mkdir(exist_ok=True) into a directory that
+        already holds prior audit data."""
+        with (
+            patch("drystone.storage.session.Path.cwd", return_value=tmp_path),
+            patch("drystone.storage.session.setup_file_logging"),
+            patch("drystone.storage.session.uuid") as mock_uuid,
+        ):
+            mock_uuid.uuid4.return_value.hex = "abcdef1234567890"
+            existing = tmp_path / "audit-logs" / "acme_2026-09-18T10-00-00_abcdef"
+            existing.mkdir(parents=True)
+            (existing / "leftover.txt").write_text("prior session data")
+
+            with patch("drystone.storage.session.datetime") as mock_dt:
+                mock_dt.now.return_value.strftime.return_value = "2026-09-18T10-00-00"
+                with pytest.raises(FileExistsError):
+                    AuditSession(client_name="acme", account_id="1")
 
 
 # ── AuditSession.get_evidence_path ────────────────────────────────────────────

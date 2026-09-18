@@ -563,6 +563,273 @@ def validate_recon_findings(findings: SkillFindings) -> bool:
         return False
 
 
+def validate_kms_findings(findings: SkillFindings) -> bool:
+    """Validate KMS findings and reconcile summary.
+
+    Notes:
+    - Valid finding IDs are KMS-001 through KMS-999.
+    """
+    import re as _re
+
+    _kms_id_pattern = _re.compile(r"^KMS-\d{3}$")
+
+    try:
+        if not findings.summary:
+            logger.error("KMS validation failed: missing summary")
+            return False
+
+        if findings.findings is None:
+            logger.error("KMS validation failed: findings array is missing")
+            return False
+
+        for finding in findings.findings:
+            if (
+                not finding.id
+                or not finding.severity
+                or not finding.title
+                or not finding.description
+            ):
+                logger.error("KMS finding missing required fields")
+                return False
+
+            if not _kms_id_pattern.match(finding.id):
+                logger.error(f"KMS finding has invalid ID format: {finding.id}")
+                return False
+
+            if finding.severity not in ["Critical", "High", "Medium", "Low"]:
+                logger.error(f"KMS finding {finding.id} invalid severity: {finding.severity}")
+                return False
+
+            if finding.risk_score is None or not (0.0 <= float(finding.risk_score) <= 10.0):
+                logger.error(f"KMS finding {finding.id} invalid risk_score: {finding.risk_score}")
+                return False
+
+        _reconcile_summary(findings, "KMS")
+        logger.info(f"KMS validation passed: {findings.summary.total_findings} findings")
+        return True
+
+    except Exception as e:
+        logger.error(f"KMS validation error: {e}", exc_info=True)
+        return False
+
+
+def validate_messaging_findings(findings: SkillFindings) -> bool:
+    """Validate messaging (SQS/SNS) findings and reconcile summary.
+
+    Notes:
+    - Valid finding IDs are MSG-001 through MSG-999.
+    """
+    import re as _re
+
+    _msg_id_pattern = _re.compile(r"^MSG-\d{3}$")
+
+    try:
+        if not findings.summary:
+            logger.error("Messaging validation failed: missing summary")
+            return False
+
+        if findings.findings is None:
+            logger.error("Messaging validation failed: findings array is missing")
+            return False
+
+        for finding in findings.findings:
+            if (
+                not finding.id
+                or not finding.severity
+                or not finding.title
+                or not finding.description
+            ):
+                logger.error("Messaging finding missing required fields")
+                return False
+
+            if not _msg_id_pattern.match(finding.id):
+                logger.error(f"Messaging finding has invalid ID format: {finding.id}")
+                return False
+
+            if finding.severity not in ["Critical", "High", "Medium", "Low"]:
+                logger.error(f"Messaging finding {finding.id} invalid severity: {finding.severity}")
+                return False
+
+            if finding.risk_score is None or not (0.0 <= float(finding.risk_score) <= 10.0):
+                logger.error(
+                    f"Messaging finding {finding.id} invalid risk_score: {finding.risk_score}"
+                )
+                return False
+
+        _reconcile_summary(findings, "Messaging")
+        logger.info(f"Messaging validation passed: {findings.summary.total_findings} findings")
+        return True
+
+    except Exception as e:
+        logger.error(f"Messaging validation error: {e}", exc_info=True)
+        return False
+
+
+def validate_cloudtrail_events_findings(findings: SkillFindings) -> bool:
+    """Validate CloudTrail Events (threat activity) findings and reconcile summary.
+
+    Notes:
+    - Valid finding IDs are CTEF-001 through CTEF-999.
+    """
+    import re as _re
+
+    _ctef_id_pattern = _re.compile(r"^CTEF-\d{3}$")
+
+    try:
+        if not findings.summary:
+            logger.error("CloudTrail Events validation failed: missing summary")
+            return False
+
+        if findings.findings is None:
+            logger.error("CloudTrail Events validation failed: findings array is missing")
+            return False
+
+        for finding in findings.findings:
+            if (
+                not finding.id
+                or not finding.severity
+                or not finding.title
+                or not finding.description
+            ):
+                logger.error("CloudTrail Events finding missing required fields")
+                return False
+
+            if not _ctef_id_pattern.match(finding.id):
+                logger.error(f"CloudTrail Events finding has invalid ID format: {finding.id}")
+                return False
+
+            if finding.severity not in ["Critical", "High", "Medium", "Low"]:
+                logger.error(
+                    f"CloudTrail Events finding {finding.id} invalid severity: {finding.severity}"
+                )
+                return False
+
+            if finding.risk_score is None or not (0.0 <= float(finding.risk_score) <= 10.0):
+                logger.error(
+                    f"CloudTrail Events finding {finding.id} invalid risk_score: {finding.risk_score}"
+                )
+                return False
+
+        _reconcile_summary(findings, "CloudTrail Events")
+        logger.info(
+            f"CloudTrail Events validation passed: {findings.summary.total_findings} findings"
+        )
+        return True
+
+    except Exception as e:
+        logger.error(f"CloudTrail Events validation error: {e}", exc_info=True)
+        return False
+
+
+def validate_sistemas_explotables_red_findings(findings: SkillFindings) -> bool:
+    """Validate Sistemas Explotables Red (exploitable network systems) findings
+    and reconcile summary.
+
+    Notes:
+    - Valid finding IDs look like SER-<CATEGORY>-<NNN>, e.g. SER-EC2-001, SER-CVE-001.
+    """
+    import re as _re
+
+    _ser_id_pattern = _re.compile(r"^SER-[A-Z0-9]+-\d{3}$")
+
+    try:
+        if not findings.summary:
+            logger.error("Sistemas Explotables Red validation failed: missing summary")
+            return False
+
+        if findings.findings is None:
+            logger.error("Sistemas Explotables Red validation failed: findings array is missing")
+            return False
+
+        for finding in findings.findings:
+            if (
+                not finding.id
+                or not finding.severity
+                or not finding.title
+                or not finding.description
+            ):
+                logger.error("Sistemas Explotables Red finding missing required fields")
+                return False
+
+            if not _ser_id_pattern.match(finding.id):
+                logger.error(
+                    f"Sistemas Explotables Red finding has invalid ID format: {finding.id}"
+                )
+                return False
+
+            if finding.severity not in ["Critical", "High", "Medium", "Low"]:
+                logger.error(
+                    f"Sistemas Explotables Red finding {finding.id} invalid severity: "
+                    f"{finding.severity}"
+                )
+                return False
+
+            if finding.risk_score is None or not (0.0 <= float(finding.risk_score) <= 10.0):
+                logger.error(
+                    f"Sistemas Explotables Red finding {finding.id} invalid risk_score: "
+                    f"{finding.risk_score}"
+                )
+                return False
+
+        _reconcile_summary(findings, "Sistemas Explotables Red")
+        logger.info(
+            f"Sistemas Explotables Red validation passed: "
+            f"{findings.summary.total_findings} findings"
+        )
+        return True
+
+    except Exception as e:
+        logger.error(f"Sistemas Explotables Red validation error: {e}", exc_info=True)
+        return False
+
+
+def _generic_validate_findings(findings: SkillFindings, skill_name: str) -> bool:
+    """Baseline validator for any skill without a dedicated entry in
+    SKILL_VALIDATORS.
+
+    Checks the logic shared by every skill-specific validator above --
+    required fields, a valid severity, and a sane risk_score range -- so a
+    skill that isn't (yet) registered still gets validated instead of
+    silently fail-opening in validate_findings().
+    """
+    try:
+        if not findings.summary:
+            logger.error(f"{skill_name}: validation failed: missing summary")
+            return False
+
+        if findings.findings is None:
+            logger.error(f"{skill_name}: validation failed: findings array is missing")
+            return False
+
+        for finding in findings.findings:
+            if (
+                not finding.id
+                or not finding.severity
+                or not finding.title
+                or not finding.description
+            ):
+                logger.error(f"{skill_name} finding missing required fields")
+                return False
+
+            if finding.severity not in ["Critical", "High", "Medium", "Low"]:
+                logger.error(f"{skill_name} finding {finding.id} invalid severity: {finding.severity}")
+                return False
+
+            if finding.risk_score is None or not (0.0 <= float(finding.risk_score) <= 10.0):
+                logger.error(
+                    f"{skill_name} finding {finding.id} invalid risk_score: {finding.risk_score}"
+                )
+                return False
+
+        _reconcile_summary(findings, skill_name)
+        logger.info(f"{skill_name} validation passed: {findings.summary.total_findings} findings")
+        return True
+
+    except Exception as e:
+        logger.error(f"{skill_name} validation error: {e}", exc_info=True)
+        return False
+
+
 SKILL_VALIDATORS: dict[str, SkillValidator] = {
     "iam": validate_iam_findings,
     "hardening": validate_hardening_findings,
@@ -576,6 +843,10 @@ SKILL_VALIDATORS: dict[str, SkillValidator] = {
     "cicd": validate_cicd_findings,
     "compute": validate_compute_findings,
     "recon": validate_recon_findings,
+    "kms": validate_kms_findings,
+    "messaging": validate_messaging_findings,
+    "cloudtrail_events": validate_cloudtrail_events_findings,
+    "sistemas_explotables_red": validate_sistemas_explotables_red_findings,
 }
 
 
@@ -592,7 +863,10 @@ def validate_findings(skill_name: str, findings: SkillFindings) -> bool:
     """
     validator = SKILL_VALIDATORS.get(skill_name)
     if not validator:
-        logger.warning(f"No validator found for skill: {skill_name}")
-        return True  # Default to true if no validator (fail-open)
+        logger.warning(
+            f"No dedicated validator registered for skill: {skill_name} -- "
+            "applying generic baseline validation instead of fail-open"
+        )
+        return _generic_validate_findings(findings, skill_name)
 
     return validator(findings)

@@ -7,15 +7,19 @@ from drystone.validation.output_validators import (
     SKILL_VALIDATORS,
     validate_alerting_findings,
     validate_cicd_findings,
+    validate_cloudtrail_events_findings,
     validate_compute_findings,
     validate_ecr_findings,
     validate_exposure_findings,
     validate_findings,
     validate_hardening_findings,
     validate_iam_findings,
+    validate_kms_findings,
+    validate_messaging_findings,
     validate_network_findings,
     validate_recon_findings,
     validate_secretsmanager_findings,
+    validate_sistemas_explotables_red_findings,
     validate_vulns_findings,
     validate_waf_findings,
 )
@@ -523,6 +527,115 @@ class TestValidateReconFindings:
         assert validate_recon_findings(sf) is True
 
 
+class TestValidateKMSFindings:
+    def _make_kms_finding(self, id="KMS-001") -> Finding:
+        return Finding(
+            id=id,
+            severity="High",
+            risk_score=7.0,
+            title="Key rotation disabled",
+            description="CMK does not have automatic rotation enabled",
+            remediation="Enable key rotation",
+        )
+
+    def test_valid_returns_true(self):
+        f = self._make_kms_finding()
+        sf = SkillFindings(skill="kms", findings=[f], summary=make_summary(total=1, high=1), evidence_count=1)
+        assert validate_kms_findings(sf) is True
+
+    def test_invalid_id_format_returns_false(self):
+        f = self._make_kms_finding(id="K-001")
+        sf = SkillFindings(skill="kms", findings=[f], summary=make_summary(total=1), evidence_count=1)
+        assert validate_kms_findings(sf) is False
+
+
+class TestValidateMessagingFindings:
+    def _make_messaging_finding(self, id="MSG-001") -> Finding:
+        return Finding(
+            id=id,
+            severity="Medium",
+            risk_score=5.0,
+            title="SQS queue not encrypted",
+            description="Queue lacks server-side encryption",
+            remediation="Enable SSE on the queue",
+        )
+
+    def test_valid_returns_true(self):
+        f = self._make_messaging_finding()
+        sf = SkillFindings(
+            skill="messaging", findings=[f], summary=make_summary(total=1, medium=1), evidence_count=1
+        )
+        assert validate_messaging_findings(sf) is True
+
+    def test_invalid_id_format_returns_false(self):
+        f = self._make_messaging_finding(id="MSG1")
+        sf = SkillFindings(skill="messaging", findings=[f], summary=make_summary(total=1), evidence_count=1)
+        assert validate_messaging_findings(sf) is False
+
+
+class TestValidateCloudTrailEventsFindings:
+    def _make_ctef_finding(self, id="CTEF-001") -> Finding:
+        return Finding(
+            id=id,
+            severity="Critical",
+            risk_score=9.0,
+            title="Secrets accessed via CloudTrail",
+            description="GetSecretValue observed from an unusual principal",
+            remediation="Investigate the principal and rotate the secret",
+        )
+
+    def test_valid_returns_true(self):
+        f = self._make_ctef_finding()
+        sf = SkillFindings(
+            skill="cloudtrail_events", findings=[f], summary=make_summary(total=1, critical=1), evidence_count=1
+        )
+        assert validate_cloudtrail_events_findings(sf) is True
+
+    def test_invalid_id_format_returns_false(self):
+        f = self._make_ctef_finding(id="CT-001")
+        sf = SkillFindings(
+            skill="cloudtrail_events", findings=[f], summary=make_summary(total=1), evidence_count=1
+        )
+        assert validate_cloudtrail_events_findings(sf) is False
+
+
+class TestValidateSistemasExplotablesRedFindings:
+    def _make_ser_finding(self, id="SER-EC2-001") -> Finding:
+        return Finding(
+            id=id,
+            severity="High",
+            risk_score=7.5,
+            title="EC2 instance runs software with known CVE",
+            description="Instance is exposed and runs a vulnerable service version",
+            remediation="Patch or isolate the instance",
+        )
+
+    def test_valid_returns_true(self):
+        f = self._make_ser_finding()
+        sf = SkillFindings(
+            skill="sistemas_explotables_red",
+            findings=[f],
+            summary=make_summary(total=1, high=1),
+            evidence_count=1,
+        )
+        assert validate_sistemas_explotables_red_findings(sf) is True
+
+    @pytest.mark.parametrize("id", ["SER-EC2-001", "SER-CVE-001", "SER-COR-003"])
+    def test_valid_id_patterns(self, id):
+        f = self._make_ser_finding(id=id)
+        sf = SkillFindings(
+            skill="sistemas_explotables_red", findings=[f], summary=make_summary(total=1), evidence_count=1
+        )
+        assert validate_sistemas_explotables_red_findings(sf) is True
+
+    def test_invalid_id_format_returns_false(self):
+        f = self._make_ser_finding(id="SER-001")
+        sf = SkillFindings(
+            skill="sistemas_explotables_red", findings=[f], summary=make_summary(total=1), evidence_count=1
+        )
+        assert validate_sistemas_explotables_red_findings(sf) is False
+
+
 # ── validate_findings (dispatch) ──────────────────────────────────────────────
 
 
@@ -531,9 +644,21 @@ class TestValidateFindings:
         sf = make_skill_findings(skill="iam")
         assert validate_findings("iam", sf) is True
 
-    def test_unknown_skill_returns_true(self):
+    def test_unregistered_skill_with_valid_data_still_passes(self):
+        """No dedicated validator for this skill name -- falls back to the
+        generic baseline validator, which still passes well-formed data."""
         sf = make_skill_findings(skill="unknown")
         assert validate_findings("unknown_skill_xyz", sf) is True
+
+    def test_unregistered_skill_with_invalid_data_now_returns_false(self):
+        """BN: an unregistered skill used to unconditionally fail-open
+        (`return True`). It must now actually validate via the generic
+        fallback, so malformed findings are caught even for a skill nobody
+        wrote a dedicated validator for yet."""
+        f = make_finding()
+        object.__setattr__(f, "severity", "Nonsense")
+        sf = make_skill_findings(skill="unregistered", findings=[f])
+        assert validate_findings("totally_unregistered_skill", sf) is False
 
     def test_all_registered_skills_present(self):
         expected = {
@@ -549,6 +674,10 @@ class TestValidateFindings:
             "cicd",
             "compute",
             "recon",
+            "kms",
+            "messaging",
+            "cloudtrail_events",
+            "sistemas_explotables_red",
         }
         assert expected.issubset(set(SKILL_VALIDATORS.keys()))
 

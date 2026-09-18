@@ -60,6 +60,15 @@ class TestFindPreviousSession:
 
         assert find_previous_session("ACME", tmp_path, current) is None
 
+    def test_tolerates_auditsession_collision_guard_suffix(self, tmp_path):
+        """BG: AuditSession now appends a trailing `_<6 hex chars>` suffix to
+        guard against same-second collisions. Matching must still work on
+        client name + timestamp alone, ignoring that suffix."""
+        older = _make_session_dir(tmp_path, "ACME", "2026-09-10T10-00-00_ab12cd", {})
+        current = _make_session_dir(tmp_path, "ACME", "2026-09-17T12-00-00_ef34ab", {})
+
+        assert find_previous_session("ACME", tmp_path, current) == older
+
 
 class TestComputeTrendNoBaseline:
     def test_none_previous_session_returns_empty_result(self):

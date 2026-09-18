@@ -573,6 +573,7 @@ class PDFFormatter(BaseFormatter):
         dates_html = ""
         if client_context:
             ad = getattr(client_context, "assessment_dates", None)
+            start, end = "", ""
             if isinstance(ad, dict):
                 start = ad.get("start", "")
                 end = ad.get("end", "")

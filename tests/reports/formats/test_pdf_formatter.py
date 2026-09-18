@@ -889,3 +889,46 @@ def test_pci_dss_annex_html_non_pci_report_type_returns_empty(tmp_path):
 
     formatter = PDFFormatter(_sample_findings(), session, config)
     assert formatter._pci_dss_annex_html() == ""
+
+
+class _FakeClientContextMissingDates:
+    """A real (non-Mock) object with a string `organization`, so
+    `_get_client_context()` accepts it, but no `assessment_dates` attribute
+    at all -- `getattr(..., "assessment_dates", None)` returns None, which
+    is not a dict."""
+
+    organization = "Acme Corp"
+    analyst = "Drystone AI"
+    business_context = ""
+
+
+class _FakeClientContextNonDictDates(_FakeClientContextMissingDates):
+    assessment_dates = "not-a-dict"
+
+
+def test_executive_narrative_html_handles_missing_assessment_dates(tmp_path):
+    """RPT-I: `start`/`end` must not be UnboundLocalError when
+    `assessment_dates` is absent entirely (not just non-dict)."""
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.skills = ["iam"]
+    config._client_context = _FakeClientContextMissingDates()
+
+    formatter = PDFFormatter(_sample_findings(), session, config)
+    html_out = formatter._executive_narrative_html(_sample_findings()["summary"])
+
+    assert "Assessment period" not in html_out
+
+
+def test_executive_narrative_html_handles_non_dict_assessment_dates(tmp_path):
+    """RPT-I: a non-dict `assessment_dates` (e.g. malformed client context
+    YAML) must not raise UnboundLocalError on the `if start and end:` check."""
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.skills = ["iam"]
+    config._client_context = _FakeClientContextNonDictDates()
+
+    formatter = PDFFormatter(_sample_findings(), session, config)
+    html_out = formatter._executive_narrative_html(_sample_findings()["summary"])
+
+    assert "Assessment period" not in html_out

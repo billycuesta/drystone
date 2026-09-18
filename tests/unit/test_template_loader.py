@@ -137,6 +137,21 @@ class TestRenderTemplate:
         result = render_template(template, {"KEY": "X"})
         assert result == "X and X again"
 
+    def test_earlier_value_containing_later_placeholder_text_is_not_re_substituted(self):
+        """BD: a value inserted for one placeholder must not have a *later*
+        placeholder's substitution spliced into it just because the value's
+        text happens to look like that later placeholder. Regression for the
+        sequential .replace() bug (prompts/ module audit)."""
+        template = "{EVIDENCE_JSON} then {CHECKLIST_JSON}"
+        result = render_template(
+            template,
+            {
+                "EVIDENCE_JSON": "resource tagged {CHECKLIST_JSON}",
+                "CHECKLIST_JSON": "SECRET_CHECKLIST_CONTENT",
+            },
+        )
+        assert result == "resource tagged {CHECKLIST_JSON} then SECRET_CHECKLIST_CONTENT"
+
 
 # ── get_audit_template ────────────────────────────────────────────────────────
 

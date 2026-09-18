@@ -64,6 +64,16 @@ def load_template(skill_name: str) -> str:
 def render_template(template: str, context: Dict[str, Any]) -> str:
     """Render template by substituting placeholders.
 
+    Substitution is single-pass: every `{PLACEHOLDER}` in the original
+    template is matched against the original text only, and replacement
+    values are never re-scanned for further placeholders. This matters
+    because context values can contain evidence-controlled text -- a
+    sequential `.replace()` loop (the previous implementation) mutates the
+    same string on every iteration, so an *earlier*-inserted value whose
+    text happens to look like a *later* key's placeholder (e.g. a resource
+    tag literally containing `{CHECKLIST_JSON}`) would get that later
+    substitution spliced into it too.
+
     Args:
         template: Template content with {PLACEHOLDER} markers
         context: Dictionary of placeholder values
@@ -71,11 +81,11 @@ def render_template(template: str, context: Dict[str, Any]) -> str:
     Returns:
         Rendered template with substitutions
     """
-    rendered = template
-    for key, value in context.items():
-        placeholder = f"{{{key}}}"
-        rendered = rendered.replace(placeholder, str(value))
-    return rendered
+    if not context:
+        return template
+
+    placeholder_re = re.compile("|".join(re.escape(f"{{{key}}}") for key in context))
+    return placeholder_re.sub(lambda m: str(context[m.group(0)[1:-1]]), template)
 
 
 def get_audit_template(skill_name: str, context: Dict[str, Any]) -> str:
