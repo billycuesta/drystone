@@ -4,7 +4,7 @@ Goal: avoid leaking credentials or secret material into generated reports.
 """
 
 import re
-from typing import Tuple
+from typing import Any, Tuple
 
 _AWS_ACCESS_KEY_RE = re.compile(r"\bAKIA[0-9A-Z]{16}\b")
 # Very rough heuristic for AWS secret access keys (base64-ish 40 chars).
@@ -35,3 +35,35 @@ def redact_secrets(text: str) -> Tuple[str, int]:
     out = _sub(_AWS_ACCESS_KEY_RE, "AKIA****************", out)
     out = _sub(_AWS_SECRET_KEY_RE, "[REDACTED_SECRET]", out)
     return out, redactions
+
+
+def redact_secrets_in_obj(value: Any) -> Tuple[Any, int]:
+    """Recursively redact credential-like strings while preserving JSON shape."""
+
+    if isinstance(value, str):
+        return redact_secrets(value)
+    if isinstance(value, list):
+        redacted_items = []
+        total = 0
+        for item in value:
+            redacted, count = redact_secrets_in_obj(item)
+            redacted_items.append(redacted)
+            total += count
+        return redacted_items, total
+    if isinstance(value, tuple):
+        redacted_items = []
+        total = 0
+        for item in value:
+            redacted, count = redact_secrets_in_obj(item)
+            redacted_items.append(redacted)
+            total += count
+        return tuple(redacted_items), total
+    if isinstance(value, dict):
+        redacted_dict = {}
+        total = 0
+        for key, item in value.items():
+            redacted, count = redact_secrets_in_obj(item)
+            redacted_dict[key] = redacted
+            total += count
+        return redacted_dict, total
+    return value, 0

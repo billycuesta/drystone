@@ -162,6 +162,29 @@ class TestAssumeRole:
             aws.boto3_session()
         build.assert_called_once()
 
+    def test_missing_assume_role_expiration_uses_safe_refresh_deadline(self):
+        config = make_config(aws_role_arn="arn:aws:iam::123456789012:role/Audit")
+        source_session = MagicMock()
+        assumed_session = MagicMock()
+        sts = source_session.client.return_value
+        sts.assume_role.return_value = {
+            "Credentials": {
+                "AccessKeyId": "ASIAKEY",
+                "SecretAccessKey": "secret",
+                "SessionToken": "token",
+            }
+        }
+
+        with patch("boto3.Session", side_effect=[source_session, assumed_session]):
+            aws = AWSClient(config)
+            first = aws.boto3_session()
+            second = aws.boto3_session()
+
+        assert first is assumed_session
+        assert second is assumed_session
+        assert aws._assumed_expiration is not None
+        sts.assume_role.assert_called_once()
+
 
 # ── AWSClient.validate_credentials: success ───────────────────────────────────
 

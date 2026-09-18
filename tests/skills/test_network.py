@@ -160,7 +160,34 @@ def _make_ec2_client():
             }
         ]
     }
-    c.get_paginator.side_effect = lambda name: _make_paginator(instances_page)
+    network_interfaces_page = {
+        "NetworkInterfaces": [
+            {
+                "NetworkInterfaceId": "eni-1",
+                "SubnetId": "subnet-1",
+                "VpcId": "vpc-1",
+                "PrivateIpAddress": "10.0.1.5",
+                "PrivateIpAddresses": [{"PrivateIpAddress": "10.0.1.5", "Primary": True}],
+                "Association": {"PublicIp": "1.2.3.4"},
+                "Status": "in-use",
+                "Description": "primary eni",
+                "InterfaceType": "interface",
+                "Attachment": {"InstanceId": "i-1", "DeviceIndex": 0},
+                "Groups": [{"GroupId": "sg-1", "GroupName": "default"}],
+                "SourceDestCheck": True,
+                "TagSet": [],
+            }
+        ]
+    }
+
+    def _paginator(name):
+        if name == "describe_instances":
+            return _make_paginator(instances_page)
+        if name == "describe_network_interfaces":
+            return _make_paginator(network_interfaces_page)
+        return _make_paginator({})
+
+    c.get_paginator.side_effect = _paginator
 
     c.describe_vpc_endpoints.return_value = {
         "VpcEndpoints": [
@@ -301,6 +328,7 @@ class TestCollectHappyPath:
             "route-tables.json",
             "subnets.json",
             "ec2-instances.json",
+            "network-interfaces.json",
             "rds-instances.json",
             "lambda-functions.json",
             "vpc-endpoints.json",
@@ -348,6 +376,19 @@ class TestCollectHappyPath:
         assert inst["InstanceId"] == "i-1"
         assert inst["PublicIpAddress"] == "1.2.3.4"
         assert inst["State"] == "running"
+
+    def test_network_interfaces_content(self, skill, aws_client, tmp_path):
+        session, evidence_path = _make_session(tmp_path)
+        with patch("boto3.client", side_effect=_boto3_factory()):
+            skill.collect(aws_client, session)
+
+        data = json.loads((evidence_path / "network-interfaces.json").read_text())
+        assert len(data["items"]) == 1
+        eni = data["items"][0]
+        assert eni["NetworkInterfaceId"] == "eni-1"
+        assert eni["AttachedInstanceId"] == "i-1"
+        assert eni["Association"] == {"PublicIp": "1.2.3.4"}
+        assert data["by_id"]["eni-1"]["SubnetId"] == "subnet-1"
 
     def test_rds_instances_content(self, skill, aws_client, tmp_path):
         session, evidence_path = _make_session(tmp_path)
@@ -411,8 +452,9 @@ class TestCollectHappyPath:
         # is written, so its own filename is not present inside the file.
         assert "_audit_metadata.json" not in data["evidence_files"]
         assert "vpcs.json" in data["evidence_files"]
+        assert "network-interfaces.json" in data["evidence_files"]
         assert "nat-gateway-routes.json" in data["evidence_files"]
-        assert len(data["evidence_files"]) == 13
+        assert len(data["evidence_files"]) == 14
 
 
 # ── Session token branch ──────────────────────────────────────────────────────

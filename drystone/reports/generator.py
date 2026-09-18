@@ -114,6 +114,22 @@ class ReportGenerator:
                 # Best-effort only; report generation should not fail due to persistence.
                 pass
 
+        # Post-process CloudTrail Events skill to add incident timeline context
+        if skill == "cloudtrail_events":
+            from drystone.skills.cloudtrail_events.post_processor import (
+                CloudTrailEventsPostProcessor,
+            )
+
+            processor = CloudTrailEventsPostProcessor(self.session)
+            findings_data = processor.process(findings_data)
+
+            # Persist derived timeline context so reports and findings stay consistent.
+            try:
+                with open(findings_path, "w") as f:
+                    json.dump(findings_data, f, indent=2, default=str)
+            except Exception:
+                pass
+
         # Post-process WAF skill to add protection flow diagram
         if skill == "waf":
             from drystone.skills.waf.post_processor import WAFPostProcessor

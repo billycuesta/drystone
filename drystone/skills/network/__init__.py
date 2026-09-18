@@ -239,6 +239,44 @@ class NetworkSkill(BaseSkill):
         except Exception as e:
             print(f"    Warning: Could not collect EC2 instances: {e}")
 
+        # === NETWORK INTERFACES (for ENI-level exposure and attachment context) ===
+        print("  Collecting network interfaces...")
+        try:
+            interfaces_list: List[Dict[str, Any]] = []
+            paginator = ec2_client.get_paginator("describe_network_interfaces")
+            for page in paginator.paginate():
+                for eni in page.get("NetworkInterfaces", []) or []:
+                    if not isinstance(eni, dict):
+                        continue
+                    attachment = eni.get("Attachment") if isinstance(eni.get("Attachment"), dict) else {}
+                    interfaces_list.append(
+                        {
+                            "NetworkInterfaceId": eni.get("NetworkInterfaceId"),
+                            "VpcId": eni.get("VpcId"),
+                            "SubnetId": eni.get("SubnetId"),
+                            "PrivateIpAddress": eni.get("PrivateIpAddress"),
+                            "PrivateIpAddresses": eni.get("PrivateIpAddresses", []),
+                            "Association": eni.get("Association"),
+                            "Status": eni.get("Status"),
+                            "Description": eni.get("Description"),
+                            "InterfaceType": eni.get("InterfaceType"),
+                            "Attachment": attachment,
+                            "AttachedInstanceId": attachment.get("InstanceId"),
+                            "Groups": eni.get("Groups", []),
+                            "SourceDestCheck": eni.get("SourceDestCheck"),
+                            "Tags": eni.get("TagSet", []),
+                        }
+                    )
+
+            _save(
+                evidence_path / "network-interfaces.json",
+                self._wrap_indexed(
+                    interfaces_list, by_key="NetworkInterfaceId", region=region
+                ),
+            )
+        except Exception as e:
+            print(f"    Warning: Could not collect network interfaces: {e}")
+
         # === RDS INSTANCES (for topology labels) ===
         print("  Collecting RDS instances (labels)...")
         try:

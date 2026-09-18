@@ -35,22 +35,20 @@ class JSONFormatter(BaseFormatter):
 
     def _build_json(self) -> Dict[str, Any]:
         """Build structured JSON export."""
+        context = self.report_context
         payload: Dict[str, Any] = {
-            "metadata": self._metadata(),
-            "findings": self.findings.get("findings", []),
-            "summary": self.findings.get("summary", {}),
+            "metadata": context.metadata,
+            "findings": context.redacted_findings.get("findings", []),
+            "summary": context.redacted_findings.get("summary", {}),
             "statistics": self._calculate_statistics(),
             "export_timestamp": datetime.utcnow().isoformat(),
         }
-        attack_paths = self._collect_attack_paths()
-        if attack_paths:
-            payload["attack_path_candidates"] = attack_paths
-        correlation_summary = self._correlation_summary()
-        if correlation_summary:
-            payload["correlation_summary"] = correlation_summary
-        trend = self._trend_summary()
-        if trend:
-            payload["trend"] = trend
+        if context.attack_path_candidates:
+            payload["attack_path_candidates"] = context.attack_path_candidates
+        if context.correlation_summary:
+            payload["correlation_summary"] = context.correlation_summary
+        if context.trend:
+            payload["trend"] = context.trend
         return payload
 
     def _trend_summary(self) -> Dict[str, Any]:

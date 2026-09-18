@@ -1,7 +1,8 @@
 """Extended tests for FindingsNormalizer with evidence validation and mutual exclusions."""
 
-import pytest
 from datetime import datetime, timedelta
+
+import pytest
 
 from drystone.models.findings import Finding
 from drystone.validation.findings_normalizer import FindingsNormalizer
@@ -597,29 +598,29 @@ class TestAlertingEvidenceValidation:
     """Test Alerting-specific evidence validation."""
 
     def test_alr_001_rejected_when_cloudtrail_enabled(self):
-        """Test that ALR-001 is rejected when CloudTrail is enabled."""
+        """Test that ALRT-001 is rejected when CloudTrail is enabled."""
         normalizer = FindingsNormalizer(ALERTING_CHECKLIST, "alerting")
 
         evidence = {"cloudtrail-trails": [{"TrailName": "default", "IsMultiRegionTrail": False}]}
         normalizer.evidence = evidence
 
-        finding = make_finding("ALR-001", "Critical", 9.5, "CloudTrail disabled", "Not enabled")
+        finding = make_finding("ALRT-001", "Critical", 9.5, "CloudTrail disabled", "Not enabled")
 
         # Should reject (CloudTrail IS enabled)
-        is_valid = normalizer._validate_against_evidence("ALR-001", finding)
+        is_valid = normalizer._validate_against_evidence("ALRT-001", finding)
         assert is_valid is False
 
     def test_alr_003_rejected_when_no_trails(self):
-        """Test that ALR-003 is rejected when CloudTrail is disabled."""
+        """Test that ALRT-003 is rejected when CloudTrail is disabled."""
         normalizer = FindingsNormalizer(ALERTING_CHECKLIST, "alerting")
 
         evidence = {"cloudtrail-trails": []}
         normalizer.evidence = evidence
 
-        finding = make_finding("ALR-003", "Critical", 9.5, "No CloudWatch logs", "Not configured")
+        finding = make_finding("ALRT-003", "Critical", 9.5, "No CloudWatch logs", "Not configured")
 
         # Should reject (need trail for logs issue)
-        is_valid = normalizer._validate_against_evidence("ALR-003", finding)
+        is_valid = normalizer._validate_against_evidence("ALRT-003", finding)
         assert is_valid is False
 
     def test_alerting_evidence_refs_add_json_extension(self):

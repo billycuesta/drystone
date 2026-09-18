@@ -7,7 +7,7 @@ from drystone.reports.formats.json import JSONFormatter
 from drystone.storage.session import AuditSession
 
 
-def _build_formatter(tmp_path, skill: str) -> JSONFormatter:
+def _build_formatter(tmp_path, skill: str, findings_override: dict | None = None) -> JSONFormatter:
     session = Mock(spec=AuditSession)
     session.base_path = tmp_path
     session.account_id = "123456789012"
@@ -18,7 +18,7 @@ def _build_formatter(tmp_path, skill: str) -> JSONFormatter:
     config = Mock()
     config.report_type = "general"
 
-    findings = {
+    findings = findings_override or {
         "skill": skill,
         "analyzed_at": "2026-03-04T00:00:00Z",
         "summary": {"overall_risk_score": 7.1},
@@ -124,6 +124,36 @@ def test_json_formatter_omits_trend_when_file_absent(tmp_path) -> None:
     payload = formatter._build_json()
 
     assert "trend" not in payload
+
+
+def test_json_formatter_redacts_secret_material_in_findings(tmp_path) -> None:
+    formatter = _build_formatter(
+        tmp_path,
+        "iam",
+        {
+            "skill": "iam",
+            "analyzed_at": "2026-03-04T00:00:00Z",
+            "summary": {"overall_risk_score": 7.1},
+            "findings": [
+                {
+                    "id": "IAM-SECRET",
+                    "evidence_snippet": {
+                        "AccessKeyId": "AKIA1234567890ABCDE1",
+                        "SecretAccessKey": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+                    },
+                }
+            ],
+        },
+    )
+
+    payload = formatter._build_json()
+    dumped = json.dumps(payload)
+
+    assert "AKIA1234567890ABCDE1" not in dumped
+    assert "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" not in dumped
+    assert "AKIA****************" in dumped
+    assert "[REDACTED_SECRET]" in dumped
+    assert payload["metadata"]["redactions_applied"] >= 2
 
 
 def test_json_formatter_exports_attack_paths_for_aggregated_context(tmp_path) -> None:

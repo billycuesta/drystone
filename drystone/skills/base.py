@@ -185,6 +185,7 @@ class BaseSkill(ABC):
         # 1. Read all evidence files
         evidence_path = session.get_evidence_path(self.name)
         evidence = {}
+        evidence_load_errors = []
 
         if not evidence_path.exists():
             raise FileNotFoundError(f"Evidence directory not found: {evidence_path}")
@@ -193,8 +194,14 @@ class BaseSkill(ABC):
             try:
                 with open(json_file) as f:
                     evidence[json_file.stem] = json.load(f)
-            except Exception:
-                pass
+            except Exception as exc:
+                evidence_load_errors.append(
+                    {
+                        "file": json_file.name,
+                        "error_type": type(exc).__name__,
+                        "message": str(exc),
+                    }
+                )
 
         # Hook: subclasses may load additional non-JSON evidence (e.g. CSV files)
         self._load_extra_evidence(evidence, evidence_path)
@@ -451,7 +458,7 @@ class BaseSkill(ABC):
             coverage = validate_checklist_coverage(
                 checklist,
                 [f.model_dump(mode="json") for f in findings.findings],
-                pre_evaluated_checks=pre_checked_ids | routed_ids,
+                pre_evaluated_checks=pre_checked_ids,
             )
             if not coverage["coverage_valid"]:
                 missing_criticals = [
@@ -471,8 +478,13 @@ class BaseSkill(ABC):
                 f"  📋 Checklist coverage: {coverage['coverage_percentage']:.0f}% "
                 f"({coverage['evaluated_checks']}/{coverage['total_checks']})"
             )
-        except Exception:
-            pass  # Coverage check is best-effort
+        except Exception as exc:
+            coverage_check_error = {
+                "error_type": type(exc).__name__,
+                "message": str(exc),
+            }
+        else:
+            coverage_check_error = None
 
         # 6. Save findings
         findings_dir = session.get_findings_path()
@@ -499,9 +511,13 @@ class BaseSkill(ABC):
             "failed_chunk_details": chunk_status.get("failed_chunk_details") or [],
             "llm_checks": 0 if llm_fallback_used else route_stats["llm_checks"],
             "llm_checks_attempted": route_stats["llm_checks"],
+            "llm_routed_checks": sorted(routed_ids),
             "deterministic_checks": route_stats["deterministic_resolved"],
             "total_checks": route_stats["total_checks"],
+            "evidence_load_errors": evidence_load_errors,
         }
+        if coverage_check_error:
+            findings_payload["analysis_metadata"]["coverage_check_error"] = coverage_check_error
         findings_payload = self._inject_validation_commands(findings_payload, session)
 
         with open(findings_path, "w") as f:

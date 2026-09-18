@@ -1287,3 +1287,83 @@ class TestNormalizeFindings:
             findings, checklist, evidence=evidence, pre_checked_ids={"IAM-001"}
         )
         assert isinstance(result, SkillFindings)
+
+
+
+class TestAnalyzePipelineMetadata:
+    def _session(self, tmp_path):
+        evidence_path = tmp_path / "evidence" / "iam"
+        findings_path = tmp_path / "findings"
+        evidence_path.mkdir(parents=True)
+        findings_path.mkdir()
+        session = MagicMock()
+        session.get_evidence_path.return_value = evidence_path
+        session.get_findings_path.return_value = findings_path
+        session.account_id = "123456789012"
+        return session, evidence_path, findings_path
+
+    def _agent(self):
+        agent = MagicMock()
+        agent.config = {"qsa_depth": "standard", "scan_depth": "normal"}
+        agent.provider_type = "claude-cli"
+        agent.metrics_tracker = None
+        agent.get_display_name.return_value = "Mock Agent"
+        agent.get_last_analysis_status.return_value = {}
+        agent.analyze_evidence_chunked.return_value = _skill_findings()
+        return agent
+
+    def test_analyze_records_corrupt_evidence_and_does_not_count_routed_checks_as_evaluated(self, tmp_path):
+        session, evidence_path, findings_path = self._session(tmp_path)
+        (evidence_path / "users.json").write_text('{"items": []}')
+        (evidence_path / "corrupt.json").write_text('{not-json')
+        agent = self._agent()
+
+        captured = {}
+
+        def fake_coverage(checklist, findings, pre_evaluated_checks):
+            captured["pre_evaluated_checks"] = set(pre_evaluated_checks)
+            return {
+                "coverage_valid": True,
+                "coverage_percentage": 0,
+                "evaluated_checks": 0,
+                "total_checks": len(checklist.get("items", [])),
+                "details": [],
+            }
+
+        with patch("drystone.validation.pre_checks.run_pre_checks", return_value=[]), patch(
+            "drystone.analysis.router.route_checklist_for_llm",
+            return_value=(
+                {"items": [{"id": "IAM-ROUTED", "severity": "Critical"}]},
+                {"llm_checks": 1, "deterministic_resolved": 0, "total_checks": 1},
+            ),
+        ), patch("drystone.validation.checklist_coverage.validate_checklist_coverage", side_effect=fake_coverage):
+            output = SKILL.analyze(session, agent)
+
+        data = json.loads(output.read_text())
+        assert captured["pre_evaluated_checks"] == set()
+        errors = data["analysis_metadata"]["evidence_load_errors"]
+        assert errors[0]["file"] == "corrupt.json"
+        assert errors[0]["error_type"] == "JSONDecodeError"
+
+    def test_analyze_records_coverage_check_errors_in_metadata(self, tmp_path):
+        session, evidence_path, findings_path = self._session(tmp_path)
+        (evidence_path / "users.json").write_text('{"items": []}')
+        agent = self._agent()
+
+        with patch("drystone.validation.pre_checks.run_pre_checks", return_value=[]), patch(
+            "drystone.analysis.router.route_checklist_for_llm",
+            return_value=(
+                {"items": []},
+                {"llm_checks": 0, "deterministic_resolved": 1, "total_checks": 1},
+            ),
+        ), patch(
+            "drystone.validation.checklist_coverage.validate_checklist_coverage",
+            side_effect=RuntimeError("coverage exploded"),
+        ):
+            output = SKILL.analyze(session, agent)
+
+        data = json.loads(output.read_text())
+        assert data["analysis_metadata"]["coverage_check_error"] == {
+            "error_type": "RuntimeError",
+            "message": "coverage exploded",
+        }

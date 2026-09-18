@@ -50,26 +50,26 @@ class SkillNormalizerHook(DefaultNormalizerHook):
         if not isinstance(self.evidence, dict):
             return None
 
-        if finding_id not in {"ALR-001", "ALR-003"}:
+        if finding_id not in {"ALRT-001", "ALRT-003"}:
             return None
 
         # Alerting: CloudTrail disabled
-        if finding_id == "ALR-001":
+        if finding_id == "ALRT-001":
             trails = self.evidence.get("cloudtrail-trails", [])
             if len(trails) > 0:
                 logger.warning(
                     f"Rejected {finding_id} - CloudTrail IS enabled ({len(trails)} trails). "
-                    f"Should be ALR-003 (no logs) or ALR-005+ (other issues)."
+                    f"Should be ALRT-003 (no logs) or ALRT-005+ (other issues)."
                 )
-                return False  # CloudTrail IS enabled (should be ALR-003 or ALR-005+)
+                return False  # CloudTrail IS enabled (should be ALRT-003 or ALRT-005+)
 
-        # Alerting: CloudTrail logs disabled (ALR-003 only valid if Trail exists)
-        if finding_id == "ALR-003":
+        # Alerting: CloudTrail logs disabled (ALRT-003 only valid if Trail exists)
+        if finding_id == "ALRT-003":
             trails = self.evidence.get("cloudtrail-trails", [])
             if len(trails) == 0:
                 logger.warning(
                     f"Rejected {finding_id} - CloudTrail is NOT enabled (no trails). "
-                    f"Should be ALR-001 instead."
+                    f"Should be ALRT-001 instead."
                 )
                 return False
 

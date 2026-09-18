@@ -128,6 +128,9 @@ class AWSClient:
         response = sts.assume_role(**self._assume_role_kwargs())
         credentials = response["Credentials"]
         self._assumed_expiration = credentials.get("Expiration")
+        if self._assumed_expiration is None:
+            duration = self.config.aws_role_duration_seconds or 3600
+            self._assumed_expiration = datetime.now(timezone.utc) + timedelta(seconds=duration)
         self.access_key_id = credentials["AccessKeyId"]
         self.secret_access_key = credentials["SecretAccessKey"]
         self.session_token = credentials.get("SessionToken")

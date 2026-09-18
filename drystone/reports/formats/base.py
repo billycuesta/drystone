@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from drystone.models.config import WizardConfig
+from drystone.reports.context import ReportContext
 from drystone.storage.session import AuditSession
 
 
@@ -28,6 +29,11 @@ class BaseFormatter(ABC):
         self.findings = findings_data
         self.session = session
         self.config = config
+        self.report_context = ReportContext.from_findings(
+            findings_data,
+            session,
+            report_format_version=self.REPORT_FORMAT_VERSION,
+        )
         self.reports_path = session.get_reports_path()
         self.reports_path.mkdir(parents=True, exist_ok=True)
 
