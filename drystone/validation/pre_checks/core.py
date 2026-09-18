@@ -66,8 +66,9 @@ def run_pre_checks(
             result = check_fn(evidence)
             results.append(result)
         except Exception as e:
-            # Pre-check failure → SKIP (let AI handle it)
-            logger.debug(f"Pre-check {check_fn.__name__} failed: {e}")
+            # Pre-check failure → SKIP (let AI handle it), but make the lost
+            # deterministic coverage visible instead of disappearing at DEBUG.
+            logger.warning("Pre-check %s failed: %s", check_fn.__name__, e, exc_info=True)
     return results
 
 

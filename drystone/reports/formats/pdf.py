@@ -675,7 +675,37 @@ class PDFFormatter(BaseFormatter):
             + "</div>"
             + "</div>"
             + top_recs_html
+            + self._active_verification_summary_html()
         )
+
+    def _active_verification_summary_html(self) -> str:
+        """One-line executive-summary note on whether active verification ran
+        for this audit, and with what outcome -- mirrors pentest.py's
+        markdown equivalent, _active_verification_summary_line(), so a PDF
+        reader doesn't have to hunt through individual findings to know the
+        feature was used. Counts are derived from actual active_verification
+        entries present in findings/correlations, never hardcoded.
+        """
+        entries: List[Dict[str, Any]] = list(self.findings.get("findings", []) or [])
+        corr_file = self.session.base_path / "findings" / "correlated.json"
+        if corr_file.exists():
+            try:
+                corr_data = json.loads(corr_file.read_text())
+                entries.extend(corr_data.get("correlations", []) or [])
+            except Exception:
+                pass
+
+        verified = [e for e in entries if isinstance(e.get("active_verification"), dict)]
+        if not verified:
+            return ""
+        success = sum(1 for e in verified if e["active_verification"].get("result") == "success")
+        other = len(verified) - success
+        parts = []
+        if success:
+            parts.append(f"{success} confirmed via live AWS API calls")
+        if other:
+            parts.append(f"{other} attempt(s) denied/inconclusive")
+        return f"<p><strong>Active verification:</strong> {', '.join(parts)}</p>"
 
     def _scope_definition_html(
         self, summary: Dict[str, Any], findings: List[Dict[str, Any]]
@@ -1636,6 +1666,8 @@ class PDFFormatter(BaseFormatter):
         if priority and priority not in ("N/A", "None", ""):
             priority_line = f"<p><strong>Priority:</strong> {priority}</p>"
 
+        active_verification_html = self._active_verification_html(corr)
+
         return (
             "<div class='individual-finding'>"
             f"<h3>[{corr_id}] {title}</h3>"
@@ -1657,6 +1689,7 @@ class PDFFormatter(BaseFormatter):
             f"<strong>Tools:</strong> {html.escape(tools)}</p></div>"
             + impact_block
             + affected_block
+            + active_verification_html
             + f"<div class='finding-remediation'><h4>Remediation</h4>{remediation_html}</div>"
             + priority_line
             + "</div>"
@@ -2121,6 +2154,11 @@ class PDFFormatter(BaseFormatter):
                 "</div>"
             )
 
+        # Active Verification (real, non-destructive AWS API call outcome, when present)
+        active_verification_html = self._active_verification_html(finding)
+        if active_verification_html:
+            body_parts.append(active_verification_html)
+
         # Remediation (always present)
         body_parts.append(
             "<div class='finding-section'>"
@@ -2137,6 +2175,35 @@ class PDFFormatter(BaseFormatter):
             + cis_line
             + "</div>"
             + "</div>"
+        )
+
+    def _active_verification_html(self, finding: Dict[str, Any]) -> str:
+        """Render the active_verification block a finding may carry
+        (drystone/verification/runner.py attaches this in-place on
+        findings/{skill}.json entries -- see pentest.py's markdown
+        equivalent, _format_active_verification()).
+
+        Returns "" when no active_verification is present -- most findings
+        don't have an applicable verifier (only IAM AssumeRole chains and
+        public S3 buckets are covered today).
+        """
+        av = finding.get("active_verification")
+        if not isinstance(av, dict):
+            return ""
+        method = html.escape(str(av.get("method", "unknown")))
+        detail = html.escape(str(av.get("detail", "")))
+        if av.get("result") == "success":
+            icon, label = "✅", "Actively verified"
+        else:
+            # "denied" or "error" -- an attempt was made but didn't succeed. This
+            # is NOT evidence the finding is wrong (e.g. MFA/ExternalId required,
+            # or a transient error) -- just report what was attempted.
+            icon, label = "⚠️", "Verification attempted"
+        return (
+            "<div class='finding-section'>"
+            "<h4>Active Verification</h4>"
+            f"<p>{icon} {label} via <code>{method}</code> — {detail}</p>"
+            "</div>"
         )
 
     def _ser_attack_vector_html(self, finding: Dict[str, Any]) -> str:
@@ -2518,6 +2585,13 @@ class PDFFormatter(BaseFormatter):
             ("Classification", "CONFIDENTIAL"),
         ]
 
+        report_meta = self.findings.get("report_metadata", {}) or {}
+        integrity_hash = report_meta.get("integrity_manifest_sha256")
+        if integrity_hash:
+            fields.append(
+                ("Evidence Integrity (SHA-256)", f"{integrity_hash} (drystone verify-integrity)")
+            )
+
         return (
             "<table class='meta-table'>"
             + "".join(row(label, value) for label, value in fields)
@@ -2628,8 +2702,7 @@ class PDFFormatter(BaseFormatter):
         data = build_pci_controls_map(findings, skills)
         controls = data["controls"]
 
-        ko_controls = [c for c in controls if c["status"] == "ko"]
-        if not ko_controls:
+        if not controls:
             return ""
 
         is_en = str(getattr(self.config, "report_language", "en") or "en").lower() == "en"
@@ -2660,7 +2733,7 @@ class PDFFormatter(BaseFormatter):
 
         rows_html = []
         current_req = None
-        for ctrl in ko_controls:
+        for ctrl in controls:
             req_num = ctrl["requirement"]
             if req_num != current_req:
                 current_req = req_num
@@ -2673,6 +2746,22 @@ class PDFFormatter(BaseFormatter):
 
             cid = html.escape(ctrl["control"])
             findings_for_ctrl = ctrl["findings"]
+
+            if ctrl["status"] == "ok":
+                # No findings map to this control -- report it as evaluated-and-clean
+                # instead of omitting it, so an all-OK audit doesn't make the whole
+                # annex disappear (rec RPT-B).
+                checks = ctrl.get("checks") or []
+                check_ids = [
+                    html.escape(str(c.get("id"))) for c in checks if isinstance(c, dict) and c.get("id")
+                ]
+                checks_str = ", ".join(check_ids) if check_ids else "N/A"
+                just = f"No mapped findings for checks: {checks_str}."
+                rows_html.append(
+                    f'<tr><td>{cid}</td><td class="pci-ok">✅ OK</td><td>{just}</td></tr>'
+                )
+                continue
+
             # Extract reason from the first finding that has a per-control reason
             finding_reason = None
             for f in findings_for_ctrl:

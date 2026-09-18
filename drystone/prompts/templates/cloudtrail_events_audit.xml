@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<audit_task extends="base_audit.xml">
+  <skill_specific_guidance>
+    <title>CloudTrail Events Threat Activity Analysis</title>
+    <rule>Focus on observed CloudTrail event history, not theoretical account configuration gaps.</rule>
+    <rule>For every finding, cite the exact event name, actor identity, event time window, and source evidence file when present.</rule>
+    <rule>Use TrailDiscover/MITRE context only as enrichment for observed suspicious events; never create a finding from threat intelligence alone.</rule>
+    <rule>Distinguish suspicious administration from confirmed attacker activity unless the evidence contains incident indicators.</rule>
+  </skill_specific_guidance>
+</audit_task>

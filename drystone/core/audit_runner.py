@@ -349,10 +349,10 @@ def _run_active_verification(
 
 
 def _write_integrity_manifest(session: "AuditSession", _msg: Msg) -> None:
-    """Phase: hash every evidence/findings JSON so post-audit tampering with
-    any of it is detectable later via `drystone verify-integrity`. Runs after
-    collection, analysis, and active verification are all done. Non-blocking:
-    a manifest failure shouldn't stop the audit from producing a report.
+    """Phase: hash every evidence/findings/report artifact so post-audit
+    tampering with any of it is detectable later via `drystone verify-integrity`.
+    Runs after collection, analysis, active verification, and report generation
+    are all done. Non-blocking: a manifest failure shouldn't fail the audit.
     """
     try:
         from drystone.storage.manifest import write_manifest
@@ -545,9 +545,9 @@ def run_audit(
     _run_correlation(session, all_findings, _msg)
     _run_trend_analysis(config, session, all_findings, _msg)
     _run_active_verification(config, session, aws_client, _msg)
-    _write_integrity_manifest(session, _msg)
 
     reports_ok = _generate_reports(config, session, all_findings, skill_display_names, _msg)
+    _write_integrity_manifest(session, _msg)
     if reports_ok:
         phase_done += 1
         label = "Reporting complete" if all_findings else "Reporting skipped"

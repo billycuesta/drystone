@@ -105,8 +105,8 @@ def enrich_finding(finding: Dict[str, Any], event_names: List[str]) -> Dict[str,
         The (mutated) finding dict.
     """
     if finding.get("status") not in ("FAIL", "fail") and finding.get("severity") is None:
-        # Only enrich genuine findings (have severity), not pre-check intermediaries
-        pass
+        # Only enrich genuine findings (have severity), not pre-check intermediaries.
+        return finding
 
     all_tactics: List[str] = []
     all_techniques: List[str] = []

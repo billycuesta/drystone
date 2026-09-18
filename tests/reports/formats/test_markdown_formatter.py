@@ -710,3 +710,67 @@ class TestGenerate:
         f = _make_formatter(tmp_path, findings=findings)
         path = f.generate()
         assert "network" in path.name
+
+
+# ── _pci_dss_annex_md (rec RPT-B: must not disappear for an all-OK audit) ──────
+
+
+class TestPciDssAnnexMd:
+    def test_all_ok_audit_still_renders_annex_with_ok_rows(self, tmp_path):
+        """Before rec RPT-B, zero KO controls made the whole annex vanish --
+        an all-compliant audit looked identical to "PCI DSS was never
+        evaluated," instead of showing every control as OK."""
+        findings = {
+            "skill": "iam",
+            "findings": [],  # no findings -> every mapped control is OK
+            "summary": {
+                "total_findings": 0,
+                "critical": 0,
+                "high": 0,
+                "medium": 0,
+                "low": 0,
+                "overall_risk_score": 0.0,
+            },
+        }
+        f = _make_formatter(tmp_path, findings=findings, report_type="pci-dss")
+        f.config.skills = ["iam"]
+
+        annex = f._pci_dss_annex_md()
+
+        assert annex != ""
+        assert "Annex A: PCI DSS v4.0 Control Mapping" in annex
+        assert "✅ OK" in annex
+        assert "❌ KO" not in annex
+
+    def test_mixed_ok_and_ko_controls_both_rendered(self, tmp_path):
+        findings = {
+            "skill": "iam",
+            "findings": [
+                {
+                    "id": "IAM-001",
+                    "title": "Root account without MFA",
+                    "severity": "Critical",
+                    "pci_dss": [{"control": "8.4.1", "reason": "MFA required"}],
+                }
+            ],
+            "summary": {
+                "total_findings": 1,
+                "critical": 1,
+                "high": 0,
+                "medium": 0,
+                "low": 0,
+                "overall_risk_score": 9.0,
+            },
+        }
+        f = _make_formatter(tmp_path, findings=findings, report_type="pci-dss")
+        f.config.skills = ["iam"]
+
+        annex = f._pci_dss_annex_md()
+
+        assert "❌ KO" in annex
+        assert "✅ OK" in annex
+
+    def test_non_pci_report_type_returns_empty(self, tmp_path):
+        f = _make_formatter(tmp_path, report_type="general")
+        f.config.skills = ["iam"]
+        assert f._pci_dss_annex_md() == ""

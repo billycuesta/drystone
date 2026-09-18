@@ -1,14 +1,14 @@
 {
   "event_count": 377,
-  "notes": "Metadata generated for the bundled legacy catalog. Run scripts/update_traildiscover.py to refresh from upstream and pin source_commit.",
+  "notes": "Metadata generated for the bundled legacy catalog. Run scripts/update_traildiscover.py to refresh the catalog and metadata together.",
   "refreshed_at": "2026-09-17T10:35:29.368940Z",
   "repository": "https://github.com/adanalvarez/TrailDiscover",
   "schema_version": "1.0",
   "sha256": "0cff0948d72c4d7ab1256d1e839e494697ff51ed32cd0bc127c9e193d19fa125",
   "source": "TrailDiscover",
   "source_branch": "main",
-  "source_commit": null,
-  "source_commit_date": null,
+  "source_commit": "cb600790fe0a9b24b497a7da5e4512326b40e046",
+  "source_commit_date": "2026-07-12T08:56:42Z",
   "source_path": "docs/events.json",
   "source_url": "https://raw.githubusercontent.com/adanalvarez/TrailDiscover/main/docs/events.json"
 }

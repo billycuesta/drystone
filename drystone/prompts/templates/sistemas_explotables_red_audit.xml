@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<audit_task extends="base_audit.xml">
+  <skill_specific_guidance>
+    <title>Exploitable Network Systems Analysis</title>
+    <rule>Assess exploitable exposure from collected network/service evidence only; do not assume exploitability without matching evidence.</rule>
+    <rule>For each finding, name the exposed service, protocol/port, affected host/resource, and why the path is reachable.</rule>
+    <rule>Separate vulnerability evidence from reachability evidence; both are required for high-confidence exploitable-system findings.</rule>
+    <rule>When CVE or external exploit metadata is present, treat it as enrichment and keep the AWS resource evidence as the primary proof.</rule>
+  </skill_specific_guidance>
+</audit_task>

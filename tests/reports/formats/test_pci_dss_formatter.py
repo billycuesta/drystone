@@ -111,3 +111,44 @@ class TestPCIDSSFormatter:
 
         assert "| 7.2.1 | ❌ KO" in md
         assert "FINDING_REASON_721" in md
+
+    def test_critical_non_compliances_redacts_evidence_snippet(self, tmp_path):
+        """rec RPT-H: PCIDSSFormatter used to read raw self.findings, so a
+        credential-shaped string in evidence_snippet reached the report
+        unredacted -- it must now come from the redacted report context, the
+        same as JSONFormatter already does.
+        """
+        session = Mock(spec=AuditSession)
+        session.base_path = tmp_path
+        session.account_id = "123456789012"
+        session.client_name = "TestClient"
+        session.get_reports_path.return_value = tmp_path / "reports"
+        (tmp_path / "reports").mkdir(parents=True)
+
+        config = Mock()
+        config.skills = ["iam"]
+        config.report_type = "pci-dss"
+
+        findings = {
+            "skill": "iam",
+            "findings": [
+                {
+                    "id": "IAM-001",
+                    "severity": "Critical",
+                    "risk_score": 9.5,
+                    "title": "Root account without MFA",
+                    "description": "...",
+                    "remediation": "...",
+                    "pci_dss": [{"control": "8.4.1", "reason": "MFA required"}],
+                    "evidence_snippet": {"AccessKeyId": "AKIA1234567890ABCDE1"},
+                }
+            ],
+            "summary": {"total_findings": 1},
+            "analyzed_at": "2026-02-09T00:00:00Z",
+        }
+
+        formatter = PCIDSSFormatter(findings, session, config)
+        md = formatter._build_pci_report()
+
+        assert "AKIA1234567890ABCDE1" not in md
+        assert "AKIA****************" in md

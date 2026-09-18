@@ -679,3 +679,213 @@ def test_masked_access_key_role_arn_only_no_longer_mislabeled_as_env(tmp_path, m
     result = formatter._masked_access_key()
     assert result != "Environment variables"
     assert "AuditRole" in result
+
+
+# ── active_verification + integrity manifest rendering (recs RPT-E, RPT-G) ────
+
+
+def test_document_control_includes_integrity_manifest_hash_when_present(tmp_path):
+    """rec RPT-G: the integrity manifest hash markdown.py already renders was
+    missing from PDF/Pentest PDF's document control section."""
+    session = _mock_session(tmp_path)
+    findings = _sample_findings()
+    findings["report_metadata"] = {"integrity_manifest_sha256": "deadbeef1234"}
+    config = Mock()
+    config.report_type = "general"
+
+    formatter = PDFFormatter(findings, session, config)
+    html_out = formatter._document_control_html()
+
+    assert "deadbeef1234" in html_out
+    assert "Evidence Integrity" in html_out
+
+
+def test_document_control_omits_integrity_row_when_absent(tmp_path):
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.report_type = "general"
+
+    formatter = PDFFormatter(_sample_findings(), session, config)
+    html_out = formatter._document_control_html()
+
+    assert "Evidence Integrity" not in html_out
+
+
+def test_finding_card_renders_successful_active_verification(tmp_path):
+    """rec RPT-E: active_verification (attached by verification/runner.py) was
+    rendered in pentest Markdown but silently dropped in PDF/Pentest PDF."""
+    session = _mock_session(tmp_path)
+    findings = _sample_findings()
+    findings["findings"][0]["active_verification"] = {
+        "method": "sts_assume_role",
+        "result": "success",
+        "detail": "AssumeRole succeeded; confirmed identity change",
+    }
+    config = Mock()
+    config.report_type = "pentest"
+
+    formatter = PDFFormatter(findings, session, config)
+    card_html = formatter._finding_card_html(findings["findings"][0])
+
+    assert "Active Verification" in card_html
+    assert "sts_assume_role" in card_html
+    assert "✅" in card_html
+
+
+def test_finding_card_renders_denied_active_verification_without_downgrading(tmp_path):
+    session = _mock_session(tmp_path)
+    findings = _sample_findings()
+    findings["findings"][0]["active_verification"] = {
+        "method": "s3_unauthenticated_head_bucket",
+        "result": "denied",
+        "detail": "Unauthenticated HEAD failed: 403",
+    }
+    config = Mock()
+    config.report_type = "general"
+
+    formatter = PDFFormatter(findings, session, config)
+    card_html = formatter._finding_card_html(findings["findings"][0])
+
+    assert "Active Verification" in card_html
+    assert "⚠️" in card_html
+
+
+def test_finding_card_omits_active_verification_section_when_absent(tmp_path):
+    session = _mock_session(tmp_path)
+    findings = _sample_findings()
+    config = Mock()
+    config.report_type = "general"
+
+    formatter = PDFFormatter(findings, session, config)
+    card_html = formatter._finding_card_html(findings["findings"][0])
+
+    assert "Active Verification" not in card_html
+
+
+def test_executive_summary_includes_active_verification_line(tmp_path):
+    """rec RPT-E: the executive-summary note pentest.py's markdown already
+    has (_active_verification_summary_line) was missing from the PDF's
+    narrative executive summary."""
+    session = _mock_session(tmp_path)
+    findings = _sample_findings()
+    findings["findings"][0]["active_verification"] = {
+        "method": "sts_assume_role",
+        "result": "success",
+        "detail": "AssumeRole succeeded",
+    }
+    config = Mock()
+    config.report_type = "pentest"
+
+    formatter = PDFFormatter(findings, session, config)
+    narrative_html = formatter._executive_narrative_html(findings["summary"])
+
+    assert "Active verification" in narrative_html
+    assert "1 confirmed via live AWS API calls" in narrative_html
+
+
+def test_executive_summary_omits_active_verification_line_when_none_ran(tmp_path):
+    session = _mock_session(tmp_path)
+    findings = _sample_findings()
+    config = Mock()
+    config.report_type = "general"
+
+    formatter = PDFFormatter(findings, session, config)
+    narrative_html = formatter._executive_narrative_html(findings["summary"])
+
+    assert "Active verification" not in narrative_html
+
+
+def test_correlation_card_renders_active_verification(tmp_path):
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.report_type = "pentest"
+
+    formatter = PDFFormatter(_sample_findings(), session, config)
+    corr = {
+        "id": "CORR-abc12345-001",
+        "title": "AssumeRole privilege escalation",
+        "pattern_id": "iam_assume_role_privilege_escalation",
+        "active_verification": {
+            "method": "sts_assume_role",
+            "result": "success",
+            "detail": "AssumeRole succeeded",
+        },
+    }
+    card_html = formatter._correlation_card_html(corr)
+
+    assert "Active Verification" in card_html
+    assert "sts_assume_role" in card_html
+
+
+# ── _pci_dss_annex_html (rec RPT-B: must not disappear for an all-OK audit) ───
+
+
+def test_pci_dss_annex_html_all_ok_audit_still_renders_annex(tmp_path):
+    session = _mock_session(tmp_path)
+    findings = {
+        "skill": "iam",
+        "findings": [],  # no findings -> every mapped control is OK
+        "summary": {
+            "total_findings": 0,
+            "critical": 0,
+            "high": 0,
+            "medium": 0,
+            "low": 0,
+            "overall_risk_score": 0.0,
+        },
+    }
+    config = Mock()
+    config.report_type = "pci-dss"
+    config.report_language = "en"
+    config.skills = ["iam"]
+
+    formatter = PDFFormatter(findings, session, config)
+    annex = formatter._pci_dss_annex_html()
+
+    assert annex != ""
+    assert "Annex A: PCI DSS v4.0 Control Mapping" in annex
+    assert "✅ OK" in annex
+    assert "❌ KO" not in annex
+
+
+def test_pci_dss_annex_html_mixed_ok_and_ko_controls(tmp_path):
+    session = _mock_session(tmp_path)
+    findings = {
+        "skill": "iam",
+        "findings": [
+            {
+                "id": "IAM-001",
+                "title": "Root account without MFA",
+                "severity": "Critical",
+                "pci_dss": [{"control": "8.4.1", "reason": "MFA required"}],
+            }
+        ],
+        "summary": {
+            "total_findings": 1,
+            "critical": 1,
+            "high": 0,
+            "medium": 0,
+            "low": 0,
+            "overall_risk_score": 9.0,
+        },
+    }
+    config = Mock()
+    config.report_type = "pci-dss"
+    config.report_language = "en"
+    config.skills = ["iam"]
+
+    formatter = PDFFormatter(findings, session, config)
+    annex = formatter._pci_dss_annex_html()
+
+    assert "❌ KO" in annex
+    assert "✅ OK" in annex
+
+
+def test_pci_dss_annex_html_non_pci_report_type_returns_empty(tmp_path):
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.report_type = "general"
+    config.skills = ["iam"]
+
+    formatter = PDFFormatter(_sample_findings(), session, config)
+    assert formatter._pci_dss_annex_html() == ""

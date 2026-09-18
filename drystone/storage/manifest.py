@@ -1,6 +1,6 @@
 """Evidence & findings chain-of-custody manifest.
 
-Hashes every evidence/findings JSON file in a session directory and
+Hashes every evidence/findings/report artifact in a session directory and
 persists a manifest.json (file -> sha256 -> size) so post-audit
 tampering can be detected later, independently of the report itself.
 """
@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 MANIFEST_FILENAME = "manifest.json"
-_HASHABLE_SUBDIRS = ("evidence", "findings")
+_HASHABLE_SUBDIRS = ("evidence", "findings", "reports")
 
 
 def _sha256_file(path: Path) -> str:
@@ -29,7 +29,7 @@ def _hashable_files(base_path: Path) -> List[Path]:
         d = base_path / subdir
         if not d.exists():
             continue
-        for p in sorted(d.rglob("*.json")):
+        for p in sorted(x for x in d.rglob("*") if x.is_file()):
             if p.name == MANIFEST_FILENAME:
                 continue
             files.append(p)
@@ -37,7 +37,7 @@ def _hashable_files(base_path: Path) -> List[Path]:
 
 
 def build_manifest(base_path: Path) -> Dict[str, Any]:
-    """Hash every evidence/findings JSON file under base_path.
+    """Hash every evidence/findings/report artifact under base_path.
 
     Args:
         base_path: Session root directory (contains evidence/, findings/).

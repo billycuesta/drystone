@@ -35,7 +35,11 @@ def get_logger(name: str) -> logging.Logger:
 
 
 def setup_file_logging(log_path: Path, level: int = logging.DEBUG) -> None:
-    """Setup file logging for audit session.
+    """Setup file logging for the current audit session.
+
+    Replaces prior Drystone session file handlers so logs from a later audit do
+    not leak into an earlier session's audit.log when multiple sessions run in
+    the same Python process.
 
     Args:
         log_path: Path to log file
@@ -44,9 +48,15 @@ def setup_file_logging(log_path: Path, level: int = logging.DEBUG) -> None:
     # Get root logger
     root_logger = logging.getLogger("drystone")
 
+    for handler in list(root_logger.handlers):
+        if getattr(handler, "_drystone_session_file_handler", False):
+            root_logger.removeHandler(handler)
+            handler.close()
+
     # File handler
     log_path.parent.mkdir(parents=True, exist_ok=True)
     file_handler = logging.FileHandler(log_path)
+    file_handler._drystone_session_file_handler = True  # type: ignore[attr-defined]
     file_handler.setLevel(level)
 
     # Formatter

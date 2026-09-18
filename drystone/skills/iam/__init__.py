@@ -93,7 +93,9 @@ class IAMSkill(BaseSkill):
         print("  Collecting IAM users...")
         users_detailed = []
         try:
-            users_basic = iam_client.list_users().get("Users", [])
+            users_basic = []
+            for page in iam_client.get_paginator("list_users").paginate():
+                users_basic.extend(page.get("Users", []))
 
             for user in users_basic:
                 username = user["UserName"]
@@ -168,7 +170,9 @@ class IAMSkill(BaseSkill):
         print("  Collecting IAM groups...")
         groups_detailed = []
         try:
-            groups_basic = iam_client.list_groups().get("Groups", [])
+            groups_basic = []
+            for page in iam_client.get_paginator("list_groups").paginate():
+                groups_basic.extend(page.get("Groups", []))
 
             for group in groups_basic:
                 group_name = group["GroupName"]
@@ -214,7 +218,9 @@ class IAMSkill(BaseSkill):
         print("  Collecting IAM roles...")
         roles_detailed = []
         try:
-            roles_basic = iam_client.list_roles().get("Roles", [])
+            roles_basic = []
+            for page in iam_client.get_paginator("list_roles").paginate():
+                roles_basic.extend(page.get("Roles", []))
 
             for role in roles_basic:
                 role_name = role["RoleName"]
@@ -271,7 +277,9 @@ class IAMSkill(BaseSkill):
         print("  Collecting IAM policies...")
         policies_detailed = []
         try:
-            policies_basic = iam_client.list_policies(Scope="Local").get("Policies", [])
+            policies_basic = []
+            for page in iam_client.get_paginator("list_policies").paginate(Scope="Local"):
+                policies_basic.extend(page.get("Policies", []))
 
             for policy in policies_basic:
                 policy_arn = policy["Arn"]
@@ -536,7 +544,9 @@ class IAMSkill(BaseSkill):
         """Map AssumeRole trust relationships for privilege-escalation analysis."""
         chains: List[Dict[str, Any]] = []
         try:
-            roles = iam_client.list_roles().get("Roles", [])
+            roles = []
+            for page in iam_client.get_paginator("list_roles").paginate():
+                roles.extend(page.get("Roles", []))
             for role in roles:
                 trust_policy = role.get("AssumeRolePolicyDocument") or {}
                 chains.append(

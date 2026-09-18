@@ -98,17 +98,6 @@ def _make_iam_client(with_password_policy=True):
         c.get_account_password_policy.side_effect = _NoSuchEntityError()
 
     # Users
-    c.list_users.return_value = {
-        "Users": [
-            {
-                "UserName": "alice",
-                "UserId": "AID123",
-                "Arn": "arn:aws:iam::123456789012:user/alice",
-                "CreateDate": "2026-01-01",
-                "Path": "/",
-            }
-        ]
-    }
     c.list_access_keys.return_value = {
         "AccessKeyMetadata": [{"AccessKeyId": "AKIAEXAMPLE", "Status": "Active"}]
     }
@@ -121,17 +110,6 @@ def _make_iam_client(with_password_policy=True):
     c.list_groups_for_user.return_value = {"Groups": [{"GroupName": "admins"}]}
 
     # Groups
-    c.list_groups.return_value = {
-        "Groups": [
-            {
-                "GroupName": "admins",
-                "GroupId": "GID123",
-                "Arn": "arn:aws:iam::123456789012:group/admins",
-                "CreateDate": "2026-01-01",
-                "Path": "/",
-            }
-        ]
-    }
     c.get_group.return_value = {"Users": [{"UserName": "alice"}]}
     c.list_attached_group_policies.return_value = {
         "AttachedPolicies": [{"PolicyName": "AdministratorAccess"}]
@@ -139,38 +117,11 @@ def _make_iam_client(with_password_policy=True):
     c.list_group_policies.return_value = {"PolicyNames": []}
 
     # Roles
-    c.list_roles.return_value = {
-        "Roles": [
-            {
-                "RoleName": "app-role",
-                "RoleId": "RID123",
-                "Arn": "arn:aws:iam::123456789012:role/app-role",
-                "CreateDate": "2026-01-01",
-                "Path": "/",
-                "AssumeRolePolicyDocument": {
-                    "Statement": [{"Principal": {"Service": "ec2.amazonaws.com"}}]
-                },
-                "MaxSessionDuration": 3600,
-            }
-        ]
-    }
     c.get_role.return_value = {"Role": {"RoleName": "app-role"}}
     c.list_attached_role_policies.return_value = {"AttachedPolicies": []}
     c.list_role_policies.return_value = {"PolicyNames": []}
 
     # Policies (customer-managed)
-    c.list_policies.return_value = {
-        "Policies": [
-            {
-                "PolicyName": "custom-policy",
-                "PolicyId": "POL123",
-                "Arn": "arn:aws:iam::123456789012:policy/custom-policy",
-                "CreateDate": "2026-01-01",
-                "UpdateDate": "2026-01-01",
-                "AttachmentCount": 1,
-            }
-        ]
-    }
     c.get_policy.return_value = {"Policy": {"DefaultVersionId": "v1"}}
     c.get_policy_version.return_value = {
         "PolicyVersion": {"Document": {"Statement": [{"Effect": "Allow"}]}}
@@ -182,8 +133,65 @@ def _make_iam_client(with_password_policy=True):
         "Content": b"user,arn\nalice,arn:aws:iam::123456789012:user/alice\n"
     }
 
-    # Instance profiles — empty, via paginator
-    c.get_paginator.side_effect = lambda name: _make_paginator({"InstanceProfiles": []})
+    # list_users/list_groups/list_roles/list_policies (each paginated -- rec
+    # SKL-G) and instance profiles all share this one client's get_paginator,
+    # so the fixture must dispatch by paginator name rather than return one
+    # fixed page regardless of which listing was requested.
+    _paginated_pages = {
+        "list_users": {
+            "Users": [
+                {
+                    "UserName": "alice",
+                    "UserId": "AID123",
+                    "Arn": "arn:aws:iam::123456789012:user/alice",
+                    "CreateDate": "2026-01-01",
+                    "Path": "/",
+                }
+            ]
+        },
+        "list_groups": {
+            "Groups": [
+                {
+                    "GroupName": "admins",
+                    "GroupId": "GID123",
+                    "Arn": "arn:aws:iam::123456789012:group/admins",
+                    "CreateDate": "2026-01-01",
+                    "Path": "/",
+                }
+            ]
+        },
+        "list_roles": {
+            "Roles": [
+                {
+                    "RoleName": "app-role",
+                    "RoleId": "RID123",
+                    "Arn": "arn:aws:iam::123456789012:role/app-role",
+                    "CreateDate": "2026-01-01",
+                    "Path": "/",
+                    "AssumeRolePolicyDocument": {
+                        "Statement": [{"Principal": {"Service": "ec2.amazonaws.com"}}]
+                    },
+                    "MaxSessionDuration": 3600,
+                }
+            ]
+        },
+        "list_policies": {
+            "Policies": [
+                {
+                    "PolicyName": "custom-policy",
+                    "PolicyId": "POL123",
+                    "Arn": "arn:aws:iam::123456789012:policy/custom-policy",
+                    "CreateDate": "2026-01-01",
+                    "UpdateDate": "2026-01-01",
+                    "AttachmentCount": 1,
+                }
+            ]
+        },
+        "list_instance_profiles": {"InstanceProfiles": []},
+    }
+    c.get_paginator.side_effect = lambda name: _make_paginator(
+        _paginated_pages.get(name, {})
+    )
 
     return c
 
@@ -465,11 +473,85 @@ class TestErrorResilience:
         assert "organizations unavailable" in data["error"]
 
 
+def _override_paginator(iam_client, name, *pages):
+    """Override one paginator's pages while every other name keeps using the
+    fixture's normal per-name dispatch (see _fail_one_paginator below)."""
+    original = iam_client.get_paginator.side_effect
+
+    def _dispatch(paginator_name):
+        if paginator_name == name:
+            return _make_paginator(*pages)
+        return original(paginator_name)
+
+    iam_client.get_paginator.side_effect = _dispatch
+
+
+def _user(name):
+    return {
+        "UserName": name,
+        "UserId": f"AID-{name}",
+        "Arn": f"arn:aws:iam::123456789012:user/{name}",
+        "CreateDate": "2026-01-01",
+        "Path": "/",
+    }
+
+
+def _group(name):
+    return {
+        "GroupName": name,
+        "GroupId": f"GID-{name}",
+        "Arn": f"arn:aws:iam::123456789012:group/{name}",
+        "CreateDate": "2026-01-01",
+        "Path": "/",
+    }
+
+
+def _role(name):
+    return {
+        "RoleName": name,
+        "RoleId": f"RID-{name}",
+        "Arn": f"arn:aws:iam::123456789012:role/{name}",
+        "CreateDate": "2026-01-01",
+        "Path": "/",
+        "AssumeRolePolicyDocument": {
+            "Statement": [{"Principal": {"Service": "ec2.amazonaws.com"}}]
+        },
+        "MaxSessionDuration": 3600,
+    }
+
+
+def _policy(name):
+    return {
+        "PolicyName": name,
+        "PolicyId": f"POL-{name}",
+        "Arn": f"arn:aws:iam::123456789012:policy/{name}",
+        "CreateDate": "2026-01-01",
+        "UpdateDate": "2026-01-01",
+        "AttachmentCount": 1,
+    }
+
+
+def _fail_one_paginator(iam_client, failing_name, error):
+    """Make get_paginator(failing_name) raise while every other paginator name
+    keeps using the fixture's normal per-name dispatch (rec SKL-G: list_users/
+    list_groups/list_roles/list_policies are all paginated now, so simulating
+    a single listing's failure means overriding one dispatch entry, not one
+    mocked direct call)."""
+    original = iam_client.get_paginator.side_effect
+
+    def _dispatch(name):
+        if name == failing_name:
+            raise error
+        return original(name)
+
+    iam_client.get_paginator.side_effect = _dispatch
+
+
 class TestSubCallResilience:
     def test_list_users_failure_writes_empty_list(self, skill, aws_client, tmp_path):
         session, evidence_path = _make_session(tmp_path)
         iam = _make_iam_client()
-        iam.list_users.side_effect = Exception("AccessDenied")
+        _fail_one_paginator(iam, "list_users", Exception("AccessDenied"))
 
         with patch("boto3.client", side_effect=_boto3_factory(iam=iam)):
             skill.collect(aws_client, session)  # Must not raise
@@ -480,7 +562,7 @@ class TestSubCallResilience:
     def test_list_groups_failure_writes_empty_list(self, skill, aws_client, tmp_path):
         session, evidence_path = _make_session(tmp_path)
         iam = _make_iam_client()
-        iam.list_groups.side_effect = Exception("AccessDenied")
+        _fail_one_paginator(iam, "list_groups", Exception("AccessDenied"))
 
         with patch("boto3.client", side_effect=_boto3_factory(iam=iam)):
             skill.collect(aws_client, session)
@@ -537,6 +619,81 @@ class TestSubCallResilience:
         assert not (evidence_path / "credential-report.csv").exists()
         # Collection continues past the credential report step
         assert (evidence_path / "assumeRole-chains.json").exists()
+
+
+class TestPagination:
+    """rec SKL-G: list_users/list_groups/list_roles/list_policies used to be
+    single unpaginated calls, silently truncating IAM enumeration at
+    whatever page boto3 returned implicitly. These prove the paginator loops
+    now aggregate across multiple pages instead of taking only the first.
+    """
+
+    def test_list_users_aggregates_across_multiple_pages(self, skill, aws_client, tmp_path):
+        session, evidence_path = _make_session(tmp_path)
+        iam = _make_iam_client()
+        _override_paginator(
+            iam,
+            "list_users",
+            {"Users": [_user("alice")]},
+            {"Users": [_user("bob")]},
+        )
+
+        with patch("boto3.client", side_effect=_boto3_factory(iam=iam)):
+            skill.collect(aws_client, session)
+
+        data = json.loads((evidence_path / "users.json").read_text())
+        assert {u["UserName"] for u in data} == {"alice", "bob"}
+
+    def test_list_groups_aggregates_across_multiple_pages(self, skill, aws_client, tmp_path):
+        session, evidence_path = _make_session(tmp_path)
+        iam = _make_iam_client()
+        _override_paginator(
+            iam,
+            "list_groups",
+            {"Groups": [_group("admins")]},
+            {"Groups": [_group("readonly")]},
+        )
+
+        with patch("boto3.client", side_effect=_boto3_factory(iam=iam)):
+            skill.collect(aws_client, session)
+
+        data = json.loads((evidence_path / "groups.json").read_text())
+        assert {g["GroupName"] for g in data} == {"admins", "readonly"}
+
+    def test_list_roles_aggregates_across_multiple_pages(self, skill, aws_client, tmp_path):
+        session, evidence_path = _make_session(tmp_path)
+        iam = _make_iam_client()
+        _override_paginator(
+            iam,
+            "list_roles",
+            {"Roles": [_role("app-role")]},
+            {"Roles": [_role("ci-role")]},
+        )
+
+        with patch("boto3.client", side_effect=_boto3_factory(iam=iam)):
+            skill.collect(aws_client, session)
+
+        data = json.loads((evidence_path / "roles.json").read_text())
+        assert {r["RoleName"] for r in data} == {"app-role", "ci-role"}
+
+        chains = json.loads((evidence_path / "assumeRole-chains.json").read_text())
+        assert {c["RoleName"] for c in chains["chains"]} == {"app-role", "ci-role"}
+
+    def test_list_policies_aggregates_across_multiple_pages(self, skill, aws_client, tmp_path):
+        session, evidence_path = _make_session(tmp_path)
+        iam = _make_iam_client()
+        _override_paginator(
+            iam,
+            "list_policies",
+            {"Policies": [_policy("policy-a")]},
+            {"Policies": [_policy("policy-b")]},
+        )
+
+        with patch("boto3.client", side_effect=_boto3_factory(iam=iam)):
+            skill.collect(aws_client, session)
+
+        data = json.loads((evidence_path / "policies.json").read_text())
+        assert {p["PolicyName"] for p in data} == {"policy-a", "policy-b"}
 
 
 def test_skill_name():

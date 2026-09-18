@@ -9,6 +9,7 @@ from drystone.pentest.exploitation_enricher import PentestExploitationEnricher
 from drystone.reports.formats import (
     JSONFormatter,
     MarkdownFormatter,
+    PCIDSSFormatter,
     PDFFormatter,
     PentestFormatter,
     PentestPDFFormatter,
@@ -190,6 +191,12 @@ class ReportGenerator:
                 formatter_class = PentestFormatter
             elif self.config.report_type == "pentest" and format_name == "pdf":
                 formatter_class = PentestPDFFormatter
+            elif self.config.report_type == "pci-dss" and format_name == "markdown":
+                # Dedicated PCI DSS deliverable (full control table incl. OK controls),
+                # not the general-purpose annex MarkdownFormatter renders. PDF has no
+                # PCI-DSS-specific formatter yet, so pci-dss + pdf still falls through
+                # to the generic PDFFormatter below, same as before.
+                formatter_class = PCIDSSFormatter
             elif format_name in self.FORMATTERS:
                 formatter_class = self.FORMATTERS[format_name]
             else:
@@ -253,6 +260,8 @@ class ReportGenerator:
                 formatter_class = PentestFormatter
             elif self.config.report_type == "pentest" and format_name == "pdf":
                 formatter_class = PentestPDFFormatter
+            elif self.config.report_type == "pci-dss" and format_name == "markdown":
+                formatter_class = PCIDSSFormatter
             elif format_name in self.FORMATTERS:
                 formatter_class = self.FORMATTERS[format_name]
             else:

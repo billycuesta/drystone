@@ -205,7 +205,7 @@ class PCIDSSFormatter(BaseFormatter):
 
         Returns empty string if no architecture field exists (non-alerting skills).
         """
-        architecture = self.findings.get("architecture")
+        architecture = self.report_context.redacted_findings.get("architecture")
         if not architecture:
             return ""
 
@@ -340,9 +340,16 @@ class PCIDSSFormatter(BaseFormatter):
         return checklist.get("version", "N/A")
 
     def _map_findings_to_controls(self) -> Dict[str, Dict]:
-        """Map findings to their PCI DSS controls for quick lookup."""
+        """Map findings to their PCI DSS controls for quick lookup.
+
+        Reads from the redacted findings view (self.report_context), not raw
+        self.findings -- this map feeds _critical_non_compliances(), which
+        dumps evidence_snippet/evidence_refs verbatim into the report, and
+        credential-shaped strings in evidence must never reach that output
+        unredacted (see rec RPT-H).
+        """
         mapping = {}
-        for finding in self.findings.get("findings", []):
+        for finding in self.report_context.redacted_findings.get("findings", []):
             for pci in finding.get("pci_dss", []):
                 control_id = pci["control"]
                 if control_id not in mapping:
@@ -351,19 +358,7 @@ class PCIDSSFormatter(BaseFormatter):
 
     def _get_requirement_name(self, req_num: str) -> str:
         """Get PCI DSS requirement name from its number."""
-        requirements = {
-            "1": "Network Security Controls",
-            "2": "Secure Configurations",
-            "3": "Data Protection",
-            "4": "Transmission Security",
-            "5": "Malware Protection",
-            "6": "Secure Development",
-            "7": "Access Control",
-            "8": "Identification & Authentication",
-            "10": "Logging & Monitoring",
-            "12": "Security Policies",
-        }
-        return requirements.get(req_num, "Unknown Requirement")
+        return get_requirement_name(req_num)
 
     def _critical_non_compliances(self) -> str:
         """List critical non-compliances by PCI control."""

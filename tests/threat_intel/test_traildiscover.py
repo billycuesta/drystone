@@ -40,7 +40,8 @@ class TestCatalogMetadata:
         metadata = get_catalog_metadata()
         assert metadata["repository"] == "https://github.com/adanalvarez/TrailDiscover"
         assert metadata["source_url"].endswith("/docs/events.json")
-        assert "source_commit" in metadata
+        assert metadata["source_commit"]
+        assert metadata["source_commit_date"]
 
 
 class TestGetEventContext:
@@ -161,3 +162,8 @@ class TestEnrichFinding:
         original_keys = set(finding.keys())
         enrich_finding(finding, [])
         assert set(finding.keys()) == original_keys
+
+def test_precheck_intermediate_without_severity_is_not_enriched():
+    finding = {"id": "CTEF-003", "status": "PASS"}
+    enrich_finding(finding, ["DeleteTrail"])
+    assert "threat_intel" not in finding

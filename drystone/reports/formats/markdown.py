@@ -1709,10 +1709,6 @@ Generated with [Drystone](https://github.com/billycuesta/drystone)
         header_status = "Status" if is_en else "Estado"
         header_just = "Justification" if is_en else "Justificación"
 
-        ko_controls = [c for c in controls if c["status"] == "ko"]
-        if not ko_controls:
-            return ""
-
         lines = [
             "---",
             "",
@@ -1743,8 +1739,9 @@ Generated with [Drystone](https://github.com/billycuesta/drystone)
                 "",
             ]
 
+        ok_label = "OK"
         current_req = None
-        for ctrl in ko_controls:
+        for ctrl in controls:
             req_num = ctrl["requirement"]
             if req_num != current_req:
                 if current_req is not None:
@@ -1758,6 +1755,19 @@ Generated with [Drystone](https://github.com/billycuesta/drystone)
 
             cid = ctrl["control"]
             findings_for_ctrl = ctrl["findings"]
+
+            if ctrl["status"] == "ok":
+                # No findings map to this control -- report it as evaluated-and-clean
+                # instead of omitting it, so an all-OK audit doesn't make the whole
+                # annex disappear (rec RPT-B).
+                checks = ctrl.get("checks") or []
+                check_ids = [c.get("id") for c in checks if isinstance(c, dict) and c.get("id")]
+                checks_str = ", ".join(check_ids) if check_ids else "N/A"
+                just = f"No mapped findings for checks: {checks_str}."
+                just = just.replace("|", "\\|")
+                lines.append(f"| {cid} | ✅ {ok_label} | {just} |")
+                continue
+
             # Extract reason from the first finding that has a per-control reason
             finding_reason = None
             for f in findings_for_ctrl:

@@ -5,6 +5,7 @@ import pytest
 
 from drystone.verification.active_verifier import VerificationResult
 from drystone.verification.runner import (
+    _region_from_evidence_metadata,
     _role_arns_from_correlated,
     _s3_buckets_from_findings,
     run_active_verification,
@@ -72,6 +73,15 @@ class TestTargetExtraction:
     def test_s3_buckets_missing_exposure_file_returns_empty(self, tmp_path):
         assert _s3_buckets_from_findings(tmp_path / "findings") == []
 
+    def test_region_from_evidence_metadata_uses_collected_region(self, tmp_path):
+        metadata = tmp_path / "evidence" / "exposure" / "_audit_metadata.json"
+        _write(metadata, {"_region": "eu-west-1"})
+
+        assert _region_from_evidence_metadata(tmp_path, "exposure") == "eu-west-1"
+
+    def test_region_from_evidence_metadata_defaults_when_missing(self, tmp_path):
+        assert _region_from_evidence_metadata(tmp_path, "exposure") == "us-east-1"
+
 
 class TestRunActiveVerification:
     def test_writes_log_and_annotates_successful_findings(self, tmp_path):
@@ -108,15 +118,19 @@ class TestRunActiveVerification:
             detail="403",
         )
 
+        _write(tmp_path / "evidence" / "exposure" / "_audit_metadata.json", {"_region": "eu-west-1"})
+
         with (
             patch(
                 "drystone.verification.runner.verify_assume_role", return_value=assume_result
             ),
             patch(
                 "drystone.verification.runner.verify_s3_public_access", return_value=s3_result
-            ),
+            ) as s3_verify,
         ):
             summary = run_active_verification(tmp_path, MagicMock())
+
+        s3_verify.assert_called_once_with("pub-bucket", region_name="eu-west-1")
 
         assert summary["attempted"] == 2
         assert summary["succeeded"] == 1

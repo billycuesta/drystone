@@ -83,6 +83,16 @@ def _s3_buckets_from_findings(findings_dir: Path) -> List[Tuple[str, str]]:
     return targets
 
 
+def _region_from_evidence_metadata(session_base_path: Path, skill: str) -> str:
+    metadata_path = session_base_path / "evidence" / skill / "_audit_metadata.json"
+    try:
+        data = json.loads(metadata_path.read_text())
+    except Exception:
+        return "us-east-1"
+    region = str(data.get("_region") or "").strip()
+    return region or "us-east-1"
+
+
 def _attach_result(
     file_path: Path,
     id_field: str,
@@ -140,8 +150,9 @@ def run_active_verification(
             _attach_result(correlated_path, "id", corr_id, result)
 
     exposure_path = findings_dir / "exposure.json"
+    exposure_region = _region_from_evidence_metadata(session_base_path, "exposure")
     for finding_id, bucket in _s3_buckets_from_findings(findings_dir):
-        result = verify_s3_public_access(bucket)
+        result = verify_s3_public_access(bucket, region_name=exposure_region)
         results.append(result)
         if result.result == "success":
             _attach_result(exposure_path, "id", finding_id, result)
