@@ -252,6 +252,11 @@ class TestEstimateTokensText:
         text = "a" * 300
         assert self.client._estimate_tokens_text(text) == 100
 
+    def test_mixed_prompt_json_ratio_is_intentionally_conservative(self):
+        """AD: keep 3 chars/token because prompts embed JSON, not just prose."""
+        prompt = '{"evidence": [{"Arn": "arn:aws:iam::123456789012:role/Admin"}]}'
+        assert self.client._estimate_tokens_text(prompt) == max(1, len(prompt) // 3)
+
     def test_non_string_returns_zero(self):
         assert self.client._estimate_tokens_text(42) == 0  # type: ignore[arg-type]
 

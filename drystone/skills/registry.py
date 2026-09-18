@@ -13,8 +13,10 @@ these constants — nothing outside that folder needs to change.
 from __future__ import annotations
 
 import importlib
+import json
 import pkgutil
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import drystone.skills as _skills_pkg
@@ -33,6 +35,7 @@ class SkillManifest:
 
 
 _registry_cache: Optional[Dict[str, SkillManifest]] = None
+_id_prefix_cache: Optional[Dict[str, str]] = None
 
 
 def discover_skills(force_refresh: bool = False) -> Dict[str, SkillManifest]:
@@ -98,3 +101,40 @@ def wizard_choices() -> List[SkillManifest]:
     return sorted(
         selectable, key=lambda m: (m.wizard_order if m.wizard_order is not None else 999)
     )
+
+
+def skill_name_by_id_prefix(force_refresh: bool = False) -> Dict[str, str]:
+    """``{id_prefix_lower: skill_name}`` derived from each skill's checklist.json.
+
+    The single source of truth for going from a finding ID's prefix (e.g.
+    "CTEF" from "CTEF-001") back to the real skill name, instead of assuming
+    skill_name == id_prefix.lower() -- that assumption is wrong for skills
+    whose checklist prefix doesn't match their name (sistemas_explotables_red
+    -> "SER", cloudtrail_events -> "CTEF", messaging -> "MSG", etc.).
+
+    Built from the same checklist.json data agent/client.py's
+    _get_skill_code() uses in the other direction (skill_name -> prefix).
+    Cached after the first call; pass force_refresh=True to re-scan.
+    """
+    global _id_prefix_cache
+    if _id_prefix_cache is not None and not force_refresh:
+        return _id_prefix_cache
+
+    mapping: Dict[str, str] = {}
+    skills_dir = Path(__file__).parent
+    for skill_name in discover_skills(force_refresh=force_refresh):
+        checklist_path = skills_dir / skill_name / "checklist.json"
+        try:
+            checklist = json.loads(checklist_path.read_text())
+        except Exception:
+            continue
+        items = checklist.get("items") or []
+        if not items:
+            continue
+        first_id = str(items[0].get("id", ""))
+        if "-" not in first_id:
+            continue
+        mapping[first_id.split("-", 1)[0].lower()] = skill_name
+
+    _id_prefix_cache = mapping
+    return mapping

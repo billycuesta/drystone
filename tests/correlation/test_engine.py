@@ -102,6 +102,22 @@ class TestCorrelationEngine:
         assert ssh_corr["compound_risk_score"] > 0
         assert len(ssh_corr["source_finding_ids"]) >= 2  # At least IAM + Network
 
+    def test_source_findings_use_real_skill_names_not_id_prefix(self, populated_session):
+        """rec AJ: engine.py used to derive `skill` by lowercasing the finding-ID
+        prefix (e.g. "net" for a NET-xxx finding), which is wrong whenever a
+        skill's real name differs from its checklist ID prefix -- as it does
+        for "network" itself (prefix "NET").
+        """
+        engine = CorrelationEngine(populated_session)
+        result = engine.run()
+
+        ssh_corr = [
+            c for c in result["correlations"] if c["pattern_id"] == "iam_network_ssh_compromise"
+        ][0]
+        skills = {sf["skill"] for sf in ssh_corr["source_findings"]}
+        assert "net" not in skills
+        assert "network" in skills
+
     def test_multiple_correlations_same_pattern(self, populated_session):
         """Test multiple users generate separate correlations."""
         engine = CorrelationEngine(populated_session)

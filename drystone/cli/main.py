@@ -15,12 +15,21 @@ from drystone.cloud.aws.client import AWSClient
 from drystone.models import WizardConfig
 from drystone.skills.registry import skill_names as _registry_skill_names
 
+_DEBUG = False
+
 
 @click.group()
+@click.option(
+    "--debug",
+    "-v",
+    is_flag=True,
+    help="Show full tracebacks on error, instead of a one-line message.",
+)
 @click.version_option(__version__, prog_name="drystone")
-def cli() -> None:
+def cli(debug: bool) -> None:
     """🐡 Drystone - AWS Security Audit CLI powered by Claude."""
-    pass
+    global _DEBUG
+    _DEBUG = debug
 
 
 @cli.command()
@@ -127,12 +136,21 @@ def audit(
                 traceback.print_exc()
                 sys.exit(1)
         elif has_cli_args:
-            # For now, CLI args only work with a saved config
-            config = load_last_config()
+            # For now, CLI args only work with a saved config. Load that specific
+            # client's own config when --client is given, so CLI-arg runs never
+            # silently inherit a different client's saved skills/formats/provider.
+            config = load_last_config(client=client)
             if not config:
-                click.echo(
-                    "❌ No saved configuration found. Please run 'drystone audit' first to create one."
-                )
+                if client:
+                    click.echo(
+                        f"❌ No saved configuration found for client '{client}'. "
+                        "Run the interactive wizard for this client first: drystone audit --client "
+                        f'"{client}"'
+                    )
+                else:
+                    click.echo(
+                        "❌ No saved configuration found. Please run 'drystone audit' first to create one."
+                    )
                 sys.exit(1)
             click.echo("✅ Using saved configuration with CLI overrides\n")
             # Override config with CLI args
@@ -338,6 +356,10 @@ def main() -> None:
         sys.exit(130)
     except Exception as e:
         click.echo(f"❌ Error: {e}", err=True)
+        if _DEBUG:
+            import traceback
+
+            traceback.print_exc()
         sys.exit(1)
 
 

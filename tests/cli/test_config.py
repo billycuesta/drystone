@@ -5,20 +5,28 @@ from unittest.mock import patch
 
 import pytest
 
-from drystone.cli.config import ensure_config_dir, load_last_config, save_config
+from drystone.cli.config import (
+    _config_path_for_client,
+    _slugify_client_name,
+    ensure_config_dir,
+    load_last_config,
+    save_config,
+)
 from drystone.models.config import WizardConfig
 
 
 @pytest.fixture
 def tmp_config_dir(tmp_path):
-    """Patch CONFIG_DIR and LAST_RUN_FILE to an isolated temp directory."""
+    """Patch CONFIG_DIR/CONFIGS_DIR/LAST_CLIENT_FILE to an isolated temp directory."""
     config_dir = tmp_path / ".drystone"
-    last_run = config_dir / "last-run.json"
+    configs_dir = config_dir / "configs"
+    last_client = config_dir / "last-client.json"
     with (
         patch("drystone.cli.config.CONFIG_DIR", config_dir),
-        patch("drystone.cli.config.LAST_RUN_FILE", last_run),
+        patch("drystone.cli.config.CONFIGS_DIR", configs_dir),
+        patch("drystone.cli.config.LAST_CLIENT_FILE", last_client),
     ):
-        yield config_dir, last_run
+        yield config_dir, configs_dir, last_client
 
 
 @pytest.fixture
@@ -71,105 +79,175 @@ class TestAIProviderDefaults:
         assert config.ai_api_key == "sk-ant-test"
 
 
+# ── _slugify_client_name / _config_path_for_client ────────────────────────────
+
+
+class TestSlugifyClientName:
+    def test_simple_name_lowercased_untouched_case(self):
+        assert _slugify_client_name("ACME") == "ACME"
+
+    def test_spaces_become_underscores(self):
+        assert _slugify_client_name("ACME Corp") == "ACME_Corp"
+
+    def test_special_characters_stripped(self):
+        assert _slugify_client_name("ACME & Co. / Ltd!") == "ACME_Co._Ltd"
+
+    def test_empty_name_falls_back_to_placeholder(self):
+        assert _slugify_client_name("   ") == "unnamed-client"
+
+    def test_two_different_names_never_collide_into_the_same_slug(self):
+        """The specific bug rec H exists to fix: two different clients must
+        never end up sharing one saved config."""
+        assert _slugify_client_name("ACME") != _slugify_client_name("ACME_Subsidiary")
+
+
+class TestConfigPathForClient:
+    def test_different_clients_get_different_paths(self, tmp_config_dir):
+        _, configs_dir, _ = tmp_config_dir
+        acme_path = _config_path_for_client("ACME")
+        other_path = _config_path_for_client("OtherClient")
+        assert acme_path != other_path
+        assert acme_path.parent == configs_dir
+
+
 # ── ensure_config_dir ─────────────────────────────────────────────────────────
 
 
 class TestEnsureConfigDir:
     def test_creates_directory_when_missing(self, tmp_config_dir):
-        config_dir, _ = tmp_config_dir
-        assert not config_dir.exists()
+        _, configs_dir, _ = tmp_config_dir
+        assert not configs_dir.exists()
         ensure_config_dir()
-        assert config_dir.exists()
+        assert configs_dir.exists()
 
     def test_does_not_raise_if_directory_already_exists(self, tmp_config_dir):
-        config_dir, _ = tmp_config_dir
-        config_dir.mkdir(parents=True)
+        _, configs_dir, _ = tmp_config_dir
+        configs_dir.mkdir(parents=True)
         ensure_config_dir()  # Should not raise
-        assert config_dir.exists()
+        assert configs_dir.exists()
 
     def test_creates_nested_parents(self, tmp_path):
         deep_dir = tmp_path / "a" / "b" / ".drystone"
-        last_run = deep_dir / "last-run.json"
+        configs_dir = deep_dir / "configs"
         with (
             patch("drystone.cli.config.CONFIG_DIR", deep_dir),
-            patch("drystone.cli.config.LAST_RUN_FILE", last_run),
+            patch("drystone.cli.config.CONFIGS_DIR", configs_dir),
         ):
             ensure_config_dir()
-        assert deep_dir.exists()
+        assert configs_dir.exists()
 
 
 # ── save_config ───────────────────────────────────────────────────────────────
 
 
 class TestSaveConfig:
-    def test_returns_path_to_saved_file(self, tmp_config_dir, sample_config):
-        _, last_run = tmp_config_dir
+    def test_returns_path_under_configs_dir(self, tmp_config_dir, sample_config):
+        _, configs_dir, _ = tmp_config_dir
         result = save_config(sample_config)
-        assert result == last_run
-
-    def test_creates_file_on_disk(self, tmp_config_dir, sample_config):
-        _, last_run = tmp_config_dir
-        save_config(sample_config)
-        assert last_run.exists()
+        assert result.parent == configs_dir
+        assert result.exists()
 
     def test_creates_config_dir_if_missing(self, tmp_config_dir, sample_config):
-        config_dir, _ = tmp_config_dir
-        assert not config_dir.exists()
+        _, configs_dir, _ = tmp_config_dir
+        assert not configs_dir.exists()
         save_config(sample_config)
-        assert config_dir.exists()
+        assert configs_dir.exists()
 
     def test_saved_file_is_valid_json(self, tmp_config_dir, sample_config):
-        _, last_run = tmp_config_dir
-        save_config(sample_config)
-        data = json.loads(last_run.read_text())
+        result = save_config(sample_config)
+        data = json.loads(result.read_text())
         assert isinstance(data, dict)
         assert data["client_name"] == "ACME Corp"
 
-    def test_overwrites_existing_file(self, tmp_config_dir, sample_config):
-        _, last_run = tmp_config_dir
+    def test_overwrites_existing_file_for_same_client(self, tmp_config_dir, sample_config):
+        result = save_config(sample_config)
+        sample_config.skills = ["network"]
         save_config(sample_config)
-        sample_config.client_name = "Updated Corp"
-        save_config(sample_config)
-        data = json.loads(last_run.read_text())
-        assert data["client_name"] == "Updated Corp"
+        data = json.loads(result.read_text())
+        assert data["skills"] == ["network"]
+
+    def test_two_clients_get_two_separate_files_neither_overwritten(self, tmp_config_dir):
+        acme = WizardConfig(client_name="ACME", aws_region="us-east-1", skills=["iam"])
+        other = WizardConfig(client_name="OtherClient", aws_region="us-east-1", skills=["network"])
+
+        acme_path = save_config(acme)
+        other_path = save_config(other)
+
+        assert acme_path != other_path
+        assert json.loads(acme_path.read_text())["skills"] == ["iam"]
+        assert json.loads(other_path.read_text())["skills"] == ["network"]
+
+    def test_records_last_used_client(self, tmp_config_dir):
+        _, _, last_client_file = tmp_config_dir
+        save_config(WizardConfig(client_name="ACME", aws_region="us-east-1", skills=["iam"]))
+        assert json.loads(last_client_file.read_text())["client_name"] == "ACME"
+
+        save_config(
+            WizardConfig(client_name="OtherClient", aws_region="us-east-1", skills=["network"])
+        )
+        assert json.loads(last_client_file.read_text())["client_name"] == "OtherClient"
 
 
 # ── load_last_config ──────────────────────────────────────────────────────────
 
 
 class TestLoadLastConfig:
-    def test_returns_none_when_file_does_not_exist(self, tmp_config_dir):
-        _, last_run = tmp_config_dir
-        assert not last_run.exists()
+    def test_returns_none_when_nothing_saved(self, tmp_config_dir):
         assert load_last_config() is None
 
-    def test_returns_wizard_config_when_file_exists(self, tmp_config_dir, sample_config):
+    def test_returns_wizard_config_after_save(self, tmp_config_dir, sample_config):
         save_config(sample_config)
         result = load_last_config()
         assert isinstance(result, WizardConfig)
 
-    def test_returns_none_on_corrupted_json(self, tmp_config_dir, capsys):
-        config_dir, last_run = tmp_config_dir
-        config_dir.mkdir(parents=True)
-        last_run.write_text("{ this is not valid json }")
-        result = load_last_config()
-        assert result is None
+    def test_explicit_client_loads_that_clients_own_config_not_last_used(self, tmp_config_dir):
+        """rec H: this is the actual bug fix -- a client's own saved settings
+        (skills here) must not be silently overridden by whichever client
+        happened to run most recently."""
+        save_config(WizardConfig(client_name="ACME", aws_region="us-east-1", skills=["iam"]))
+        save_config(
+            WizardConfig(client_name="OtherClient", aws_region="us-east-1", skills=["network"])
+        )
 
-    def test_prints_warning_on_corrupted_json(self, tmp_config_dir, capsys):
-        config_dir, last_run = tmp_config_dir
-        config_dir.mkdir(parents=True)
-        last_run.write_text("{ bad json }")
-        load_last_config()
+        result = load_last_config(client="ACME")
+
+        assert result is not None
+        assert result.client_name == "ACME"
+        assert result.skills == ["iam"]
+
+    def test_no_client_given_falls_back_to_most_recently_saved(self, tmp_config_dir):
+        save_config(WizardConfig(client_name="ACME", aws_region="us-east-1", skills=["iam"]))
+        save_config(
+            WizardConfig(client_name="OtherClient", aws_region="us-east-1", skills=["network"])
+        )
+
+        result = load_last_config()
+
+        assert result is not None
+        assert result.client_name == "OtherClient"
+
+    def test_unknown_client_returns_none(self, tmp_config_dir, sample_config):
+        save_config(sample_config)
+        assert load_last_config(client="NeverAuditedClient") is None
+
+    def test_returns_none_on_corrupted_json(self, tmp_config_dir, sample_config):
+        result = save_config(sample_config)
+        result.write_text("{ this is not valid json }")
+        assert load_last_config(client=sample_config.client_name) is None
+
+    def test_prints_warning_on_corrupted_json(self, tmp_config_dir, sample_config, capsys):
+        result = save_config(sample_config)
+        result.write_text("{ bad json }")
+        load_last_config(client=sample_config.client_name)
         captured = capsys.readouterr()
         assert "Could not load saved config" in captured.out
 
     def test_returns_none_on_invalid_config_values(self, tmp_config_dir):
-        config_dir, last_run = tmp_config_dir
-        config_dir.mkdir(parents=True)
+        _, configs_dir, _ = tmp_config_dir
+        configs_dir.mkdir(parents=True)
         # Valid JSON but invalid WizardConfig (missing required client_name)
-        last_run.write_text(json.dumps({"aws_region": "us-east-1"}))
-        result = load_last_config()
-        assert result is None
+        (configs_dir / "Broken.json").write_text(json.dumps({"aws_region": "us-east-1"}))
+        assert load_last_config(client="Broken") is None
 
 
 # ── round-trip ────────────────────────────────────────────────────────────────
@@ -188,9 +266,8 @@ class TestRoundTrip:
 
     def test_direct_credentials_never_persisted(self, tmp_config_dir, sample_config):
         # Credentials must never be written to disk (security requirement)
-        save_config(sample_config)
-        _, last_run = tmp_config_dir
-        data = json.loads(last_run.read_text())
+        result = save_config(sample_config)
+        data = json.loads(result.read_text())
         assert "aws_access_key_id" not in data
         assert "aws_secret_access_key" not in data
         assert "ai_api_key" not in data
@@ -204,9 +281,8 @@ class TestRoundTrip:
             aws_region="us-east-1",
             skills=["iam"],
         )
-        save_config(config)
-        _, last_run = tmp_config_dir
-        data = json.loads(last_run.read_text())
+        result = save_config(config)
+        data = json.loads(result.read_text())
         assert "aws_access_key_id" not in data
         assert "aws_secret_access_key" not in data
 
@@ -217,9 +293,8 @@ class TestRoundTrip:
             aws_region="us-east-1",
             skills=["iam"],
         )
-        save_config(config)
-        _, last_run = tmp_config_dir
-        data = json.loads(last_run.read_text())
+        result = save_config(config)
+        data = json.loads(result.read_text())
         assert "aws_access_key_id" not in data
         assert "aws_secret_access_key" not in data
 
@@ -234,9 +309,8 @@ class TestRoundTrip:
             aws_external_id="sensitive-external-id",
             aws_role_duration_seconds=1800,
         )
-        save_config(config)
-        _, last_run = tmp_config_dir
-        data = json.loads(last_run.read_text())
+        result = save_config(config)
+        data = json.loads(result.read_text())
         assert data["aws_role_arn"] == "arn:aws:iam::123456789012:role/Audit"
         assert data["aws_role_session_name"] == "drystone-audit"
         assert data["aws_role_duration_seconds"] == 1800

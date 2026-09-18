@@ -8,7 +8,6 @@ from drystone.agent.retry import (
     analyze_with_retry,
     get_retry_delay,
     is_retryable_error,
-    retry_with_backoff,
 )
 
 # ── is_retryable_error ────────────────────────────────────────────────────────
@@ -109,110 +108,6 @@ class TestGetRetryDelay:
     def test_429_uses_rate_limit_delay(self):
         delay = get_retry_delay(Exception("429 error"), attempt=1)
         assert delay == 40  # rate limit path
-
-
-# ── retry_with_backoff decorator ──────────────────────────────────────────────
-
-
-class TestRetryWithBackoff:
-    def test_succeeds_on_first_attempt(self):
-        call_count = 0
-
-        @retry_with_backoff(max_retries=3, skill_name="iam")
-        def succeed():
-            nonlocal call_count
-            call_count += 1
-            return "ok"
-
-        result = succeed()
-        assert result == "ok"
-        assert call_count == 1
-
-    def test_retries_on_retryable_error(self):
-        call_count = 0
-
-        @retry_with_backoff(max_retries=3, skill_name="iam")
-        def fail_twice():
-            nonlocal call_count
-            call_count += 1
-            if call_count < 3:
-                raise Exception("timeout")
-            return "ok"
-
-        with patch("drystone.agent.retry.time.sleep"):
-            result = fail_twice()
-
-        assert result == "ok"
-        assert call_count == 3
-
-    def test_non_retryable_error_raises_immediately(self):
-        call_count = 0
-
-        @retry_with_backoff(max_retries=3, skill_name="iam")
-        def fail():
-            nonlocal call_count
-            call_count += 1
-            raise Exception("authentication failed")
-
-        with pytest.raises(Exception, match="authentication"):
-            fail()
-
-        assert call_count == 1  # No retries
-
-    def test_exhausted_retries_raises(self):
-        @retry_with_backoff(max_retries=2, skill_name="iam")
-        def always_fail():
-            raise Exception("timeout")
-
-        with patch("drystone.agent.retry.time.sleep"):
-            with pytest.raises(Exception):
-                always_fail()
-
-    def test_validator_failure_retries(self):
-        call_count = 0
-
-        def validator(result):
-            return result > 5  # Only pass if result > 5
-
-        @retry_with_backoff(max_retries=3, skill_name="iam", validator=validator)
-        def returns_low():
-            nonlocal call_count
-            call_count += 1
-            return call_count * 3  # 3, 6 on second call
-
-        with patch("drystone.agent.retry.time.sleep"):
-            result = returns_low()
-
-        assert result == 6
-        assert call_count == 2
-
-    def test_validator_exhaustion_raises_value_error(self):
-        def always_fail_validator(result):
-            return False
-
-        @retry_with_backoff(max_retries=2, skill_name="iam", validator=always_fail_validator)
-        def func():
-            return "result"
-
-        with patch("drystone.agent.retry.time.sleep"):
-            with pytest.raises(ValueError, match="Validation failed"):
-                func()
-
-    def test_sleep_called_between_retries(self):
-        call_count = 0
-
-        @retry_with_backoff(max_retries=3, skill_name="iam")
-        def fail_once():
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                raise Exception("timeout")
-            return "ok"
-
-        with patch("drystone.agent.retry.time.sleep") as mock_sleep:
-            fail_once()
-
-        mock_sleep.assert_called_once()
 
 
 # ── analyze_with_retry ────────────────────────────────────────────────────────

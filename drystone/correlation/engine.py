@@ -29,6 +29,7 @@ from drystone.correlation.models import (
 )
 from drystone.correlation.patterns import PATTERN_METADATA, PATTERN_REGISTRY
 from drystone.models.findings import Finding
+from drystone.skills.registry import skill_name_by_id_prefix
 
 logger = logging.getLogger(__name__)
 
@@ -255,7 +256,9 @@ class CorrelationEngine:
                     source_refs = [
                         SourceFindingRef(
                             id=f.id,
-                            skill=f.id.split("-")[0].lower(),
+                            skill=skill_name_by_id_prefix().get(
+                                f.id.split("-")[0].lower(), f.id.split("-")[0].lower()
+                            ),
                             title=f.title,
                             severity=f.severity,
                             risk_score=f.risk_score,
@@ -802,8 +805,9 @@ class CorrelationEngine:
         # Build source finding refs
         source_refs = []
         for finding in match_group:
-            # Extract skill name from finding ID (IAM-001 → iam)
-            skill = finding.id.split("-")[0].lower()
+            # Extract skill name from finding ID (IAM-001 -> iam, CTEF-001 -> cloudtrail_events)
+            _prefix = finding.id.split("-")[0].lower()
+            skill = skill_name_by_id_prefix().get(_prefix, _prefix)
 
             source_refs.append(
                 SourceFindingRef(

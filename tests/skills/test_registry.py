@@ -6,6 +6,7 @@ import drystone.skills.registry as registry
 
 def _reset_cache():
     registry._registry_cache = None
+    registry._id_prefix_cache = None
 
 
 def test_discover_skills_finds_all_real_skills():
@@ -88,4 +89,45 @@ def test_discover_skills_picks_up_a_new_skill_with_zero_edits_elsewhere(tmp_path
         wizard_names = {m.name for m in registry.wizard_choices()}
         assert wizard_names == {"totally_new_skill"}
     finally:
+        _reset_cache()
+
+
+class TestSkillNameByIdPrefix:
+    """Regression tests for the reverse (ID-prefix -> skill_name) lookup used to
+    fix correlation/engine.py rec AJ (previously assumed skill_name == prefix.lower())."""
+
+    def test_maps_real_prefixes_to_real_skill_names(self):
+        _reset_cache()
+        mapping = registry.skill_name_by_id_prefix(force_refresh=True)
+
+        # All 16 real (prefix -> skill_name) pairs. correlation/engine.py's old
+        # `finding.id.split("-")[0].lower()` assumed skill_name == prefix.lower(),
+        # which only happens to hold for iam/ecr/waf/kms/cicd/recon -- for the
+        # other 10 (exposure, network, vulns, hardening, alerting, secretsmanager,
+        # compute, messaging, cloudtrail_events, sistemas_explotables_red) it
+        # produced a wrong skill label.
+        assert mapping == {
+            "iam": "iam",
+            "exp": "exposure",
+            "net": "network",
+            "vuln": "vulns",
+            "hrd": "hardening",
+            "alrt": "alerting",
+            "ecr": "ecr",
+            "sm": "secretsmanager",
+            "waf": "waf",
+            "kms": "kms",
+            "cicd": "cicd",
+            "comp": "compute",
+            "msg": "messaging",
+            "ctef": "cloudtrail_events",
+            "recon": "recon",
+            "ser": "sistemas_explotables_red",
+        }
+
+    def test_result_is_cached_until_force_refresh(self):
+        _reset_cache()
+        first = registry.skill_name_by_id_prefix()
+        second = registry.skill_name_by_id_prefix()
+        assert first is second
         _reset_cache()

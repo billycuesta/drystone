@@ -367,7 +367,14 @@ class AgentClient:
         return findings
 
     def _estimate_tokens_text(self, text: str) -> int:
-        """Estimate tokens from text using conservative JSON-friendly ratio."""
+        """Estimate tokens using a conservative mixed prompt/JSON ratio.
+
+        Drystone prompts are mostly English instructions, but they embed compact
+        JSON evidence/checklists and expect JSON responses. JSON punctuation and
+        repeated keys tokenize less efficiently than prose, so 3 chars/token is
+        intentionally conservative; do not loosen to 4 chars/token as if this
+        were plain English prose.
+        """
         if not isinstance(text, str) or not text:
             return 0
         return max(1, len(text) // 3)

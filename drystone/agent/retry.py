@@ -12,15 +12,12 @@ Inspiration: src/error-handling.ts (lines 132-198)
 
 import logging
 import time
-from functools import wraps
-from typing import Callable, Optional, TypeVar
+from typing import Callable
 
 from drystone.models.findings import SkillFindings
 from drystone.validation.output_validators import validate_findings
 
 logger = logging.getLogger(__name__)
-
-T = TypeVar("T")
 
 # Patterns that indicate RETRYABLE errors (transient/temporary)
 RETRYABLE_ERROR_PATTERNS = [
@@ -168,81 +165,6 @@ def get_retry_delay(error: Exception, attempt: int) -> float:
     return delay
 
 
-def retry_with_backoff(
-    max_retries: int = 3,
-    skill_name: str = "unknown",
-    validator: Optional[Callable[[T], bool]] = None,
-) -> Callable[[Callable[..., T]], Callable[..., T]]:
-    """
-    Decorator for retry with exponential backoff.
-
-    Retries agent analysis on transient errors or validation failures.
-    Non-retryable errors fail immediately.
-
-    Args:
-        max_retries: Maximum number of retry attempts (default: 3)
-        skill_name: Name of skill being analyzed (for logging)
-        validator: Optional validation function (called after agent returns)
-
-    Returns:
-        Callable: Decorated function with retry logic
-    """
-
-    def decorator(func: Callable[..., T]) -> Callable[..., T]:
-        @wraps(func)
-        def wrapper(*args, **kwargs) -> T:
-            for attempt in range(1, max_retries + 1):
-                try:
-                    # Execute agent
-                    result = func(*args, **kwargs)
-
-                    # Validate output (if validator provided)
-                    if validator and result:
-                        if not validator(result):
-                            if attempt < max_retries:
-                                logger.warning(
-                                    f"[{skill_name}] Validation failed, "
-                                    f"retry {attempt}/{max_retries}"
-                                )
-                                continue
-                            else:
-                                raise ValueError(f"Validation failed after {max_retries} attempts")
-
-                    # SUCCESS: Return result
-                    logger.info(f"[{skill_name}] Analysis succeeded on attempt {attempt}")
-                    return result
-
-                except Exception as e:
-                    # Classify error
-                    if not is_retryable_error(e):
-                        logger.error(f"[{skill_name}] Non-retryable error: {e}")
-                        raise
-
-                    # Check if max retries exhausted
-                    if attempt >= max_retries:
-                        logger.error(
-                            f"[{skill_name}] Failed after {max_retries} attempts. Last error: {e}"
-                        )
-                        raise
-
-                    # Calculate delay and retry
-                    delay = get_retry_delay(e, attempt)
-                    logger.warning(
-                        f"[{skill_name}] Retrying in {delay:.1f}s "
-                        f"(attempt {attempt}/{max_retries}). "
-                        f"Error: {e}"
-                    )
-                    time.sleep(delay)
-
-            # Unreachable (loop exhausted)
-            raise Exception(f"[{skill_name}] Unreachable state after {max_retries} attempts")
-
-        return wrapper
-
-    return decorator
-
-
-# Alternative: Non-decorator retry function (for when decorator not suitable)
 def analyze_with_retry(
     analyze_func: Callable[..., SkillFindings], skill_name: str, max_retries: int = 3, **kwargs
 ) -> SkillFindings:

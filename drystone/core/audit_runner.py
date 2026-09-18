@@ -7,6 +7,17 @@ already-configured and already-credential-validated audit.
 This module must stay free of `click` (and of `sys.exit`) so it can be
 called programmatically -- not only from the `drystone audit` CLI command --
 by future features such as trend analysis, scheduling, or multi-account runs.
+
+Each pipeline phase is a top-level function (`_create_session`,
+`_collect_evidence`, `_analyze_evidence`, ...) so it can be tested in
+isolation instead of only through a full `run_audit()` call. `run_audit()`
+itself stays a slim orchestrator: it calls each phase in order and threads
+the handful of values (session, aws_client, skill_instances, all_findings,
+metrics_tracker) that later phases need from earlier ones. Every phase keeps
+its own imports lazy/function-local, matching the original inline code --
+this is what lets tests patch collaborators at their origin module (e.g.
+`patch("drystone.reports.ReportGenerator")`) regardless of which phase
+function does the importing.
 """
 
 from __future__ import annotations
@@ -15,13 +26,15 @@ import json
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple
 
 from drystone.models import WizardConfig
 
 if TYPE_CHECKING:
-    # Imports kept lazy at runtime (inside run_audit(), matching the original
-    # module-local imports in cli/main.py) -- these are type-checking only.
+    # Imports kept lazy at runtime (matching the original module-local imports
+    # in cli/main.py) -- these are type-checking only.
+    from drystone.audit_logging import MetricsTracker
+    from drystone.cloud.aws.client import AWSClient
     from drystone.storage.session import AuditSession
 
 
@@ -34,66 +47,52 @@ class AuditRunResult:
     qa_passed: bool = True
 
 
-def run_audit(
-    config: WizardConfig,
-    account_id: str,
-    *,
-    on_message: Optional[Callable[[str], None]] = None,
-) -> AuditRunResult:
-    """Run the full audit pipeline for an already-validated configuration.
+Msg = Callable[[str], None]
 
-    Args:
-        config: Fully-resolved wizard/CLI configuration.
-        account_id: AWS account ID, already resolved via credential validation.
-        on_message: Optional callback invoked with each progress/status message
-            (mirrors what the CLI used to send straight to `click.echo`). When
-            omitted, messages are silently discarded (silent/programmatic mode).
 
-    Returns:
-        AuditRunResult with the session, aggregated findings, and whether the
-        post-scan QA gate passed.
-    """
-    _msg = on_message or (lambda _m: None)
-
-    # === PHASE 2: EVIDENCE COLLECTION ===
-    _msg("")
-    from drystone.cloud.aws.client import AWSClient
+def _create_session(
+    config: WizardConfig, account_id: str, _msg: Msg
+) -> Tuple["AuditSession", "MetricsTracker", Path]:
+    """Phase: create the audit session and its per-session metrics tracker."""
+    from drystone.audit_logging import MetricsTracker
     from drystone.storage.session import AuditSession
 
-    # Create audit session
     _msg("📁 Creating audit session...")
     session = AuditSession(config.client_name, account_id)
     session.scan_depth = getattr(config, "scan_depth", "normal")  # propagate to skills
     _msg(f"   Session: {session.base_path}\n")
 
-    # Metrics tracker (per-session)
-    from drystone.audit_logging import MetricsTracker
-
     metrics_file = session.base_path / "metrics.json"
     metrics_tracker = MetricsTracker(metrics_file)
+    return session, metrics_tracker, metrics_file
 
-    phase_total = 3
-    phase_done = 0
 
-    def _print_progress(phase_label: str, completed: int, total: int) -> None:
-        pct = int((completed / max(1, total)) * 100)
-        _msg(f"📊 Progress: {completed}/{total} phases ({pct}%) - {phase_label}")
+def _collect_pentest_inventory_if_needed(
+    config: WizardConfig, aws_client: "AWSClient", session: "AuditSession", _msg: Msg
+) -> None:
+    """Phase: best-effort high-level AWS resource inventory, pentest reports only."""
+    if str(getattr(config, "report_type", "")).lower() != "pentest":
+        return
 
-    _print_progress("Starting collection", phase_done, phase_total)
+    try:
+        from drystone.pentest.inventory import collect_pentest_inventory
 
-    # Create AWS client
-    aws_client = AWSClient(config)
+        _msg("🧭 Collecting high-level platform inventory for pentest scope...")
+        inventory_path = collect_pentest_inventory(aws_client, session)
+        _msg(f"   ✅ Inventory saved: {inventory_path.name}\n")
+    except Exception as e:
+        _msg(f"   ⚠️  Could not collect pentest inventory: {e}\n")
 
-    if str(getattr(config, "report_type", "")).lower() == "pentest":
-        try:
-            from drystone.pentest.inventory import collect_pentest_inventory
 
-            _msg("🧭 Collecting high-level platform inventory for pentest scope...")
-            inventory_path = collect_pentest_inventory(aws_client, session)
-            _msg(f"   ✅ Inventory saved: {inventory_path.name}\n")
-        except Exception as e:
-            _msg(f"   ⚠️  Could not collect pentest inventory: {e}\n")
+def _collect_evidence(
+    config: WizardConfig, aws_client: "AWSClient", session: "AuditSession", _msg: Msg
+) -> Tuple[Dict[str, Any], Dict[str, str]]:
+    """Phase: run each configured skill's collector.
 
+    Returns (skill_instances, skill_display_names): skill_instances holds one
+    entry per skill that was successfully imported and instantiated (even if
+    its collect() call itself failed), keyed by skill name.
+    """
     # Dynamically load and execute skills (auto-discovered — see
     # drystone/skills/registry.py; a new skill needs zero edits here)
     from drystone.skills.registry import skill_display_names as _registry_display_names
@@ -102,7 +101,7 @@ def run_audit(
     skills_map = _registry_import_map()
     skill_display_names = _registry_display_names()
 
-    skill_instances = {}
+    skill_instances: Dict[str, Any] = {}
     collection_total = max(1, len(config.skills))
     collection_done = 0
     _msg(f"🔄 Phase 1/3 Collection: 0/{collection_total} skills")
@@ -144,12 +143,20 @@ def run_audit(
         finally:
             collection_done += 1
             _msg(f"   Phase 1/3 progress: {collection_done}/{collection_total}")
-    phase_done += 1
-    _print_progress("Collection complete", phase_done, phase_total)
 
-    # === PHASE 3: AGENT ANALYSIS ===
-    _msg("🤖 Analyzing evidence with AI...\n")
+    return skill_instances, skill_display_names
 
+
+def _analyze_evidence(
+    config: WizardConfig,
+    session: "AuditSession",
+    skill_instances: Dict[str, Any],
+    skill_display_names: Dict[str, str],
+    metrics_tracker: "MetricsTracker",
+    _msg: Msg,
+) -> Dict[str, Any]:
+    """Phase: run AI analysis for each collected skill (parallel or sequential
+    depending on provider) and return {skill_name: findings_dict}."""
     from drystone.agent.client import AgentClient
 
     # Create provider configuration once
@@ -168,7 +175,7 @@ def run_audit(
     # This dramatically speeds up multi-skill audits (4-5x faster)
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    all_findings: dict[str, Any] = {}
+    all_findings: Dict[str, Any] = {}
     analysis_total = max(1, len(skill_instances))
     analysis_done = 0
     _msg(f"🔄 Phase 2/3 Analysis: 0/{analysis_total} skills")
@@ -182,7 +189,7 @@ def run_audit(
     else:
         _msg("   🚀 Running skills in PARALLEL for maximum speed...\n")
 
-    chunk_state: dict[str, Any] = {}
+    chunk_state: Dict[str, Any] = {}
     chunk_lock = threading.Lock()
 
     def _on_chunk_progress(
@@ -266,10 +273,12 @@ def run_audit(
                                 analysis_done += 1
                                 _msg(f"   Phase 2/3 progress: {analysis_done}/{analysis_total}")
                         break
-    phase_done += 1
-    _print_progress("Analysis complete", phase_done, phase_total)
 
-    # === PHASE 3b: CROSS-SKILL CORRELATION ===
+    return all_findings
+
+
+def _run_correlation(session: "AuditSession", all_findings: Dict[str, Any], _msg: Msg) -> None:
+    """Phase: cross-skill attack-chain correlation (skipped below 2 skills)."""
     if all_findings and len(all_findings) > 1:
         try:
             from drystone.correlation.engine import CorrelationEngine
@@ -282,10 +291,13 @@ def run_audit(
         except Exception as _corr_err:
             _msg(f"  ⚠️  Correlation failed: {_corr_err}\n")
 
-    # === PHASE 3b-2: TREND ANALYSIS ===
-    # Diff this run's findings against the most recent prior session for the
-    # same client, if one exists, so reports can surface new/fixed findings.
-    # Non-blocking, and a no-op (empty trend.json) for a client's first audit.
+
+def _run_trend_analysis(
+    config: WizardConfig, session: "AuditSession", all_findings: Dict[str, Any], _msg: Msg
+) -> None:
+    """Phase: diff this run's findings against the most recent prior session for
+    the same client, if one exists. Non-blocking, no-op for a client's first audit.
+    """
     if all_findings:
         try:
             from drystone.core.trend_analysis import compute_trend, find_previous_session
@@ -306,13 +318,17 @@ def run_audit(
         except Exception as _trend_err:
             _msg(f"  ⚠️  Trend analysis failed: {_trend_err}\n")
 
-    # === PHASE 3c: ACTIVE VERIFICATION ===
-    # Real, non-destructive AWS API calls (AssumeRole, unauthenticated S3
-    # HEAD/List) that prove specific findings are actually exploitable, not
-    # just inferred. Runs before the integrity manifest below, since it
-    # modifies correlated.json/exposure.json in place -- the manifest must
-    # hash the post-verification state, not a stale one. Non-blocking: a
-    # verification failure shouldn't stop the audit from producing a report.
+
+def _run_active_verification(
+    config: WizardConfig, session: "AuditSession", aws_client: "AWSClient", _msg: Msg
+) -> None:
+    """Phase: real, non-destructive AWS API calls (AssumeRole, unauthenticated S3
+    HEAD/List) that prove specific findings are actually exploitable, not just
+    inferred. Runs before the integrity manifest, since it modifies
+    correlated.json/exposure.json in place -- the manifest must hash the
+    post-verification state, not a stale one. Non-blocking: a verification
+    failure shouldn't stop the audit from producing a report.
+    """
     if getattr(config, "active_verification", True):
         from drystone.verification.runner import WARNING_BANNER, run_active_verification
 
@@ -331,11 +347,13 @@ def run_audit(
     else:
         _msg("  ⏭️  Active verification skipped (--no-active-verification)\n")
 
-    # === PHASE 3d: CHAIN-OF-CUSTODY MANIFEST ===
-    # Hash every evidence/findings JSON now that collection, analysis, and
-    # active verification are all done, so post-audit tampering with any of
-    # it is detectable later via `drystone verify-integrity`. Non-blocking:
-    # a manifest failure shouldn't stop the audit from producing a report.
+
+def _write_integrity_manifest(session: "AuditSession", _msg: Msg) -> None:
+    """Phase: hash every evidence/findings JSON so post-audit tampering with
+    any of it is detectable later via `drystone verify-integrity`. Runs after
+    collection, analysis, and active verification are all done. Non-blocking:
+    a manifest failure shouldn't stop the audit from producing a report.
+    """
     try:
         from drystone.storage.manifest import write_manifest
 
@@ -345,24 +363,57 @@ def run_audit(
     except Exception as _manifest_err:
         _msg(f"  ⚠️  Could not write integrity manifest: {_manifest_err}\n")
 
-    # === PHASE 4: REPORT GENERATION ===
-    if all_findings:
-        _msg("📄 Generating reports...\n")
 
-        try:
-            from drystone.reports import ReportGenerator
+def _generate_reports(
+    config: WizardConfig,
+    session: "AuditSession",
+    all_findings: Dict[str, Any],
+    skill_display_names: Dict[str, str],
+    _msg: Msg,
+) -> bool:
+    """Phase: generate report(s) for this audit.
 
-            generator = ReportGenerator(session, config)
-            reporting_units = 1 if config.report_type == "pentest" else max(1, len(all_findings))
-            reporting_done = 0
-            _msg(f"🔄 Phase 3/3 Reporting: 0/{reporting_units} units")
+    Returns True if this phase should count as "complete" for progress
+    purposes -- either reports were generated successfully, or there was
+    nothing to report -- and False only when report generation itself raised.
+    """
+    if not all_findings:
+        _msg("⚠️  Skipping Phase 4 (no findings to report)")
+        return True
 
-            # Pentest reports are most useful as a consolidated output.
-            if config.report_type == "pentest":
-                generated_reports = generator.generate_consolidated_reports(
-                    [str(f) for f in config.output_formats]
+    _msg("📄 Generating reports...\n")
+
+    try:
+        from drystone.reports import ReportGenerator
+
+        generator = ReportGenerator(session, config)
+        reporting_units = 1 if config.report_type == "pentest" else max(1, len(all_findings))
+        reporting_done = 0
+        _msg(f"🔄 Phase 3/3 Reporting: 0/{reporting_units} units")
+
+        # Pentest reports are most useful as a consolidated output.
+        if config.report_type == "pentest":
+            generated_reports = generator.generate_consolidated_reports(
+                [str(f) for f in config.output_formats]
+            )
+            _msg("   Consolidated Reports:")
+            for format_name, report_path in generated_reports.items():
+                size_kb = report_path.stat().st_size / 1024
+                _msg(
+                    f"      ✅ {format_name.upper():8} {report_path.name:30} ({size_kb:.1f} KB)"
                 )
-                _msg("   Consolidated Reports:")
+            reporting_done += 1
+            _msg(f"   Phase 3/3 progress: {reporting_done}/{reporting_units}")
+        else:
+            # Generate reports for each skill
+            for skill_name in all_findings.keys():
+                generated_reports = generator.generate_reports(
+                    skill_name, [str(f) for f in config.output_formats]
+                )
+
+                _msg(
+                    f"   {skill_display_names.get(skill_name, skill_name.capitalize())} Reports:"
+                )
                 for format_name, report_path in generated_reports.items():
                     size_kb = report_path.stat().st_size / 1024
                     _msg(
@@ -370,43 +421,25 @@ def run_audit(
                     )
                 reporting_done += 1
                 _msg(f"   Phase 3/3 progress: {reporting_done}/{reporting_units}")
-            else:
-                # Generate reports for each skill
-                for skill_name in all_findings.keys():
-                    generated_reports = generator.generate_reports(
-                        skill_name, [str(f) for f in config.output_formats]
-                    )
 
-                    _msg(
-                        f"   {skill_display_names.get(skill_name, skill_name.capitalize())} Reports:"
-                    )
-                    for format_name, report_path in generated_reports.items():
-                        size_kb = report_path.stat().st_size / 1024
-                        _msg(
-                            f"      ✅ {format_name.upper():8} {report_path.name:30} ({size_kb:.1f} KB)"
-                        )
-                    reporting_done += 1
-                    _msg(f"   Phase 3/3 progress: {reporting_done}/{reporting_units}")
+        # Show how to view reports
+        if "markdown" in config.output_formats:
+            reports_path = session.get_findings_path()
+            _msg("\n📝 View reports:")
+            _msg(f"   ls {reports_path.parent}/")
 
-            # Show how to view reports
-            if "markdown" in config.output_formats:
-                reports_path = session.get_findings_path()
-                _msg("\n📝 View reports:")
-                _msg(f"   ls {reports_path.parent}/")
+        _msg("\n✅ Phase 4 Complete (Report Generation)")
+        return True
 
-            _msg("\n✅ Phase 4 Complete (Report Generation)")
-            phase_done += 1
-            _print_progress("Reporting complete", phase_done, phase_total)
+    except Exception as e:
+        _msg(f"\n⚠️  Report generation failed: {e}")
+        _msg("   Evidence and findings are saved, but reports could not be generated")
+        return False
 
-        except Exception as e:
-            _msg(f"\n⚠️  Report generation failed: {e}")
-            _msg("   Evidence and findings are saved, but reports could not be generated")
-    else:
-        _msg("⚠️  Skipping Phase 4 (no findings to report)")
-        phase_done += 1
-        _print_progress("Reporting skipped", phase_done, phase_total)
 
-    # Show completion
+def _optimize_budgets(metrics_file: Path, _msg: Msg) -> None:
+    """Phase: P3 optimizer -- shrink per-skill chunk budgets based on this
+    session's actual metrics. Silently no-ops on any failure."""
     try:
         from drystone.agent.optimizer import optimize_budgets_from_metrics
 
@@ -417,7 +450,10 @@ def run_audit(
     except Exception:
         pass
 
-    # Post-scan QA gate
+
+def _run_qa_gate(session: "AuditSession", config: WizardConfig, _msg: Msg) -> bool:
+    """Phase: post-scan QA gate. Returns True if the gate FAILED (matching the
+    `qa_failed` / `AuditRunResult.qa_passed` semantics)."""
     qa_failed = False
     try:
         from drystone.validation.qa_gate import run_qa_gate
@@ -432,7 +468,13 @@ def run_audit(
                 _msg(f"   - {issue}")
     except Exception as e:
         _msg(f"⚠️  QA Gate execution error: {e}")
+    return qa_failed
 
+
+def _print_completion_summary(
+    session: "AuditSession", metrics_tracker: "MetricsTracker", _msg: Msg
+) -> None:
+    """Phase: final "audit complete" banner, token usage, and output path."""
     _msg("\n✅ Audit Complete")
     try:
         metrics = metrics_tracker.get_metrics()
@@ -448,5 +490,73 @@ def run_audit(
         pass
     _msg(f"   Audit data: {session.base_path}")
     _msg("")
+
+
+def run_audit(
+    config: WizardConfig,
+    account_id: str,
+    *,
+    on_message: Optional[Msg] = None,
+) -> AuditRunResult:
+    """Run the full audit pipeline for an already-validated configuration.
+
+    Args:
+        config: Fully-resolved wizard/CLI configuration.
+        account_id: AWS account ID, already resolved via credential validation.
+        on_message: Optional callback invoked with each progress/status message
+            (mirrors what the CLI used to send straight to `click.echo`). When
+            omitted, messages are silently discarded (silent/programmatic mode).
+
+    Returns:
+        AuditRunResult with the session, aggregated findings, and whether the
+        post-scan QA gate passed.
+    """
+    _msg = on_message or (lambda _m: None)
+
+    _msg("")
+    from drystone.cloud.aws.client import AWSClient
+
+    session, metrics_tracker, metrics_file = _create_session(config, account_id, _msg)
+
+    phase_total = 3
+    phase_done = 0
+
+    def _print_progress(phase_label: str, completed: int, total: int) -> None:
+        pct = int((completed / max(1, total)) * 100)
+        _msg(f"📊 Progress: {completed}/{total} phases ({pct}%) - {phase_label}")
+
+    _print_progress("Starting collection", phase_done, phase_total)
+
+    # Create AWS client
+    aws_client = AWSClient(config)
+
+    _collect_pentest_inventory_if_needed(config, aws_client, session, _msg)
+
+    skill_instances, skill_display_names = _collect_evidence(config, aws_client, session, _msg)
+    phase_done += 1
+    _print_progress("Collection complete", phase_done, phase_total)
+
+    all_findings = _analyze_evidence(
+        config, session, skill_instances, skill_display_names, metrics_tracker, _msg
+    )
+    phase_done += 1
+    _print_progress("Analysis complete", phase_done, phase_total)
+
+    _run_correlation(session, all_findings, _msg)
+    _run_trend_analysis(config, session, all_findings, _msg)
+    _run_active_verification(config, session, aws_client, _msg)
+    _write_integrity_manifest(session, _msg)
+
+    reports_ok = _generate_reports(config, session, all_findings, skill_display_names, _msg)
+    if reports_ok:
+        phase_done += 1
+        label = "Reporting complete" if all_findings else "Reporting skipped"
+        _print_progress(label, phase_done, phase_total)
+
+    _optimize_budgets(metrics_file, _msg)
+
+    qa_failed = _run_qa_gate(session, config, _msg)
+
+    _print_completion_summary(session, metrics_tracker, _msg)
 
     return AuditRunResult(session=session, all_findings=all_findings, qa_passed=not qa_failed)

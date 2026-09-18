@@ -1,9 +1,5 @@
 """Unit tests for retry logic and output validation."""
 
-from unittest.mock import patch
-
-import pytest
-
 from drystone.agent.retry import get_retry_delay, is_retryable_error
 from drystone.models.findings import Finding, FindingsSummary, SkillFindings
 
@@ -184,75 +180,3 @@ class TestOutputValidation:
 
         assert validate_iam_findings(findings) is True
         assert findings.summary.critical == 1
-
-
-class TestRetryWithBackoff:
-    """Test retry_with_backoff decorator."""
-
-    def test_success_on_first_attempt(self):
-        """Should return immediately on success."""
-        from drystone.agent.retry import retry_with_backoff
-
-        @retry_with_backoff(max_retries=3, skill_name="test")
-        def test_func():
-            return "success"
-
-        result = test_func()
-        assert result == "success"
-
-    def test_retry_on_transient_error(self):
-        """Should retry on transient errors."""
-        from drystone.agent.retry import retry_with_backoff
-
-        call_count = 0
-
-        @retry_with_backoff(max_retries=3, skill_name="test")
-        def test_func():
-            nonlocal call_count
-            call_count += 1
-            if call_count < 2:
-                raise Exception("Connection timeout")
-            return "success"
-
-        with patch("time.sleep"):  # Mock sleep to avoid delays
-            result = test_func()
-
-        assert result == "success"
-        assert call_count == 2
-
-    def test_fail_on_permanent_error(self):
-        """Should fail immediately on permanent errors."""
-        from drystone.agent.retry import retry_with_backoff
-
-        call_count = 0
-
-        @retry_with_backoff(max_retries=3, skill_name="test")
-        def test_func():
-            nonlocal call_count
-            call_count += 1
-            raise Exception("Authentication failed: invalid API key")
-
-        with pytest.raises(Exception):
-            test_func()
-
-        # Should only try once (no retry for permanent error)
-        assert call_count == 1
-
-    def test_max_retries_exhausted(self):
-        """Should fail after max retries exhausted."""
-        from drystone.agent.retry import retry_with_backoff
-
-        call_count = 0
-
-        @retry_with_backoff(max_retries=2, skill_name="test")
-        def test_func():
-            nonlocal call_count
-            call_count += 1
-            raise Exception("Connection timeout")
-
-        with patch("time.sleep"):  # Mock sleep to avoid delays
-            with pytest.raises(Exception):
-                test_func()
-
-        # Should try max_retries times
-        assert call_count == 2

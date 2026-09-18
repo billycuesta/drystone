@@ -7,7 +7,8 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from drystone.cli.main import cli
+import drystone.cli.main as main_module
+from drystone.cli.main import cli, main
 from drystone.models.config import PENTEST_CORE_SKILLS, WizardConfig
 
 
@@ -327,3 +328,38 @@ class TestAuditAccountIdResolution:
             runner, sample_config, (False, "denied", None), "--non-interactive"
         )
         assert "account_id" not in captured
+
+
+class TestDebugFlag:
+    """rec I: --debug/-v unlocks full tracebacks in main()'s catch-all instead
+    of always swallowing errors to a one-line message."""
+
+    def setup_method(self):
+        main_module._DEBUG = False
+
+    def teardown_method(self):
+        main_module._DEBUG = False
+
+    def test_default_prints_one_line_no_traceback(self, capsys):
+        with (
+            patch("drystone.cli.main.cli", side_effect=RuntimeError("boom")),
+            patch("traceback.print_exc") as mock_print_exc,
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+
+        assert exc_info.value.code == 1
+        mock_print_exc.assert_not_called()
+        assert "❌ Error: boom" in capsys.readouterr().err
+
+    def test_debug_flag_sets_global_and_prints_traceback(self, runner):
+        runner.invoke(cli, ["--debug", "version"])
+        assert main_module._DEBUG is True
+
+        with (
+            patch("drystone.cli.main.cli", side_effect=RuntimeError("boom")),
+            patch("traceback.print_exc") as mock_print_exc,
+            pytest.raises(SystemExit),
+        ):
+            main()
+        mock_print_exc.assert_called_once()
