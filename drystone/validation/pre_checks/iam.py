@@ -330,9 +330,9 @@ def check_iam_012(evidence: Dict[str, Any]) -> PreCheckResult:
         last_console_dt = _parse_date(pwd_last_used)
         last_key_dt = _parse_date(key_last_used_raw)
         last_activity_dt = max(filter(None, [last_console_dt, last_key_dt]), default=None)
-        days_inactive = int((now - last_activity_dt).days) if last_activity_dt else 999
+        days_inactive = int((now - last_activity_dt).days) if last_activity_dt else None
 
-        if days_inactive >= threshold_days:
+        if days_inactive is None or days_inactive >= threshold_days:
             user_arn = arn
             inactive.append(user_arn)
             resource_details.append(
@@ -341,7 +341,9 @@ def check_iam_012(evidence: Dict[str, Any]) -> PreCheckResult:
                     "arn": user_arn,
                     "last_console_login": str(pwd_last_used) if pwd_last_used else "N/A",
                     "last_access_key_use": str(key_last_used_raw) if key_last_used_raw else "N/A",
-                    "days_since_last_activity": days_inactive,
+                    "days_since_last_activity": days_inactive
+                    if days_inactive is not None
+                    else "never (no recorded activity)",
                 }
             )
 

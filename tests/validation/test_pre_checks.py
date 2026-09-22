@@ -537,6 +537,35 @@ class TestIAM012RichMetadata:
         assert d["last_access_key_use"] != "N/A"
         assert d["last_console_login"] == "N/A"
 
+    def test_real_last_console_login_preserves_integer_days(self):
+        old_console_login = (datetime.now(timezone.utc) - timedelta(days=100)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        evidence = {"users": [self._make_user("oldconsole", pwd_last_used=old_console_login)]}
+        r = check_iam_012(evidence)
+        assert r.status == "FAIL"
+        d = r.metadata["resource_details"][0]
+        assert isinstance(d["days_since_last_activity"], int)
+        assert 99 <= d["days_since_last_activity"] <= 100
+
+    def test_recent_last_key_use_under_threshold_is_not_flagged(self):
+        recent_key_use = (datetime.now(timezone.utc) - timedelta(days=30)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        evidence = {"users": [self._make_user("recentkey", key_last_used=recent_key_use)]}
+        r = check_iam_012(evidence)
+        assert r.status == "PASS"
+        assert r.affected_resources == []
+
+    def test_never_active_user_is_flagged_without_999_day_sentinel(self):
+        evidence = {"users": [self._make_user("neveractive")]}
+        r = check_iam_012(evidence)
+        assert r.status == "FAIL"
+        assert r.affected_resources == ["arn:aws:iam::123:user/neveractive"]
+        d = r.metadata["resource_details"][0]
+        assert d["days_since_last_activity"] == "never (no recorded activity)"
+        assert d["days_since_last_activity"] != 999
+
     def test_root_account_excluded(self):
         evidence = {"users": [{"UserName": "<root_account>", "PasswordLastUsed": None}]}
         r = check_iam_012(evidence)
