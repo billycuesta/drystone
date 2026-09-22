@@ -90,6 +90,11 @@ def validate_ai_provider_credentials(ai_provider: str, ai_api_key: Optional[str]
     provider = str(ai_provider or "").strip().lower()
 
     if provider == "claude-cli":
+        # First import of drystone.agent.client in the process pulls in the
+        # anthropic SDK's dependency chain -- on a cold bytecode cache this
+        # can take several seconds with zero terminal output otherwise,
+        # which looks exactly like the wizard hanging.
+        print("⏳ Checking Claude CLI...")
         from drystone.agent.client import check_claude_cli_available
 
         available, path_or_message = check_claude_cli_available()

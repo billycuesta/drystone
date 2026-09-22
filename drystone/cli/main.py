@@ -238,9 +238,11 @@ def audit(
     # chain-of-custody manifest, report generation, and the QA gate all live
     # in the CLI-agnostic core so they can be invoked programmatically (not
     # just from this command) -- see drystone/core/audit_runner.py.
+    from drystone.cli.ui.live_progress import LiveProgressReporter
     from drystone.core.audit_runner import run_audit
 
-    result = run_audit(config, account_id, on_message=click.echo)
+    with LiveProgressReporter() as reporter:
+        result = run_audit(config, account_id, on_message=reporter)
 
     if not result.qa_passed:
         sys.exit(2)
