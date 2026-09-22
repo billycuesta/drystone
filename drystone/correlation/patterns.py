@@ -236,8 +236,7 @@ def _extract_users_from_finding(finding: Finding) -> List[str]:
                 users.append(arn)
 
     # Strategy 2: evidence_snippet
-    # Expected structure (from evidence_schemas.py):
-    # {"UserName": "admin", "Arn": "arn:aws:iam::*:user/admin", "MFADevices": []}
+    # Expected IAM user structure: {"UserName": "admin", "Arn": "arn:aws:iam::*:user/admin", "MFADevices": []}
     if finding.evidence_snippet and isinstance(finding.evidence_snippet, dict):
         snippet = finding.evidence_snippet
 
