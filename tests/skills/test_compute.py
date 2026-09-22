@@ -1,5 +1,7 @@
 """Tests for Compute (ECS/EKS) skill evidence collection."""
 
+import base64
+import json
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -186,3 +188,39 @@ def test_compute_collect_writes_expected_files(tmp_path: Path):
     assert (tmp_path / "eks-inventory.json").exists()
     assert (tmp_path / "ec2-inventory.json").exists()
     assert (tmp_path / "lambda-inventory.json").exists()
+
+
+class _UserDataEC2Client:
+    def __init__(self, user_data: str):
+        self.user_data = base64.b64encode(user_data.encode()).decode()
+
+    def get_paginator(self, op_name: str):
+        assert op_name == "describe_instances"
+        return _DummyPaginator([{"Reservations": [{"Instances": [{"InstanceId": "i-test"}]}]}])
+
+    def describe_instance_attribute(self, InstanceId: str, Attribute: str):  # noqa: N803
+        assert InstanceId == "i-test" and Attribute == "userData"
+        return {"UserData": {"Value": self.user_data}}
+
+
+def test_compute_redacts_secret_user_data_but_preserves_non_secret_content():
+    from drystone.skills.compute import ComputeSkill
+
+    text = "#!/bin/bash\necho safe-bootstrap\npassword=super-secret-value\n"
+    result, errors = ComputeSkill()._collect_ec2(_UserDataEC2Client(text))
+
+    assert not errors
+    item = result["instances"][0]
+    assert "super-secret-value" not in item["UserData"]
+    assert "safe-bootstrap" in item["UserData"]
+    assert item["ContainsSecrets"]["password"] is True
+
+
+def test_compute_persists_non_secret_user_data_unchanged(tmp_path: Path):
+    skill = ComputeSkill()
+    evidence, errors = skill._collect_ec2(_UserDataEC2Client("#!/bin/bash\necho hello\n"))
+    assert not errors
+
+    skill._save_json(tmp_path / "ec2-inventory.json", evidence)
+    persisted = json.loads((tmp_path / "ec2-inventory.json").read_text())
+    assert persisted["instances"][0]["UserData"] == "#!/bin/bash\necho hello\n"

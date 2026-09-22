@@ -14,7 +14,6 @@ attack surface without performing active exploitation.
 from __future__ import annotations
 
 import base64
-import re
 from datetime import datetime
 from typing import Any, Dict, List, Tuple
 
@@ -24,6 +23,7 @@ from drystone.cloud.aws.client import AWSClient
 from drystone.skills.base import BaseSkill
 from drystone.storage.session import AuditSession
 from drystone.utils.logging import get_logger
+from drystone.utils.sensitive_data import redact_secrets, scan_for_secrets
 
 logger = get_logger(__name__)
 
@@ -89,14 +89,8 @@ class ComputeSkill(BaseSkill):
         )
 
     def _scan_for_secrets(self, text: str) -> Dict[str, bool]:
-        patterns = {
-            "aws_access_key": r"AKIA[0-9A-Z]{16}",
-            "aws_secret_key": r"(?i)aws(.{0,20})?(secret|access).{0,10}[=:]\s*[A-Za-z0-9/+=]{30,}",
-            "password": r"(?i)password\s*[=:]\s*[^\s\"']+",
-            "api_key": r"(?i)api[_-]?key\s*[=:]\s*[^\s\"']+",
-            "token": r"(?i)(token|secret)\s*[=:]\s*[^\s\"']+",
-        }
-        return {name: bool(re.search(pattern, text)) for name, pattern in patterns.items()}
+        """Scan text for common secret patterns using the shared sanitizer."""
+        return scan_for_secrets(text)
 
     def _collect_ec2(self, ec2) -> Tuple[Dict[str, Any], Dict[str, str]]:
         out: Dict[str, Any] = {"instances": []}
@@ -131,7 +125,9 @@ class ComputeSkill(BaseSkill):
                                     )
                                 except Exception:
                                     decoded = str(raw)
-                            item["UserData"] = decoded
+                            # Retain non-secret bootstrap content, but never persist
+                            # credential-shaped values in the evidence JSON.
+                            item["UserData"] = redact_secrets(decoded)
                             item["ContainsSecrets"] = (
                                 self._scan_for_secrets(decoded) if decoded else {}
                             )
