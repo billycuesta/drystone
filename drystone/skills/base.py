@@ -272,6 +272,7 @@ class BaseSkill(ABC):
             getattr(agent_client, "provider_type", "claude-cli"),
             self.name,
             getattr(agent_client, "config", {}).get("scan_depth", "normal"),
+            getattr(agent_client, "config", {}).get("client_name", ""),
         )
         distilled_evidence, distill_stats = distill_evidence(
             evidence,

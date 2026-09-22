@@ -418,6 +418,7 @@ class AgentClient:
             self.config.get("type", "claude-cli"),
             skill_name,
             self.config.get("scan_depth", "normal"),
+            self.config.get("client_name", ""),
         )
 
         cache_key = self.findings_cache.build_key(
