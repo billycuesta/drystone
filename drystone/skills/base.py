@@ -46,6 +46,32 @@ def _format_resource_list(names: list) -> str:
     return ", ".join(names[:-1]) + f" and {names[-1]}"
 
 
+def _filter_checklist_by_qsa_depth(checklist: Dict[str, Any], qsa_depth: str) -> Dict[str, Any]:
+    """Filter checklist items by QSA visibility depth.
+
+    Args:
+        checklist: Checklist dict with 'items' list
+        qsa_depth: One of 'obvious', 'standard', or 'deep'
+
+    Returns:
+        Modified checklist dict with filtered items
+    """
+    depth_order = {"obvious": 0, "standard": 1, "deep": 2}
+    max_depth = depth_order.get(qsa_depth, 1)
+    original_count = len(checklist.get("items", []))
+    checklist["items"] = [
+        item
+        for item in checklist.get("items", [])
+        if depth_order.get(item.get("qsa_visibility", "standard"), 1) <= max_depth
+    ]
+    filtered_count = len(checklist.get("items", []))
+    if filtered_count < original_count:
+        print(
+            f"    Filtered by QSA depth '{qsa_depth}': {original_count} → {filtered_count} checks"
+        )
+    return checklist
+
+
 class BaseSkill(ABC):
     """Abstract base class for Drystone security skills.
 
@@ -220,19 +246,7 @@ class BaseSkill(ABC):
 
         # 2a. Filter checklist by QSA depth (before any pipeline processing)
         qsa_depth = getattr(agent_client, "config", {}).get("qsa_depth", "standard")
-        _depth_order = {"obvious": 0, "standard": 1, "deep": 2}
-        _max_depth = _depth_order.get(qsa_depth, 1)
-        original_count = len(checklist.get("items", []))
-        checklist["items"] = [
-            item
-            for item in checklist.get("items", [])
-            if _depth_order.get(item.get("qsa_visibility", "standard"), 1) <= _max_depth
-        ]
-        filtered_count = len(checklist.get("items", []))
-        if filtered_count < original_count:
-            print(
-                f"    Filtered by QSA depth '{qsa_depth}': {original_count} → {filtered_count} checks"
-            )
+        checklist = _filter_checklist_by_qsa_depth(checklist, qsa_depth)
 
         # 2b. Tier 1: Run deterministic pre-checks
         from drystone.agent.budget import get_budget_policy
