@@ -884,6 +884,8 @@ These correlations represent multi-stage attack scenarios where findings from di
                 output += f"- *... and {len(affected_resources) - 3} more*\n"
             output += "\n"
 
+        output += self._format_active_verification(corr)
+
         # Remediation Steps
         if remediation_steps:
             output += "**Remediation Steps:**\n"
@@ -892,6 +894,18 @@ These correlations represent multi-stage attack scenarios where findings from di
             output += "\n"
 
         return output
+
+    def _format_active_verification(self, entry: Dict[str, Any]) -> str:
+        """Render the active verification block a finding or correlation may carry."""
+        av = entry.get("active_verification")
+        if not isinstance(av, dict):
+            return ""
+        method = av.get("method", "unknown")
+        result = av.get("result")
+        detail = av.get("detail", "")
+        if result == "success":
+            return f"**Active Verification:** ✅ Actively verified via `{method}` — {detail}\n\n"
+        return f"**Active Verification:** ⚠️ Verification attempted via `{method}` — {detail}\n\n"
 
     def _get_skill_emoji(self, skill: str) -> str:
         """Get emoji for skill name."""
@@ -1474,6 +1488,7 @@ These correlations represent multi-stage attack scenarios where findings from di
         if threat_intel and isinstance(threat_intel, dict):
             detail += self._threat_intel_block(threat_intel)
 
+        detail += self._format_active_verification(finding)
         detail += f"\n**Remediation:**  \n{remediation}\n"
 
         if cis_ref:

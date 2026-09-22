@@ -418,6 +418,74 @@ class TestFormatCorrelation:
         assert "Restrict SSH to bastion host" in result
         assert "Implement intrusion detection" in result
 
+    def test_active_verification_success_rendering(self, formatter):
+        corr = {
+            "id": "CORR-001",
+            "title": "Test Pattern",
+            "severity": "Critical",
+            "compound_risk_score": 9.0,
+            "description": "Test",
+            "attack_path": [],
+            "source_findings": [],
+            "affected_resources": [],
+            "remediation_priority": "Immediate",
+            "remediation_steps": [],
+            "active_verification": {
+                "method": "sts_assume_role",
+                "result": "success",
+                "detail": "Role assumption confirmed",
+            },
+        }
+
+        result = formatter._format_correlation(corr, 1)
+
+        assert "**Active Verification:** ✅ Actively verified via `sts_assume_role`" in result
+        assert "Role assumption confirmed" in result
+
+    def test_active_verification_inconclusive_rendering(self, formatter):
+        for verification_result in ("denied", "error"):
+            corr = {
+                "id": "CORR-001",
+                "title": "Test Pattern",
+                "severity": "Critical",
+                "compound_risk_score": 9.0,
+                "description": "Test",
+                "attack_path": [],
+                "source_findings": [],
+                "affected_resources": [],
+                "remediation_priority": "Immediate",
+                "remediation_steps": [],
+                "active_verification": {
+                    "method": "sts_assume_role",
+                    "result": verification_result,
+                    "detail": f"Verification returned {verification_result}",
+                },
+            }
+
+            result = formatter._format_correlation(corr, 1)
+
+            assert "**Active Verification:** ⚠️ Verification attempted via" in result
+            assert f"Verification returned {verification_result}" in result
+            assert "✅ Actively verified" not in result
+
+    def test_active_verification_missing_rendering(self, formatter):
+        corr = {
+            "id": "CORR-001",
+            "title": "Test Pattern",
+            "severity": "Critical",
+            "compound_risk_score": 9.0,
+            "description": "Test",
+            "attack_path": [],
+            "source_findings": [],
+            "affected_resources": [],
+            "remediation_priority": "Immediate",
+            "remediation_steps": [],
+        }
+
+        result = formatter._format_correlation(corr, 1)
+
+        assert "Active Verification" not in result
+
 
 class TestGetSkillEmoji:
     """Tests for _get_skill_emoji() method."""

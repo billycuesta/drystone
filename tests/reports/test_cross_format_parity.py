@@ -254,9 +254,7 @@ class TestCorrelationParity:
 
 
 class TestActiveVerificationParity:
-    """PDF/Pentest PDF/Pentest Markdown/JSON render active_verification results.
-    General Markdown does not -- current gap, tracked as RPT-P (RPT-E's fix
-    was scoped to PDF/Pentest PDF only; general Markdown was never asked for)."""
+    """All report formats render active_verification results."""
 
     def test_pdf_renders_active_verification(self, tmp_path, monkeypatch):
         formatter = PDFFormatter(_sample_findings(), _mock_session(tmp_path), _config())
@@ -273,12 +271,10 @@ class TestActiveVerificationParity:
         payload = json.loads(formatter.generate().read_text())
         assert payload["findings"][0]["active_verification"]["method"] == "sts_assume_role"
 
-    def test_markdown_does_not_render_active_verification_known_gap(self, tmp_path):
-        """RPT-P: MarkdownFormatter has no equivalent of pdf.py's/pentest.py's
-        active_verification rendering."""
+    def test_markdown_renders_active_verification(self, tmp_path):
         formatter = MarkdownFormatter(_sample_findings(), _mock_session(tmp_path), _config())
         text = formatter.generate().read_text()
-        assert "sts_assume_role" not in text
+        assert "sts_assume_role" in text
 
 
 class TestMetadataParity:

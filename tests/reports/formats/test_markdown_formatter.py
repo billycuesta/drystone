@@ -40,6 +40,66 @@ def _make_formatter(tmp_path, findings=None, report_language="en", report_type="
     return MarkdownFormatter(findings, session, config)
 
 
+def test_finding_detail_renders_successful_active_verification(tmp_path):
+    formatter = _make_formatter(tmp_path)
+    finding = {
+        "id": "EXP-001",
+        "title": "Public S3 bucket",
+        "description": "Bucket is publicly accessible.",
+        "remediation": "Restrict access.",
+        "active_verification": {
+            "method": "s3_unauthenticated_head_bucket",
+            "result": "success",
+            "detail": "Unauthenticated HEAD succeeded",
+        },
+    }
+
+    result = formatter._finding_detail(finding)
+
+    assert (
+        "**Active Verification:** ✅ Actively verified via `s3_unauthenticated_head_bucket`"
+        in result
+    )
+    assert "Unauthenticated HEAD succeeded" in result
+
+
+def test_finding_detail_renders_inconclusive_active_verification(tmp_path):
+    formatter = _make_formatter(tmp_path)
+
+    for verification_result in ("denied", "error"):
+        finding = {
+            "id": "EXP-001",
+            "title": "Public S3 bucket",
+            "description": "Bucket is publicly accessible.",
+            "remediation": "Restrict access.",
+            "active_verification": {
+                "method": "s3_unauthenticated_head_bucket",
+                "result": verification_result,
+                "detail": f"Verification returned {verification_result}",
+            },
+        }
+
+        result = formatter._finding_detail(finding)
+
+        assert "**Active Verification:** ⚠️ Verification attempted via" in result
+        assert f"Verification returned {verification_result}" in result
+        assert "✅ Actively verified" not in result
+
+
+def test_finding_detail_without_active_verification_renders_no_block(tmp_path):
+    formatter = _make_formatter(tmp_path)
+    finding = {
+        "id": "IAM-001",
+        "title": "Missing MFA",
+        "description": "MFA is not enabled.",
+        "remediation": "Enable MFA.",
+    }
+
+    result = formatter._finding_detail(finding)
+
+    assert "Active Verification" not in result
+
+
 # ── _is_english_report ────────────────────────────────────────────────────────
 
 
