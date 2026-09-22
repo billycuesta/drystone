@@ -125,7 +125,20 @@ class AWSClient:
             return self._source_session
 
         sts = self._source_session.client("sts")
-        response = sts.assume_role(**self._assume_role_kwargs())
+        try:
+            response = sts.assume_role(**self._assume_role_kwargs())
+        except botocore.exceptions.ClientError as e:
+            raise AWSCredentialError(
+                f"Failed to assume role {self.config.aws_role_arn}: {e}. "
+                "Check the role's trust policy, ExternalId, and that the source "
+                "credentials have sts:AssumeRole permission."
+            ) from e
+        except botocore.exceptions.BotoCoreError as e:
+            raise AWSCredentialError(
+                f"Failed to assume role {self.config.aws_role_arn}: {e}. "
+                "Check the role's trust policy, ExternalId, and that the source "
+                "credentials have sts:AssumeRole permission."
+            ) from e
         credentials = response["Credentials"]
         self._assumed_expiration = credentials.get("Expiration")
         if self._assumed_expiration is None:

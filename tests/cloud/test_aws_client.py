@@ -4,9 +4,10 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import botocore.exceptions
+import pytest
 from botocore.credentials import Credentials
 
-from drystone.cloud.aws.client import AWSClient, validate_aws_credentials
+from drystone.cloud.aws.client import AWSClient, AWSCredentialError, validate_aws_credentials
 from drystone.models.config import WizardConfig
 
 # ── fixtures ──────────────────────────────────────────────────────────────────
@@ -127,6 +128,22 @@ class TestManagedSession:
 
 
 class TestAssumeRole:
+    def test_assume_role_failure_raises_actionable_credential_error(self):
+        role_arn = "arn:aws:iam::123456789012:role/Audit"
+        config = make_config(aws_role_arn=role_arn)
+        source_session = MagicMock()
+        source_session.client.return_value.assume_role.side_effect = client_error("AccessDenied")
+
+        with patch("boto3.Session", return_value=source_session):
+            with pytest.raises(AWSCredentialError) as exc_info:
+                AWSClient(config).boto3_session()
+
+        message = str(exc_info.value)
+        assert role_arn in message
+        assert "AccessDenied" in message
+        assert "trust policy" in message
+        assert "sts:AssumeRole" in message
+
     def test_assume_role_args_include_role_settings(self):
         config = make_config(
             aws_role_arn="arn:aws:iam::123456789012:role/Audit",
