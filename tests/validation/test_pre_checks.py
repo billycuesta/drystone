@@ -86,6 +86,7 @@ from drystone.validation.pre_checks import (
     check_iam_019,
     check_iam_020,
     check_iam_026,
+    check_iam_028,
     check_iam_032,
     check_iam_033,
     check_iam_034,
@@ -739,6 +740,110 @@ class TestIAM026PermissionBoundaries:
         assert "delegated" not in r.evidence_summary.lower()
         assert r.metadata["roles_without_boundary_and_iam_admin_actions"] == 0
         assert r.metadata["classification"] == "missing_boundary_no_iam_admin_actions_detected"
+
+
+class TestIAM028TagCoverage:
+    def test_skip_when_no_roles_or_users_evidence(self):
+        r = check_iam_028({})
+        assert r.check_id == "IAM-028"
+        assert r.status == "SKIP"
+        assert r.evidence_summary == "no users or roles evidence"
+
+    def test_fail_when_role_has_empty_nested_role_tags(self):
+        role_arn = "arn:aws:iam::123:role/UntaggedRole"
+        r = check_iam_028(
+            {
+                "roles": [
+                    {
+                        "RoleName": "UntaggedRole",
+                        "Arn": role_arn,
+                        "RoleType": "CustomerCreated",
+                        "Role": {"Tags": []},
+                    }
+                ]
+            }
+        )
+        assert r.check_id == "IAM-028"
+        assert r.status == "FAIL"
+        assert "1 IAM principal(s)" in r.evidence_summary
+        assert r.affected_resources == [role_arn]
+
+    def test_pass_when_role_has_nested_role_tag(self):
+        r = check_iam_028(
+            {
+                "roles": [
+                    {
+                        "RoleName": "TaggedRole",
+                        "Arn": "arn:aws:iam::123:role/TaggedRole",
+                        "RoleType": "CustomerCreated",
+                        "Role": {"Tags": [{"Key": "Env", "Value": "prod"}]},
+                    }
+                ]
+            }
+        )
+        assert r.check_id == "IAM-028"
+        assert r.status == "PASS"
+        assert r.evidence_summary == "all IAM users and roles have at least one tag"
+        assert r.affected_resources == []
+
+    def test_pass_excludes_empty_tag_service_linked_role(self):
+        r = check_iam_028(
+            {
+                "roles": [
+                    {
+                        "RoleName": "AWSServiceRoleForSupport",
+                        "Arn": "arn:aws:iam::123:role/aws-service-role/support.amazonaws.com/AWSServiceRoleForSupport",
+                        "RoleType": "ServiceLinkedRole",
+                        "Role": {"Tags": []},
+                    }
+                ]
+            }
+        )
+        assert r.check_id == "IAM-028"
+        assert r.status == "PASS"
+        assert r.evidence_summary == "all IAM users and roles have at least one tag"
+        assert r.affected_resources == []
+
+    def test_fail_when_user_has_empty_tags(self):
+        user_arn = "arn:aws:iam::123:user/alice"
+        r = check_iam_028({"users": [{"UserName": "alice", "Arn": user_arn, "Tags": []}]})
+        assert r.check_id == "IAM-028"
+        assert r.status == "FAIL"
+        assert "1 IAM principal(s)" in r.evidence_summary
+        assert r.affected_resources == [user_arn]
+
+    def test_pass_when_user_has_tag(self):
+        r = check_iam_028(
+            {
+                "users": [
+                    {
+                        "UserName": "alice",
+                        "Arn": "arn:aws:iam::123:user/alice",
+                        "Tags": [{"Key": "Owner", "Value": "security"}],
+                    }
+                ]
+            }
+        )
+        assert r.check_id == "IAM-028"
+        assert r.status == "PASS"
+        assert r.evidence_summary == "all IAM users and roles have at least one tag"
+        assert r.affected_resources == []
+
+    def test_fail_caps_affected_resources_at_ten_but_reports_true_count(self):
+        users = [
+            {
+                "UserName": f"user{i}",
+                "Arn": f"arn:aws:iam::123:user/user{i}",
+                "Tags": [],
+            }
+            for i in range(11)
+        ]
+        r = check_iam_028({"users": users})
+        assert r.check_id == "IAM-028"
+        assert r.status == "FAIL"
+        assert "11 IAM principal(s)" in r.evidence_summary
+        assert len(r.affected_resources) == 10
+        assert r.affected_resources == [f"arn:aws:iam::123:user/user{i}" for i in range(10)]
 
 
 class TestIAM032:
