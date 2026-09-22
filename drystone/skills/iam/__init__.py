@@ -251,10 +251,21 @@ class IAMSkill(BaseSkill):
                 # Inline policies
                 try:
                     inline = iam_client.list_role_policies(RoleName=role_name)
-                    role_detail["InlinePolicies"] = inline.get("PolicyNames", [])
+                    inline_policies = {}
+                    for policy_name in inline.get("PolicyNames", []):
+                        try:
+                            inline_policy = iam_client.get_role_policy(
+                                RoleName=role_name, PolicyName=policy_name
+                            )
+                            inline_policies[policy_name] = inline_policy.get("PolicyDocument")
+                        except Exception as e:
+                            logger.warning(
+                                f"Could not get inline policy {policy_name} for role {role_name}: {e}"
+                            )
+                    role_detail["InlinePolicies"] = inline_policies
                 except Exception as e:
                     logger.warning(f"Could not list inline policies for role {role_name}: {e}")
-                    role_detail["InlinePolicies"] = []
+                    role_detail["InlinePolicies"] = {}
 
                 # Classify role type (ServiceLinkedRole, SSO_Managed, or CustomerCreated)
                 role_detail["RoleType"] = self._classify_role_type(role_detail)

@@ -120,6 +120,7 @@ def _make_iam_client(with_password_policy=True):
     c.get_role.return_value = {"Role": {"RoleName": "app-role"}}
     c.list_attached_role_policies.return_value = {"AttachedPolicies": []}
     c.list_role_policies.return_value = {"PolicyNames": []}
+    c.get_role_policy.return_value = {"PolicyDocument": {}}
 
     # Policies (customer-managed)
     c.get_policy.return_value = {"Policy": {"DefaultVersionId": "v1"}}
@@ -324,7 +325,43 @@ class TestCollectHappyPath:
         data = json.loads((evidence_path / "roles.json").read_text())
         assert len(data) == 1
         assert data[0]["RoleName"] == "app-role"
+        assert data[0]["InlinePolicies"] == {}
         assert data[0]["RoleType"] == "CustomerCreated"
+
+    def test_role_inline_policies_are_collected_as_document_mapping(self, skill, aws_client, tmp_path):
+        session, evidence_path = _make_session(tmp_path)
+        iam = _make_iam_client()
+        iam.list_role_policies.return_value = {"PolicyNames": ["InlineAdmin"]}
+        inline_doc = {"Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]}
+        iam.get_role_policy.return_value = {"PolicyDocument": inline_doc}
+
+        with patch("boto3.client", side_effect=_boto3_factory(iam=iam)):
+            skill.collect(aws_client, session)
+
+        data = json.loads((evidence_path / "roles.json").read_text())
+        assert data[0]["InlinePolicies"] == {"InlineAdmin": inline_doc}
+        iam.get_role_policy.assert_called_with(RoleName="app-role", PolicyName="InlineAdmin")
+
+    def test_role_inline_policy_fetch_failure_skips_only_that_policy(
+        self, skill, aws_client, tmp_path
+    ):
+        session, evidence_path = _make_session(tmp_path)
+        iam = _make_iam_client()
+        iam.list_role_policies.return_value = {"PolicyNames": ["Readable", "Denied"]}
+        readable_doc = {"Statement": [{"Effect": "Allow", "Action": "s3:GetObject", "Resource": "*"}]}
+
+        def _get_role_policy(**kwargs):
+            if kwargs["PolicyName"] == "Denied":
+                raise Exception("AccessDenied")
+            return {"PolicyDocument": readable_doc}
+
+        iam.get_role_policy.side_effect = _get_role_policy
+
+        with patch("boto3.client", side_effect=_boto3_factory(iam=iam)):
+            skill.collect(aws_client, session)
+
+        data = json.loads((evidence_path / "roles.json").read_text())
+        assert data[0]["InlinePolicies"] == {"Readable": readable_doc}
 
     def test_policies_content(self, skill, aws_client, tmp_path):
         session, evidence_path = _make_session(tmp_path)

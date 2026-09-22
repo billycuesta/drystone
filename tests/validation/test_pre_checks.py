@@ -382,6 +382,14 @@ class TestIAM009:
         assert r.status == "PASS"
 
 
+def _role_with_inline_policy(policy_name, policy_document):
+    return {
+        "RoleName": "InlineRole",
+        "Arn": "arn:aws:iam::123:role/InlineRole",
+        "InlinePolicies": {policy_name: policy_document},
+    }
+
+
 class TestIAM008:
     def test_pass_when_no_admin_policies(self):
         evidence = {
@@ -413,6 +421,19 @@ class TestIAM008:
         }
         r = check_iam_008(evidence)
         assert r.status == "FAIL"
+
+    def test_fail_when_role_inline_policy_has_wildcard_admin(self):
+        evidence = {
+            "roles": [
+                _role_with_inline_policy(
+                    "InlineAdmin",
+                    {"Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]},
+                )
+            ]
+        }
+        r = check_iam_008(evidence)
+        assert r.status == "FAIL"
+        assert "InlineRole/InlineAdmin" in r.evidence_summary
 
     def test_skip_when_no_policies(self):
         r = check_iam_008({"policies": []})
@@ -711,6 +732,31 @@ class TestIAM015And016Metadata:
 
 
 class TestIAM026PermissionBoundaries:
+    def test_inline_only_iam_admin_actions_are_delegated_admin_evidence(self):
+        evidence = {
+            "roles": [
+                {
+                    "RoleName": "inline-admin",
+                    "Arn": "arn:aws:iam::123:role/inline-admin",
+                    "Path": "/",
+                    "InlinePolicies": {
+                        "InlineAdmin": {
+                            "Statement": [
+                                {"Effect": "Allow", "Action": "iam:*", "Resource": "*"}
+                            ]
+                        }
+                    },
+                    "AttachedPolicies": [],
+                }
+            ],
+            "policies": [],
+        }
+        r = check_iam_026(evidence)
+        assert r.status == "FAIL"
+        assert r.metadata["roles_without_boundary_and_iam_admin_actions"] == 1
+        assert r.metadata["classification"] == "missing_boundary_with_iam_admin_actions"
+        assert r.metadata["resource_details"][0]["iam_admin_evidence"][0]["policy_type"] == "inline"
+
     def test_roles_without_iam_admin_actions_are_not_delegated_admin(self):
         evidence = {
             "roles": [
@@ -907,6 +953,26 @@ class TestIAM035:
         r = check_iam_035(evidence)
         assert r.status == "PASS"
 
+    def test_fail_role_inline_policy_version_escalation_permission(self):
+        evidence = {
+            "roles": [
+                _role_with_inline_policy(
+                    "PolicyVersionEscalation",
+                    {
+                        "Statement": [
+                            {
+                                "Effect": "Allow",
+                                "Action": "iam:CreatePolicyVersion",
+                                "Resource": "*",
+                            }
+                        ]
+                    },
+                )
+            ]
+        }
+        r = check_iam_035(evidence)
+        assert r.status == "FAIL"
+
 
 class TestIAM036:
     def test_fail_service_specific_credential_takeover(self):
@@ -925,6 +991,26 @@ class TestIAM036:
                         ]
                     },
                 }
+            ]
+        }
+        r = check_iam_036(evidence)
+        assert r.status == "FAIL"
+
+    def test_fail_role_inline_service_specific_credential_takeover(self):
+        evidence = {
+            "roles": [
+                _role_with_inline_policy(
+                    "SvcCredTakeover",
+                    {
+                        "Statement": [
+                            {
+                                "Effect": "Allow",
+                                "Action": "iam:CreateServiceSpecificCredential",
+                                "Resource": "*",
+                            }
+                        ]
+                    },
+                )
             ]
         }
         r = check_iam_036(evidence)
@@ -953,6 +1039,26 @@ class TestIAM037:
         r = check_iam_037(evidence)
         assert r.status == "FAIL"
 
+    def test_fail_role_inline_broad_mfa_manipulation(self):
+        evidence = {
+            "roles": [
+                _role_with_inline_policy(
+                    "MFAAdminBroad",
+                    {
+                        "Statement": [
+                            {
+                                "Effect": "Allow",
+                                "Action": "iam:DeactivateMFADevice",
+                                "Resource": "*",
+                            }
+                        ]
+                    },
+                )
+            ]
+        }
+        r = check_iam_037(evidence)
+        assert r.status == "FAIL"
+
 
 class TestIAM038:
     def test_fail_iam_delete_wildcard(self):
@@ -976,6 +1082,18 @@ class TestIAM038:
         r = check_iam_038(evidence)
         assert r.status == "FAIL"
 
+    def test_fail_role_inline_iam_delete_wildcard(self):
+        evidence = {
+            "roles": [
+                _role_with_inline_policy(
+                    "DeleteEverything",
+                    {"Statement": [{"Effect": "Allow", "Action": "iam:Delete*", "Resource": "*"}]},
+                )
+            ]
+        }
+        r = check_iam_038(evidence)
+        assert r.status == "FAIL"
+
 
 class TestIAM039:
     def test_fail_broad_policy_detach_delete(self):
@@ -994,6 +1112,26 @@ class TestIAM039:
                         ]
                     },
                 }
+            ]
+        }
+        r = check_iam_039(evidence)
+        assert r.status == "FAIL"
+
+    def test_fail_role_inline_broad_policy_detach_delete(self):
+        evidence = {
+            "roles": [
+                _role_with_inline_policy(
+                    "DetachDeleteBroad",
+                    {
+                        "Statement": [
+                            {
+                                "Effect": "Allow",
+                                "Action": "iam:DetachRolePolicy",
+                                "Resource": "*",
+                            }
+                        ]
+                    },
+                )
             ]
         }
         r = check_iam_039(evidence)
@@ -5937,6 +6075,24 @@ class TestIAM042PrivEscalation:
             {"policies": [self._make_policy("passer", "iam:PassRole", resource="*")]}
         )
         assert result.status == "FAIL"
+
+    def test_fail_role_inline_passrole_no_mfa(self):
+        result = self._run(
+            {
+                "roles": [
+                    _role_with_inline_policy(
+                        "passer",
+                        {
+                            "Statement": [
+                                {"Effect": "Allow", "Action": "iam:PassRole", "Resource": "*"}
+                            ]
+                        },
+                    )
+                ]
+            }
+        )
+        assert result.status == "FAIL"
+        assert "InlineRole:inline-policy/passer" in result.affected_resources[0]
 
 
 class TestEXP023ResourceBasedPolicies:

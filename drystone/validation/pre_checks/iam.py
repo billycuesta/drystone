@@ -185,8 +185,8 @@ def check_iam_004(evidence: Dict[str, Any]) -> PreCheckResult:
 @_register("iam")
 def check_iam_008(evidence: Dict[str, Any]) -> PreCheckResult:
     """No policy should have full administrative permissions (*:*)."""
-    pols = evidence.get("policies")
-    if not isinstance(pols, list) or not pols:
+    pols = _iam_policy_docs_with_role_inline(evidence)
+    if not pols:
         return PreCheckResult("IAM-008", "SKIP", "no policies evidence", [])
 
     for p in pols:
@@ -868,11 +868,47 @@ def check_iam_034(evidence: Dict[str, Any]) -> PreCheckResult:
     return PreCheckResult("IAM-034", "PASS", "no broad IdP mutation permissions found", [])
 
 
+def _iam_policy_docs_with_role_inline(evidence: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Return customer-managed policy docs plus role inline policy docs.
+
+    Role InlinePolicies historically appeared as a list of names. New IAM
+    collection stores role inline policies as {name: PolicyDocument}; only dict
+    document values are inspectable here.
+    """
+    out: List[Dict[str, Any]] = []
+    pols = evidence.get("policies")
+    if isinstance(pols, list):
+        out.extend(p for p in pols if isinstance(p, dict))
+
+    roles = evidence.get("roles")
+    if isinstance(roles, list):
+        for role in roles:
+            if not isinstance(role, dict):
+                continue
+            inline = role.get("InlinePolicies")
+            if not isinstance(inline, dict):
+                continue
+            role_name = str(role.get("RoleName") or "unknown")
+            role_arn = str(role.get("Arn") or f"role/{role_name}")
+            for policy_name, doc in inline.items():
+                if not isinstance(doc, dict):
+                    continue
+                out.append(
+                    {
+                        "PolicyName": f"{role_name}/{policy_name}",
+                        "Arn": f"{role_arn}:inline-policy/{policy_name}",
+                        "PolicyDocument": doc,
+                        "PolicyType": "role-inline",
+                    }
+                )
+    return out
+
+
 @_register("iam")
 def check_iam_035(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM policies should not allow policy-version backdoor actions broadly."""
-    pols = evidence.get("policies")
-    if not isinstance(pols, list) or not pols:
+    pols = _iam_policy_docs_with_role_inline(evidence)
+    if not pols:
         return PreCheckResult("IAM-035", "SKIP", "no policies evidence", [])
 
     risky = {"iam:createpolicyversion", "iam:setdefaultpolicyversion"}
@@ -913,8 +949,8 @@ def check_iam_035(evidence: Dict[str, Any]) -> PreCheckResult:
 @_register("iam")
 def check_iam_036(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM policies should not allow broad service-specific credential takeover."""
-    pols = evidence.get("policies")
-    if not isinstance(pols, list) or not pols:
+    pols = _iam_policy_docs_with_role_inline(evidence)
+    if not pols:
         return PreCheckResult("IAM-036", "SKIP", "no policies evidence", [])
 
     risky = {
@@ -956,8 +992,8 @@ def check_iam_036(evidence: Dict[str, Any]) -> PreCheckResult:
 @_register("iam")
 def check_iam_037(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM policies should not allow broad MFA device manipulation."""
-    pols = evidence.get("policies")
-    if not isinstance(pols, list) or not pols:
+    pols = _iam_policy_docs_with_role_inline(evidence)
+    if not pols:
         return PreCheckResult("IAM-037", "SKIP", "no policies evidence", [])
 
     risky = {
@@ -999,8 +1035,8 @@ def check_iam_037(evidence: Dict[str, Any]) -> PreCheckResult:
 @_register("iam")
 def check_iam_038(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM wildcard delete permissions should be prohibited."""
-    pols = evidence.get("policies")
-    if not isinstance(pols, list) or not pols:
+    pols = _iam_policy_docs_with_role_inline(evidence)
+    if not pols:
         return PreCheckResult("IAM-038", "SKIP", "no policies evidence", [])
 
     for p in pols:
@@ -1033,8 +1069,8 @@ def check_iam_038(evidence: Dict[str, Any]) -> PreCheckResult:
 @_register("iam")
 def check_iam_039(evidence: Dict[str, Any]) -> PreCheckResult:
     """Broad policy detachment/deletion actions should be restricted."""
-    pols = evidence.get("policies")
-    if not isinstance(pols, list) or not pols:
+    pols = _iam_policy_docs_with_role_inline(evidence)
+    if not pols:
         return PreCheckResult("IAM-039", "SKIP", "no policies evidence", [])
 
     risky = {
@@ -1456,8 +1492,8 @@ def check_iam_042(evidence: Dict[str, Any]) -> PreCheckResult:
       - Role passing: iam:PassRole (combined with other services = privilege escalation vector)
       - MFA bypass: iam:CreateVirtualMFADevice without scoped resource
     """
-    policies = evidence.get("policies")
-    if not isinstance(policies, list) or not policies:
+    policies = _iam_policy_docs_with_role_inline(evidence)
+    if not policies:
         return PreCheckResult("IAM-042", "SKIP", "no policies evidence", [])
 
     # Escalation permissions — must be checked with broad Resource scope
