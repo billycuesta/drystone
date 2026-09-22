@@ -132,3 +132,120 @@ def test_verify_manifest_corrupt_manifest_file(tmp_path):
 
     assert result["ok"] is False
     assert "not valid JSON" in result["error"]
+
+
+def test_build_manifest_includes_metrics_json(tmp_path):
+    """Verify metrics.json is hashed if present at top level."""
+    _make_session_tree(tmp_path)
+    (tmp_path / "metrics.json").write_text(json.dumps({"llm_checks": 10}))
+
+    manifest = build_manifest(tmp_path)
+
+    assert "metrics.json" in manifest["files"]
+    assert manifest["file_count"] == 4  # 3 from session tree + metrics.json
+    assert len(manifest["files"]["metrics.json"]["sha256"]) == 64
+    assert manifest["files"]["metrics.json"]["size_bytes"] > 0
+
+
+def test_build_manifest_includes_active_verification_log_json(tmp_path):
+    """Verify active_verification_log.json is hashed if present at top level."""
+    _make_session_tree(tmp_path)
+    (tmp_path / "active_verification_log.json").write_text(
+        json.dumps({"verifications": []})
+    )
+
+    manifest = build_manifest(tmp_path)
+
+    assert "active_verification_log.json" in manifest["files"]
+    assert manifest["file_count"] == 4  # 3 from session tree + active_verification_log.json
+
+
+def test_build_manifest_includes_both_top_level_files(tmp_path):
+    """Verify both metrics.json and active_verification_log.json are hashed when present."""
+    _make_session_tree(tmp_path)
+    (tmp_path / "metrics.json").write_text(json.dumps({"llm_checks": 10}))
+    (tmp_path / "active_verification_log.json").write_text(
+        json.dumps({"verifications": []})
+    )
+
+    manifest = build_manifest(tmp_path)
+
+    assert "metrics.json" in manifest["files"]
+    assert "active_verification_log.json" in manifest["files"]
+    assert manifest["file_count"] == 5  # 3 from session tree + 2 top-level files
+    assert set(manifest["files"].keys()) >= {
+        "evidence/iam/users.json",
+        "findings/iam.json",
+        "reports/iam.md",
+        "metrics.json",
+        "active_verification_log.json",
+    }
+
+
+def test_build_manifest_gracefully_skips_missing_top_level_files(tmp_path):
+    """Verify missing top-level files are silently skipped (e.g., active verification disabled)."""
+    _make_session_tree(tmp_path)
+    (tmp_path / "metrics.json").write_text(json.dumps({"llm_checks": 10}))
+    # active_verification_log.json is intentionally NOT created
+
+    manifest = build_manifest(tmp_path)
+
+    assert "metrics.json" in manifest["files"]
+    assert "active_verification_log.json" not in manifest["files"]
+    assert manifest["file_count"] == 4  # 3 from session tree + only metrics.json
+
+
+def test_verify_manifest_detects_tampering_of_metrics_json(tmp_path):
+    """Verify that tampering with metrics.json after manifest write is detected."""
+    _make_session_tree(tmp_path)
+    (tmp_path / "metrics.json").write_text(json.dumps({"llm_checks": 10}))
+    write_manifest(tmp_path)
+
+    # Simulate tampering: change metrics.json after manifest was written
+    (tmp_path / "metrics.json").write_text(json.dumps({"llm_checks": 999}))
+
+    result = verify_manifest(tmp_path)
+
+    assert result["ok"] is False
+    assert "metrics.json" in result["tampered"]
+    assert result["missing"] == []
+    assert result["added"] == []
+
+
+def test_verify_manifest_detects_tampering_of_active_verification_log_json(tmp_path):
+    """Verify that tampering with active_verification_log.json after manifest write is detected."""
+    _make_session_tree(tmp_path)
+    (tmp_path / "active_verification_log.json").write_text(
+        json.dumps({"verifications": [{"status": "pass"}]})
+    )
+    write_manifest(tmp_path)
+
+    # Simulate tampering: change active_verification_log.json after manifest was written
+    (tmp_path / "active_verification_log.json").write_text(
+        json.dumps({"verifications": [{"status": "fail"}]})
+    )
+
+    result = verify_manifest(tmp_path)
+
+    assert result["ok"] is False
+    assert "active_verification_log.json" in result["tampered"]
+    assert result["missing"] == []
+    assert result["added"] == []
+
+
+def test_verify_manifest_ok_with_all_top_level_and_subdir_files(tmp_path):
+    """End-to-end: verify manifest is ok when all files (both top-level and subdir) are untampered."""
+    _make_session_tree(tmp_path)
+    (tmp_path / "metrics.json").write_text(json.dumps({"llm_checks": 10}))
+    (tmp_path / "active_verification_log.json").write_text(
+        json.dumps({"verifications": []})
+    )
+    write_manifest(tmp_path)
+
+    result = verify_manifest(tmp_path)
+
+    assert result["ok"] is True
+    assert result["tampered"] == []
+    assert result["missing"] == []
+    assert result["added"] == []
+    assert result["checked_files"] == 5  # 3 subdir files + 2 top-level files
