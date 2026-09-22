@@ -1018,6 +1018,38 @@ class TestIAM007:
         assert r.status == "FAIL"
         assert "1 role(s)" in r.evidence_summary
 
+    def test_fail_limits_affected_resources_to_ten_inline_policy_roles(self):
+        roles = [
+            {
+                "RoleName": f"InlineRole{i}",
+                "Arn": f"arn:aws:iam::111111111111:role/InlineRole{i}",
+                "InlinePolicies": [f"InlinePolicy{i}"],
+            }
+            for i in range(11)
+        ]
+
+        r = check_iam_007({"roles": roles})
+
+        assert r.status == "FAIL"
+        assert len(r.affected_resources) == 10
+        assert len(r.metadata["resource_details"]) == 10
+        assert "11 role(s) have inline policies" in r.evidence_summary
+
+    def test_fail_includes_full_affected_resources_when_three_roles_have_inline_policies(self):
+        roles = [
+            {
+                "RoleName": f"InlineRole{i}",
+                "Arn": f"arn:aws:iam::111111111111:role/InlineRole{i}",
+                "InlinePolicies": [f"InlinePolicy{i}"],
+            }
+            for i in range(3)
+        ]
+
+        r = check_iam_007({"roles": roles})
+
+        assert r.status == "FAIL"
+        assert r.affected_resources == [role["Arn"] for role in roles]
+
     def test_pass_when_no_inline_policies(self):
         r = check_iam_007(
             {
