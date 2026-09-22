@@ -932,3 +932,53 @@ def test_executive_narrative_html_handles_non_dict_assessment_dates(tmp_path):
     html_out = formatter._executive_narrative_html(_sample_findings()["summary"])
 
     assert "Assessment period" not in html_out
+
+
+def test_top_resources_html_singular_finding(tmp_path):
+    """Test that a resource with exactly 1 finding uses singular 'finding'."""
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.skills = ["iam"]
+
+    findings = [
+        {
+            "id": "IAM-001",
+            "severity": "Critical",
+            "title": "Test",
+            "affected_resources": ["arn:aws:iam::123456789012:user/admin"],
+        }
+    ]
+
+    formatter = PDFFormatter(_sample_findings(), session, config)
+    html = formatter._top_resources_html(findings)
+
+    assert "(1 finding)" in html
+    assert "(1 findings)" not in html
+
+
+def test_top_resources_html_multiple_findings(tmp_path):
+    """Test that a resource with multiple findings uses plural 'findings'."""
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.skills = ["iam"]
+
+    findings = [
+        {
+            "id": "IAM-001",
+            "severity": "Critical",
+            "title": "Test 1",
+            "affected_resources": ["arn:aws:iam::123456789012:user/admin"],
+        },
+        {
+            "id": "IAM-002",
+            "severity": "High",
+            "title": "Test 2",
+            "affected_resources": ["arn:aws:iam::123456789012:user/admin"],
+        },
+    ]
+
+    formatter = PDFFormatter(_sample_findings(), session, config)
+    html = formatter._top_resources_html(findings)
+
+    assert "(2 findings)" in html
+    assert "(2 finding)" not in html

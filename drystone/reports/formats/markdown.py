@@ -923,7 +923,8 @@ These correlations represent multi-stage attack scenarios where findings from di
 
         result = "### Top 5 Affected Resources\n"
         for i, (resource, count) in enumerate(top_resources, 1):
-            result += f"{i}. {resource} ({count} findings)\n"
+            finding_word = "finding" if count == 1 else "findings"
+            result += f"{i}. {resource} ({count} {finding_word})\n"
 
         return result
 

@@ -774,3 +774,61 @@ class TestPciDssAnnexMd:
         f = _make_formatter(tmp_path, report_type="general")
         f.config.skills = ["iam"]
         assert f._pci_dss_annex_md() == ""
+
+
+class TestTopAffectedResources:
+    def test_singular_finding_uses_singular_form(self, tmp_path):
+        findings = {
+            "skill": "iam",
+            "findings": [
+                {
+                    "id": "IAM-001",
+                    "severity": "Critical",
+                    "title": "Test",
+                    "affected_resources": ["arn:aws:iam::123456789012:user/admin"],
+                }
+            ],
+            "summary": {
+                "total_findings": 1,
+                "critical": 1,
+                "high": 0,
+                "medium": 0,
+                "low": 0,
+                "overall_risk_score": 9.5,
+            },
+        }
+        f = _make_formatter(tmp_path, findings=findings)
+        section = f._top_affected_resources()
+        assert "(1 finding)" in section
+        assert "(1 findings)" not in section
+
+    def test_multiple_findings_uses_plural_form(self, tmp_path):
+        findings = {
+            "skill": "iam",
+            "findings": [
+                {
+                    "id": "IAM-001",
+                    "severity": "Critical",
+                    "title": "Test 1",
+                    "affected_resources": ["arn:aws:iam::123456789012:user/admin"],
+                },
+                {
+                    "id": "IAM-002",
+                    "severity": "High",
+                    "title": "Test 2",
+                    "affected_resources": ["arn:aws:iam::123456789012:user/admin"],
+                },
+            ],
+            "summary": {
+                "total_findings": 2,
+                "critical": 1,
+                "high": 1,
+                "medium": 0,
+                "low": 0,
+                "overall_risk_score": 8.0,
+            },
+        }
+        f = _make_formatter(tmp_path, findings=findings)
+        section = f._top_affected_resources()
+        assert "(2 findings)" in section
+        assert "(2 finding)" not in section

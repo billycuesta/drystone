@@ -1037,10 +1037,11 @@ class PDFFormatter(BaseFormatter):
         top = sorted(counts.items(), key=lambda item: item[1], reverse=True)[:5]
         if not top:
             return "<li>No affected resources identified</li>"
-        return "".join(
-            f"<li><code>{html.escape(resource)}</code> ({count} findings)</li>"
-            for resource, count in top
-        )
+        items = []
+        for resource, count in top:
+            finding_word = "finding" if count == 1 else "findings"
+            items.append(f"<li><code>{html.escape(resource)}</code> ({count} {finding_word})</li>")
+        return "".join(items)
 
     def _top_findings_rows_html(self, findings: List[Dict[str, Any]]) -> str:
         if not findings:
