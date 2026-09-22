@@ -646,7 +646,17 @@ class ExposureSkill(BaseSkill):
             api_stages: List[Dict[str, Any]] = []
             api_routes: List[Dict[str, Any]] = []
             apigw = boto3.client("apigateway", **client_kwargs)
-            apis = apigw.get_rest_apis().get("items", [])
+            apis: List[Dict[str, Any]] = []
+            api_position: Optional[str] = None
+            while True:
+                api_args: Dict[str, Any] = {"limit": 500}
+                if api_position:
+                    api_args["position"] = api_position
+                api_page = apigw.get_rest_apis(**api_args)
+                apis.extend(api_page.get("items", []) or [])
+                api_position = api_page.get("position")
+                if not api_position:
+                    break
             for api in apis or []:
                 api_id = api.get("id")
                 if not api_id:
@@ -670,7 +680,17 @@ class ExposureSkill(BaseSkill):
 
                 # REST API routes/method auth posture
                 try:
-                    resources = apigw.get_resources(restApiId=api_id).get("items", [])
+                    resources: List[Dict[str, Any]] = []
+                    resource_position: Optional[str] = None
+                    while True:
+                        resource_args: Dict[str, Any] = {"restApiId": api_id, "limit": 500}
+                        if resource_position:
+                            resource_args["position"] = resource_position
+                        resource_page = apigw.get_resources(**resource_args)
+                        resources.extend(resource_page.get("items", []) or [])
+                        resource_position = resource_page.get("position")
+                        if not resource_position:
+                            break
                 except ClientError:
                     resources = []
                 for res in resources or []:
@@ -727,7 +747,17 @@ class ExposureSkill(BaseSkill):
 
                     # HTTP API routes/method auth posture
                     try:
-                        routes = apigw2.get_routes(ApiId=api_id).get("Items", [])
+                        routes: List[Dict[str, Any]] = []
+                        route_token: Optional[str] = None
+                        while True:
+                            route_args: Dict[str, Any] = {"ApiId": api_id, "MaxResults": 500}
+                            if route_token:
+                                route_args["NextToken"] = route_token
+                            route_page = apigw2.get_routes(**route_args)
+                            routes.extend(route_page.get("Items", []) or [])
+                            route_token = route_page.get("NextToken")
+                            if not route_token:
+                                break
                     except ClientError:
                         routes = []
                     for r in routes or []:
