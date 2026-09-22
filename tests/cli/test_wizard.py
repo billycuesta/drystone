@@ -42,6 +42,50 @@ class TestDisplayConfigSummary:
         assert "Messaging" in out
         assert "Cloudtrail_events" not in out
 
+    def test_active_verification_enabled_shows_checkmark(self, capsys):
+        display_config_summary(
+            {
+                "client_name": "ACME",
+                "aws_region": "us-east-1",
+                "aws_access_key_id": None,
+                "aws_credentials_file": None,
+                "aws_profile": None,
+                "skills": ["iam"],
+                "output_formats": ["markdown"],
+                "report_type": "general",
+                "active_verification": True,
+            },
+            {
+                "ai_provider": "claude-api",
+                "ai_api_key": None,
+                "scan_depth": "normal",
+            },
+        )
+        out = capsys.readouterr().out
+        assert "Active Verification: ✅ Enabled" in out
+
+    def test_active_verification_disabled_shows_cross(self, capsys):
+        display_config_summary(
+            {
+                "client_name": "ACME",
+                "aws_region": "us-east-1",
+                "aws_access_key_id": None,
+                "aws_credentials_file": None,
+                "aws_profile": None,
+                "skills": ["iam"],
+                "output_formats": ["markdown"],
+                "report_type": "general",
+                "active_verification": False,
+            },
+            {
+                "ai_provider": "claude-api",
+                "ai_api_key": None,
+                "scan_depth": "normal",
+            },
+        )
+        out = capsys.readouterr().out
+        assert "Active Verification: ❌ Disabled" in out
+
 
 class TestValidateAiProviderCredentialsClaudeCli:
     def test_available_returns_true_and_prints_nothing_bad(self, capsys):

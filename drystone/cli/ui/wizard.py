@@ -176,6 +176,7 @@ def display_config_summary(project_config: dict, ai_config: dict) -> None:
     )
     print(f"   Security Skills: {skills_display}")
     print(f"   Auditor Visibility: {project_config.get('qsa_depth', 'standard')}")
+    print(f"   Active Verification: {'✅ Enabled' if project_config.get('active_verification') else '❌ Disabled'}")
 
     # Output formats
     formats_display = (
