@@ -7,7 +7,6 @@ from pydantic import ValidationError
 
 from drystone.correlation.models import (
     CorrelatedFinding,
-    CorrelationPattern,
     CVSSScore,
     SourceFindingRef,
     ThreatContext,
@@ -188,40 +187,6 @@ class TestCorrelatedFindingBounds:
     def test_required_fields_missing_raises(self):
         with pytest.raises(ValidationError):
             CorrelatedFinding(id="CORR-001")
-
-
-# ── CorrelationPattern: amplification_factor bounds ───────────────────────────
-
-
-class TestCorrelationPatternBounds:
-    def _make_pattern(self, amplification_factor: float) -> CorrelationPattern:
-        return CorrelationPattern(
-            id="PAT-001",
-            name="Test Pattern",
-            severity="Critical",
-            skills_required=["iam", "network"],
-            amplification_factor=amplification_factor,
-            title_template="Title {resource}",
-            description_template="Description",
-            attack_path_steps=["Step 1", "Step 2"],
-            remediation_template="Fix it",
-        )
-
-    def test_valid_min_amplification_factor(self):
-        pattern = self._make_pattern(1.0)
-        assert pattern.amplification_factor == 1.0
-
-    def test_valid_max_amplification_factor(self):
-        pattern = self._make_pattern(2.0)
-        assert pattern.amplification_factor == 2.0
-
-    def test_amplification_below_1_rejected(self):
-        with pytest.raises(ValidationError):
-            self._make_pattern(0.9)
-
-    def test_amplification_above_2_rejected(self):
-        with pytest.raises(ValidationError):
-            self._make_pattern(2.1)
 
 
 # ── ThreatContext: defaults ────────────────────────────────────────────────────

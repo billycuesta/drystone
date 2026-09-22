@@ -1,9 +1,9 @@
 """Pydantic models for correlated and pentest-enriched findings."""
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 
 class SourceFindingRef(BaseModel):
@@ -43,24 +43,6 @@ class CorrelatedFinding(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now, description="Correlation timestamp")
 
 
-class CorrelationPattern(BaseModel):
-    """Definition of a correlation pattern."""
-
-    id: str = Field(..., description="Pattern identifier")
-    name: str = Field(..., description="Human-readable name")
-    severity: str = Field(..., description="Severity of correlated finding")
-    skills_required: List[str] = Field(..., description="Skills that must be executed")
-    amplification_factor: float = Field(
-        ..., ge=1.0, le=2.0, description="Risk amplification multiplier"
-    )
-    title_template: str = Field(..., description="Template for correlation title")
-    description_template: str = Field(..., description="Template for description")
-    attack_path_steps: List[str] = Field(..., description="Attack chain steps")
-    remediation_template: str = Field(..., description="Template for remediation")
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)  # Allow callable match_condition
-
-
 class CVSSScore(BaseModel):
     """CVSS v3.1 scoring breakdown for pentest findings."""
 
@@ -83,17 +65,6 @@ class CVSSScore(BaseModel):
     report_confidence: Optional[str] = None
 
 
-class VulnerabilityReference(BaseModel):
-    """External vulnerability references."""
-
-    cve_ids: List[str] = Field(default_factory=list)
-    nvd_links: List[str] = Field(default_factory=list)
-    exploitdb_id: Optional[str] = None
-    metasploit_module: Optional[str] = None
-    vendor_advisory: Optional[str] = None
-    public_exploits: List[str] = Field(default_factory=list)
-
-
 class ThreatContext(BaseModel):
     """Threat-intelligence and ATT&CK context."""
 
@@ -102,17 +73,6 @@ class ThreatContext(BaseModel):
     threat_actors: List[str] = Field(default_factory=list)
     observed_in_wild: bool = False
     exploit_maturity: str = "Not Defined"
-
-
-class TechnicalImpact(BaseModel):
-    """Technical impact and blast-radius details."""
-
-    confidentiality: str
-    integrity: str
-    availability: str
-    blast_radius: Dict[str, Any] = Field(default_factory=dict)
-    privilege_escalation_potential: bool = False
-    lateral_movement_paths: List[str] = Field(default_factory=list)
 
 
 class ExploitabilityInfo(BaseModel):
@@ -126,30 +86,3 @@ class ExploitabilityInfo(BaseModel):
     estimated_time_to_compromise: Optional[str] = None
 
 
-class RetestInfo(BaseModel):
-    """Retest tracking metadata."""
-
-    status: str = "Open"
-    retest_date: Optional[datetime] = None
-    verified_by: Optional[str] = None
-    verification_evidence: Optional[Dict[str, Any]] = None
-    residual_risk: Optional[str] = None
-
-
-class PentestFinding(BaseModel):
-    """Extended finding model for pentest report generation."""
-
-    id: str
-    title: str
-    severity: str
-    risk_score: float
-    description: str
-    remediation: str
-    affected_resources: List[str]
-
-    cvss: CVSSScore
-    vulnerability_refs: Optional[VulnerabilityReference] = None
-    threat_context: ThreatContext
-    technical_impact: TechnicalImpact
-    exploitability: ExploitabilityInfo
-    retest: Optional[RetestInfo] = None
