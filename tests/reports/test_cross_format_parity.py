@@ -172,9 +172,7 @@ class TestReportFormatVersionParity:
 
 
 class TestIntegrityManifestParity:
-    """Markdown/PDF/JSON render the evidence integrity hash. Pentest Markdown
-    does not -- current gap, tracked as RPT-O (no dedicated rec existed for
-    this before RPT-J's parity sweep)."""
+    """All report formats render the evidence integrity hash."""
 
     def test_markdown_renders_integrity_hash(self, tmp_path):
         formatter = MarkdownFormatter(_sample_findings(), _mock_session(tmp_path), _config())
@@ -189,10 +187,9 @@ class TestIntegrityManifestParity:
         formatter = PDFFormatter(_sample_findings(), _mock_session(tmp_path), _config())
         assert INTEGRITY_HASH in _render_html(formatter, monkeypatch)
 
-    def test_pentest_markdown_does_not_render_integrity_hash_known_gap(self, tmp_path):
-        """RPT-O: pentest.py has no equivalent of markdown.py's integrity row."""
+    def test_pentest_markdown_renders_integrity_hash(self, tmp_path):
         formatter = PentestFormatter(_sample_findings(), _mock_session(tmp_path), _config())
-        assert INTEGRITY_HASH not in formatter.generate().read_text()
+        assert INTEGRITY_HASH in formatter.generate().read_text()
 
 
 class TestTrendParity:
