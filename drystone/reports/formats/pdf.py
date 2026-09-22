@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
+from drystone.cli import __version__
 from drystone.reports.formats.base import BaseFormatter
 from drystone.reports.pentest_inventory_summary import build_environment_narrative
 from drystone.reports.safety import redact_secrets
@@ -153,6 +154,7 @@ class PDFFormatter(BaseFormatter):
             "CLIENT_LOGO_HTML": self._logo_html("client_logo_path", "Client logo"),
             "FIRM_LOGO_HTML": self._logo_html("firm_logo_path", "Firm logo"),
             "DRYSTONE_BANNER_HTML": self._drystone_ascii_banner_gradient_html(),
+            "PRODUCT_VERSION": html.escape(f"v{__version__}"),
             "ANALYSIS_TITLE": html.escape(self._analysis_title()),
             "INDEX_SECTION": self._index_section_html(findings),
             "CLIENT_NAME": html.escape(self.session.client_name or "Unknown Client"),

@@ -3,6 +3,7 @@
 import json
 from unittest.mock import Mock
 
+from drystone.cli import __version__
 from drystone.reports.formats.markdown import MarkdownFormatter
 from drystone.storage.session import AuditSession
 
@@ -38,6 +39,15 @@ def _make_formatter(tmp_path, findings=None, report_language="en", report_type="
         }
 
     return MarkdownFormatter(findings, session, config)
+
+
+def test_footer_uses_package_version(tmp_path):
+    formatter = _make_formatter(tmp_path)
+
+    footer = formatter._footer()
+
+    assert f"v{__version__}" in footer
+    assert "v1.0.0" not in footer
 
 
 # ── _is_english_report ────────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from drystone.cli import __version__
 from drystone.reports.formats.pdf import PDFFormatter
 
 
@@ -90,6 +91,13 @@ def pdf_formatter(tmp_path):
 
     formatter = PDFFormatter(findings, session, config)
     return formatter
+
+
+def test_pdf_cover_uses_package_version(pdf_formatter):
+    rendered = pdf_formatter._build_html_from_xml_template()
+
+    assert f"v{__version__}" in rendered
+    assert "v1.0.0" not in rendered
 
 
 class TestGAP5HideEmptyFields:
@@ -282,4 +290,3 @@ class TestGAP3Conditions:
         result = pdf_formatter._conditions_section_html()
         assert "Condiciones y Exclusiones" in result
         assert "Denegación de Servicio" in result
-

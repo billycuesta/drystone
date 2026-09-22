@@ -2,11 +2,32 @@
 
 from unittest.mock import Mock
 
+from drystone.cli import __version__
 from drystone.reports.formats.pci_dss import PCIDSSFormatter
 from drystone.storage.session import AuditSession
 
 
 class TestPCIDSSFormatter:
+    def test_footer_uses_package_version(self, tmp_path):
+        session = Mock(spec=AuditSession)
+        session.base_path = tmp_path
+        session.account_id = "123456789012"
+        session.client_name = "TestClient"
+        session.get_reports_path.return_value = tmp_path / "reports"
+        (tmp_path / "reports").mkdir(parents=True)
+
+        config = Mock()
+        config.skills = ["iam"]
+        config.report_type = "pci-dss"
+        formatter = PCIDSSFormatter(
+            {"skill": "iam", "findings": [], "summary": {}}, session, config
+        )
+
+        footer = formatter._footer()
+
+        assert f"v{__version__}" in footer
+        assert "v1.0.0" not in footer
+
     def test_ok_rows_use_no_mapped_findings_language(self, tmp_path):
         session = Mock(spec=AuditSession)
         session.base_path = tmp_path

@@ -1550,7 +1550,7 @@
     <div class="cover-wordmark">
       <div class="whitelabel-logo-row">{{FIRM_LOGO_HTML}}{{CLIENT_LOGO_HTML}}</div>
       <pre class="cover-ascii-logo">{{DRYSTONE_BANNER_HTML}}</pre>
-      <div class="cover-wordmark-version">v1.0.0 · AWS Security Audit powered by AI</div>
+      <div class="cover-wordmark-version">{{PRODUCT_VERSION}} · AWS Security Audit powered by AI</div>
     </div>
 
     <div class="cover-tagline">Security Assessment Report</div>

@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
+from drystone.cli import __version__
 from drystone.reports.formats.base import BaseFormatter
 from drystone.reports.safety import redact_secrets
 
@@ -1584,7 +1585,7 @@ These correlations represent multi-stage attack scenarios where findings from di
 
     def _footer(self) -> str:
         """Generate report footer."""
-        return """---
+        return f"""---
 
 ## 📝 Notes
 
@@ -1594,7 +1595,7 @@ These correlations represent multi-stage attack scenarios where findings from di
 
 ---
 
-🔒 **Drystone** v1.0.0 - AWS Security Audit CLI
+🔒 **Drystone** v{__version__} - AWS Security Audit CLI
 Generated with [Drystone](https://github.com/billycuesta/drystone)
 """
 

@@ -6,6 +6,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
 
+from drystone.cli import __version__
+
 from .base import BaseFormatter
 
 # ---------------------------------------------------------------------------
@@ -429,6 +431,6 @@ class PCIDSSFormatter(BaseFormatter):
 **Checklist Versions:**
 {versions}
 
-🔒 **Drystone** v1.0.0 - AWS Security Audit CLI
+🔒 **Drystone** v{__version__} - AWS Security Audit CLI
 Generated with [Drystone](https://github.com/billycuesta/drystone)
 """
