@@ -1,5 +1,6 @@
 """Tests for CI/CD (CodeBuild) skill evidence collection."""
 
+import json
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -81,9 +82,40 @@ def test_cicd_collect_writes_expected_files(tmp_path: Path):
     session.get_evidence_path.return_value = tmp_path
 
     skill = CICDSkill()
+    aws_client.boto3_session.return_value = _DummySession()
     with patch("boto3.Session", return_value=_DummySession()):
         skill.collect(aws_client, session)
 
-    assert (tmp_path / "_audit_metadata.json").exists()
-    assert (tmp_path / "codebuild-projects.json").exists()
-    assert (tmp_path / "codebuild-source-credentials.json").exists()
+    metadata = json.loads((tmp_path / "_audit_metadata.json").read_text())
+    projects = json.loads((tmp_path / "codebuild-projects.json").read_text())
+    credentials = json.loads((tmp_path / "codebuild-source-credentials.json").read_text())
+
+    assert metadata["_region"] == "us-east-1"
+    assert metadata["_skill"] == "cicd"
+    assert projects["errors"] == {}
+    project = projects["items"][0]
+    assert project["name"] == "p1"
+    assert project["source"] == {
+        "type": "GITHUB",
+        "location": "https://github.com/org/repo",
+        "auth": None,
+        "insecureSsl": True,
+    }
+    assert project["environment"]["privilegedMode"] is False
+    assert project["environment"]["environmentVariables"] == [
+        {
+            "name": "https_proxy",
+            "type": "PLAINTEXT",
+            "has_value": True,
+            "looks_like_proxy": True,
+        }
+    ]
+    assert "value" not in project["environment"]["environmentVariables"][0]
+    assert credentials["errors"] == {}
+    assert credentials["items"][0] == {
+        "arn": "arn:aws:codebuild:us-east-1:1:token/abc",
+        "serverType": "GITHUB",
+        "authType": "PERSONAL_ACCESS_TOKEN",
+        "resource": "https://github.com",
+        "createdAt": "",
+    }

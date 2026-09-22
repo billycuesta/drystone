@@ -1,5 +1,6 @@
 """Tests for Compute (ECS/EKS) skill evidence collection."""
 
+import json
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -40,10 +41,10 @@ class _DummyECSClient:
     def describe_tasks(self, cluster, tasks):
         return {"tasks": [{"clusterArn": cluster, "taskArn": tasks[0], "taskDefinitionArn": "td"}]}
 
-    def describe_task_definition(self, task_definition):
+    def describe_task_definition(self, taskDefinition):  # noqa: N803
         return {
             "taskDefinition": {
-                "taskDefinitionArn": task_definition,
+                "taskDefinitionArn": taskDefinition,
                 "containerDefinitions": [],
             }
         }
@@ -56,8 +57,8 @@ class _DummyEventsClient:
             [{"Rules": [{"Name": "r1", "ScheduleExpression": "rate(5 minutes)"}]}]
         )
 
-    def list_targets_by_rule(self, rule: str):
-        assert rule
+    def list_targets_by_rule(self, Rule: str):  # noqa: N803
+        assert Rule
         return {"Targets": [{"Arn": "arn:aws:ecs:us-east-1:1:cluster/c1"}]}
 
 
@@ -78,11 +79,11 @@ class _DummyEKSClient:
             }
         }
 
-    def describe_nodegroup(self, cluster_name: str, nodegroup_name: str):
+    def describe_nodegroup(self, clusterName: str, nodegroupName: str):  # noqa: N803
         return {
             "nodegroup": {
-                "clusterName": cluster_name,
-                "nodegroupName": nodegroup_name,
+                "clusterName": clusterName,
+                "nodegroupName": nodegroupName,
             }
         }
 
@@ -177,12 +178,35 @@ def test_compute_collect_writes_expected_files(tmp_path: Path):
     session.get_evidence_path.return_value = tmp_path
 
     skill = ComputeSkill()
+    aws_client.boto3_session.return_value = _DummySession()
     with patch("boto3.Session", return_value=_DummySession()):
         skill.collect(aws_client, session)
 
-    assert (tmp_path / "_audit_metadata.json").exists()
-    assert (tmp_path / "ecs-inventory.json").exists()
-    assert (tmp_path / "eventbridge-rules.json").exists()
-    assert (tmp_path / "eks-inventory.json").exists()
-    assert (tmp_path / "ec2-inventory.json").exists()
-    assert (tmp_path / "lambda-inventory.json").exists()
+    metadata = json.loads((tmp_path / "_audit_metadata.json").read_text())
+    ecs = json.loads((tmp_path / "ecs-inventory.json").read_text())
+    eventbridge = json.loads((tmp_path / "eventbridge-rules.json").read_text())
+    eks = json.loads((tmp_path / "eks-inventory.json").read_text())
+    ec2 = json.loads((tmp_path / "ec2-inventory.json").read_text())
+    lambdas = json.loads((tmp_path / "lambda-inventory.json").read_text())
+
+    assert metadata["_region"] == "us-east-1"
+    assert metadata["_skill"] == "compute"
+    assert ecs["clusters"][0]["clusterName"] == "c1"
+    assert ecs["services"][0]["serviceName"] == "s1"
+    assert ecs["tasks"][0]["taskArn"].endswith("/t1")
+    assert ecs["task_definitions"][0]["taskDefinitionArn"].endswith("td:1")
+    assert eventbridge["rules"][0]["ScheduleExpression"] == "rate(5 minutes)"
+    assert eventbridge["rules"][0]["Targets"][0]["Arn"].endswith("cluster/c1")
+    assert eks["clusters"][0]["resourcesVpcConfig"]["endpointPublicAccess"] is True
+    assert eks["nodegroups"][0]["nodegroupName"] == "ng1"
+    assert ec2["instances"][0]["UserData"] == "#!/bin/bash\necho hello\n"
+    assert ec2["instances"][0]["ContainsSecrets"] == {
+        "aws_access_key": False,
+        "aws_secret_key": False,
+        "password": False,
+        "api_key": False,
+        "token": False,
+    }
+    assert ec2["instances"][0]["HasRemoteBootstrap"] is False
+    assert lambdas["functions"][0]["AuthType"] == "NONE"
+    assert lambdas["functions"][0]["AttachedPolicies"][0]["PolicyName"] == "AdministratorAccess"
