@@ -87,7 +87,10 @@ class AgentClient:
             provider_config: Configuration dictionary with:
                 {
                     'type': 'claude-api' | 'claude-cli',
-                    'api_key': provider API key (required for API providers)
+                    'api_key': provider API key (required for API providers),
+                    'model': optional model override; defaults to
+                             'claude-opus-4-5-20251101' for claude-api and
+                             'haiku' for claude-cli
                 }
             crash_safe_logger: Optional crash-safe logger for audit events
 
@@ -138,7 +141,9 @@ class AgentClient:
 
             try:
                 self.client = anthropic.Anthropic(api_key=self.api_key)
-                self.model = "claude-opus-4-5-20251101"
+                self.model = str(
+                    self.provider_config.get("model", "claude-opus-4-5-20251101")
+                )
                 self.max_tokens = 16000
                 self.temperature = 0.0
             except Exception as e:

@@ -52,6 +52,23 @@ class TestAgentClientInit:
         assert client.provider_type == "claude-api"
         assert client.use_cli is False
 
+    def test_claude_api_honors_model_override(self):
+        with patch("anthropic.Anthropic"):
+            client = AgentClient(
+                provider_config={
+                    "type": "claude-api",
+                    "api_key": "sk-ant-test",
+                    "model": "claude-sonnet-4-5-20250929",
+                }
+            )
+
+        assert client.model == "claude-sonnet-4-5-20250929"
+
+    def test_claude_api_defaults_to_opus_model(self):
+        client = _make_api_client()
+
+        assert client.model == "claude-opus-4-5-20251101"
+
     def test_claude_cli_not_found_raises(self):
         with patch("shutil.which", return_value=None):
             with pytest.raises(AgentError, match="not found in PATH"):
