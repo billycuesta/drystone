@@ -354,6 +354,48 @@ class TestIAM001:
         r = check_iam_001(evidence)
         assert r.status == "PASS"
 
+    def test_fail_uses_real_root_arn_from_credential_report(self):
+        """Verify real account root ARN is used instead of wildcard when available in credential report."""
+        evidence = {
+            "account-summary": {"SummaryMap": {"AccountMFAEnabled": 0}},
+            "credential-report": {
+                "by_user": {
+                    "root": {
+                        "arn": "arn:aws:iam::123456789012:root",
+                        "mfa_active": "false",
+                    }
+                }
+            },
+        }
+        r = check_iam_001(evidence)
+        assert r.status == "FAIL"
+        # Critical assertion: real ARN should be used instead of wildcard
+        assert r.affected_resources == ["arn:aws:iam::123456789012:root"]
+
+    def test_fail_uses_wildcard_when_arn_missing_from_credential_report(self):
+        """Verify wildcard fallback is used when credential report lacks ARN field."""
+        evidence = {
+            "account-summary": {"SummaryMap": {"AccountMFAEnabled": 0}},
+            "credential-report": {
+                "by_user": {
+                    "<root_account>": {
+                        "mfa_active": "false",
+                        # Note: no "arn" field in this row
+                    }
+                }
+            },
+        }
+        r = check_iam_001(evidence)
+        assert r.status == "FAIL"
+        assert r.affected_resources == ["arn:aws:iam::*:root"]
+
+    def test_fail_uses_wildcard_when_no_credential_report(self):
+        """Verify wildcard is used when no credential report evidence exists (regression guard)."""
+        evidence = {"account-summary": {"SummaryMap": {"AccountMFAEnabled": 0}}}
+        r = check_iam_001(evidence)
+        assert r.status == "FAIL"
+        assert r.affected_resources == ["arn:aws:iam::*:root"]
+
 
 class TestIAM009:
     def test_pass_when_no_root_keys(self):

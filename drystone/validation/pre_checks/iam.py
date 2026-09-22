@@ -29,12 +29,18 @@ def check_iam_001(evidence: Dict[str, Any]) -> PreCheckResult:
 
     # Fallback: credential report
     by_user = _get_credential_report_by_user(evidence)
+    root_arn = "arn:aws:iam::*:root"
     for key in ("<root_account>", "root", "<root>"):
         root = by_user.get(key, {})
-        if isinstance(root, dict) and _truthy(root.get("mfa_active")):
-            return PreCheckResult("IAM-001", "PASS", "credential-report.mfa_active=true", [])
+        if isinstance(root, dict):
+            if _truthy(root.get("mfa_active")):
+                return PreCheckResult("IAM-001", "PASS", "credential-report.mfa_active=true", [])
+            # Extract real root ARN from credential report if available
+            candidate = str(root.get("arn") or "").strip()
+            if candidate:
+                root_arn = candidate
 
-    return PreCheckResult("IAM-001", "FAIL", f"AccountMFAEnabled={mfa}", ["arn:aws:iam::*:root"])
+    return PreCheckResult("IAM-001", "FAIL", f"AccountMFAEnabled={mfa}", [root_arn])
 
 
 @_register("iam")
