@@ -1963,6 +1963,28 @@ def check_iam_026(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+def check_iam_027(evidence: Dict[str, Any]) -> PreCheckResult:
+    """IAM-027: IAM account alias should be configured for console access."""
+    aliases_doc = evidence.get("account-aliases")
+    if not isinstance(aliases_doc, dict):
+        return PreCheckResult("IAM-027", "SKIP", "no account-aliases evidence", [])
+
+    aliases = aliases_doc.get("AccountAliases")
+    if not isinstance(aliases, list):
+        return PreCheckResult("IAM-027", "SKIP", "no account-aliases evidence", [])
+
+    if aliases:
+        return PreCheckResult(
+            "IAM-027",
+            "PASS",
+            f"{len(aliases)} account alias(es) configured",
+            [],
+        )
+
+    return PreCheckResult("IAM-027", "FAIL", "no IAM account alias configured", [])
+
+
+@_register("iam")
 def check_iam_044(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM-044: Privileged roles should not have MaxSessionDuration greater than 3600 seconds (1 hour).
 

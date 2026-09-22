@@ -86,6 +86,7 @@ from drystone.validation.pre_checks import (
     check_iam_019,
     check_iam_020,
     check_iam_026,
+    check_iam_027,
     check_iam_032,
     check_iam_033,
     check_iam_034,
@@ -739,6 +740,34 @@ class TestIAM026PermissionBoundaries:
         assert "delegated" not in r.evidence_summary.lower()
         assert r.metadata["roles_without_boundary_and_iam_admin_actions"] == 0
         assert r.metadata["classification"] == "missing_boundary_no_iam_admin_actions_detected"
+
+
+class TestIAM027AccountAlias:
+    def test_skip_when_no_account_aliases_evidence(self):
+        r = check_iam_027({})
+        assert r.check_id == "IAM-027"
+        assert r.status == "SKIP"
+        assert r.evidence_summary == "no account-aliases evidence"
+
+    def test_skip_when_account_aliases_evidence_is_malformed(self):
+        r = check_iam_027({"account-aliases": "malformed"})
+        assert r.check_id == "IAM-027"
+        assert r.status == "SKIP"
+        assert r.evidence_summary == "no account-aliases evidence"
+
+    def test_fail_when_account_aliases_empty(self):
+        r = check_iam_027({"account-aliases": {"AccountAliases": []}})
+        assert r.check_id == "IAM-027"
+        assert r.status == "FAIL"
+        assert r.evidence_summary == "no IAM account alias configured"
+        assert r.affected_resources == []
+
+    def test_pass_when_account_alias_configured(self):
+        r = check_iam_027({"account-aliases": {"AccountAliases": ["my-company-alias"]}})
+        assert r.check_id == "IAM-027"
+        assert r.status == "PASS"
+        assert r.evidence_summary == "1 account alias(es) configured"
+        assert r.affected_resources == []
 
 
 class TestIAM032:
