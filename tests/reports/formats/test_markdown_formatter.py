@@ -774,3 +774,66 @@ class TestPciDssAnnexMd:
         f = _make_formatter(tmp_path, report_type="general")
         f.config.skills = ["iam"]
         assert f._pci_dss_annex_md() == ""
+
+
+class TestFindingDetail:
+    """Tests for _finding_detail() rendering individual findings."""
+
+    def test_impact_field_rendered_when_present(self, tmp_path):
+        """Finding with populated impact field renders the Impact section."""
+        f = _make_formatter(tmp_path)
+        finding = {
+            "id": "IAM-001",
+            "title": "Root account compromise",
+            "description": "The root account has active access keys",
+            "remediation": "Delete the access keys",
+            "impact": "Complete AWS account compromise and data breach",
+            "risk_score": 9.8,
+        }
+        detail = f._finding_detail(finding)
+        assert "**Impact:**" in detail
+        assert "Complete AWS account compromise and data breach" in detail
+
+    def test_impact_field_omitted_when_absent(self, tmp_path):
+        """Finding without impact field does not render Impact section."""
+        f = _make_formatter(tmp_path)
+        finding = {
+            "id": "IAM-002",
+            "title": "Unused IAM role",
+            "description": "An IAM role is created but never used",
+            "remediation": "Delete the unused role",
+            "risk_score": 2.1,
+        }
+        detail = f._finding_detail(finding)
+        assert "**Impact:**" not in detail
+
+    def test_impact_field_omitted_when_empty_string(self, tmp_path):
+        """Finding with empty string impact field does not render Impact section."""
+        f = _make_formatter(tmp_path)
+        finding = {
+            "id": "IAM-003",
+            "title": "Weak password policy",
+            "description": "Password policy is not enforced",
+            "remediation": "Update password policy",
+            "impact": "",  # Empty string
+            "risk_score": 4.5,
+        }
+        detail = f._finding_detail(finding)
+        assert "**Impact:**" not in detail
+
+    def test_impact_field_placement_before_remediation(self, tmp_path):
+        """Impact field appears before Remediation section in output."""
+        f = _make_formatter(tmp_path)
+        finding = {
+            "id": "EXP-001",
+            "title": "Public S3 bucket",
+            "description": "S3 bucket is publicly accessible",
+            "impact": "Sensitive data exposure to the internet",
+            "remediation": "Block public access to the bucket",
+            "risk_score": 8.7,
+        }
+        detail = f._finding_detail(finding)
+        impact_pos = detail.find("**Impact:**")
+        remediation_pos = detail.find("**Remediation:**")
+        assert impact_pos > 0
+        assert remediation_pos > impact_pos

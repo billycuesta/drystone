@@ -1411,6 +1411,7 @@ These correlations represent multi-stage attack scenarios where findings from di
         cis_ref = finding.get("cis_reference")
         evidence_snippet = finding.get("evidence_snippet")
         evidence_refs = finding.get("evidence_refs", [])
+        impact = finding.get("impact")
 
         detail = f"""### [{finding_id}] {title}
 
@@ -1473,6 +1474,10 @@ These correlations represent multi-stage attack scenarios where findings from di
         threat_intel = finding.get("threat_intel")
         if threat_intel and isinstance(threat_intel, dict):
             detail += self._threat_intel_block(threat_intel)
+
+        # Impact field (business and technical impact of exploitation)
+        if impact:
+            detail += f"\n**Impact:**  \n{impact}\n"
 
         detail += f"\n**Remediation:**  \n{remediation}\n"
 
