@@ -774,3 +774,81 @@ class TestPciDssAnnexMd:
         f = _make_formatter(tmp_path, report_type="general")
         f.config.skills = ["iam"]
         assert f._pci_dss_annex_md() == ""
+
+
+class TestFindingDetail:
+    """Tests for _finding_detail() rendering individual findings."""
+
+    def test_exploitability_status_validated(self, tmp_path):
+        """Finding with exploitability_status: validated renders correctly."""
+        f = _make_formatter(tmp_path)
+        finding = {
+            "id": "IAM-001",
+            "title": "Root account compromise",
+            "description": "The root account has active access keys",
+            "remediation": "Delete the access keys",
+            "exploitability_status": "validated",
+            "risk_score": 9.8,
+        }
+        detail = f._finding_detail(finding)
+        assert "**Exploitability:** Validated" in detail
+
+    def test_exploitability_status_probable(self, tmp_path):
+        """Finding with exploitability_status: probable renders correctly."""
+        f = _make_formatter(tmp_path)
+        finding = {
+            "id": "EXP-002",
+            "title": "Possible privilege escalation",
+            "description": "Could escalate via policy loophole",
+            "remediation": "Review and tighten policies",
+            "exploitability_status": "probable",
+            "risk_score": 6.5,
+        }
+        detail = f._finding_detail(finding)
+        assert "**Exploitability:** Probable" in detail
+
+    def test_exploitability_status_theoretical(self, tmp_path):
+        """Finding with exploitability_status: theoretical renders correctly."""
+        f = _make_formatter(tmp_path)
+        finding = {
+            "id": "NET-003",
+            "title": "Theoretical network exposure",
+            "description": "Theoretically could be exploited",
+            "remediation": "Monitor and restrict access",
+            "exploitability_status": "theoretical",
+            "risk_score": 3.2,
+        }
+        detail = f._finding_detail(finding)
+        assert "**Exploitability:** Theoretical" in detail
+
+    def test_exploitability_status_omitted_when_absent(self, tmp_path):
+        """Finding without exploitability_status does not render Exploitability section."""
+        f = _make_formatter(tmp_path)
+        finding = {
+            "id": "IAM-004",
+            "title": "Unused IAM role",
+            "description": "An IAM role is created but never used",
+            "remediation": "Delete the unused role",
+            "risk_score": 2.1,
+        }
+        detail = f._finding_detail(finding)
+        assert "**Exploitability:**" not in detail
+
+    def test_exploitability_status_placement_after_risk_score(self, tmp_path):
+        """Exploitability field appears after Risk Score and before Description."""
+        f = _make_formatter(tmp_path)
+        finding = {
+            "id": "EXP-001",
+            "title": "Critical vulnerability",
+            "description": "A critical vulnerability exists",
+            "remediation": "Apply the patch",
+            "exploitability_status": "validated",
+            "risk_score": 9.0,
+        }
+        detail = f._finding_detail(finding)
+        risk_score_pos = detail.find("**Risk Score:**")
+        exploitability_pos = detail.find("**Exploitability:**")
+        description_pos = detail.find("**Description:**")
+        assert risk_score_pos > 0
+        assert exploitability_pos > risk_score_pos
+        assert description_pos > exploitability_pos

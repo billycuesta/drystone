@@ -1411,10 +1411,15 @@ These correlations represent multi-stage attack scenarios where findings from di
         cis_ref = finding.get("cis_reference")
         evidence_snippet = finding.get("evidence_snippet")
         evidence_refs = finding.get("evidence_refs", [])
+        exploitability_status = finding.get("exploitability_status")
+
+        exploitability_line = ""
+        if exploitability_status:
+            exploitability_line = f"\n**Exploitability:** {str(exploitability_status).title()}"
 
         detail = f"""### [{finding_id}] {title}
 
-**Risk Score:** {self._format_risk_score(risk_score)}
+**Risk Score:** {self._format_risk_score(risk_score)}{exploitability_line}
 
 **Description:**
 {description}
