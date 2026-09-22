@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -11,8 +12,18 @@ from drystone.models.findings import SkillFindings
 class FindingsCache:
     """File-based cache keyed by provider+model+evidence+checklist fingerprint."""
 
-    def __init__(self, cache_dir: Optional[Path] = None):
+    DEFAULT_TTL_SECONDS = 30 * 24 * 60 * 60
+    DEFAULT_MAX_ENTRIES = 1000
+
+    def __init__(
+        self,
+        cache_dir: Optional[Path] = None,
+        ttl_seconds: Optional[float] = DEFAULT_TTL_SECONDS,
+        max_entries: int = DEFAULT_MAX_ENTRIES,
+    ):
         self.cache_dir = cache_dir or (Path.home() / ".drystone" / "llm-cache")
+        self.ttl_seconds = ttl_seconds
+        self.max_entries = max_entries
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def build_key(
@@ -53,6 +64,9 @@ class FindingsCache:
         if not path.exists():
             return None
         try:
+            if self.ttl_seconds is not None and time.time() - path.stat().st_mtime > self.ttl_seconds:
+                path.unlink()
+                return None
             with open(path) as f:
                 raw = json.load(f)
             return SkillFindings(**raw)
@@ -64,5 +78,18 @@ class FindingsCache:
         try:
             with open(path, "w") as f:
                 json.dump(findings.model_dump(mode="json"), f, indent=2, default=str)
+        except Exception:
+            return
+
+        try:
+            entries = [p for p in self.cache_dir.glob("*.json") if p.is_file()]
+            if len(entries) <= self.max_entries:
+                return
+            entries.sort(key=lambda p: p.stat().st_mtime)
+            for stale_path in entries[: len(entries) - self.max_entries]:
+                try:
+                    stale_path.unlink()
+                except Exception:
+                    continue
         except Exception:
             return
