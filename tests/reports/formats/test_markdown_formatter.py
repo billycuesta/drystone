@@ -774,3 +774,124 @@ class TestPciDssAnnexMd:
         f = _make_formatter(tmp_path, report_type="general")
         f.config.skills = ["iam"]
         assert f._pci_dss_annex_md() == ""
+
+
+class TestTopAffectedResources:
+    """Tests for _top_affected_resources() resource identifier formatting."""
+
+    def test_resources_wrapped_in_backticks(self, tmp_path):
+        """Resource identifiers are wrapped in backticks in output."""
+        findings_data = {
+            "skill": "iam",
+            "findings": [
+                {
+                    "id": "IAM-001",
+                    "title": "Finding 1",
+                    "severity": "High",
+                    "description": "desc",
+                    "remediation": "fix",
+                    "affected_resources": ["arn:aws:iam::123456789012:role/service_role_for_lambda"],
+                },
+                {
+                    "id": "IAM-002",
+                    "title": "Finding 2",
+                    "severity": "High",
+                    "description": "desc",
+                    "remediation": "fix",
+                    "affected_resources": ["arn:aws:iam::123456789012:role/service_role_for_lambda"],
+                },
+            ],
+            "summary": {
+                "total_findings": 2,
+                "critical": 0,
+                "high": 2,
+                "medium": 0,
+                "low": 0,
+                "overall_risk_score": 7.0,
+            },
+        }
+        f = _make_formatter(tmp_path, findings=findings_data)
+        section = f._top_affected_resources()
+
+        # Assert resource is wrapped in backticks
+        assert "`arn:aws:iam::123456789012:role/service_role_for_lambda`" in section
+
+    def test_resources_with_underscores_backticked(self, tmp_path):
+        """Resources with underscores are backticked to prevent Markdown emphasis."""
+        findings_data = {
+            "skill": "iam",
+            "findings": [
+                {
+                    "id": "IAM-001",
+                    "title": "Finding 1",
+                    "severity": "High",
+                    "description": "desc",
+                    "remediation": "fix",
+                    "affected_resources": ["lambda_execution_role"],
+                },
+            ],
+            "summary": {
+                "total_findings": 1,
+                "critical": 0,
+                "high": 1,
+                "medium": 0,
+                "low": 0,
+                "overall_risk_score": 5.0,
+            },
+        }
+        f = _make_formatter(tmp_path, findings=findings_data)
+        section = f._top_affected_resources()
+
+        # Assert resource with underscores is wrapped in backticks
+        assert "`lambda_execution_role`" in section
+        # Make sure bare version is NOT present (would be vulnerable to Markdown interpretation)
+        assert "lambda_execution_role` (" not in section or "`lambda_execution_role` (" in section
+
+    def test_top_5_ordering_unchanged(self, tmp_path):
+        """Top 5 resources sorted by finding count, ordering logic unchanged."""
+        findings_data = {
+            "skill": "iam",
+            "findings": [
+                {
+                    "id": "IAM-001",
+                    "title": "Finding 1",
+                    "severity": "High",
+                    "description": "desc",
+                    "remediation": "fix",
+                    "affected_resources": ["resource_a"],
+                },
+                {
+                    "id": "IAM-002",
+                    "title": "Finding 2",
+                    "severity": "High",
+                    "description": "desc",
+                    "remediation": "fix",
+                    "affected_resources": ["resource_b", "resource_b"],
+                },
+                {
+                    "id": "IAM-003",
+                    "title": "Finding 3",
+                    "severity": "High",
+                    "description": "desc",
+                    "remediation": "fix",
+                    "affected_resources": ["resource_c"],
+                },
+            ],
+            "summary": {
+                "total_findings": 3,
+                "critical": 0,
+                "high": 3,
+                "medium": 0,
+                "low": 0,
+                "overall_risk_score": 6.0,
+            },
+        }
+        f = _make_formatter(tmp_path, findings=findings_data)
+        section = f._top_affected_resources()
+
+        # resource_b appears 2 times, should be ranked higher
+        resource_a_pos = section.find("`resource_a`")
+        resource_b_pos = section.find("`resource_b`")
+
+        # resource_b should appear before resource_a in the output
+        assert resource_b_pos < resource_a_pos
