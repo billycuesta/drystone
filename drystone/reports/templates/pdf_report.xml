@@ -347,6 +347,7 @@
       text-transform: uppercase;
       letter-spacing: 0.9px;
       flex: 1;
+      bookmark-level: 1;
     }
 
     .section-rule {
@@ -360,6 +361,7 @@
       font-weight: 700;
       color: var(--text-1);
       margin: 14px 0 8px 0;
+      bookmark-level: 2;
     }
 
     h4 {
