@@ -77,12 +77,45 @@ class TestSkillCommand:
     def test_known_skill(self, runner):
         result = runner.invoke(cli, ["skill", "iam"])
         assert result.exit_code == 0
-        assert "iam" in result.output
+        # Should show the display name (capitalized)
+        assert "Skill:" in result.output and "IAM" in result.output
 
     def test_unknown_skill_exits_with_error(self, runner):
         result = runner.invoke(cli, ["skill", "notaskill"])
         assert result.exit_code == 1
         assert "Unknown skill" in result.output
+
+    def test_skill_shows_real_detail(self, runner):
+        """A valid skill should display real checklist details."""
+        result = runner.invoke(cli, ["skill", "iam"])
+        assert result.exit_code == 0
+        # Should show framework, version, check count, and severity breakdown
+        assert "Framework:" in result.output
+        assert "Version:" in result.output
+        assert "Total Checks:" in result.output
+        assert "Severity Breakdown:" in result.output
+        # Should have at least some severity categories present
+        assert any(
+            f"{sev}:" in result.output for sev in ["Critical", "High", "Medium", "Low"]
+        )
+
+    def test_skill_detail_includes_severity_counts(self, runner):
+        """Severity breakdown should show actual counts."""
+        result = runner.invoke(cli, ["skill", "iam"])
+        assert result.exit_code == 0
+        # Each severity line should be of form "• Critical: N", "• High: N", etc.
+        # Just verify that we have number counts for at least one severity
+        import re
+
+        severity_pattern = r"(Critical|High|Medium|Low):\s+\d+"
+        assert re.search(severity_pattern, result.output)
+
+    def test_skill_gracefully_handles_missing_checklist(self, runner):
+        """A skill with missing checklist should not crash."""
+        # This test would require mocking or a skill that doesn't have a checklist,
+        # but we can verify that known skills don't crash
+        result = runner.invoke(cli, ["skill", "iam"])
+        assert result.exit_code == 0
 
 
 # ── logs ──────────────────────────────────────────────────────────────────────

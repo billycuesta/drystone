@@ -13,6 +13,7 @@ from drystone.cli.ui import print_banner, run_setup_wizard
 from drystone.cli.ui.branding import print_summary
 from drystone.cloud.aws.client import AWSClient
 from drystone.models import WizardConfig
+from drystone.skills.registry import skill_display_names
 from drystone.skills.registry import skill_names as _registry_skill_names
 
 _DEBUG = False
@@ -270,7 +271,49 @@ def skill(skill_name: Optional[str] = None) -> None:
         click.echo(f"❌ Unknown skill: {skill_name}")
         sys.exit(1)
 
-    click.echo(f"ℹ️  Skill: {skill_name}")
+    # Load and display skill details from checklist
+    display_names = skill_display_names()
+    display_name = display_names.get(skill_name, skill_name)
+
+    click.echo(f"ℹ️  Skill: {display_name}")
+
+    # Try to load checklist
+    checklist_path = Path(__file__).parent.parent / "skills" / skill_name / "checklist.json"
+
+    try:
+        with open(checklist_path) as f:
+            checklist = json.load(f)
+
+        # Display metadata
+        if "framework" in checklist:
+            click.echo(f"📋 Framework: {checklist['framework']}")
+        if "version" in checklist:
+            click.echo(f"📌 Version: {checklist['version']}")
+        if "last_updated" in checklist:
+            click.echo(f"🗓️  Last Updated: {checklist['last_updated']}")
+
+        # Display check counts
+        if "items" in checklist and isinstance(checklist["items"], list):
+            total_items = len(checklist["items"])
+            click.echo(f"✓ Total Checks: {total_items}")
+
+            # Calculate severity breakdown
+            severity_counts: dict = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
+            for item in checklist["items"]:
+                severity = item.get("severity", "Low")
+                if severity in severity_counts:
+                    severity_counts[severity] += 1
+
+            # Display severity breakdown
+            click.echo("  Severity Breakdown:")
+            for severity in ["Critical", "High", "Medium", "Low"]:
+                count = severity_counts[severity]
+                if count > 0:
+                    click.echo(f"    • {severity}: {count}")
+    except FileNotFoundError:
+        click.echo(f"⚠️  Checklist not found: {checklist_path}")
+    except (json.JSONDecodeError, KeyError) as e:
+        click.echo(f"⚠️  Error reading checklist: {e}")
 
 
 @cli.command()
