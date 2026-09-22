@@ -244,7 +244,17 @@ def check_hrd_014(evidence: Dict[str, Any]) -> PreCheckResult:
 @_register("hardening")
 def check_hrd_016(evidence: Dict[str, Any]) -> PreCheckResult:
     """Low severity Security Hub findings should be zero."""
-    sev_counts, _ = _get_hardening_counts(evidence)
+    sev_counts, comp_counts = _get_hardening_counts(evidence)
+    summary = evidence.get("security-hub-findings-summary")
+    findings = evidence.get("security-hub-findings")
+    has_summary_data = isinstance(summary, dict) and (
+        isinstance(summary.get("severity_counts"), dict)
+        or isinstance(summary.get("compliance_status_counts"), dict)
+    )
+    has_raw_findings = isinstance(findings, list) and bool(findings)
+    if sum(comp_counts.values()) == 0 and not (has_summary_data or has_raw_findings):
+        return PreCheckResult("HRD-016", "SKIP", "no Security Hub data", [])
+
     low = sev_counts.get("LOW", 0)
     if low <= 0:
         return PreCheckResult("HRD-016", "PASS", f"LOW count={low}", [])

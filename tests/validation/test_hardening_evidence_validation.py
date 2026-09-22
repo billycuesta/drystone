@@ -175,6 +175,22 @@ def test_hrd_016_rejected_when_global_low_count_is_zero():
     assert out == []
 
 
+def test_hrd_016_is_not_rejected_without_security_hub_data():
+    normalizer = FindingsNormalizer(HARDENING_CHECKLIST, "hardening")
+    normalizer.evidence = {}
+
+    finding = _finding("HRD-016")
+    finding.severity = "Low"
+    finding.risk_score = 2.5
+    finding.evidence_refs = []
+    finding.evidence_snippet = {"total_low": 1}
+
+    out = normalizer.normalize([finding])
+
+    assert len(out) == 1
+    assert out[0].id == "HRD-016"
+
+
 def test_hrd_012_rejected_when_narrative_says_below_threshold():
     normalizer = FindingsNormalizer(HARDENING_CHECKLIST, "hardening")
     normalizer.evidence = {

@@ -176,7 +176,11 @@ class SkillNormalizerHook(DefaultNormalizerHook):
                 )
                 return False
 
-            if finding_id == "HRD-016" and sev_counts.get("LOW", 0) <= 0:
+            if (
+                finding_id == "HRD-016"
+                and self._hardening_securityhub_data_available()
+                and sev_counts.get("LOW", 0) <= 0
+            ):
                 logger.warning(
                     f"Rejected {finding_id} - global LOW count is {sev_counts.get('LOW', 0)} (requires >0)."
                 )
@@ -237,6 +241,18 @@ class SkillNormalizerHook(DefaultNormalizerHook):
                 return False
 
         return True
+
+    def _hardening_securityhub_data_available(self) -> bool:
+        """Return whether Security Hub evidence exists for threshold validation."""
+        summary = self.evidence.get("security-hub-findings-summary") if self.evidence else None
+        if isinstance(summary, dict) and (
+            isinstance(summary.get("severity_counts"), dict)
+            or isinstance(summary.get("compliance_status_counts"), dict)
+        ):
+            return True
+
+        findings = self.evidence.get("security-hub-findings") if self.evidence else None
+        return isinstance(findings, list) and bool(findings)
 
     def _get_hardening_securityhub_counts(self) -> Tuple[Dict[str, int], Dict[str, int]]:
         """Return global Security Hub severity/compliance counts for hardening validations."""

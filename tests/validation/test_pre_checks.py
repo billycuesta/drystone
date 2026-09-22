@@ -68,6 +68,7 @@ from drystone.validation.pre_checks import (
     check_hrd_003,
     check_hrd_007,
     check_hrd_008,
+    check_hrd_016,
     check_hrd_010,
     check_hrd_011,
     check_hrd_013,
@@ -1436,6 +1437,32 @@ class TestHRD008:
     def test_skip_when_no_compliance_data(self):
         r = check_hrd_008({})
         assert r.status == "SKIP"
+
+
+class TestHRD016:
+    @staticmethod
+    def _summary(low: int):
+        return {
+            "severity_counts": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": low, "OTHER": 0},
+            "compliance_status_counts": {"PASSED": 10, "FAILED": 0, "WARNING": 0},
+        }
+
+    def test_pass_when_security_hub_data_has_no_low_findings(self):
+        result = check_hrd_016({"security-hub-findings-summary": self._summary(0)})
+
+        assert result.status == "PASS"
+
+    def test_fail_when_security_hub_data_has_low_findings(self):
+        result = check_hrd_016({"security-hub-findings-summary": self._summary(1)})
+
+        assert result.status == "FAIL"
+        assert "LOW count=1" in result.evidence_summary
+
+    def test_skip_when_security_hub_data_is_missing(self):
+        result = check_hrd_016({})
+
+        assert result.status == "SKIP"
+        assert result.evidence_summary == "no Security Hub data"
 
 
 class TestHRD010:
