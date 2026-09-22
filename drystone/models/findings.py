@@ -13,6 +13,19 @@ class PCIDSSControl(BaseModel):
     reason: str = Field(..., description="Why this finding relates to this control")
 
 
+class ActiveVerificationResult(BaseModel):
+    """Result of an active verification attempt attached to a finding."""
+
+    method: str = Field(..., description="Verification method used")
+    target: str = Field(..., description="Resource or identifier verified")
+    attempted: bool = Field(..., description="Whether the verification was attempted")
+    result: Literal["success", "denied", "error"] = Field(
+        ..., description="Verification outcome"
+    )
+    detail: str = Field(..., description="Human-readable verification details")
+    timestamp: str = Field(..., description="Timestamp of the verification attempt")
+
+
 class Finding(BaseModel):
     """Individual security finding from agent analysis."""
 
@@ -60,6 +73,10 @@ class Finding(BaseModel):
     pci_dss: List[PCIDSSControl] = Field(
         default_factory=list,
         description="PCI DSS controls related to this finding (v4.0)",
+    )
+    active_verification: Optional[ActiveVerificationResult] = Field(
+        default=None,
+        description="Result of an active verification attempt against this finding",
     )
     security_analogy: Optional[str] = Field(
         default=None,

@@ -116,6 +116,8 @@ def _attach_result(
         if isinstance(entry, dict) and str(entry.get(id_field)) == target_id:
             entry["active_verification"] = {
                 "method": result.method,
+                "target": result.target,
+                "attempted": result.attempted,
                 "result": result.result,
                 "detail": result.detail,
                 "timestamp": result.timestamp,

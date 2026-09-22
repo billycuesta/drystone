@@ -144,7 +144,14 @@ class TestRunActiveVerification:
 
         # Only the successful AssumeRole should be annotated onto correlated.json.
         correlated_after = json.loads((findings_dir / "correlated.json").read_text())
-        assert correlated_after["correlations"][0]["active_verification"]["result"] == "success"
+        assert correlated_after["correlations"][0]["active_verification"] == {
+            "method": "sts_assume_role",
+            "target": "arn:aws:iam::111111111111:role/AdminRole",
+            "attempted": True,
+            "result": "success",
+            "detail": "confirmed",
+            "timestamp": assume_result.timestamp,
+        }
 
         # The denied S3 attempt must NOT annotate exposure.json (no false "validated" claim).
         exposure_after = json.loads((findings_dir / "exposure.json").read_text())

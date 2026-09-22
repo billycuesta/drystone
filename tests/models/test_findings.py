@@ -5,6 +5,31 @@ import json
 from drystone.models.findings import Finding, PCIDSSControl
 
 
+def test_finding_active_verification_round_trips_through_model():
+    """Test that active verification survives Finding model round-trips."""
+    finding_data = {
+        "id": "EXP-001",
+        "severity": "Critical",
+        "risk_score": 9.0,
+        "title": "S3 bucket publicly accessible",
+        "description": "S3 bucket allows public access.",
+        "affected_resources": ["arn:aws:s3:::test-bucket"],
+        "remediation": "Enable S3 public access blocks.",
+        "active_verification": {
+            "method": "s3_unauthenticated_head_bucket",
+            "target": "test-bucket",
+            "attempted": True,
+            "result": "success",
+            "detail": "Unauthenticated HEAD succeeded",
+            "timestamp": "2026-09-22T12:00:00+00:00",
+        },
+    }
+
+    round_tripped = Finding(**finding_data).model_dump()
+
+    assert round_tripped["active_verification"] == finding_data["active_verification"]
+
+
 def test_finding_with_security_analogy():
     """Test that security_analogy field is optional and can be set."""
     finding = Finding(
