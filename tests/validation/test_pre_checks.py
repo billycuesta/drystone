@@ -90,6 +90,7 @@ from drystone.validation.pre_checks import (
     check_iam_026,
     check_iam_027,
     check_iam_028,
+    check_iam_031,
     check_iam_032,
     check_iam_033,
     check_iam_034,
@@ -950,6 +951,99 @@ class TestIAM028TagCoverage:
         assert len(r.affected_resources) == 10
         assert r.metadata["count"] == 11
         assert r.affected_resources == [f"arn:aws:iam::123:user/user{i}" for i in range(10)]
+
+class TestIAM031InstanceProfiles:
+    def test_skip_when_no_instance_profiles_evidence(self):
+        r = check_iam_031({})
+        assert r.check_id == "IAM-031"
+        assert r.status == "SKIP"
+        assert r.evidence_summary == "no instance-profiles evidence"
+
+    def test_skip_when_instance_profiles_empty(self):
+        r = check_iam_031({"instance-profiles": {"instance_profiles": []}})
+        assert r.check_id == "IAM-031"
+        assert r.status == "SKIP"
+        assert r.evidence_summary == "no instance-profiles evidence"
+
+    def test_fail_when_instance_profile_role_has_admin_policy(self):
+        profile_arn = "arn:aws:iam::123:instance-profile/AdminProfile"
+        evidence = {
+            "instance-profiles": {
+                "instance_profiles": [
+                    {
+                        "InstanceProfileName": "AdminProfile",
+                        "Arn": profile_arn,
+                        "Roles": [
+                            {
+                                "RoleName": "AdminRole",
+                                "AttachedPolicies": [
+                                    {
+                                        "PolicyName": "AdministratorAccess",
+                                        "PolicyArn": "arn:aws:iam::aws:policy/AdministratorAccess",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        }
+        r = check_iam_031(evidence)
+        assert r.check_id == "IAM-031"
+        assert r.status == "FAIL"
+        assert "1 instance profile(s)" in r.evidence_summary
+        assert r.affected_resources == [profile_arn]
+
+    def test_pass_when_instance_profile_role_has_non_admin_policy(self):
+        evidence = {
+            "instance-profiles": {
+                "instance_profiles": [
+                    {
+                        "InstanceProfileName": "ReadOnlyProfile",
+                        "Arn": "arn:aws:iam::123:instance-profile/ReadOnlyProfile",
+                        "Roles": [
+                            {
+                                "RoleName": "ReadOnlyRole",
+                                "AttachedPolicies": [
+                                    {
+                                        "PolicyName": "ReadOnlyAccess",
+                                        "PolicyArn": "arn:aws:iam::aws:policy/ReadOnlyAccess",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        }
+        r = check_iam_031(evidence)
+        assert r.check_id == "IAM-031"
+        assert r.status == "PASS"
+        assert r.evidence_summary == "no over-privileged instance profile roles found"
+        assert r.affected_resources == []
+
+    def test_fail_caps_affected_resources_at_ten_but_reports_true_count(self):
+        profiles = [
+            {
+                "InstanceProfileName": f"AdminProfile{i}",
+                "Arn": f"arn:aws:iam::123:instance-profile/AdminProfile{i}",
+                "Roles": [
+                    {
+                        "RoleName": f"AdminRole{i}",
+                        "AttachedPolicies": [{"PolicyName": "PowerUserAccess"}],
+                    }
+                ],
+            }
+            for i in range(11)
+        ]
+        r = check_iam_031({"instance-profiles": {"instance_profiles": profiles}})
+        assert r.check_id == "IAM-031"
+        assert r.status == "FAIL"
+        assert "11 instance profile(s)" in r.evidence_summary
+        assert len(r.affected_resources) == 10
+        assert r.affected_resources == [
+            f"arn:aws:iam::123:instance-profile/AdminProfile{i}" for i in range(10)
+        ]
 
 
 class TestIAM032:
