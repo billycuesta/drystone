@@ -13,6 +13,20 @@ from drystone.reports.safety import redact_secrets
 logger = logging.getLogger(__name__)
 
 
+def _escape_md_table_cell(value: Any) -> str:
+    """Escape characters that would break a Markdown table cell.
+
+    A literal ``|`` splits the cell and a bare newline terminates the row
+    early. Both show up routinely in externally sourced text (finding
+    titles, CVE package names, PCI justifications) and would otherwise
+    corrupt the rendered report table.
+    """
+    text = str(value)
+    text = text.replace("|", "\\|")
+    text = text.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+    return text
+
+
 class MarkdownFormatter(BaseFormatter):
     """Formats findings as a Markdown report."""
 
@@ -862,7 +876,7 @@ These correlations represent multi-stage attack scenarios where findings from di
             for src in source_findings:
                 skill = src.get("skill", "unknown").upper()
                 finding_id = src.get("id", "N/A")
-                src_title = src.get("title", "Unknown")[:50]  # Truncate
+                src_title = _escape_md_table_cell(src.get("title", "Unknown")[:50])  # Truncate
                 sev = src.get("severity", "N/A")
                 risk = src.get("risk_score", 0.0)
 
@@ -962,6 +976,7 @@ These correlations represent multi-stage attack scenarios where findings from di
             finding_id = finding.get("id", "N/A")
             raw_title = str(finding.get("title", "Unknown"))
             title = raw_title if len(raw_title) <= 50 else f"{raw_title[:47]}..."
+            title = _escape_md_table_cell(title)
             severity = finding.get("severity", "Unknown")
             risk_score = finding.get("risk_score", 0.0)
             affected = finding.get("affected_resources", [])
@@ -989,6 +1004,7 @@ These correlations represent multi-stage attack scenarios where findings from di
                 # Multiple resources - show count
                 resources_col = f"{len(affected)} resources"
 
+            resources_col = _escape_md_table_cell(resources_col)
             output += f"| {finding_id} | {title} | {sev_col} | {risk_col} | {resources_col} |\n"
 
         return output + "\n"
@@ -1126,21 +1142,24 @@ These correlations represent multi-stage attack scenarios where findings from di
                 if len(cves_to_render) > 1:
                     # Add a separator row labeling the instance when multiple instances
                     short_id = resource.split("/")[-1] if "/" in resource else resource
+                    short_id = _escape_md_table_cell(short_id)
                     section += f"| **`{short_id}`** | | | | | | | | |\n"
                 for cve in cves:
-                    cve_id = cve.get("id", "—")
-                    package = cve.get("package", "—") or "—"
-                    installed = cve.get("installed_version", "") or "—"
-                    fixed = cve.get("fixed_version", "") or "—"
+                    cve_id = _escape_md_table_cell(cve.get("id", "—"))
+                    package = _escape_md_table_cell(cve.get("package", "—") or "—")
+                    installed = _escape_md_table_cell(cve.get("installed_version", "") or "—")
+                    fixed = _escape_md_table_cell(cve.get("fixed_version", "") or "—")
                     cvss = cve.get("cvss_score")
                     sev = cve.get("inspector_severity", "")
                     cvss_str = f"{cvss:.1f} ({sev})" if cvss is not None else "—"
-                    impact = cve.get("impact_type", "") or "—"
+                    impact = _escape_md_table_cell(cve.get("impact_type", "") or "—")
                     av = cve.get("attack_vector", "—")
                     ports = cve.get("relevant_open_ports", [])
                     ports_str = ", ".join(str(p) for p in ports[:3]) if ports else "—"
                     av_is_network = str(av or "").upper() == "NETWORK"
-                    av_str = f"{av} ({ports_str})" if ports and av_is_network else av
+                    av_str = _escape_md_table_cell(
+                        f"{av} ({ports_str})" if ports and av_is_network else av
+                    )
                     ei = cve.get("exploit_intel") or {}
                     has_exploit = ei.get("has_public_exploit", False)
                     exploit_str = "✅ Yes" if has_exploit else "No"
@@ -1259,11 +1278,13 @@ These correlations represent multi-stage attack scenarios where findings from di
                     section += "| Port/Range | Protocol | Source | SG |\n"
                     section += "|------------|----------|--------|---------|\n"
                     for r in world_open[:10]:
+                        sg_label = _escape_md_table_cell(r.get("sg_name", r.get("sg_id", "")))
+                        source_label = _escape_md_table_cell(r.get("source", "?"))
                         section += (
                             f"| {r.get('port', '?')} "
                             f"| {r.get('protocol', '?')} "
-                            f"| {r.get('source', '?')} "
-                            f"| `{r.get('sg_name', r.get('sg_id', ''))}` |\n"
+                            f"| {source_label} "
+                            f"| `{sg_label}` |\n"
                         )
                     section += "\n"
                     section += (
@@ -1275,11 +1296,13 @@ These correlations represent multi-stage attack scenarios where findings from di
                     section += "| Port/Range | Protocol | Source | SG |\n"
                     section += "|------------|----------|--------|---------|\n"
                     for r in restricted[:8]:
+                        sg_label = _escape_md_table_cell(r.get("sg_name", r.get("sg_id", "")))
+                        source_label = _escape_md_table_cell(r.get("source", "?"))
                         section += (
                             f"| {r.get('port', '?')} "
                             f"| {r.get('protocol', '?')} "
-                            f"| {r.get('source', '?')} "
-                            f"| `{r.get('sg_name', r.get('sg_id', ''))}` |\n"
+                            f"| {source_label} "
+                            f"| `{sg_label}` |\n"
                         )
                     section += "\n"
             else:
@@ -1764,7 +1787,7 @@ Generated with [Drystone](https://github.com/billycuesta/drystone)
                 check_ids = [c.get("id") for c in checks if isinstance(c, dict) and c.get("id")]
                 checks_str = ", ".join(check_ids) if check_ids else "N/A"
                 just = f"No mapped findings for checks: {checks_str}."
-                just = just.replace("|", "\\|")
+                just = _escape_md_table_cell(just)
                 lines.append(f"| {cid} | ✅ {ok_label} | {just} |")
                 continue
 
@@ -1783,8 +1806,8 @@ Generated with [Drystone](https://github.com/billycuesta/drystone)
             fids_str = ", ".join(fids)
             just = f"**{fids_str}**: {reason}" if fids_str else reason
 
-            # Escape pipe chars in justification to avoid breaking Markdown table
-            just = just.replace("|", "\\|")
+            # Escape table-breaking characters in justification text (finding-derived)
+            just = _escape_md_table_cell(just)
             lines.append(f"| {cid} | ❌ {ko_label} | {just} |")
 
         lines += ["", ""]
@@ -1828,6 +1851,7 @@ Generated with [Drystone](https://github.com/billycuesta/drystone)
                 status = "✅ OK"
                 findings_text = "-"
 
+            findings_text = _escape_md_table_cell(findings_text)
             section += f"| {control_id} | {status} | {findings_text} |\n"
 
         # Add legend and notes

@@ -3,7 +3,7 @@
 import json
 from unittest.mock import Mock
 
-from drystone.reports.formats.markdown import MarkdownFormatter
+from drystone.reports.formats.markdown import MarkdownFormatter, _escape_md_table_cell
 from drystone.storage.session import AuditSession
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -774,3 +774,121 @@ class TestPciDssAnnexMd:
         f = _make_formatter(tmp_path, report_type="general")
         f.config.skills = ["iam"]
         assert f._pci_dss_annex_md() == ""
+
+
+# ── _escape_md_table_cell / table-breaking-character regressions ──────────────
+
+
+def _row_column_count(line: str) -> int:
+    """Column count of a Markdown table row, respecting escaped `\\|`."""
+    return len(line.replace("\\|", "\x00").split("|"))
+
+
+class TestEscapeMdTableCell:
+    def test_escapes_pipe(self):
+        assert _escape_md_table_cell("Bucket | is public") == "Bucket \\| is public"
+
+    def test_collapses_newlines(self):
+        assert _escape_md_table_cell("line one\nline two") == "line one line two"
+        assert _escape_md_table_cell("line one\r\nline two") == "line one line two"
+
+    def test_plain_text_unchanged(self):
+        assert _escape_md_table_cell("Root account without MFA") == "Root account without MFA"
+
+    def test_non_string_input_is_stringified(self):
+        assert _escape_md_table_cell(42) == "42"
+
+
+class TestFindingsSummaryTablePipeSafety:
+    def test_pipe_in_title_does_not_break_table_row(self, tmp_path):
+        findings = {
+            "skill": "iam",
+            "findings": [
+                {
+                    "id": "IAM-001",
+                    "title": "Bucket policy allows '*' | public read access",
+                    "severity": "Critical",
+                    "risk_score": 9.5,
+                    "affected_resources": ["arn:aws:s3:::example-bucket"],
+                }
+            ],
+            "summary": {
+                "total_findings": 1,
+                "critical": 1,
+                "high": 0,
+                "medium": 0,
+                "low": 0,
+                "overall_risk_score": 9.5,
+            },
+        }
+        f = _make_formatter(tmp_path, findings=findings)
+
+        table = f._findings_summary_table()
+        row = next(line for line in table.splitlines() if line.startswith("| IAM-001"))
+
+        assert "\\|" in row
+        assert _row_column_count(row) == 7  # 5 columns -> 6 delimiters -> 7 split parts
+
+
+class TestCorrelationSourceFindingsTablePipeSafety:
+    def test_pipe_in_source_finding_title_does_not_break_table_row(self, tmp_path):
+        f = _make_formatter(tmp_path)
+
+        corr = {
+            "id": "CORR-001",
+            "title": "AssumeRole trust abuse chain",
+            "severity": "Critical",
+            "compound_risk_score": 9.0,
+            "description": "Attack chain description.",
+            "source_findings": [
+                {
+                    "skill": "iam",
+                    "id": "IAM-002",
+                    "title": "Role trust policy | wildcard principal",
+                    "severity": "Critical",
+                    "risk_score": 9.0,
+                }
+            ],
+        }
+
+        output = f._format_correlation(corr, 1)
+        row = next(line for line in output.splitlines() if line.startswith("| 🔐 IAM"))
+
+        assert "\\|" in row
+        assert _row_column_count(row) == 7  # 5 columns -> 6 delimiters -> 7 split parts
+
+
+class TestPciAnnexJustificationPipeSafety:
+    def test_pipe_in_pci_reason_does_not_break_table_row(self, tmp_path):
+        findings = {
+            "skill": "iam",
+            "findings": [
+                {
+                    "id": "IAM-001",
+                    "title": "Root account without MFA",
+                    "severity": "Critical",
+                    "pci_dss": [
+                        {
+                            "control": "8.4.1",
+                            "reason": "MFA required | non-console admin access",
+                        }
+                    ],
+                }
+            ],
+            "summary": {
+                "total_findings": 1,
+                "critical": 1,
+                "high": 0,
+                "medium": 0,
+                "low": 0,
+                "overall_risk_score": 9.0,
+            },
+        }
+        f = _make_formatter(tmp_path, findings=findings, report_type="pci-dss")
+        f.config.skills = ["iam"]
+
+        annex = f._pci_dss_annex_md()
+        row = next(line for line in annex.splitlines() if line.startswith("| 8.4.1"))
+
+        assert "\\|" in row
+        assert _row_column_count(row) == 5  # 3 columns -> 4 delimiters -> 5 split parts
