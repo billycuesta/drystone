@@ -5258,6 +5258,36 @@ class TestIAM040SCPs:
         )
         assert result.status == "SKIP"
 
+    def test_skip_benign_organizations_not_in_use_code_keeps_wording(self):
+        result = self._run(
+            {
+                "effective-scps": {
+                    "service_control_policies": [],
+                    "error": "Account is not a member of an organization.",
+                    "error_code": "AWSOrganizationsNotInUseException",
+                }
+            }
+        )
+        assert result.status == "SKIP"
+        assert "Account not in Organization or no org permissions" in result.evidence_summary
+        assert "COVERAGE GAP" not in result.evidence_summary
+
+    def test_skip_access_denied_code_reports_coverage_gap(self):
+        result = self._run(
+            {
+                "effective-scps": {
+                    "service_control_policies": [],
+                    "error": "Not authorized to list policies.",
+                    "error_code": "AccessDeniedException",
+                }
+            }
+        )
+        assert result.status == "SKIP"
+        assert "COVERAGE GAP" in result.evidence_summary
+        assert "AccessDeniedException" in result.evidence_summary
+        assert "Not authorized to list policies." in result.evidence_summary
+        assert "UNCONFIRMED" in result.evidence_summary
+
     def test_skip_empty_scps_no_error(self):
         result = self._run(
             {

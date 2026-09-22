@@ -115,6 +115,66 @@ class TestResourcesAuditedSection:
         assert "| Account ID | `123456789012` |" in section
 
 
+class TestIAMSCPWarningSection:
+    def _write_scps(self, tmp_path, error_code):
+        evidence_dir = tmp_path / "evidence" / "iam"
+        evidence_dir.mkdir(parents=True)
+        (evidence_dir / "users.json").write_text(json.dumps([{"UserName": "alice"}]))
+        (evidence_dir / "effective-scps.json").write_text(
+            json.dumps(
+                {
+                    "service_control_policies": [],
+                    "error": "Not authorized to list policies.",
+                    "error_code": error_code,
+                }
+            )
+        )
+
+    def test_warning_renders_after_resources_for_non_membership_error_code(self, tmp_path):
+        self._write_scps(tmp_path, "AccessDeniedException")
+        formatter = _make_formatter(tmp_path)
+
+        markdown = formatter._build_markdown()
+
+        assert "## 🗂️ Resources Audited" in markdown
+        assert "## ⚠️ IAM SCP Coverage Warning" in markdown
+        assert markdown.index("## 🗂️ Resources Audited") < markdown.index(
+            "## ⚠️ IAM SCP Coverage Warning"
+        )
+        assert (
+            "Organization-level Service Control Policy (SCP) evaluation could not complete: "
+            "**`AccessDeniedException`**."
+            in markdown
+        )
+        assert (
+            "The account's exposure to, or protection by, Organization Deny-SCPs is "
+            "unconfirmed."
+            in markdown
+        )
+        assert "IAM-040 was skipped, not passed." in markdown
+        assert "organizations:ListPolicies" in markdown
+        assert "organizations:DescribePolicy" in markdown
+        assert "organizations:ListTargetsForPolicy" in markdown
+
+    def test_warning_suppresses_benign_organizations_not_in_use_code(self, tmp_path):
+        self._write_scps(tmp_path, "AWSOrganizationsNotInUseException")
+        formatter = _make_formatter(tmp_path)
+
+        assert formatter._iam_scp_coverage_warning_section() == ""
+
+    def test_warning_suppresses_missing_error_code(self, tmp_path):
+        self._write_scps(tmp_path, None)
+        formatter = _make_formatter(tmp_path)
+
+        assert formatter._iam_scp_coverage_warning_section() == ""
+
+    def test_warning_suppresses_non_iam_skill(self, tmp_path):
+        self._write_scps(tmp_path, "AccessDeniedException")
+        formatter = _make_formatter(tmp_path, findings={"skill": "network", "findings": []})
+
+        assert formatter._iam_scp_coverage_warning_section() == ""
+
+
 # ── _looks_spanish ─────────────────────────────────────────────────────────────
 
 

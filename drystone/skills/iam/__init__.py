@@ -395,12 +395,13 @@ class IAMSkill(BaseSkill):
 
         # === SCP / ORGANIZATIONS ===
         print("  Collecting Organizations SCPs (best-effort)...")
-        scps, scps_error = self._collect_org_scps(client_kwargs)
+        scps, scps_error, scps_error_code = self._collect_org_scps(client_kwargs)
         self._save_json(
             evidence_path / "effective-scps.json",
             {
                 "service_control_policies": scps,
                 "error": scps_error,
+                "error_code": scps_error_code,
             },
         )
 
@@ -708,12 +709,13 @@ class IAMSkill(BaseSkill):
 
     def _collect_org_scps(
         self, client_kwargs: Dict[str, Any]
-    ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    ) -> Tuple[List[Dict[str, Any]], Optional[str], Optional[str]]:
         """Collect Service Control Policies from AWS Organizations (best-effort).
 
-        Returns list of SCPs with their policy documents and targets, or
-        empty list + error string if the account is not in an Organization or
-        lacks organizations:List* permissions.
+        Returns list of SCPs with their policy documents and targets, error
+        message, and AWS Organizations error code. Error details are populated
+        if the account is not in an Organization or lacks organizations:List*
+        permissions.
 
         Each SCP entry includes:
             - PolicyId, Name, Description, AwsManaged
@@ -768,13 +770,14 @@ class IAMSkill(BaseSkill):
 
                     out.append(entry)
 
-            return out, None
+            return out, None, None
 
         except ClientError as e:
             # AWSOrganizationsNotInUseException or AccessDenied are expected
-            return [], str(e.response.get("Error", {}).get("Message", str(e)))
+            error = e.response.get("Error", {})
+            return [], str(error.get("Message", str(e))), error.get("Code")
         except Exception as e:
-            return [], str(e)
+            return [], str(e), None
 
     def _load_extra_evidence(self, evidence: dict, evidence_path: Path) -> None:
         """Load credential-report.csv into evidence dict.

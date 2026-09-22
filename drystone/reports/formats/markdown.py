@@ -50,6 +50,7 @@ class MarkdownFormatter(BaseFormatter):
             self._executive_summary(),
             self._architecture_diagram(),
             self._resources_audited_section(),
+            self._iam_scp_coverage_warning_section(),
             self._correlation_section(),
             self._trend_section(),
         ]
@@ -647,6 +648,35 @@ This report presents security findings from the {self._get_skill_display_name(sk
             section += f"| {label} | {count} |\n"
 
         return section
+
+    def _iam_scp_coverage_warning_section(self) -> str:
+        """Warn when IAM SCP evidence could not confirm Organizations coverage."""
+        if self.findings.get("skill") != "iam":
+            return ""
+
+        scps_path = self.session.base_path / "evidence" / "iam" / "effective-scps.json"
+        try:
+            with open(scps_path, "r") as f:
+                scps_doc = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return ""
+
+        if not isinstance(scps_doc, dict):
+            return ""
+
+        error_code = scps_doc.get("error_code")
+        if not error_code or error_code == "AWSOrganizationsNotInUseException":
+            return ""
+
+        return (
+            "## ⚠️ IAM SCP Coverage Warning\n\n"
+            "Organization-level Service Control Policy (SCP) evaluation could not complete: "
+            f"**`{error_code}`**. "
+            "The account's exposure to, or protection by, Organization Deny-SCPs is "
+            "unconfirmed. IAM-040 was skipped, not passed. Grant "
+            "`organizations:ListPolicies`, `organizations:DescribePolicy`, and "
+            "`organizations:ListTargetsForPolicy` to confirm effective SCPs."
+        )
 
     def _remediation_timeline(self) -> str:
         """Generate prioritized remediation timeline."""

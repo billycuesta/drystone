@@ -1251,10 +1251,26 @@ def check_iam_040(evidence: Dict[str, Any]) -> PreCheckResult:
         return PreCheckResult("IAM-040", "SKIP", "effective-scps evidence not available", [])
 
     error = scps_doc.get("error")
+    error_code = scps_doc.get("error_code")
     scps = scps_doc.get("service_control_policies", [])
 
-    # If error and no SCPs: not in org or no permissions → SKIP
+    # If error and no SCPs: distinguish benign non-membership from coverage gaps.
     if error and not scps:
+        if error_code == "AWSOrganizationsNotInUseException":
+            return PreCheckResult(
+                "IAM-040",
+                "SKIP",
+                f"Account not in Organization or no org permissions: {str(error)[:100]}",
+                [],
+            )
+        if error_code:
+            return PreCheckResult(
+                "IAM-040",
+                "SKIP",
+                f"COVERAGE GAP: Organizations SCP status UNCONFIRMED; "
+                f"error_code={error_code}; message={str(error)[:100]}",
+                [],
+            )
         return PreCheckResult(
             "IAM-040",
             "SKIP",

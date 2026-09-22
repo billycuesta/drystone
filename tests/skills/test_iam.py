@@ -471,6 +471,66 @@ class TestErrorResilience:
         data = json.loads((evidence_path / "effective-scps.json").read_text())
         assert data["service_control_policies"] == []
         assert "organizations unavailable" in data["error"]
+        assert data["error_code"] is None
+
+    def test_collect_org_scps_preserves_benign_client_error_code(self, skill):
+        org = MagicMock()
+        org.get_paginator.side_effect = ClientError(
+            {
+                "Error": {
+                    "Code": "AWSOrganizationsNotInUseException",
+                    "Message": "Account is not a member of an organization.",
+                }
+            },
+            "ListPolicies",
+        )
+
+        with patch("boto3.client", return_value=org):
+            scps, error, error_code = skill._collect_org_scps({})
+
+        assert scps == []
+        assert error == "Account is not a member of an organization."
+        assert error_code == "AWSOrganizationsNotInUseException"
+
+    def test_collect_org_scps_preserves_access_denied_client_error_code(self, skill):
+        org = MagicMock()
+        org.get_paginator.side_effect = ClientError(
+            {
+                "Error": {
+                    "Code": "AccessDeniedException",
+                    "Message": "Not authorized to list policies.",
+                }
+            },
+            "ListPolicies",
+        )
+
+        with patch("boto3.client", return_value=org):
+            scps, error, error_code = skill._collect_org_scps({})
+
+        assert scps == []
+        assert error == "Not authorized to list policies."
+        assert error_code == "AccessDeniedException"
+
+    def test_collect_writes_effective_scps_error_code(self, skill, aws_client, tmp_path):
+        session, evidence_path = _make_session(tmp_path)
+        org = MagicMock()
+        org.get_paginator.side_effect = ClientError(
+            {
+                "Error": {
+                    "Code": "AccessDeniedException",
+                    "Message": "Not authorized to list policies.",
+                }
+            },
+            "ListPolicies",
+        )
+
+        with patch("boto3.client", side_effect=_boto3_factory(organizations=org)):
+            skill.collect(aws_client, session)
+
+        data = json.loads((evidence_path / "effective-scps.json").read_text())
+        assert data["service_control_policies"] == []
+        assert data["error"] == "Not authorized to list policies."
+        assert data["error_code"] == "AccessDeniedException"
 
 
 def _override_paginator(iam_client, name, *pages):
