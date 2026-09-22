@@ -114,6 +114,67 @@ class TestResourcesAuditedSection:
 
         assert "| Account ID | `123456789012` |" in section
 
+    def test_cloudtrail_scope_renders_lookup_events_truncation_warning(self, tmp_path):
+        formatter = _make_formatter(
+            tmp_path, findings={"skill": "cloudtrail_events", "findings": []}
+        )
+        evidence_dir = tmp_path / "evidence" / "cloudtrail_events"
+        evidence_dir.mkdir(parents=True)
+        (evidence_dir / "_summary.json").write_text(
+            json.dumps(
+                {
+                    "scan_depth": "very-deep",
+                    "days_back": 180,
+                    "requested_days_back": 180,
+                    "effective_days_covered": 90,
+                    "lookup_events_truncated": True,
+                    "start_time": "2026-06-24T00:00:00+00:00",
+                    "end_time": "2026-09-22T00:00:00+00:00",
+                    "region": "us-east-1",
+                    "account_id": "123456789012",
+                    "categories_collected": {"audit-tampering-events": 1},
+                }
+            )
+        )
+        (evidence_dir / "audit-tampering-events.json").write_text(
+            json.dumps([{"EventName": "StopLogging"}])
+        )
+
+        section = formatter._resources_audited_section()
+
+        assert "requested 180 days" in section
+        assert "only retains approximately 90 days" in section
+        assert "last 90 days only" in section
+
+    def test_cloudtrail_scope_omits_lookup_events_warning_without_truncation(self, tmp_path):
+        formatter = _make_formatter(
+            tmp_path, findings={"skill": "cloudtrail_events", "findings": []}
+        )
+        evidence_dir = tmp_path / "evidence" / "cloudtrail_events"
+        evidence_dir.mkdir(parents=True)
+        (evidence_dir / "_summary.json").write_text(
+            json.dumps(
+                {
+                    "scan_depth": "deep",
+                    "days_back": 90,
+                    "effective_days_covered": 90,
+                    "lookup_events_truncated": False,
+                    "start_time": "2026-06-24T00:00:00+00:00",
+                    "end_time": "2026-09-22T00:00:00+00:00",
+                    "region": "us-east-1",
+                    "account_id": "123456789012",
+                    "categories_collected": {"audit-tampering-events": 1},
+                }
+            )
+        )
+        (evidence_dir / "audit-tampering-events.json").write_text(
+            json.dumps([{"EventName": "StopLogging"}])
+        )
+
+        section = formatter._resources_audited_section()
+
+        assert "CloudTrail Event History only retains" not in section
+
 
 # ── _looks_spanish ─────────────────────────────────────────────────────────────
 

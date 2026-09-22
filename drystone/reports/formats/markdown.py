@@ -9,6 +9,7 @@ from typing import Any, Dict, List
 
 from drystone.reports.formats.base import BaseFormatter
 from drystone.reports.safety import redact_secrets
+from drystone.skills.cloudtrail_events import LOOKUP_EVENTS_MAX_DAYS
 
 logger = logging.getLogger(__name__)
 
@@ -603,6 +604,8 @@ This report presents security findings from the {self._get_skill_display_name(sk
                         ct_summary = json.load(f)
                     region = ct_summary.get("region", "—")
                     days_back = ct_summary.get("days_back", "—")
+                    effective_days_covered = ct_summary.get("effective_days_covered", days_back)
+                    requested_days_back = ct_summary.get("requested_days_back", days_back)
                     scan_depth = ct_summary.get("scan_depth", "—")
                     start_time = ct_summary.get("start_time", "")
                     end_time = ct_summary.get("end_time", "")
@@ -632,10 +635,19 @@ This report presents security findings from the {self._get_skill_display_name(sk
                     section += "|-----------|-------|\n"
                     section += f"| Account ID | `{account_id}` |\n"
                     section += f"| Region | {region} |\n"
-                    section += f"| Period | {start_fmt} → {end_fmt} ({days_back} days) |\n"
+                    section += (
+                        f"| Period | {start_fmt} → {end_fmt} ({effective_days_covered} days) |\n"
+                    )
                     section += f"| Scan Depth | {scan_depth} |\n"
                     total_events = sum(ct_summary.get("categories_collected", {}).values())
                     section += f"| Total Events Processed | {total_events:,} |\n"
+                    if ct_summary.get("lookup_events_truncated"):
+                        section += (
+                            f'\n⚠️ **Note:** "{scan_depth}" requested {requested_days_back} days, '
+                            f"but CloudTrail Event History only retains approximately "
+                            f"{LOOKUP_EVENTS_MAX_DAYS} days — results cover the last "
+                            f"{effective_days_covered} days only.\n"
+                        )
                     section += "\n"
                 except Exception:
                     pass

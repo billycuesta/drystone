@@ -188,6 +188,27 @@ class TestCloudTrailEventsCollect:
         summary = json.loads((evidence_path / "_summary.json").read_text())
         assert summary["days_back"] == 7
 
+    @pytest.mark.parametrize(
+        ("scan_depth", "requested_days", "effective_days", "truncated"),
+        [
+            ("shallow", 7, 7, False),
+            ("normal", 30, 30, False),
+            ("deep", 90, 90, False),
+            ("very-deep", 180, 90, True),
+        ],
+    )
+    def test_summary_surfaces_lookup_events_window_limit(
+        self, tmp_path, scan_depth, requested_days, effective_days, truncated
+    ):
+        evidence_path = self._run_collect(tmp_path, scan_depth=scan_depth)
+
+        summary = json.loads((evidence_path / "_summary.json").read_text())
+
+        assert summary["days_back"] == requested_days
+        assert summary["requested_days_back"] == requested_days
+        assert summary["effective_days_covered"] == effective_days
+        assert summary["lookup_events_truncated"] is truncated
+
     def test_access_denied_extracted_from_write_events(self, tmp_path):
         """AccessDenied events should be extracted into access-denied-events.json."""
         denied_event = _sample_event("PutObject", "alice", error_code="AccessDenied")

@@ -25,6 +25,9 @@ SCAN_DEPTH_DAYS = {
     "very-deep": 180,
 }
 
+# CloudTrail Event History queried through LookupEvents retains approximately 90 days.
+LOOKUP_EVENTS_MAX_DAYS = 90
+
 # Max events per targeted lookup (per EventName/Username filter)
 MAX_EVENTS_PER_CATEGORY = 500
 
@@ -219,13 +222,18 @@ class CloudTrailEventsSkill(BaseSkill):
         # Resolve scan_depth → days
         scan_depth = getattr(session, "scan_depth", "normal")
         days_back = SCAN_DEPTH_DAYS.get(scan_depth, 30)
+        effective_days_covered = min(days_back, LOOKUP_EVENTS_MAX_DAYS)
+        lookup_events_truncated = days_back > LOOKUP_EVENTS_MAX_DAYS
 
         end_time = datetime.now(timezone.utc)
-        start_time = end_time - timedelta(days=days_back)
+        start_time = end_time - timedelta(days=effective_days_covered)
 
         evidence_path = session.get_evidence_path(self.name)
 
-        print(f"  CloudTrail Events: scanning last {days_back} days ({scan_depth})...")
+        print(
+            f"  CloudTrail Events: scanning last {days_back} days ({scan_depth})"
+            f"; effective coverage {effective_days_covered} days..."
+        )
 
         ct_client = boto3.client("cloudtrail", **client_kwargs)
 
@@ -234,6 +242,9 @@ class CloudTrailEventsSkill(BaseSkill):
         summary: dict[str, Any] = {
             "scan_depth": scan_depth,
             "days_back": days_back,
+            "requested_days_back": days_back,
+            "effective_days_covered": effective_days_covered,
+            "lookup_events_truncated": lookup_events_truncated,
             "start_time": start_time.isoformat(),
             "end_time": end_time.isoformat(),
             "region": aws_client.region_name,
