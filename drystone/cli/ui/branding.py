@@ -66,7 +66,7 @@ def print_banner() -> None:
         gradient_text,
         "",
         Align.center(
-            Text("AWS Security Audit powered by BillySlopes with AI", style=f"{border_color} bold")
+            Text("AWS Security Audit powered by Drystone AI", style=f"{border_color} bold")
         ),
         "",
         Align.center(Text(f"v{__version__}", style=f"{border_color}")),
