@@ -477,6 +477,7 @@ class ExposureSkill(BaseSkill):
             for dist in distributions.get("DistributionList", {}).get("Items", []):
                 dist_detail = {
                     "Id": dist.get("Id"),
+                    "ARN": dist.get("ARN"),
                     "DomainName": dist.get("DomainName"),
                     "Enabled": dist.get("Enabled"),
                     "Origins": dist.get("Origins", []),
@@ -490,6 +491,44 @@ class ExposureSkill(BaseSkill):
             )
         except Exception as e:
             print(f"    Warning: Could not collect CloudFront data: {e}")
+
+        # === SHIELD ADVANCED PROTECTION ===
+        print("  Collecting Shield Advanced protection status...")
+        try:
+            shield_client = boto3.client(
+                "shield",
+                region_name="us-east-1",
+                **{k: v for k, v in client_kwargs.items() if k != "region_name"},
+            )
+            subscription_state = str(
+                shield_client.describe_subscription_state().get("SubscriptionState", "")
+            ).upper()
+            protected_resource_arns: List[str] = []
+
+            if subscription_state == "ACTIVE":
+                next_token = None
+                while True:
+                    request = {"NextToken": next_token} if next_token else {}
+                    response = shield_client.list_protections(**request)
+                    for protection in response.get("Protections", []) or []:
+                        if not isinstance(protection, dict):
+                            continue
+                        resource_arn = protection.get("ResourceArn")
+                        if resource_arn and resource_arn not in protected_resource_arns:
+                            protected_resource_arns.append(str(resource_arn))
+                    next_token = response.get("NextToken")
+                    if not next_token:
+                        break
+
+            _save(
+                evidence_path / "shield-protection-status.json",
+                {
+                    "subscription_state": subscription_state,
+                    "protected_resource_arns": protected_resource_arns,
+                },
+            )
+        except Exception as e:
+            print(f"    Warning: Could not collect Shield Advanced data: {e}")
 
         # === LOAD BALANCERS + LISTENERS (ELBv2) ===
         print("  Collecting load balancers and listeners...")

@@ -57,6 +57,7 @@ from drystone.validation.pre_checks import (
     check_exp_003,
     check_exp_004,
     check_exp_007,
+    check_exp_009,
     check_exp_013,
     check_exp_014,
     check_exp_015,
@@ -2849,6 +2850,97 @@ class TestEXP003:
         }
         r = check_exp_003(evidence)
         assert r.status == "FAIL"
+
+
+class TestEXP009:
+    def _cloudfront(self, enabled=True):
+        return {
+            "items": [
+                {
+                    "Id": "E123ABC",
+                    "ARN": "arn:aws:cloudfront::111111111111:distribution/E123ABC",
+                    "DomainName": "d123.example.cloudfront.net",
+                    "Enabled": enabled,
+                }
+            ]
+        }
+
+    def test_skip_when_cloudfront_or_shield_evidence_is_missing(self):
+        assert check_exp_009({}).status == "SKIP"
+        assert check_exp_009({"cloudfront-distributions": self._cloudfront()}).status == "SKIP"
+
+    def test_pass_when_all_distributions_are_shield_protected(self):
+        result = check_exp_009(
+            {
+                "cloudfront-distributions": self._cloudfront(),
+                "shield-protection-status": {
+                    "subscription_state": "ACTIVE",
+                    "protected_resource_arns": [
+                        "arn:aws:cloudfront::111111111111:distribution/E123ABC"
+                    ],
+                },
+            }
+        )
+
+        assert result.status == "PASS"
+
+    def test_fail_when_distribution_is_not_shield_protected(self):
+        result = check_exp_009(
+            {
+                "cloudfront-distributions": self._cloudfront(),
+                "shield-protection-status": {
+                    "subscription_state": "ACTIVE",
+                    "protected_resource_arns": [],
+                },
+            }
+        )
+
+        assert result.status == "FAIL"
+        assert result.affected_resources == [
+            "arn:aws:cloudfront::111111111111:distribution/E123ABC"
+        ]
+        assert result.metadata["resource_details"][0]["distribution_id"] == "E123ABC"
+
+    def test_inactive_subscription_fails_even_with_protection_list(self):
+        result = check_exp_009(
+            {
+                "cloudfront-distributions": self._cloudfront(),
+                "shield-protection-status": {
+                    "subscription_state": "INACTIVE",
+                    "protected_resource_arns": [
+                        "arn:aws:cloudfront::111111111111:distribution/E123ABC"
+                    ],
+                },
+            }
+        )
+
+        assert result.status == "FAIL"
+
+    def test_pass_when_no_cloudfront_distributions_exist(self):
+        result = check_exp_009(
+            {
+                "cloudfront-distributions": {"items": []},
+                "shield-protection-status": {
+                    "subscription_state": "INACTIVE",
+                    "protected_resource_arns": [],
+                },
+            }
+        )
+
+        assert result.status == "PASS"
+
+    def test_invalid_shield_shape_skips(self):
+        result = check_exp_009(
+            {
+                "cloudfront-distributions": self._cloudfront(),
+                "shield-protection-status": {
+                    "subscription_state": "ACTIVE",
+                    "protected_resource_arns": None,
+                },
+            }
+        )
+
+        assert result.status == "SKIP"
 
 
 class TestEXP020:

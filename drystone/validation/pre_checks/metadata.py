@@ -199,6 +199,11 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
         "For public applications in PCI scope, missing WAF coverage weakens the automated "
         "technical control expected for public-facing web attack detection and prevention."
     ),
+    "EXP-009": (
+        "CloudFront distributions without AWS Shield Advanced protection rely only on Shield "
+        "Standard, leaving business-critical public applications with less effective DDoS "
+        "mitigation and no access to the DDoS Response Team (DRT)."
+    ),
     "EXP-013": (
         "S3 buckets without an explicit aws:SecureTransport=false deny do not enforce TLS "
         "at the bucket policy layer. If any client or integration attempts non-TLS access, "
@@ -666,6 +671,10 @@ PRE_CHECK_ANALOGIES: Dict[str, str] = {
         "Like a public reception desk with no visitor screening — every request reaches "
         "the staff before anyone checks whether it is malicious."
     ),
+    "EXP-009": (
+        "Like a public building protected only by a basic alarm while its most important "
+        "entrance has no enhanced anti-riot barrier or emergency response team."
+    ),
     "EXP-013": (
         "Like sending confidential documents via open postcard instead of sealed envelope — "
         "anyone along the delivery route can read them."
@@ -1049,6 +1058,13 @@ PRE_CHECK_DESCRIPTIONS: Dict[str, str] = {
         "Specifically, {resources} receive public traffic without layer-7 WAF inspection.\n\n"
         "This situation implies that common web attack traffic reaches the backend application "
         "without WAF managed rules, custom request filtering, or centralized web-layer blocking."
+    ),
+    "EXP-009": (
+        "During the analysis of the resource exposure configuration, it was identified that "
+        "{count} CloudFront distribution(s) are not protected by AWS Shield Advanced. "
+        "Specifically, {resources} rely only on Shield Standard for DDoS protection.\n\n"
+        "This situation implies that business-critical public applications lack enhanced DDoS "
+        "mitigation and access to the AWS DDoS Response Team (DRT)."
     ),
     "EXP-013": (
         "During the analysis of the Exposure service, it was identified that {count} S3 bucket(s) "
@@ -3553,6 +3569,11 @@ PRE_CHECK_REMEDIATIONS: Dict[str, str] = {
         "rules for application-specific paths, rate limits, and allow or block lists. "
         "Validate the rules in count mode before enforcement where downtime risk exists, "
         "then monitor WAF logs and tune false positives."
+    ),
+    "EXP-009": (
+        "Subscribe to AWS Shield Advanced and add each business-critical CloudFront "
+        "distribution to its list of protected resources. This provides enhanced DDoS "
+        "protection and access to the DDoS Response Team (DRT), as required by the checklist."
     ),
     "EXP-010": (
         "It is recommended to update ALB listener TLS policies to require TLS 1.2 or "

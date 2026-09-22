@@ -305,6 +305,66 @@ def check_exp_007(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("exposure")
+def check_exp_009(evidence: Dict[str, Any]) -> PreCheckResult:
+    """CloudFront distributions should have AWS Shield Advanced protection."""
+    cf_doc = evidence.get("cloudfront-distributions")
+    shield_doc = evidence.get("shield-protection-status")
+    if not isinstance(cf_doc, dict) or not isinstance(shield_doc, dict):
+        return PreCheckResult("EXP-009", "SKIP", "missing CloudFront/Shield evidence", [])
+
+    dists = _items_from_doc(cf_doc)
+    if not dists:
+        return PreCheckResult("EXP-009", "PASS", "no CloudFront distributions", [])
+
+    subscription_state = str(shield_doc.get("subscription_state") or "").upper()
+    protected_arns = shield_doc.get("protected_resource_arns")
+    if subscription_state not in {"ACTIVE", "INACTIVE"} or not isinstance(
+        protected_arns, list
+    ):
+        return PreCheckResult("EXP-009", "SKIP", "invalid Shield evidence", [])
+
+    protected = {str(arn) for arn in protected_arns if arn}
+    unprotected: List[str] = []
+    resource_details: List[Dict[str, Any]] = []
+    for dist in dists:
+        if not isinstance(dist, dict):
+            continue
+        distribution_id = str(dist.get("Id") or "unknown")
+        distribution_arn = dist.get("ARN")
+        protected_match = subscription_state == "ACTIVE" and (
+            distribution_id in protected
+            or (isinstance(distribution_arn, str) and distribution_arn in protected)
+            or any(str(arn).endswith(f"/{distribution_id}") for arn in protected)
+        )
+        if protected_match:
+            continue
+
+        resource = str(distribution_arn or distribution_id)
+        unprotected.append(resource)
+        resource_details.append(
+            {
+                "distribution_id": distribution_id,
+                "distribution_arn": distribution_arn,
+                "domain_name": dist.get("DomainName"),
+                "subscription_state": subscription_state,
+                "shield_protected": False,
+            }
+        )
+
+    if not unprotected:
+        return PreCheckResult("EXP-009", "PASS", "all CloudFront distributions have Shield Advanced protection", [])
+
+    result = PreCheckResult(
+        "EXP-009",
+        "FAIL",
+        f"{len(unprotected)} CloudFront distributions without Shield Advanced protection",
+        unprotected[:10],
+    )
+    result.metadata["resource_details"] = resource_details[:10]
+    return result
+
+
+@_register("exposure")
 def check_exp_010(evidence: Dict[str, Any]) -> PreCheckResult:
     """Obsolete TLS policies on internet-facing ALB."""
     lbs_doc = evidence.get("load-balancers")
