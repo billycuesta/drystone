@@ -128,6 +128,62 @@ def check_iam_010(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+def check_iam_028(evidence: Dict[str, Any]) -> PreCheckResult:
+    """IAM-028: Tags should be consistently applied to IAM resources."""
+    roles = evidence.get("roles")
+    users = evidence.get("users")
+
+    has_roles = isinstance(roles, list) and bool(roles)
+    has_users = isinstance(users, list) and bool(users)
+    if not has_roles and not has_users:
+        return PreCheckResult("IAM-028", "SKIP", "no users or roles evidence", [])
+
+    affected: List[str] = []
+
+    if isinstance(roles, list):
+        for role in roles:
+            if not isinstance(role, dict):
+                continue
+            if role.get("RoleType") == "ServiceLinkedRole":
+                continue
+
+            role_doc = role.get("Role")
+            tags = role_doc.get("Tags") if isinstance(role_doc, dict) else []
+            if not isinstance(tags, list):
+                tags = []
+            if tags:
+                continue
+
+            role_name = str(role.get("RoleName") or "unknown")
+            arn = str(role.get("Arn") or f"role/{role_name}")
+            affected.append(arn)
+
+    if isinstance(users, list):
+        for user in users:
+            if not isinstance(user, dict):
+                continue
+
+            tags = user.get("Tags")
+            if not isinstance(tags, list):
+                tags = []
+            if tags:
+                continue
+
+            username = str(user.get("UserName") or "unknown")
+            arn = str(user.get("Arn") or f"user/{username}")
+            affected.append(arn)
+
+    if affected:
+        return PreCheckResult(
+            "IAM-028",
+            "FAIL",
+            f"{len(affected)} IAM principal(s) (users/roles) without any tags",
+            affected[:10],
+        )
+    return PreCheckResult("IAM-028", "PASS", "all IAM users and roles have at least one tag", [])
+
+
+@_register("iam")
 def check_iam_004(evidence: Dict[str, Any]) -> PreCheckResult:
     """Access keys should be rotated every 90 days."""
     users = evidence.get("users")

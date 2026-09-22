@@ -188,6 +188,7 @@ def _make_iam_client(with_password_policy=True):
             ]
         },
         "list_instance_profiles": {"InstanceProfiles": []},
+        "list_user_tags": {"Tags": [{"Key": "Owner", "Value": "security"}]},
     }
     c.get_paginator.side_effect = lambda name: _make_paginator(
         _paginated_pages.get(name, {})
@@ -303,6 +304,7 @@ class TestCollectHappyPath:
         assert len(user["AccessKeys"]) == 1
         assert user["AccessKeys"][0]["LastUsed"] == {"LastUsedDate": "2026-02-01"}
         assert user["MFADevices"] == []
+        assert user["Tags"] == [{"Key": "Owner", "Value": "security"}]
         assert user["Groups"] == [{"GroupName": "admins"}]
 
     def test_groups_content(self, skill, aws_client, tmp_path):
@@ -593,6 +595,45 @@ class TestSubCallResilience:
         data = json.loads((evidence_path / "users.json").read_text())
         assert len(data) == 1
         assert data[0]["MFADevices"] == []
+
+    def test_list_user_tags_failure_for_one_user_still_saves_all_users(
+        self, skill, aws_client, tmp_path
+    ):
+        session, evidence_path = _make_session(tmp_path)
+        iam = _make_iam_client()
+        _override_paginator(
+            iam,
+            "list_users",
+            {"Users": [_user("alice")]},
+            {"Users": [_user("bob")]},
+        )
+        original = iam.get_paginator.side_effect
+
+        def _dispatch(name):
+            if name == "list_user_tags":
+                paginator = MagicMock()
+
+                def _paginate(**kwargs):
+                    username = kwargs.get("UserName")
+                    if username == "alice":
+                        raise Exception("AccessDenied")
+                    return iter([{"Tags": [{"Key": "Owner", "Value": "team-b"}]}])
+
+                paginator.paginate.side_effect = _paginate
+                return paginator
+            return original(name)
+
+        iam.get_paginator.side_effect = _dispatch
+
+        with patch("boto3.client", side_effect=_boto3_factory(iam=iam)):
+            skill.collect(aws_client, session)
+
+        data = json.loads((evidence_path / "users.json").read_text())
+        assert len(data) == 2
+        assert data[0]["UserName"] == "alice"
+        assert data[0]["Tags"] == []
+        assert data[1]["UserName"] == "bob"
+        assert data[1]["Tags"] == [{"Key": "Owner", "Value": "team-b"}]
 
     def test_get_policy_failure_still_saves_policy_stub(self, skill, aws_client, tmp_path):
         session, evidence_path = _make_session(tmp_path)

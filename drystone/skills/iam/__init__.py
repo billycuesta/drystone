@@ -144,6 +144,18 @@ class IAMSkill(BaseSkill):
                     logger.warning(f"Could not list inline policies for user {username}: {e}")
                     user_detail["InlinePolicies"] = []
 
+                # Tags
+                try:
+                    tags = []
+                    for page in iam_client.get_paginator("list_user_tags").paginate(
+                        UserName=username
+                    ):
+                        tags.extend(page.get("Tags", []))
+                    user_detail["Tags"] = tags
+                except Exception as e:
+                    logger.warning(f"Could not list tags for user {username}: {e}")
+                    user_detail["Tags"] = []
+
                 # Attached managed policies
                 try:
                     attached_response = iam_client.list_attached_user_policies(UserName=username)
