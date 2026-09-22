@@ -660,6 +660,23 @@ class TestIAM020:
 
 
 class TestIAM015And016Metadata:
+    def _direct_policy_user(self, index):
+        name = f"direct{index}"
+        return {
+            "UserName": name,
+            "Arn": f"arn:aws:iam::123:user/{name}",
+            "Groups": [],
+            "AttachedPolicies": [{"PolicyName": "DirectS3"}],
+        }
+
+    def _programmatic_only_user(self, index):
+        name = f"api{index}"
+        return {
+            "UserName": name,
+            "Arn": f"arn:aws:iam::123:user/{name}",
+            "AccessKeys": [{"Status": "Active"}],
+        }
+
     def test_iam015_includes_direct_policy_metadata(self):
         evidence = {
             "users": [
@@ -708,6 +725,52 @@ class TestIAM015And016Metadata:
         details = r.metadata["resource_details"][0]
         assert details["classification"] == "ambiguous"
         assert details["service_account_pattern"] is False
+
+    def test_iam015_limits_affected_and_resource_details_to_ten_of_eleven(self):
+        users = [self._direct_policy_user(i) for i in range(11)]
+        r = check_iam_015({"users": users})
+
+        assert r.status == "FAIL"
+        assert len(r.affected_resources) == 10
+        assert len(r.metadata["resource_details"]) == 10
+        assert (
+            r.evidence_summary
+            == "11 user(s) with direct policy attachments and no group membership"
+        )
+
+    def test_iam015_includes_all_three_affected_arns_when_under_limit(self):
+        users = [self._direct_policy_user(i) for i in range(3)]
+        r = check_iam_015({"users": users})
+
+        assert r.status == "FAIL"
+        assert r.affected_resources == [user["Arn"] for user in users]
+        assert [detail["arn"] for detail in r.metadata["resource_details"]] == [
+            user["Arn"] for user in users
+        ]
+
+    def test_iam016_limits_affected_and_resource_details_to_ten_of_eleven(self):
+        users = [self._programmatic_only_user(i) for i in range(11)]
+        by_user = {user["UserName"]: {"password_enabled": "false"} for user in users}
+        r = check_iam_016({"users": users, "credential-report": {"by_user": by_user}})
+
+        assert r.status == "FAIL"
+        assert len(r.affected_resources) == 10
+        assert len(r.metadata["resource_details"]) == 10
+        assert (
+            r.evidence_summary
+            == "11 programmatic-only IAM user(s) with no console password and active access keys"
+        )
+
+    def test_iam016_includes_all_three_affected_arns_when_under_limit(self):
+        users = [self._programmatic_only_user(i) for i in range(3)]
+        by_user = {user["UserName"]: {"password_enabled": "false"} for user in users}
+        r = check_iam_016({"users": users, "credential-report": {"by_user": by_user}})
+
+        assert r.status == "FAIL"
+        assert r.affected_resources == [user["Arn"] for user in users]
+        assert [detail["arn"] for detail in r.metadata["resource_details"]] == [
+            user["Arn"] for user in users
+        ]
 
 
 class TestIAM026PermissionBoundaries:

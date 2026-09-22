@@ -1173,9 +1173,9 @@ def check_iam_015(evidence: Dict[str, Any]) -> PreCheckResult:
         "IAM-015",
         "FAIL",
         f"{len(affected)} user(s) with direct policy attachments and no group membership",
-        affected[:5],
+        affected[:10],
     )
-    result.metadata["resource_details"] = resource_details[:5]
+    result.metadata["resource_details"] = resource_details[:10]
     return result
 
 
@@ -1237,9 +1237,9 @@ def check_iam_016(evidence: Dict[str, Any]) -> PreCheckResult:
         "IAM-016",
         "FAIL",
         f"{len(affected)} programmatic-only IAM user(s) with no console password and active access keys",
-        affected[:5],
+        affected[:10],
     )
-    result.metadata["resource_details"] = resource_details[:5]
+    result.metadata["resource_details"] = resource_details[:10]
     return result
 
 
