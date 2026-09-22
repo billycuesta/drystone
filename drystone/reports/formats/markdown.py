@@ -1013,6 +1013,8 @@ These correlations represent multi-stage attack scenarios where findings from di
         for severity in severity_order:
             sev_findings = grouped[severity]
             if sev_findings:
+                # Sort findings within severity by risk_score descending
+                sev_findings = sorted(sev_findings, key=lambda f: -f.get("risk_score", 0.0))
                 sections.append(self._severity_section(severity, sev_findings))
 
         return "\n\n".join(sections)

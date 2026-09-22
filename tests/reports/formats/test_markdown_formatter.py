@@ -774,3 +774,107 @@ class TestPciDssAnnexMd:
         f = _make_formatter(tmp_path, report_type="general")
         f.config.skills = ["iam"]
         assert f._pci_dss_annex_md() == ""
+
+
+class TestFindingsSeveritySorting:
+    """Tests for risk_score sorting within severity sections."""
+
+    def test_findings_sorted_by_risk_score_descending(self, tmp_path):
+        """Findings within a severity section are sorted by risk_score descending."""
+        findings_data = {
+            "skill": "iam",
+            "findings": [
+                {
+                    "id": "IAM-001",
+                    "title": "First finding",
+                    "severity": "High",
+                    "description": "desc",
+                    "remediation": "fix",
+                    "risk_score": 5.0,
+                },
+                {
+                    "id": "IAM-002",
+                    "title": "Second finding",
+                    "severity": "High",
+                    "description": "desc",
+                    "remediation": "fix",
+                    "risk_score": 9.0,
+                },
+                {
+                    "id": "IAM-003",
+                    "title": "Third finding",
+                    "severity": "High",
+                    "description": "desc",
+                    "remediation": "fix",
+                    "risk_score": 7.0,
+                },
+            ],
+            "summary": {
+                "total_findings": 3,
+                "critical": 0,
+                "high": 3,
+                "medium": 0,
+                "low": 0,
+                "overall_risk_score": 7.0,
+            },
+        }
+        f = _make_formatter(tmp_path, findings=findings_data)
+        section = f._findings_by_severity()
+
+        # Find positions of finding IDs in rendered output
+        id_001_pos = section.find("[IAM-001]")
+        id_002_pos = section.find("[IAM-002]")
+        id_003_pos = section.find("[IAM-003]")
+
+        # Assert order: IAM-002 (9.0) → IAM-003 (7.0) → IAM-001 (5.0)
+        assert id_002_pos < id_003_pos < id_001_pos
+
+    def test_findings_missing_risk_score_sort_last(self, tmp_path):
+        """Findings without risk_score default to 0.0 and sort to end."""
+        findings_data = {
+            "skill": "iam",
+            "findings": [
+                {
+                    "id": "IAM-001",
+                    "title": "With score",
+                    "severity": "Medium",
+                    "description": "desc",
+                    "remediation": "fix",
+                    "risk_score": 5.0,
+                },
+                {
+                    "id": "IAM-002",
+                    "title": "No score",
+                    "severity": "Medium",
+                    "description": "desc",
+                    "remediation": "fix",
+                    # Missing risk_score
+                },
+                {
+                    "id": "IAM-003",
+                    "title": "Higher score",
+                    "severity": "Medium",
+                    "description": "desc",
+                    "remediation": "fix",
+                    "risk_score": 8.0,
+                },
+            ],
+            "summary": {
+                "total_findings": 3,
+                "critical": 0,
+                "high": 0,
+                "medium": 3,
+                "low": 0,
+                "overall_risk_score": 4.5,
+            },
+        }
+        f = _make_formatter(tmp_path, findings=findings_data)
+        section = f._findings_by_severity()
+
+        # Find positions of finding IDs
+        id_001_pos = section.find("[IAM-001]")
+        id_002_pos = section.find("[IAM-002]")
+        id_003_pos = section.find("[IAM-003]")
+
+        # Assert order: IAM-003 (8.0) → IAM-001 (5.0) → IAM-002 (0.0/missing)
+        assert id_003_pos < id_001_pos < id_002_pos
