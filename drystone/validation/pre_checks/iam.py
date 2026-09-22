@@ -469,37 +469,31 @@ def check_iam_020(evidence: Dict[str, Any]) -> PreCheckResult:
 def check_iam_029(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM-029: Detect privilege escalation via cross-role AssumeRole chains.
 
-    Flags roles that can be assumed by another IAM role (not a service) AND
-    have AdministratorAccess or iam:* permissions attached — the classic
-    'hop-to-admin' privilege escalation path.
+    Builds role-to-role trust edges from AWS role principals in trust policies and
+    walks backward from privileged target roles to find non-admin source roles
+    that can reach administrative access within four AssumeRole hops.
     """
     roles = evidence.get("roles")
     if not isinstance(roles, list) or not roles:
         return PreCheckResult("IAM-029", "SKIP", "no roles evidence", [])
 
     _admin_policies = {"AdministratorAccess", "PowerUserAccess"}
+    _max_depth = 4
 
-    # Build a map: role ARN → attached policy names
     role_policies: Dict[str, set] = {}
-    for r in roles:
-        if not isinstance(r, dict):
-            continue
-        arn = str(r.get("Arn") or "")
-        attached = r.get("AttachedPolicies") or []
-        pnames = {str(p.get("PolicyName") or "") for p in attached if isinstance(p, dict)}
-        role_policies[arn] = pnames
-
-    affected: List[str] = []
+    reverse_graph: Dict[str, List[str]] = {}
     for r in roles:
         if not isinstance(r, dict):
             continue
         role_arn = str(r.get("Arn") or "")
-
-        # Does this role have admin-level policies?
-        if not (role_policies.get(role_arn, set()) & _admin_policies):
+        if not role_arn:
             continue
 
-        # Is it trusted by another IAM role (not an AWS service)?
+        attached = r.get("AttachedPolicies") or []
+        role_policies[role_arn] = {
+            str(p.get("PolicyName") or "") for p in attached if isinstance(p, dict)
+        }
+
         trust = r.get("AssumeRolePolicyDocument")
         if not isinstance(trust, dict):
             continue
@@ -516,20 +510,83 @@ def check_iam_029(evidence: Dict[str, Any]) -> PreCheckResult:
                 continue
 
             for p in principal_list:
-                ps = str(p)
-                # Flag if trusted by an IAM role (privilege escalation hop)
-                if ":role/" in ps and not ps.endswith(".amazonaws.com"):
-                    if role_arn not in affected:
-                        affected.append(role_arn)
-                    break
+                principal_arn = str(p)
+                # Match the historical AWS-role-only filter and exclude services.
+                if ":role/" not in principal_arn or principal_arn.endswith(".amazonaws.com"):
+                    continue
+                sources = reverse_graph.setdefault(role_arn, [])
+                if principal_arn not in sources:
+                    sources.append(principal_arn)
+
+    admin_targets = {arn for arn, policies in role_policies.items() if policies & _admin_policies}
+
+    affected: List[str] = []
+    findings: Dict[str, Dict[str, Any]] = {}
+
+    def _record(arn: str, hops: int, path: List[str], classification: str) -> None:
+        if arn not in affected:
+            affected.append(arn)
+        existing = findings.get(arn)
+        if existing is None or hops < existing["chain_hops"]:
+            findings[arn] = {
+                "arn": arn,
+                "chain_hops": hops,
+                "classification": classification,
+                "path": path,
+            }
+
+    for admin_arn in sorted(admin_targets):
+        direct_sources = reverse_graph.get(admin_arn, [])
+        if direct_sources:
+            # Backward compatibility: the old check reported the admin target
+            # itself for a direct role->admin trust. Keep that ARN present while
+            # adding source roles below for richer path visibility.
+            _record(admin_arn, 1, [direct_sources[0], admin_arn], "admin_target_direct_trust")
+
+        stack = [(admin_arn, [admin_arn], 0)]
+        visited = {admin_arn: 0}
+        while stack:
+            current_arn, reverse_path, depth = stack.pop()
+            if depth >= _max_depth:
+                continue
+
+            for source_arn in reverse_graph.get(current_arn, []):
+                next_depth = depth + 1
+                previous_depth = visited.get(source_arn)
+                if previous_depth is not None and previous_depth <= next_depth:
+                    continue
+                visited[source_arn] = next_depth
+
+                forward_path = [source_arn, *reverse_path]
+                if source_arn not in admin_targets:
+                    classification = "direct_source" if next_depth == 1 else "multi_hop_source"
+                    _record(source_arn, next_depth, forward_path, classification)
+
+                stack.append((source_arn, [source_arn, *reverse_path], next_depth))
 
     if affected:
-        return PreCheckResult(
+        hop_counts = [finding["chain_hops"] for finding in findings.values()]
+        max_hops = max(hop_counts) if hop_counts else 0
+        direct_source_count = sum(
+            1 for finding in findings.values() if finding["classification"] == "direct_source"
+        )
+        multi_hop_source_count = sum(
+            1 for finding in findings.values() if finding["classification"] == "multi_hop_source"
+        )
+        result = PreCheckResult(
             "IAM-029",
             "FAIL",
-            f"{len(affected)} admin role(s) trusted by other IAM role(s) — escalation path",
+            (
+                f"{len(affected)} role(s) can reach admin via AssumeRole chain "
+                f"(direct_sources={direct_source_count}, "
+                f"multi_hop_sources={multi_hop_source_count}, max_hops={max_hops})"
+            ),
             affected,
         )
+        result.metadata["chain_hops"] = {arn: findings[arn]["chain_hops"] for arn in affected}
+        result.metadata["paths"] = {arn: findings[arn]["path"] for arn in affected}
+        result.metadata["resource_details"] = [findings[arn] for arn in affected]
+        return result
     return PreCheckResult("IAM-029", "PASS", "no privilege escalation via role chain detected", [])
 
 

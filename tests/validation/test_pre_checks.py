@@ -86,6 +86,7 @@ from drystone.validation.pre_checks import (
     check_iam_019,
     check_iam_020,
     check_iam_026,
+    check_iam_029,
     check_iam_032,
     check_iam_033,
     check_iam_034,
@@ -739,6 +740,146 @@ class TestIAM026PermissionBoundaries:
         assert "delegated" not in r.evidence_summary.lower()
         assert r.metadata["roles_without_boundary_and_iam_admin_actions"] == 0
         assert r.metadata["classification"] == "missing_boundary_no_iam_admin_actions_detected"
+
+
+class TestIAM029AssumeRoleChains:
+    def _role(self, name, *, trusted_by=None, policies=None, service_principal=None):
+        principal = {}
+        if trusted_by is not None:
+            principal["AWS"] = trusted_by
+        if service_principal is not None:
+            principal["Service"] = service_principal
+
+        role = {
+            "RoleName": name,
+            "Arn": f"arn:aws:iam::111111111111:role/{name}",
+            "AttachedPolicies": [{"PolicyName": p} for p in (policies or [])],
+        }
+        if principal:
+            role["AssumeRolePolicyDocument"] = {
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": "sts:AssumeRole",
+                        "Principal": principal,
+                    }
+                ]
+            }
+        return role
+
+    def test_skip_when_no_roles_evidence(self):
+        r = check_iam_029({"roles": []})
+
+        assert r.status == "SKIP"
+        assert r.evidence_summary == "no roles evidence"
+        assert r.affected_resources == []
+
+    def test_direct_admin_trust_preserves_legacy_admin_arn_and_source_metadata(self):
+        admin_arn = "arn:aws:iam::111111111111:role/admin"
+        source_arn = "arn:aws:iam::111111111111:role/source"
+        r = check_iam_029(
+            {
+                "roles": [
+                    self._role("source"),
+                    self._role("admin", trusted_by=source_arn, policies=["AdministratorAccess"]),
+                ]
+            }
+        )
+
+        assert r.status == "FAIL"
+        assert admin_arn in r.affected_resources
+        assert source_arn in r.affected_resources
+        assert r.metadata["chain_hops"][admin_arn] == 1
+        assert r.metadata["chain_hops"][source_arn] == 1
+        assert "direct_sources=1" in r.evidence_summary
+        assert "multi_hop_sources=0" in r.evidence_summary
+        assert "max_hops=1" in r.evidence_summary
+
+    def test_two_hop_chain_includes_intermediate_and_source_with_hop_distinction(self):
+        source_arn = "arn:aws:iam::111111111111:role/A"
+        intermediate_arn = "arn:aws:iam::111111111111:role/B"
+        admin_arn = "arn:aws:iam::111111111111:role/admin"
+        r = check_iam_029(
+            {
+                "roles": [
+                    self._role("A"),
+                    self._role("B", trusted_by=source_arn),
+                    self._role("admin", trusted_by=intermediate_arn, policies=["PowerUserAccess"]),
+                ]
+            }
+        )
+
+        assert r.status == "FAIL"
+        assert source_arn in r.affected_resources
+        assert intermediate_arn in r.affected_resources
+        assert admin_arn in r.affected_resources
+        assert r.metadata["chain_hops"][intermediate_arn] == 1
+        assert r.metadata["chain_hops"][source_arn] == 2
+        assert r.metadata["paths"][source_arn] == [source_arn, intermediate_arn, admin_arn]
+        assert "direct_sources=1" in r.evidence_summary
+        assert "multi_hop_sources=1" in r.evidence_summary
+        assert "max_hops=2" in r.evidence_summary
+
+    def test_chain_beyond_four_hops_is_not_flagged(self):
+        role_arns = {name: f"arn:aws:iam::111111111111:role/{name}" for name in "ABCDE"}
+        r = check_iam_029(
+            {
+                "roles": [
+                    self._role("A"),
+                    self._role("B", trusted_by=role_arns["A"]),
+                    self._role("C", trusted_by=role_arns["B"]),
+                    self._role("D", trusted_by=role_arns["C"]),
+                    self._role("E", trusted_by=role_arns["D"]),
+                    self._role(
+                        "admin",
+                        trusted_by=role_arns["E"],
+                        policies=["AdministratorAccess"],
+                    ),
+                ]
+            }
+        )
+
+        assert r.status == "FAIL"
+        assert role_arns["A"] not in r.affected_resources
+        assert role_arns["B"] in r.affected_resources
+        assert role_arns["E"] in r.affected_resources
+        assert r.metadata["chain_hops"][role_arns["B"]] == 4
+        assert all(hops <= 4 for hops in r.metadata["chain_hops"].values())
+
+    def test_cycle_terminates_without_crash(self):
+        a_arn = "arn:aws:iam::111111111111:role/A"
+        b_arn = "arn:aws:iam::111111111111:role/B"
+        admin_arn = "arn:aws:iam::111111111111:role/admin"
+        r = check_iam_029(
+            {
+                "roles": [
+                    self._role("A", trusted_by=b_arn),
+                    self._role("B", trusted_by=a_arn),
+                    self._role("admin", trusted_by=b_arn, policies=["AdministratorAccess"]),
+                ]
+            }
+        )
+
+        assert r.status == "FAIL"
+        assert a_arn in r.affected_resources
+        assert b_arn in r.affected_resources
+        assert admin_arn in r.affected_resources
+
+    def test_admin_trusting_only_service_principal_passes(self):
+        r = check_iam_029(
+            {
+                "roles": [
+                    self._role(
+                        "admin",
+                        service_principal="lambda.amazonaws.com",
+                        policies=["AdministratorAccess"],
+                    )
+                ]
+            }
+        )
+
+        assert r.status == "PASS"
+        assert r.affected_resources == []
 
 
 class TestIAM032:
