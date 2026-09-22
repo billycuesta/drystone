@@ -1367,3 +1367,119 @@ class TestAnalyzePipelineMetadata:
             "error_type": "RuntimeError",
             "message": "coverage exploded",
         }
+
+    def test_analyze_records_total_chunks_on_successful_chunked_run(self, tmp_path):
+        """Full success chunked run records total_chunks in metrics."""
+        session, evidence_path, findings_path = self._session(tmp_path)
+        (evidence_path / "users.json").write_text('{"items": []}')
+        agent = self._agent()
+
+        # Mock metrics_tracker to capture record_skill_quality calls
+        agent.metrics_tracker = MagicMock()
+
+        # Simulate a successful chunked run
+        agent.get_last_analysis_status.return_value = {
+            "partial_results": False,
+            "total_chunks": 7,
+            "failed_chunks": 0,
+        }
+
+        with patch("drystone.validation.pre_checks.run_pre_checks", return_value=[]), patch(
+            "drystone.analysis.router.route_checklist_for_llm",
+            return_value=(
+                {"items": [{"id": "IAM-001", "severity": "High"}]},
+                {"llm_checks": 1, "deterministic_resolved": 0, "total_checks": 1},
+            ),
+        ), patch("drystone.validation.checklist_coverage.validate_checklist_coverage", return_value={
+            "coverage_valid": True,
+            "coverage_percentage": 100,
+            "evaluated_checks": 1,
+            "total_checks": 1,
+            "details": [],
+        }):
+            SKILL.analyze(session, agent)
+
+        # Verify record_skill_quality was called with total_chunks=7
+        calls = [c for c in agent.metrics_tracker.record_skill_quality.call_args_list
+                 if c.kwargs.get("total_chunks") == 7]
+        assert len(calls) > 0, "record_skill_quality should be called with total_chunks=7"
+
+        # Verify the call has the correct parameters
+        call = calls[0]
+        assert call.kwargs["total_chunks"] == 7
+        assert call.kwargs["failed_chunks"] == 0
+        assert call.kwargs["partial_results"] is False
+
+    def test_analyze_records_total_chunks_on_partial_chunked_run(self, tmp_path):
+        """Partial failure chunked run still records total_chunks in metrics."""
+        session, evidence_path, findings_path = self._session(tmp_path)
+        (evidence_path / "users.json").write_text('{"items": []}')
+        agent = self._agent()
+
+        # Mock metrics_tracker
+        agent.metrics_tracker = MagicMock()
+
+        # Simulate a partial failure chunked run
+        agent.get_last_analysis_status.return_value = {
+            "partial_results": True,
+            "total_chunks": 5,
+            "failed_chunks": 1,
+        }
+
+        with patch("drystone.validation.pre_checks.run_pre_checks", return_value=[]), patch(
+            "drystone.analysis.router.route_checklist_for_llm",
+            return_value=(
+                {"items": [{"id": "IAM-001", "severity": "High"}]},
+                {"llm_checks": 1, "deterministic_resolved": 0, "total_checks": 1},
+            ),
+        ), patch("drystone.validation.checklist_coverage.validate_checklist_coverage", return_value={
+            "coverage_valid": True,
+            "coverage_percentage": 100,
+            "evaluated_checks": 1,
+            "total_checks": 1,
+            "details": [],
+        }):
+            SKILL.analyze(session, agent)
+
+        # Verify record_skill_quality was called with total_chunks=5 (for partial run)
+        calls = [c for c in agent.metrics_tracker.record_skill_quality.call_args_list
+                 if c.kwargs.get("total_chunks") == 5]
+        assert len(calls) > 0, "record_skill_quality should be called with total_chunks=5"
+
+        # Verify the call has the correct parameters for partial run
+        call = calls[0]
+        assert call.kwargs["total_chunks"] == 5
+        assert call.kwargs["failed_chunks"] == 1
+        assert call.kwargs["partial_results"] is True
+
+    def test_analyze_does_not_record_total_chunks_when_llm_skipped(self, tmp_path):
+        """LLM-skipped run (no chunking) does not spuriously report total_chunks."""
+        session, evidence_path, findings_path = self._session(tmp_path)
+        (evidence_path / "users.json").write_text('{"items": []}')
+        agent = self._agent()
+
+        # Mock metrics_tracker
+        agent.metrics_tracker = MagicMock()
+
+        # No chunk_status returned (chunking never happened)
+        agent.get_last_analysis_status.return_value = {}
+
+        with patch("drystone.validation.pre_checks.run_pre_checks", return_value=[]), patch(
+            "drystone.analysis.router.route_checklist_for_llm",
+            return_value=(
+                {"items": []},
+                {"llm_checks": 0, "deterministic_resolved": 1, "total_checks": 1},  # LLM skipped
+            ),
+        ), patch("drystone.validation.checklist_coverage.validate_checklist_coverage", return_value={
+            "coverage_valid": True,
+            "coverage_percentage": 100,
+            "evaluated_checks": 1,
+            "total_checks": 1,
+            "details": [],
+        }):
+            SKILL.analyze(session, agent)
+
+        # Verify record_skill_quality was NOT called with total_chunks (since no chunking)
+        calls_with_chunks = [c for c in agent.metrics_tracker.record_skill_quality.call_args_list
+                             if c.kwargs.get("total_chunks", 0) > 0]
+        assert len(calls_with_chunks) == 0, "Should not record total_chunks when LLM skipped"

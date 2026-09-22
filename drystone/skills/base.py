@@ -398,6 +398,26 @@ class BaseSkill(ABC):
 
         chunk_status = agent_client.get_last_analysis_status(self.name) or {}
         chunk_partial = bool(chunk_status.get("partial_results", False))
+
+        # Record metrics for all chunked runs (full success and partial)
+        # This ensures total_chunks is captured even when all chunks succeed
+        if not llm_skipped and not llm_fallback_used and chunk_status:
+            if getattr(agent_client, "metrics_tracker", None):
+                try:
+                    agent_client.metrics_tracker.record_skill_quality(
+                        self.name,
+                        confidence_score=float(effective_confidence["score"]),
+                        confidence_level=str(effective_confidence["level"]),
+                        llm_skipped=llm_skipped,
+                        llm_fallback_used=False,
+                        partial_results=chunk_partial,
+                        partial_reason="one_or_more_llm_chunks_failed" if chunk_partial else "",
+                        failed_chunks=int(chunk_status.get("failed_chunks") or 0),
+                        total_chunks=int(chunk_status.get("total_chunks") or 0),
+                    )
+                except Exception:
+                    pass
+
         if chunk_partial and not llm_fallback_used:
             from drystone.validation.confidence import compute_skill_confidence
 
