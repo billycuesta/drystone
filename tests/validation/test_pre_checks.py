@@ -82,6 +82,7 @@ from drystone.validation.pre_checks import (
     check_iam_014,
     check_iam_015,
     check_iam_016,
+    check_iam_017,
     check_iam_018,
     check_iam_019,
     check_iam_020,
@@ -798,47 +799,99 @@ class TestIAM032:
         assert r.status == "PASS"
 
 
-class TestIAM033:
-    def test_fail_cross_account_without_external_id(self):
-        evidence = {
-            "roles": [
-                {
-                    "Arn": "arn:aws:iam::111111111111:role/third-party-role",
-                    "AssumeRolePolicyDocument": {
-                        "Statement": [
-                            {
-                                "Effect": "Allow",
-                                "Action": "sts:AssumeRole",
-                                "Principal": {"AWS": "arn:aws:iam::222222222222:role/vendor-role"},
-                            }
-                        ]
-                    },
-                }
-            ]
-        }
-        r = check_iam_033(evidence)
+def _third_party_cross_account_role(condition=None, role_name="third-party-role"):
+    statement = {
+        "Effect": "Allow",
+        "Action": "sts:AssumeRole",
+        "Principal": {"AWS": "arn:aws:iam::222222222222:role/vendor-role"},
+    }
+    if condition:
+        statement["Condition"] = condition
+    return {
+        "RoleName": role_name,
+        "Arn": f"arn:aws:iam::111111111111:role/{role_name}",
+        "AssumeRolePolicyDocument": {"Statement": [statement]},
+    }
+
+
+def test_iam017_and_iam033_cross_account_external_id_synchronization():
+    evidence = {"roles": [_third_party_cross_account_role()]}
+
+    iam017 = check_iam_017(evidence)
+    iam033 = check_iam_033(evidence)
+
+    assert iam017.status == iam033.status
+    assert iam017.affected_resources == iam033.affected_resources
+
+
+class TestIAM017:
+    def test_skip_no_roles_evidence(self):
+        r = check_iam_017({})
+        assert r.status == "SKIP"
+        assert r.affected_resources == []
+
+    def test_fail_cross_account_without_external_id_same_arn(self):
+        evidence = {"roles": [_third_party_cross_account_role()]}
+        r = check_iam_017(evidence)
         assert r.status == "FAIL"
+        assert r.affected_resources == ["arn:aws:iam::111111111111:role/third-party-role"]
 
     def test_pass_cross_account_with_external_id(self):
         evidence = {
             "roles": [
-                {
-                    "Arn": "arn:aws:iam::111111111111:role/third-party-role",
-                    "AssumeRolePolicyDocument": {
-                        "Statement": [
-                            {
-                                "Effect": "Allow",
-                                "Action": "sts:AssumeRole",
-                                "Principal": {"AWS": "arn:aws:iam::222222222222:role/vendor-role"},
-                                "Condition": {"StringEquals": {"sts:ExternalId": "vendor-secret"}},
-                            }
-                        ]
-                    },
-                }
+                _third_party_cross_account_role(
+                    {"StringEquals": {"sts:ExternalId": "vendor-secret"}}
+                )
+            ]
+        }
+        r = check_iam_017(evidence)
+        assert r.status == "PASS"
+        assert r.affected_resources == []
+
+    def test_pass_exception_role_excluded(self):
+        evidence = {
+            "roles": [
+                _third_party_cross_account_role(role_name="OrganizationAccountAccessRole")
+            ]
+        }
+        r = check_iam_017(evidence)
+        assert r.status == "PASS"
+        assert r.affected_resources == []
+
+
+class TestIAM033:
+    def test_skip_no_roles_evidence(self):
+        r = check_iam_033({})
+        assert r.status == "SKIP"
+        assert r.affected_resources == []
+
+    def test_fail_cross_account_without_external_id(self):
+        evidence = {"roles": [_third_party_cross_account_role()]}
+        r = check_iam_033(evidence)
+        assert r.status == "FAIL"
+        assert r.affected_resources == ["arn:aws:iam::111111111111:role/third-party-role"]
+
+    def test_pass_cross_account_with_external_id(self):
+        evidence = {
+            "roles": [
+                _third_party_cross_account_role(
+                    {"StringEquals": {"sts:ExternalId": "vendor-secret"}}
+                )
             ]
         }
         r = check_iam_033(evidence)
         assert r.status == "PASS"
+        assert r.affected_resources == []
+
+    def test_pass_exception_role_excluded(self):
+        evidence = {
+            "roles": [
+                _third_party_cross_account_role(role_name="OrganizationAccountAccessRole")
+            ]
+        }
+        r = check_iam_033(evidence)
+        assert r.status == "PASS"
+        assert r.affected_resources == []
 
 
 class TestIAM034:

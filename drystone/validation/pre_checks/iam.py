@@ -627,12 +627,8 @@ _IAM_033_ROLE_EXCEPTIONS = frozenset(
 )
 
 
-@_register("iam")
-def check_iam_033(evidence: Dict[str, Any]) -> PreCheckResult:
-    """Cross-account role trust should require sts:ExternalId."""
-    roles = evidence.get("roles")
-    if not isinstance(roles, list) or not roles:
-        return PreCheckResult("IAM-033", "SKIP", "no roles evidence", [])
+def _iam_033_affected_role_arns(roles: List[Any]) -> List[str]:
+    """Return role ARNs with cross-account trust lacking ExternalId or equivalent scope."""
 
     def _account_from_arn(arn: str) -> str:
         parts = arn.split(":")
@@ -705,6 +701,37 @@ def check_iam_033(evidence: Dict[str, Any]) -> PreCheckResult:
                 affected.append(role_arn or f"role/{role_name or 'unknown'}")
                 break  # one violation per role is enough; move to next role
 
+    return affected
+
+
+@_register("iam")
+def check_iam_017(evidence: Dict[str, Any]) -> PreCheckResult:
+    """CIS 1.21: Cross-account role trust should require sts:ExternalId."""
+    roles = evidence.get("roles")
+    if not isinstance(roles, list) or not roles:
+        return PreCheckResult("IAM-017", "SKIP", "no roles evidence", [])
+
+    affected = _iam_033_affected_role_arns(roles)
+    if affected:
+        return PreCheckResult(
+            "IAM-017",
+            "FAIL",
+            f"CIS 1.21: {len(affected)} cross-account trust(s) without sts:ExternalId",
+            affected[:10],
+        )
+    return PreCheckResult(
+        "IAM-017", "PASS", "CIS 1.21: cross-account trusts enforce ExternalId or are absent", []
+    )
+
+
+@_register("iam")
+def check_iam_033(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Cross-account role trust should require sts:ExternalId."""
+    roles = evidence.get("roles")
+    if not isinstance(roles, list) or not roles:
+        return PreCheckResult("IAM-033", "SKIP", "no roles evidence", [])
+
+    affected = _iam_033_affected_role_arns(roles)
     if affected:
         return PreCheckResult(
             "IAM-033",
