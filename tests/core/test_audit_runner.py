@@ -568,3 +568,49 @@ class TestAnalyzeEvidenceMetricsIntegration:
         # Recomputed as a running sum on every record_skill_findings() call --
         # a lost update under concurrent writers would show up here as < 4.
         assert final_metrics["total_findings"] == len(skill_names)
+
+    def test_crash_safe_logger_wired_to_agent_client(self, config, tmp_path):
+        """Verify CrashSafeLogger is constructed and passed to AgentClient."""
+        from drystone.audit_logging import MetricsTracker
+
+        config.skills = ["iam"]
+        metrics_tracker = MetricsTracker(tmp_path / "metrics.json")
+        session = MagicMock()
+        session.base_path = tmp_path
+
+        class _FakeSkill:
+            def analyze(self, session, agent):
+                findings_path = tmp_path / "iam_findings.json"
+                findings_path.write_text(json.dumps({"summary": {"total_findings": 1}}))
+                return str(findings_path)
+
+        skill_instances = {"iam": _FakeSkill()}
+        skill_display_names = {"iam": "IAM"}
+
+        with patch("drystone.audit_logging.CrashSafeLogger") as mock_logger_cls:
+            mock_logger_instance = MagicMock()
+            mock_logger_cls.return_value = mock_logger_instance
+
+            with patch("drystone.agent.client.AgentClient") as mock_agent_cls:
+                mock_agent_cls.return_value = MagicMock()
+                _analyze_evidence(
+                    config,
+                    session,
+                    skill_instances,
+                    skill_display_names,
+                    metrics_tracker,
+                    lambda m: None,
+                )
+
+        # Verify CrashSafeLogger was instantiated with the correct path
+        expected_log_path = tmp_path / "crash-safe-log.jsonl"
+        mock_logger_cls.assert_called_once()
+        call_args = mock_logger_cls.call_args
+        assert call_args[1]["log_file"] == expected_log_path
+        assert call_args[1]["skill_name"] == "audit"
+
+        # Verify AgentClient was constructed with the crash_safe_logger
+        mock_agent_cls.assert_called_once()
+        agent_call_kwargs = mock_agent_cls.call_args[1]
+        assert "crash_safe_logger" in agent_call_kwargs
+        assert agent_call_kwargs["crash_safe_logger"] is mock_logger_instance

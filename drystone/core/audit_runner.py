@@ -158,6 +158,7 @@ def _analyze_evidence(
     """Phase: run AI analysis for each collected skill (parallel or sequential
     depending on provider) and return {skill_name: findings_dict}."""
     from drystone.agent.client import AgentClient
+    from drystone.audit_logging import CrashSafeLogger
 
     # Create provider configuration once
     provider_config = {
@@ -168,7 +169,16 @@ def _analyze_evidence(
         "qsa_depth": getattr(config, "qsa_depth", "standard"),
     }
 
-    agent = AgentClient(provider_config=provider_config)
+    # Initialize crash-safe logger for this audit run
+    crash_safe_logger = CrashSafeLogger(
+        log_file=session.base_path / "crash-safe-log.jsonl",
+        skill_name="audit",
+    )
+
+    agent = AgentClient(
+        provider_config=provider_config,
+        crash_safe_logger=crash_safe_logger,
+    )
     agent.metrics_tracker = metrics_tracker
 
     # Analyze skills in PARALLEL using ThreadPoolExecutor
