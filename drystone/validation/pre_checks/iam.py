@@ -534,6 +534,57 @@ def check_iam_029(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+def check_iam_031(evidence: Dict[str, Any]) -> PreCheckResult:
+    """IAM-031: Instance profiles should avoid over-privileged role permissions."""
+    profiles_doc = evidence.get("instance-profiles")
+    if not isinstance(profiles_doc, dict):
+        return PreCheckResult("IAM-031", "SKIP", "no instance-profiles evidence", [])
+
+    profiles = profiles_doc.get("instance_profiles")
+    if not isinstance(profiles, list) or not profiles:
+        return PreCheckResult("IAM-031", "SKIP", "no instance-profiles evidence", [])
+
+    _admin_policies = {"AdministratorAccess", "PowerUserAccess"}
+
+    affected: List[str] = []
+    for profile in profiles:
+        if not isinstance(profile, dict):
+            continue
+
+        roles = profile.get("Roles") or []
+        if not isinstance(roles, list):
+            continue
+
+        has_over_privileged_role = False
+        for role in roles:
+            if not isinstance(role, dict):
+                continue
+            attached = role.get("AttachedPolicies") or []
+            policy_names = {
+                str(policy.get("PolicyName") or "")
+                for policy in attached
+                if isinstance(policy, dict)
+            }
+            if policy_names & _admin_policies:
+                has_over_privileged_role = True
+                break
+
+        if has_over_privileged_role:
+            profile_name = str(profile.get("InstanceProfileName") or "unknown")
+            arn = str(profile.get("Arn") or f"instance-profile/{profile_name}")
+            affected.append(arn)
+
+    if affected:
+        return PreCheckResult(
+            "IAM-031",
+            "FAIL",
+            f"{len(affected)} instance profile(s) with over-privileged (admin) role permissions",
+            affected[:10],
+        )
+    return PreCheckResult("IAM-031", "PASS", "no over-privileged instance profile roles found", [])
+
+
+@_register("iam")
 def check_iam_032(evidence: Dict[str, Any]) -> PreCheckResult:
     """OIDC trust policies for GitHub Actions should be tightly scoped."""
     roles = evidence.get("roles")
