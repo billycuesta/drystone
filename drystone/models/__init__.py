@@ -1,5 +1,5 @@
 """Drystone data models."""
 
-from .config import AuditConfig, WizardConfig
+from .config import WizardConfig
 
-__all__ = ["WizardConfig", "AuditConfig"]
+__all__ = ["WizardConfig"]

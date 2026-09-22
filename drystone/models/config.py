@@ -377,13 +377,3 @@ class WizardConfig(BaseModel):
 
         data["created_at"] = self.created_at.isoformat()
         return data
-
-
-class AuditConfig(WizardConfig):
-    """Extended config for audit execution."""
-
-    session_id: str = Field(..., description="Unique audit session ID")
-    output_dir: Path = Field(..., description="Audit output directory")
-    aws_account_id: str = Field(default="", description="AWS account ID")
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
