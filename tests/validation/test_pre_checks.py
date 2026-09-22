@@ -740,6 +740,87 @@ class TestIAM026PermissionBoundaries:
         assert r.metadata["roles_without_boundary_and_iam_admin_actions"] == 0
         assert r.metadata["classification"] == "missing_boundary_no_iam_admin_actions_detected"
 
+    def test_metadata_count_reflects_true_count_not_capped_sample(self):
+        """Verify metadata["count"] contains true count (26), not capped 5-item sample length.
+
+        Reproduces QA-11: when affected_resources sample is capped to 5 items for display,
+        but true count (roles without boundary) is 26, metadata["count"] should reflect 26,
+        not 1 (length of admin_without_boundary subset).
+        """
+        # Build 42 customer-managed roles: 26 without boundary, 16 with boundary.
+        # Of the 26 without boundary, only 1 has IAM admin actions (matching real-scan shape).
+        roles = []
+        policies = []
+
+        # Create 16 roles WITH permission boundary (should not be counted)
+        for i in range(16):
+            roles.append({
+                "RoleName": f"with-boundary-{i}",
+                "Arn": f"arn:aws:iam::123:role/with-boundary-{i}",
+                "PermissionsBoundary": {"arn": "arn:aws:iam::123:policy/BoundaryPolicy"},
+                "AttachedPolicies": [],
+            })
+
+        # Create 25 roles WITHOUT boundary and without IAM admin actions
+        for i in range(25):
+            roles.append({
+                "RoleName": f"no-boundary-{i}",
+                "Arn": f"arn:aws:iam::123:role/no-boundary-{i}",
+                "AttachedPolicies": [
+                    {"PolicyName": "ReadOnly", "PolicyArn": "arn:aws:iam::123:policy/ReadOnly"}
+                ],
+            })
+
+        # Create 1 role WITHOUT boundary but WITH IAM admin actions (this will be in admin_without_boundary)
+        admin_policy_name = "AdminPolicy"
+        roles.append({
+            "RoleName": "admin-no-boundary",
+            "Arn": "arn:aws:iam::123:role/admin-no-boundary",
+            "AttachedPolicies": [
+                {"PolicyName": admin_policy_name, "PolicyArn": f"arn:aws:iam::123:policy/{admin_policy_name}"}
+            ],
+        })
+        policies.append({
+            "PolicyName": admin_policy_name,
+            "Arn": f"arn:aws:iam::123:policy/{admin_policy_name}",
+            "PolicyDocument": {
+                "Statement": [
+                    {"Effect": "Allow", "Action": "iam:*", "Resource": "*"}
+                ]
+            },
+        })
+
+        # Add default policy for other roles
+        policies.append({
+            "PolicyName": "ReadOnly",
+            "Arn": "arn:aws:iam::123:policy/ReadOnly",
+            "PolicyDocument": {
+                "Statement": [
+                    {"Effect": "Allow", "Action": "s3:GetObject", "Resource": "*"}
+                ]
+            },
+        })
+
+        evidence = {"roles": roles, "policies": policies}
+        r = check_iam_026(evidence)
+
+        # Verify result is FAIL (26 out of 42 roles without boundary = 61% > 50%)
+        assert r.status == "FAIL"
+
+        # The critical assertion: metadata["count"] should be TRUE count (26), not sample length
+        assert r.metadata["count"] == 26, (
+            f"metadata['count'] should be 26 (true count of roles without boundary), "
+            f"not {r.metadata.get('count')} (which could be capped sample length)"
+        )
+
+        # Verify other metadata fields are still correct
+        assert r.metadata["roles_without_boundary"] == 26
+        assert r.metadata["roles_without_boundary_and_iam_admin_actions"] == 1
+        assert r.metadata["classification"] == "missing_boundary_with_iam_admin_actions"
+
+        # Verify affected_resources is still capped to 5 items (for display only)
+        assert len(r.affected_resources) <= 5, "affected_resources sample should remain capped to 5"
+
 
 class TestIAM032:
     def test_fail_github_oidc_missing_sub(self):

@@ -1948,6 +1948,7 @@ def check_iam_026(evidence: Dict[str, Any]) -> PreCheckResult:
             f"{len(admin_without_boundary)} have IAM administrative actions",
             sample,
             metadata={
+                "count": len(without_boundary),
                 "classification": classification,
                 "resource_details": resource_details,
                 "roles_without_boundary": len(without_boundary),
