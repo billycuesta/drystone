@@ -12,7 +12,7 @@ from drystone.cli.config import (
     load_last_config,
     save_config,
 )
-from drystone.models.config import WizardConfig
+from drystone.models.config import PENTEST_CORE_SKILLS, WizardConfig
 
 
 @pytest.fixture
@@ -399,3 +399,403 @@ class TestQSADepth:
         loaded = load_last_config()
         assert loaded is not None
         assert loaded.qsa_depth == "deep"
+
+
+# ── WizardConfig Field Validators ────────────────────────────────────────────
+
+
+class TestValidateRegion:
+    """Test validate_region field validator."""
+
+    def test_valid_region_passes(self):
+        """Valid AWS region passes validation."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+        )
+        assert config.aws_region == "us-east-1"
+
+    def test_region_converted_to_lowercase(self):
+        """Region is converted to lowercase."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="US-EAST-1",
+            skills=["iam"],
+        )
+        assert config.aws_region == "us-east-1"
+
+    def test_various_valid_regions(self):
+        """Various valid AWS regions pass."""
+        regions = ["eu-west-1", "ap-southeast-2", "ca-central-1"]
+        for region in regions:
+            config = WizardConfig(
+                client_name="Test",
+                aws_region=region,
+                skills=["iam"],
+            )
+            assert config.aws_region == region
+
+    def test_empty_region_rejected(self):
+        """Empty region string is rejected."""
+        with pytest.raises(Exception):
+            WizardConfig(
+                client_name="Test",
+                aws_region="",
+                skills=["iam"],
+            )
+
+    def test_none_region_rejected(self):
+        """None region is rejected."""
+        with pytest.raises(Exception):
+            WizardConfig(
+                client_name="Test",
+                aws_region=None,
+                skills=["iam"],
+            )
+
+
+class TestValidateSkills:
+    """Test validate_skills field validator."""
+
+    def test_single_skill_iam_passes(self):
+        """Single IAM skill passes validation."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+        )
+        assert config.skills == ["iam"]
+
+    def test_single_skill_exposure_passes(self):
+        """Single exposure skill passes validation."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["exposure"],
+        )
+        assert config.skills == ["exposure"]
+
+    def test_pentest_preset_expands_to_core_skills(self):
+        """Pentest preset expands to core skills."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["pentest"],
+        )
+        # pentest should expand to PENTEST_CORE_SKILLS
+        assert set(config.skills) == set(PENTEST_CORE_SKILLS)
+        assert "pentest" not in config.skills
+
+    def test_pentest_with_other_skills_rejected(self):
+        """Pentest preset cannot be combined with other skills."""
+        with pytest.raises(Exception):
+            WizardConfig(
+                client_name="Test",
+                aws_region="us-east-1",
+                skills=["pentest", "iam"],
+            )
+
+    def test_multiple_non_pentest_skills_rejected(self):
+        """Multiple non-pentest skills are rejected (single-skill scans only)."""
+        with pytest.raises(Exception):
+            WizardConfig(
+                client_name="Test",
+                aws_region="us-east-1",
+                skills=["iam", "exposure"],
+            )
+
+    def test_invalid_skill_rejected(self):
+        """Invalid skill name is rejected."""
+        with pytest.raises(Exception):
+            WizardConfig(
+                client_name="Test",
+                aws_region="us-east-1",
+                skills=["invalid_skill"],
+            )
+
+    def test_empty_skills_rejected(self):
+        """Empty skills list is rejected."""
+        with pytest.raises(Exception):
+            WizardConfig(
+                client_name="Test",
+                aws_region="us-east-1",
+                skills=[],
+            )
+
+
+class TestValidateReportType:
+    """Test validate_report_type field validator."""
+
+    def test_general_report_type_passes(self):
+        """General report type passes validation."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+            report_type="general",
+        )
+        assert config.report_type == "general"
+
+    def test_pci_dss_report_type_passes(self):
+        """PCI DSS report type passes validation."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+            report_type="pci-dss",
+        )
+        assert config.report_type == "pci-dss"
+
+    def test_pentest_report_type_with_pentest_skills_passes(self):
+        """Pentest report type with pentest skills passes."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["pentest"],
+            report_type="pentest",
+        )
+        assert config.report_type == "pentest"
+
+    def test_pentest_report_type_with_single_skill_rejected(self):
+        """Pentest report type with non-pentest skills is rejected."""
+        with pytest.raises(Exception):
+            WizardConfig(
+                client_name="Test",
+                aws_region="us-east-1",
+                skills=["iam"],
+                report_type="pentest",
+            )
+
+
+class TestValidateFormats:
+    """Test validate_formats field validator."""
+
+    def test_markdown_format_passes(self):
+        """Markdown format passes validation."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+            output_formats=["markdown"],
+        )
+        assert config.output_formats == ["markdown"]
+
+    def test_json_format_passes(self):
+        """JSON format passes validation."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+            output_formats=["json"],
+        )
+        assert config.output_formats == ["json"]
+
+    def test_pdf_format_passes(self):
+        """PDF format passes validation."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+            output_formats=["pdf"],
+        )
+        assert config.output_formats == ["pdf"]
+
+    def test_multiple_formats_pass(self):
+        """Multiple valid formats pass."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+            output_formats=["markdown", "json", "pdf"],
+        )
+        assert set(config.output_formats) == {"markdown", "json", "pdf"}
+
+    def test_invalid_format_rejected(self):
+        """Invalid format is rejected."""
+        with pytest.raises(Exception):
+            WizardConfig(
+                client_name="Test",
+                aws_region="us-east-1",
+                skills=["iam"],
+                output_formats=["invalid"],
+            )
+
+    def test_empty_formats_rejected(self):
+        """Empty formats list is rejected."""
+        with pytest.raises(Exception):
+            WizardConfig(
+                client_name="Test",
+                aws_region="us-east-1",
+                skills=["iam"],
+                output_formats=[],
+            )
+
+
+class TestValidateApiKey:
+    """Test validate_ai_api_key field validator."""
+
+    def test_explicit_api_key_preserved(self):
+        """Explicit API key is preserved."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+            ai_api_key="sk-ant-explicit-key",
+        )
+        assert config.ai_api_key == "sk-ant-explicit-key"
+
+    def test_whitespace_stripped_from_api_key(self):
+        """Whitespace is stripped from API key."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+            ai_api_key="  sk-ant-test-key  ",
+        )
+        assert config.ai_api_key == "sk-ant-test-key"
+
+    def test_markdown_bullet_prefix_stripped(self):
+        """Markdown bullet prefix is stripped (common copy/paste mistake)."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+            ai_api_key="- sk-ant-key-from-markdown",
+        )
+        assert config.ai_api_key == "sk-ant-key-from-markdown"
+
+    def test_markdown_bullet_with_whitespace_stripped(self):
+        """Markdown bullet with whitespace is stripped."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+            ai_api_key="-  sk-ant-key-with-spaces  ",
+        )
+        assert config.ai_api_key == "sk-ant-key-with-spaces"
+
+    def test_api_key_from_environment_when_not_provided(self, monkeypatch):
+        """API key is loaded from ANTHROPIC_API_KEY environment variable."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-from-env")
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+            ai_api_key=None,
+        )
+        assert config.ai_api_key == "sk-ant-from-env"
+
+    def test_explicit_key_preferred_over_environment(self, monkeypatch):
+        """Explicit API key takes precedence over environment variable."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-from-env")
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+            ai_api_key="sk-ant-explicit",
+        )
+        assert config.ai_api_key == "sk-ant-explicit"
+
+
+class TestNormalizeScanDepth:
+    """Test normalize_scan_depth field validator."""
+
+    def test_shallow_depth_passes(self):
+        """Shallow scan depth passes."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+            scan_depth="shallow",
+        )
+        assert config.scan_depth == "shallow"
+
+    def test_normal_depth_passes(self):
+        """Normal scan depth passes."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+            scan_depth="normal",
+        )
+        assert config.scan_depth == "normal"
+
+    def test_deep_depth_passes(self):
+        """Deep scan depth passes."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+            scan_depth="deep",
+        )
+        assert config.scan_depth == "deep"
+
+    def test_very_deep_depth_passes(self):
+        """Very-deep scan depth passes."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+            scan_depth="very-deep",
+        )
+        assert config.scan_depth == "very-deep"
+
+    def test_uppercase_depth_normalized(self):
+        """Uppercase scan depth is normalized to lowercase."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+            scan_depth="NORMAL",
+        )
+        assert config.scan_depth == "normal"
+
+    def test_legacy_spanish_superficial_alias(self):
+        """Legacy Spanish 'superficial' maps to 'shallow'."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+            scan_depth="superficial",
+        )
+        assert config.scan_depth == "shallow"
+
+    def test_legacy_spanish_profundo_alias(self):
+        """Legacy Spanish 'profundo' maps to 'deep'."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+            scan_depth="profundo",
+        )
+        assert config.scan_depth == "deep"
+
+    def test_legacy_spanish_muy_profundo_alias(self):
+        """Legacy Spanish 'muy-profundo' maps to 'very-deep'."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+            scan_depth="muy-profundo",
+        )
+        assert config.scan_depth == "very-deep"
+
+    def test_invalid_scan_depth_rejected(self):
+        """Invalid scan depth is rejected."""
+        with pytest.raises(Exception):
+            WizardConfig(
+                client_name="Test",
+                aws_region="us-east-1",
+                skills=["iam"],
+                scan_depth="invalid",
+            )
+
+    def test_default_scan_depth_is_normal(self):
+        """Default scan depth is 'normal' when not specified."""
+        config = WizardConfig(
+            client_name="Test",
+            aws_region="us-east-1",
+            skills=["iam"],
+        )
+        assert config.scan_depth == "normal"
