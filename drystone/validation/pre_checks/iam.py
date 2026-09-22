@@ -466,6 +466,61 @@ def check_iam_020(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+def check_iam_022(evidence: Dict[str, Any]) -> PreCheckResult:
+    """Inactive IAM roles (>90 days since last use or creation) should be reviewed."""
+    roles = evidence.get("roles")
+    if not isinstance(roles, list) or not roles:
+        return PreCheckResult("IAM-022", "SKIP", "no roles evidence", [])
+
+    now = datetime.now(timezone.utc)
+    threshold_days = 90
+    affected: List[str] = []
+
+    for role in roles:
+        if not isinstance(role, dict):
+            continue
+        if role.get("RoleType") == "ServiceLinkedRole":
+            continue
+
+        role_value: Any = role.get("Role")
+        role_doc: Dict[str, Any] = role_value if isinstance(role_value, dict) else {}
+        role_name = str(role.get("RoleName") or role_doc.get("RoleName") or "unknown")
+        role_arn = str(role.get("Arn") or role_doc.get("Arn") or f"role/{role_name}")
+
+        role_last_used_value: Any = role_doc.get("RoleLastUsed")
+        # Most collectors store get-role output under Role.RoleLastUsed. Tolerate the
+        # flattened AWS shape as a compatibility fallback for serialized fixtures.
+        if not isinstance(role_last_used_value, dict):
+            role_last_used_value = role.get("RoleLastUsed")
+        role_last_used: Dict[str, Any] = (
+            role_last_used_value if isinstance(role_last_used_value, dict) else {}
+        )
+
+        last_used_raw = role_last_used.get("LastUsedDate")
+        if last_used_raw is not None:
+            last_used = _parse_date(last_used_raw)
+            if last_used is None:
+                continue
+            inactive_days = int((now - last_used).days)
+            if inactive_days >= threshold_days:
+                affected.append(role_arn)
+            continue
+
+        created = _parse_date(role.get("CreateDate"))
+        if created is None:
+            continue
+        inactive_days = int((now - created).days)
+        if inactive_days >= threshold_days:
+            affected.append(role_arn)
+
+    if affected:
+        return PreCheckResult(
+            "IAM-022", "FAIL", f"{len(affected)} inactive role(s) (>90 days)", affected[:10]
+        )
+    return PreCheckResult("IAM-022", "PASS", "no inactive roles (>90 days)", [])
+
+
+@_register("iam")
 def check_iam_029(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM-029: Detect privilege escalation via cross-role AssumeRole chains.
 

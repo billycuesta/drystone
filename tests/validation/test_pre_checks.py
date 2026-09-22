@@ -86,6 +86,7 @@ from drystone.validation.pre_checks import (
     check_iam_018,
     check_iam_019,
     check_iam_020,
+    check_iam_022,
     check_iam_026,
     check_iam_032,
     check_iam_033,
@@ -658,6 +659,80 @@ class TestIAM020:
         evidence = {"users": [{"UserName": "alice", "Groups": []}]}
         r = check_iam_020(evidence)
         assert r.status == "FAIL"
+
+
+class TestIAM022:
+    def _role(self, name="app", **overrides):
+        role = {
+            "RoleName": name,
+            "Arn": f"arn:aws:iam::123:role/{name}",
+            "CreateDate": datetime.now(timezone.utc) - timedelta(days=30),
+            "Role": {"RoleLastUsed": {}},
+        }
+        role.update(overrides)
+        return role
+
+    def test_skip_when_no_roles_evidence(self):
+        assert check_iam_022({}).status == "SKIP"
+        assert check_iam_022({"roles": "missing"}).status == "SKIP"
+        assert check_iam_022({"roles": []}).status == "SKIP"
+        assert check_iam_022 in PRE_CHECK_REGISTRY["iam"]
+
+    def test_fail_when_role_last_used_is_old(self):
+        old = (datetime.now(timezone.utc) - timedelta(days=91)).isoformat()
+        evidence = {
+            "roles": [self._role("old-role", Role={"RoleLastUsed": {"LastUsedDate": old}})]
+        }
+
+        r = check_iam_022(evidence)
+
+        assert r.status == "FAIL"
+        assert r.affected_resources == ["arn:aws:iam::123:role/old-role"]
+
+    def test_pass_when_role_last_used_is_recent(self):
+        recent = datetime.now(timezone.utc) - timedelta(days=5)
+        evidence = {
+            "roles": [self._role("recent-role", Role={"RoleLastUsed": {"LastUsedDate": recent}})]
+        }
+
+        r = check_iam_022(evidence)
+
+        assert r.status == "PASS"
+
+    def test_fail_when_never_used_role_creation_is_old(self):
+        evidence = {
+            "roles": [
+                self._role("unused-old", CreateDate=datetime.now(timezone.utc) - timedelta(days=90))
+            ]
+        }
+
+        r = check_iam_022(evidence)
+
+        assert r.status == "FAIL"
+        assert r.affected_resources == ["arn:aws:iam::123:role/unused-old"]
+
+    def test_pass_when_never_used_role_creation_is_recent(self):
+        recent = (datetime.now(timezone.utc) - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%S")
+        evidence = {"roles": [self._role("unused-recent", CreateDate=recent)]}
+
+        r = check_iam_022(evidence)
+
+        assert r.status == "PASS"
+
+    def test_service_linked_old_unused_role_is_excluded(self):
+        evidence = {
+            "roles": [
+                self._role(
+                    "service-linked",
+                    RoleType="ServiceLinkedRole",
+                    CreateDate=datetime.now(timezone.utc) - timedelta(days=365),
+                )
+            ]
+        }
+
+        r = check_iam_022(evidence)
+
+        assert r.status == "PASS"
 
 
 class TestIAM015And016Metadata:
