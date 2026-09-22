@@ -162,7 +162,7 @@ def _prune_list_items(items: List[Any], file_key: str, keep_count: int) -> List[
 
 def distill_evidence(
     evidence: Dict[str, Any], max_list_items: int = 25
-) -> Tuple[Dict[str, Any], Dict[str, int]]:
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Create a compact evidence view while keeping traceability.
 
     Rules:
@@ -173,6 +173,7 @@ def distill_evidence(
     distilled: Dict[str, Any] = {}
     files_reduced = 0
     items_removed = 0
+    distilled_file_keys: List[str] = []
 
     for key, value in evidence.items():
         file_key = _normalize_file_key(str(key))
@@ -184,6 +185,7 @@ def distill_evidence(
             if len(value) > max_list_items:
                 files_reduced += 1
                 items_removed += len(value) - max_list_items
+                distilled_file_keys.append(key)
                 distilled[key] = {
                     "_distilled": True,
                     "_original_count": len(value),
@@ -202,6 +204,7 @@ def distill_evidence(
                     changed = True
                     files_reduced += 1
                     items_removed += len(sub_value) - max_list_items
+                    distilled_file_keys.append(key)
                     compact[sub_key] = {
                         "_distilled": True,
                         "_original_count": len(sub_value),
@@ -218,5 +221,6 @@ def distill_evidence(
     stats = {
         "files_reduced": files_reduced,
         "items_removed": items_removed,
+        "distilled_file_keys": distilled_file_keys,
     }
     return distilled, stats

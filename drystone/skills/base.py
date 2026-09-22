@@ -278,8 +278,9 @@ class BaseSkill(ABC):
             max_list_items=budget.distill_max_list_items,
         )
         if distill_stats["files_reduced"] > 0:
+            files_list = ", ".join(distill_stats.get("distilled_file_keys", []))
             print(
-                f"  🧪 Evidence distilled: files={distill_stats['files_reduced']}, "
+                f"  🧪 Evidence distilled: files={distill_stats['files_reduced']} ({files_list}), "
                 f"items_removed={distill_stats['items_removed']}"
             )
 
@@ -291,6 +292,7 @@ class BaseSkill(ABC):
                     deterministic_checks=route_stats["deterministic_resolved"],
                     distilled_files=distill_stats["files_reduced"],
                     items_removed=distill_stats["items_removed"],
+                    distilled_file_keys=distill_stats.get("distilled_file_keys", []),
                 )
             except Exception:
                 pass

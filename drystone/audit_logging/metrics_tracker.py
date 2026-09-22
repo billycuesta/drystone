@@ -8,7 +8,7 @@ import logging
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -211,6 +211,7 @@ class MetricsTracker:
         deterministic_checks: int,
         distilled_files: int,
         items_removed: int,
+        distilled_file_keys: Optional[List[str]] = None,
     ) -> None:
         """Record P0 token-saving routing/distillation metrics."""
         with self.lock:
@@ -225,6 +226,7 @@ class MetricsTracker:
                     "deterministic_checks": int(deterministic_checks),
                     "evidence_distilled_files": int(distilled_files),
                     "evidence_items_removed": int(items_removed),
+                    "evidence_distilled_file_keys": list(distilled_file_keys or []),
                 }
             )
 
