@@ -112,13 +112,17 @@ class TestLogsCommand:
         assert "acme-2026-01-02" in result.output
 
     def test_json_format_emits_machine_readable_sessions(self, runner):
+        import time
+
         with runner.isolated_filesystem():
             Path("audit-logs/acme-2026-01-01").mkdir(parents=True)
+            time.sleep(0.01)
             Path("audit-logs/acme-2026-01-02").mkdir(parents=True)
             result = runner.invoke(cli, ["logs", "--format", "json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
-        assert [s["name"] for s in data] == ["acme-2026-01-01", "acme-2026-01-02"]
+        # Sessions should be in reverse chronological order (newest-first)
+        assert [s["name"] for s in data] == ["acme-2026-01-02", "acme-2026-01-01"]
         assert all("path" in s for s in data)
 
     def test_json_format_no_logs_returns_empty_array(self, runner):
@@ -126,6 +130,58 @@ class TestLogsCommand:
             result = runner.invoke(cli, ["logs", "--format", "json"])
         assert result.exit_code == 0
         assert json.loads(result.output) == []
+
+    def test_lists_sessions_chronologically_newest_first(self, runner):
+        """Sessions should be sorted by modification time (newest-first), not alphabetically."""
+        import time
+
+        with runner.isolated_filesystem():
+            Path("audit-logs").mkdir()
+
+            # Create sessions in alphabetical order, but with intentional time spacing
+            session1 = Path("audit-logs/zebra-2026-01-01")
+            session2 = Path("audit-logs/alpha-2026-01-02")
+            session3 = Path("audit-logs/bravo-2026-01-03")
+
+            session1.mkdir()
+            time.sleep(0.01)  # Ensure different mtimes
+            session2.mkdir()
+            time.sleep(0.01)
+            session3.mkdir()
+
+            result = runner.invoke(cli, ["logs"])
+
+        assert result.exit_code == 0
+        # Should be in reverse chronological order (newest first), not alphabetical
+        output_lines = result.output.split("\n")
+        session_names = [line.strip("• ").strip() for line in output_lines if line.strip().startswith("•")]
+        assert session_names == ["bravo-2026-01-03", "alpha-2026-01-02", "zebra-2026-01-01"]
+
+    def test_json_lists_sessions_chronologically_newest_first(self, runner):
+        """JSON format should also return sessions sorted chronologically (newest-first)."""
+        import time
+
+        with runner.isolated_filesystem():
+            Path("audit-logs").mkdir()
+
+            # Create sessions in alphabetical order, but with intentional time spacing
+            session1 = Path("audit-logs/zebra-2026-01-01")
+            session2 = Path("audit-logs/alpha-2026-01-02")
+            session3 = Path("audit-logs/bravo-2026-01-03")
+
+            session1.mkdir()
+            time.sleep(0.01)  # Ensure different mtimes
+            session2.mkdir()
+            time.sleep(0.01)
+            session3.mkdir()
+
+            result = runner.invoke(cli, ["logs", "--format", "json"])
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        session_names = [s["name"] for s in data]
+        # Should be in reverse chronological order (newest first), not alphabetical
+        assert session_names == ["bravo-2026-01-03", "alpha-2026-01-02", "zebra-2026-01-01"]
 
 
 # ── audit: config resolution branches ─────────────────────────────────────────

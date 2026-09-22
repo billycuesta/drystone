@@ -291,7 +291,11 @@ def logs(format: str) -> None:
             click.echo("No audit logs found")
         return
 
-    sessions = sorted([d for d in audit_logs_dir.iterdir() if d.is_dir()])
+    sessions = sorted(
+        [d for d in audit_logs_dir.iterdir() if d.is_dir()],
+        key=lambda d: d.stat().st_mtime,
+        reverse=True,
+    )
 
     if format == "json":
         click.echo(
