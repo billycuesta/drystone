@@ -210,9 +210,23 @@ class ReconSkill(BaseSkill):
                     # Collect REST API resource/method-level auth to detect unauth routes.
                     # OPTIONS methods are excluded (CORS preflight — not a real auth gap).
                     try:
-                        resources_resp = apigw.get_resources(restApiId=api_id, embed=["methods"])
+                        resource_items: List[Dict[str, Any]] = []
+                        resource_position: Optional[str] = None
+                        while True:
+                            resource_args: Dict[str, Any] = {
+                                "restApiId": api_id,
+                                "embed": ["methods"],
+                                "limit": 500,
+                            }
+                            if resource_position:
+                                resource_args["position"] = resource_position
+                            resource_page = apigw.get_resources(**resource_args)
+                            resource_items.extend(resource_page.get("items", []) or [])
+                            resource_position = resource_page.get("position")
+                            if not resource_position:
+                                break
                         unauth_rest_routes: List[Dict[str, Any]] = []
-                        for resource in resources_resp.get("items", []):
+                        for resource in resource_items:
                             path = resource.get("path", "")
                             for method, method_cfg in (
                                 resource.get("resourceMethods") or {}
@@ -262,10 +276,20 @@ class ReconSkill(BaseSkill):
                             }
                             # Try to get default route auth type
                             try:
-                                routes = apigw2.get_routes(ApiId=api_id)
+                                route_items: List[Dict[str, Any]] = []
+                                route_token: Optional[str] = None
+                                while True:
+                                    route_args: Dict[str, Any] = {"ApiId": api_id, "MaxResults": 500}
+                                    if route_token:
+                                        route_args["NextToken"] = route_token
+                                    route_page = apigw2.get_routes(**route_args)
+                                    route_items.extend(route_page.get("Items", []) or [])
+                                    route_token = route_page.get("NextToken")
+                                    if not route_token:
+                                        break
                                 default_auths = [
                                     r.get("AuthorizationType", "NONE")
-                                    for r in routes.get("Items", [])
+                                    for r in route_items
                                     if r.get("RouteKey", "").startswith("$default")
                                 ]
                                 if default_auths:
@@ -273,11 +297,11 @@ class ReconSkill(BaseSkill):
                                 # Count unauthenticated routes
                                 unauth_routes = [
                                     r
-                                    for r in routes.get("Items", [])
+                                    for r in route_items
                                     if r.get("AuthorizationType") in {"NONE", None}
                                 ]
                                 stage_entry["UnauthenticatedRouteCount"] = len(unauth_routes)
-                                stage_entry["TotalRouteCount"] = len(routes.get("Items", []))
+                                stage_entry["TotalRouteCount"] = len(route_items)
                             except ClientError:
                                 pass
                             api_entry["Stages"].append(stage_entry)

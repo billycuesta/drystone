@@ -298,6 +298,90 @@ def test_recon_collect_detects_public_lambda_url(tmp_path: Path):
     assert any(u.get("IsPublic") for u in urls)
 
 
+class _PaginatedAPIGWClient:
+    """API Gateway v1 dummy whose get_resources spans two position-token pages."""
+
+    def __init__(self):
+        self.resource_calls = []
+
+    def get_paginator(self, op):
+        return _DummyPaginator(
+            [
+                {
+                    "items": [
+                        {
+                            "id": "rest-api-1",
+                            "name": "MyAPI",
+                            "endpointConfiguration": {"types": ["REGIONAL"]},
+                        }
+                    ]
+                }
+            ]
+        )
+
+    def get_stages(self, **_kwargs):
+        return {"item": [{"stageName": "prod"}]}
+
+    def get_resources(self, **kwargs):
+        self.resource_calls.append(kwargs)
+        if not kwargs.get("position"):
+            return {
+                "items": [{"id": "res-1", "path": "/one", "resourceMethods": {"GET": {}}}],
+                "position": "resource-page-2",
+            }
+        return {"items": [{"id": "res-2", "path": "/two", "resourceMethods": {"GET": {}}}]}
+
+
+class _PaginatedAPIGW2Client:
+    """API Gateway v2 dummy whose get_routes spans two NextToken pages."""
+
+    def __init__(self):
+        self.route_calls = []
+
+    def get_paginator(self, op):
+        return _DummyPaginator([{"Items": [{"ApiId": "http-api-1", "Name": "http"}]}])
+
+    def get_stages(self, **_kwargs):
+        return {"Items": [{"StageName": "$default"}]}
+
+    def get_routes(self, **kwargs):
+        self.route_calls.append(kwargs)
+        if not kwargs.get("NextToken"):
+            return {
+                "Items": [{"RouteKey": "GET /first", "AuthorizationType": "NONE"}],
+                "NextToken": "route-page-2",
+            }
+        return {"Items": [{"RouteKey": "POST /second", "AuthorizationType": "NONE"}]}
+
+
+def test_recon_collect_api_gateway_paginates_resources_and_routes():
+    """get_resources (v1) and get_routes (v2) must accumulate items across all pages."""
+    apigw = _PaginatedAPIGWClient()
+    apigw2 = _PaginatedAPIGW2Client()
+
+    def client_factory(service_name, **_kwargs):
+        if service_name == "apigateway":
+            return apigw
+        if service_name == "apigatewayv2":
+            return apigw2
+        return MagicMock()
+
+    with patch("drystone.skills.recon.boto3.client", side_effect=client_factory):
+        doc = ReconSkill()._collect_api_gateway({"region_name": "us-east-1"})
+
+    assert [c.get("position") for c in apigw.resource_calls] == [None, "resource-page-2"]
+    assert all(c.get("embed") == ["methods"] for c in apigw.resource_calls)
+    rest = next(a for a in doc["apis"] if a["Type"] == "REST")
+    assert rest["UnauthenticatedRouteCount"] == 2
+    assert set(rest["UnauthenticatedRoutes"]) == {"rest-api-1/GET/one", "rest-api-1/GET/two"}
+
+    assert [c.get("NextToken") for c in apigw2.route_calls] == [None, "route-page-2"]
+    http = next(a for a in doc["apis"] if a["Type"] == "HTTP")
+    stage = http["Stages"][0]
+    assert stage["TotalRouteCount"] == 2
+    assert stage["UnauthenticatedRouteCount"] == 2
+
+
 def test_recon_attack_surface_score_computed(tmp_path: Path):
     """attack-surface-score.json must contain valid score structure."""
     aws_client = Mock()

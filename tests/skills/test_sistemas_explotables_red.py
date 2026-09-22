@@ -1,8 +1,7 @@
 """Unit tests for sistemas_explotables_red skill helper logic."""
 
 import json
-from typing import Dict, Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from drystone.skills.sistemas_explotables_red import SistemasExplotablesRedSkill
 from drystone.validation.pre_checks import check_ser_cve_001
@@ -752,3 +751,87 @@ class TestPreCheckSerCve001:
     def test_skip_when_no_cve_intelligence_evidence(self) -> None:
         r = check_ser_cve_001({})
         assert r.status == "SKIP"
+
+
+class _PaginatedSerApiGatewayV1:
+    """API Gateway v1 dummy spanning two position-token pages for APIs and resources."""
+
+    def __init__(self):
+        self.rest_api_calls = []
+        self.resource_calls = []
+
+    def get_rest_apis(self, **kwargs):
+        self.rest_api_calls.append(kwargs)
+        if kwargs.get("position"):
+            return {"items": [{"id": "rest-api-2"}]}
+        return {"items": [{"id": "rest-api-1"}], "position": "rest-page-2"}
+
+    def get_resources(self, **kwargs):
+        self.resource_calls.append(kwargs)
+        if kwargs.get("restApiId") != "rest-api-1":
+            return {"items": []}
+        if not kwargs.get("position"):
+            return {
+                "items": [{"id": "res-1", "path": "/one", "resourceMethods": {"GET": {}}}],
+                "position": "resource-page-2",
+            }
+        return {"items": [{"id": "res-2", "path": "/two", "resourceMethods": {"POST": {}}}]}
+
+    def get_method(self, **_kwargs):
+        return {"authorizationType": "NONE", "apiKeyRequired": False}
+
+
+class _PaginatedSerApiGatewayV2:
+    """API Gateway v2 dummy whose get_routes spans two NextToken pages."""
+
+    def __init__(self):
+        self.route_calls = []
+
+    def get_apis(self):
+        return {"Items": [{"ApiId": "http-api-1"}]}
+
+    def get_routes(self, **kwargs):
+        self.route_calls.append(kwargs)
+        if kwargs.get("NextToken"):
+            return {"Items": [{"RouteKey": "POST /second"}]}
+        return {"Items": [{"RouteKey": "GET /first"}], "NextToken": "route-page-2"}
+
+
+def test_ser_collect_paginates_api_gateway_apis_resources_and_routes(tmp_path) -> None:
+    """get_rest_apis/get_resources (v1) and get_routes (v2) must accumulate all pages."""
+    apigw = _PaginatedSerApiGatewayV1()
+    apigw2 = _PaginatedSerApiGatewayV2()
+
+    def client_factory(service_name, **_kwargs):
+        if service_name == "apigateway":
+            return apigw
+        if service_name == "apigatewayv2":
+            return apigw2
+        return Mock()
+
+    aws_client = Mock()
+    aws_client.region_name = "us-east-1"
+    aws_client.client_kwargs.return_value = {"region_name": "us-east-1"}
+
+    session = Mock()
+    session.account_id = "123456789012"
+    session.get_evidence_path.return_value = tmp_path
+
+    with patch(
+        "drystone.skills.sistemas_explotables_red.boto3.client",
+        side_effect=client_factory,
+    ):
+        SistemasExplotablesRedSkill().collect(aws_client, session)
+
+    front_doors = json.loads((tmp_path / "front-doors.json").read_text())
+    routes = front_doors["api_gateway_routes"]
+
+    assert [c.get("position") for c in apigw.rest_api_calls] == [None, "rest-page-2"]
+    assert {c.get("position") for c in apigw.resource_calls} == {None, "resource-page-2"}
+    assert [c.get("NextToken") for c in apigw2.route_calls] == [None, "route-page-2"]
+
+    rest_routes = {(r["ApiId"], r["Path"], r["Method"]) for r in routes if r["ApiType"] == "REST"}
+    assert {("rest-api-1", "/one", "GET"), ("rest-api-1", "/two", "POST")} == rest_routes
+
+    http_routes = {(r["Path"], r["Method"]) for r in routes if r["ApiType"] == "HTTP"}
+    assert {("/first", "GET"), ("/second", "POST")} == http_routes
