@@ -1,7 +1,6 @@
 """Unit tests for sistemas_explotables_red skill helper logic."""
 
 import json
-from typing import Dict, Any
 from unittest.mock import MagicMock, patch
 
 from drystone.skills.sistemas_explotables_red import SistemasExplotablesRedSkill
@@ -281,6 +280,28 @@ class TestCollectCveIntelligence:
         skill = self._make_skill()
         result = skill._collect_cve_intelligence({"findings": []}, {}, {})
         assert result["instances"] == {}
+
+    def test_external_intel_disabled_skips_all_network_sources(self) -> None:
+        skill = self._make_skill()
+        with patch.object(skill, "_fetch_cisa_kev") as fetch_kev, patch.object(
+            skill, "_fetch_exploitdb_index"
+        ) as fetch_exploitdb, patch("urllib.request.urlopen") as urlopen:
+            result = skill._collect_cve_intelligence(
+                inspector_doc=self._inspector_doc_with_ec2_cve(),
+                network_controls=self._network_controls_with_open_ssh(),
+                compute_inventory=self._compute_inventory_with_public_ec2(),
+                external_intel_enabled=False,
+            )
+
+        fetch_kev.assert_not_called()
+        fetch_exploitdb.assert_not_called()
+        urlopen.assert_not_called()
+        assert result["external_intel_enabled"] is False
+        assert result["enrichment_status"] == "skipped"
+        cve = result["instances"]["i-ec2abc"]["cves"][0]
+        assert cve["cvss_score"] is None
+        assert cve["exploit_intel"]["sources_checked"] == []
+        assert "skipped by configuration" in cve["exploit_intel"]["summary"]
 
     @patch("urllib.request.urlopen")
     def test_nvd_enrichment_populates_cvss(self, mock_urlopen: MagicMock) -> None:

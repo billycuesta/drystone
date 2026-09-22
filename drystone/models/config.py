@@ -131,6 +131,14 @@ class WizardConfig(BaseModel):
         ),
     )
 
+    external_intel_enabled: bool = Field(
+        default=False,
+        description=(
+            "Fetch external CISA KEV, Exploit-DB, and NVD intelligence for SER CVEs. "
+            "Defaults to off for privacy, reproducibility, and offline/air-gapped audits."
+        ),
+    )
+
     # Report language
     report_language: Literal["en", "es"] = Field(
         default="en",
@@ -169,6 +177,7 @@ class WizardConfig(BaseModel):
                 "scan_depth": "normal",
                 "qsa_depth": "standard",
                 "active_verification": True,
+                "external_intel_enabled": False,
                 "report_language": "en",
                 "created_at": "2026-01-17T10:30:00",
                 "non_interactive": False,

@@ -351,6 +351,7 @@ class SistemasExplotablesRedSkill(BaseSkill):
             inspector_doc=inspector_doc,
             network_controls=network_controls,
             compute_inventory=compute_inventory,
+            external_intel_enabled=getattr(session, "external_intel_enabled", False) is True,
         )
         _save("cve-intelligence.json", cve_intel)
 
@@ -505,6 +506,7 @@ class SistemasExplotablesRedSkill(BaseSkill):
         inspector_doc: Dict[str, Any],
         network_controls: Dict[str, Any],
         compute_inventory: Dict[str, Any],
+        external_intel_enabled: bool = True,
     ) -> Dict[str, Any]:
         """Enrich Inspector CVE findings with NVD API data and open-port analysis.
 
@@ -515,6 +517,7 @@ class SistemasExplotablesRedSkill(BaseSkill):
         """
         enrichment_errors: List[str] = []
         instances_intel: Dict[str, Any] = {}
+        enrichment_status = "collected" if external_intel_enabled else "skipped"
 
         # 1. Build instance_id → list of {id, package, severity} from Inspector findings
         instance_cves_raw: Dict[str, List[Dict[str, str]]] = {}
@@ -700,7 +703,7 @@ class SistemasExplotablesRedSkill(BaseSkill):
         # 4a. Fetch CISA KEV and Exploit-DB catalogs (before NVD loop)
         kev_lookup: Dict[str, Dict[str, Any]] = {}
         edb_lookup: Dict[str, Dict[str, Any]] = {}
-        if cve_id_set:
+        if external_intel_enabled and cve_id_set:
             try:
                 kev_lookup = self._fetch_cisa_kev()
             except Exception as exc:
@@ -761,61 +764,61 @@ class SistemasExplotablesRedSkill(BaseSkill):
                 "poc_urls": poc_urls_inner,
             }
 
-        for cve_id in all_cve_ids:
-            if not cve_id.upper().startswith("CVE-"):
-                continue
-            url = f"https://services.nvd.nist.gov/rest/json/cves/2.0?cveId={cve_id}"
-            req = urllib.request.Request(
-                url,
-                headers={"User-Agent": "drystone-security-audit/1.0"},
-            )
-            try:
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    body = json.loads(resp.read().decode())
-                parsed = _parse_nvd_response(body)
-                if parsed:
-                    nvd_cache[cve_id] = parsed
-            except urllib.error.HTTPError as http_err:
-                if http_err.code == 429:
-                    # Exponential backoff: 30s → 60s → 120s (3 retries total)
-                    _retried = False
-                    for _attempt in range(3):
-                        try:
-                            _delay = 30 * (2 ** _attempt)
-                            logger.warning(
-                                "NVD rate limited for %s (attempt %d/3), retrying in %ss",
-                                cve_id, _attempt + 1, _delay,
-                            )
-                            time.sleep(_delay)
-                            with urllib.request.urlopen(req, timeout=10) as resp2:
-                                body2 = json.loads(resp2.read().decode())
-                            parsed2 = _parse_nvd_response(body2)
-                            if parsed2:
-                                nvd_cache[cve_id] = parsed2
-                            _retried = True
-                            break
-                        except urllib.error.HTTPError as retry_err:
-                            if retry_err.code != 429:
+        if external_intel_enabled:
+            for cve_id in all_cve_ids:
+                if not cve_id.upper().startswith("CVE-"):
+                    continue
+                url = f"https://services.nvd.nist.gov/rest/json/cves/2.0?cveId={cve_id}"
+                req = urllib.request.Request(
+                    url,
+                    headers={"User-Agent": "drystone-security-audit/1.0"},
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        body = json.loads(resp.read().decode())
+                    parsed = _parse_nvd_response(body)
+                    if parsed:
+                        nvd_cache[cve_id] = parsed
+                except urllib.error.HTTPError as http_err:
+                    if http_err.code == 429:
+                        # Exponential backoff: 30s → 60s → 120s (3 retries total)
+                        _retried = False
+                        for _attempt in range(3):
+                            try:
+                                _delay = 30 * (2 ** _attempt)
+                                logger.warning(
+                                    "NVD rate limited for %s (attempt %d/3), retrying in %ss",
+                                    cve_id, _attempt + 1, _delay,
+                                )
+                                time.sleep(_delay)
+                                with urllib.request.urlopen(req, timeout=10) as resp2:
+                                    body2 = json.loads(resp2.read().decode())
+                                parsed2 = _parse_nvd_response(body2)
+                                if parsed2:
+                                    nvd_cache[cve_id] = parsed2
+                                _retried = True
+                                break
+                            except urllib.error.HTTPError as retry_err:
+                                if retry_err.code != 429:
+                                    enrichment_errors.append(
+                                        f"NVD lookup failed for {cve_id} (attempt {_attempt+1}): {retry_err}"
+                                    )
+                                    _retried = True
+                                    break
+                            except Exception as retry_exc:
                                 enrichment_errors.append(
-                                    f"NVD lookup failed for {cve_id} (attempt {_attempt+1}): {retry_err}"
+                                    f"NVD lookup failed for {cve_id} (attempt {_attempt+1}): {retry_exc}"
                                 )
                                 _retried = True
                                 break
-                        except Exception as retry_exc:
-                            enrichment_errors.append(
-                                f"NVD lookup failed for {cve_id} (attempt {_attempt+1}): {retry_exc}"
-                            )
-                            _retried = True
-                            break
-                    if not _retried:
-                        enrichment_errors.append(f"NVD lookup failed for {cve_id}: exhausted retries")
-                else:
-                    enrichment_errors.append(f"NVD lookup failed for {cve_id}: {http_err}")
-            except Exception as e:
-                enrichment_errors.append(f"NVD lookup failed for {cve_id}: {e}")
-            # Respect NVD rate limit: ~5 req/30s without API key → 0.6s between requests
-            time.sleep(0.6)
-
+                        if not _retried:
+                            enrichment_errors.append(f"NVD lookup failed for {cve_id}: exhausted retries")
+                    else:
+                        enrichment_errors.append(f"NVD lookup failed for {cve_id}: {http_err}")
+                except Exception as e:
+                    enrichment_errors.append(f"NVD lookup failed for {cve_id}: {e}")
+                # Respect NVD rate limit: ~5 req/30s without API key → 0.6s between requests
+                time.sleep(0.6)
         # 5. Build per-instance intel with enriched CVEs and attack path
         for iid, raw_cves in instance_cves_raw.items():
             open_ports = instance_open_ports.get(iid, [])
@@ -843,10 +846,16 @@ class SistemasExplotablesRedSkill(BaseSkill):
                 nvd_poc_urls = nvd.get("poc_urls", [])
 
                 has_public_exploit = bool(kev_entry or edb_entry or nvd_poc_urls)
-                sources_checked = ["cisa_kev", "exploit_db", "nvd_references"]
+                sources_checked = (
+                    ["cisa_kev", "exploit_db", "nvd_references"]
+                    if external_intel_enabled
+                    else []
+                )
 
                 # Build human-readable summary
                 summary_parts: List[str] = []
+                if not external_intel_enabled:
+                    summary_parts.append("External exploit intelligence collection skipped by configuration")
                 if kev_entry:
                     summary_parts.append("Listed in CISA KEV (actively exploited in wild)")
                 if edb_entry:
@@ -907,6 +916,8 @@ class SistemasExplotablesRedSkill(BaseSkill):
             "instances": instances_intel,
             "enrichment_timestamp": datetime.now(timezone.utc).isoformat(),
             "enrichment_errors": enrichment_errors,
+            "external_intel_enabled": external_intel_enabled,
+            "enrichment_status": enrichment_status,
         }
 
     def _build_instance_attack_path(

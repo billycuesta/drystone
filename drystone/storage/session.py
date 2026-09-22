@@ -30,6 +30,7 @@ class AuditSession:
         # path component is used.
         self.client_name = Path(client_name).name
         self.account_id = account_id
+        self.external_intel_enabled = False
         self.integrity_manifest_sha256: str | None = None
         self.timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
 

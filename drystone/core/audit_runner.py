@@ -60,6 +60,7 @@ def _create_session(
     _msg("📁 Creating audit session...")
     session = AuditSession(config.client_name, account_id)
     session.scan_depth = getattr(config, "scan_depth", "normal")  # propagate to skills
+    session.external_intel_enabled = getattr(config, "external_intel_enabled", False)
     _msg(f"   Session: {session.base_path}\n")
 
     metrics_file = session.base_path / "metrics.json"

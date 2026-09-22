@@ -560,6 +560,18 @@ def run_ai_menu(current_config: Optional[dict] = None) -> dict:
         raise KeyboardInterrupt("Wizard cancelled")
     result["active_verification"] = active_verification
 
+    # ── External SER Intelligence ────────────────────────────────
+    current_external_intel = defaults.get("external_intel_enabled", False)
+    external_intel_enabled = questionary.confirm(
+        "Enable external CVE intelligence for network-exploitable systems? "
+        "(fetches CISA KEV, Exploit-DB, and NVD data; disable for client privacy, "
+        "offline environments, or faster/reproducible audits)",
+        default=current_external_intel,
+    ).ask()
+    if external_intel_enabled is None:
+        raise KeyboardInterrupt("Wizard cancelled")
+    result["external_intel_enabled"] = external_intel_enabled
+
     return result
 
 
@@ -575,6 +587,7 @@ def get_default_ai_config() -> dict:
         "claude_cli_model": "sonnet",
         "scan_depth": "normal",
         "active_verification": True,
+        "external_intel_enabled": False,
     }
 
 
