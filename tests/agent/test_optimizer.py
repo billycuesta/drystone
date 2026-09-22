@@ -310,3 +310,138 @@ def test_optimizer_without_client_name_keeps_legacy_global_shape(metrics_file, t
 
     data = json.loads((tmp_path / ".drystone" / "budget-overrides.json").read_text())
     assert data["skills"]["claude-cli:iam"]["max_chunks"] == 6
+
+
+def test_clean_run_relaxes_existing_override_toward_provider_baseline(metrics_file, tmp_path):
+    overrides_path = tmp_path / ".drystone" / "budget-overrides.json"
+    overrides_path.parent.mkdir(parents=True)
+    overrides_path.write_text(
+        json.dumps(
+            {
+                "skills": {
+                    "claude-cli:iam": {
+                        "max_tokens_per_chunk": 10000,
+                        "max_chunks": 5,
+                        "distill_max_list_items": 14,
+                    }
+                }
+            }
+        )
+    )
+    _write_metrics(
+        metrics_file,
+        {
+            "iam": {
+                "status": "complete",
+                "provider": "claude-cli",
+                "llm_skipped": False,
+                "llm_fallback_used": False,
+                "partial_results": False,
+                "failed_chunks": 0,
+                "validation_passed": True,
+                "retries": [],
+            }
+        },
+    )
+
+    with patch("pathlib.Path.home", return_value=tmp_path):
+        result = optimize_budgets_from_metrics(metrics_file)
+
+    data = json.loads(overrides_path.read_text())
+    entry = data["skills"]["claude-cli:iam"]
+    assert result["updated"] == 1
+    assert entry == {
+        "max_tokens_per_chunk": 12500,
+        "max_chunks": 6,
+        "distill_max_list_items": 17,
+    }
+
+
+def test_clean_run_relaxation_caps_values_at_provider_baseline(metrics_file, tmp_path):
+    overrides_path = tmp_path / ".drystone" / "budget-overrides.json"
+    overrides_path.parent.mkdir(parents=True)
+    overrides_path.write_text(
+        json.dumps(
+            {
+                "clients": {
+                    "client-a": {
+                        "skills": {
+                            "claude-api:iam": {
+                                "max_tokens_per_chunk": 29999,
+                                "max_chunks": 11,
+                                "distill_max_list_items": 29,
+                            }
+                        }
+                    }
+                }
+            }
+        )
+    )
+    _write_metrics(
+        metrics_file,
+        {"iam": {"status": "success", "provider": "claude-api", "retries": []}},
+    )
+
+    with patch("pathlib.Path.home", return_value=tmp_path):
+        result = optimize_budgets_from_metrics(metrics_file, client_name="client-a")
+
+    entry = json.loads(overrides_path.read_text())["clients"]["client-a"]["skills"]["claude-api:iam"]
+    assert result["updated"] == 1
+    assert entry == {
+        "max_tokens_per_chunk": 30000,
+        "max_chunks": 12,
+        "distill_max_list_items": 30,
+    }
+
+
+def test_clean_run_without_existing_override_does_not_create_entry(metrics_file, tmp_path):
+    _write_metrics(
+        metrics_file,
+        {"iam": {"status": "complete", "provider": "claude-cli", "retries": []}},
+    )
+
+    with patch("pathlib.Path.home", return_value=tmp_path):
+        result = optimize_budgets_from_metrics(metrics_file, client_name="client-a")
+
+    data = json.loads((tmp_path / ".drystone" / "budget-overrides.json").read_text())
+    assert result["updated"] == 0
+    assert data.get("clients", {}).get("client-a", {}).get("skills", {}) == {}
+
+
+def test_problematic_run_does_not_relax_existing_override(metrics_file, tmp_path):
+    overrides_path = tmp_path / ".drystone" / "budget-overrides.json"
+    overrides_path.parent.mkdir(parents=True)
+    overrides_path.write_text(
+        json.dumps(
+            {
+                "skills": {
+                    "claude-cli:iam": {
+                        "max_tokens_per_chunk": 10000,
+                        "max_chunks": 5,
+                        "distill_max_list_items": 14,
+                    }
+                }
+            }
+        )
+    )
+    _write_metrics(
+        metrics_file,
+        {
+            "iam": {
+                "status": "partial",
+                "provider": "claude-cli",
+                "partial_results": True,
+                "failed_chunks": 1,
+                "retries": [],
+            }
+        },
+    )
+
+    with patch("pathlib.Path.home", return_value=tmp_path):
+        result = optimize_budgets_from_metrics(metrics_file)
+
+    entry = json.loads(overrides_path.read_text())["skills"]["claude-cli:iam"]
+    assert result["updated"] == 1
+    assert entry["max_chunks"] == 5
+    assert entry["max_tokens_per_chunk"] == 8000
+    assert entry["distill_max_list_items"] == 12

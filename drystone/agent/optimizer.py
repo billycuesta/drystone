@@ -62,14 +62,18 @@ def optimize_budgets_from_metrics(metrics_file: Path, client_name: str = "") -> 
             continue
         provider = str(data.get("provider", "claude-cli"))
         key = f"{provider}:{skill_name}"
-        current = entries.get(
-            key,
-            {
-                "max_tokens_per_chunk": 30000 if provider == "claude-api" else 14000,
-                "max_chunks": 12 if provider == "claude-api" else 8,
-                "distill_max_list_items": 30 if provider == "claude-api" else 20,
-            },
-        )
+        baseline = {
+            "max_tokens_per_chunk": 30000 if provider == "claude-api" else 14000,
+            "max_chunks": 12 if provider == "claude-api" else 8,
+            "distill_max_list_items": 30 if provider == "claude-api" else 20,
+        }
+        existing = entries.get(key)
+        if isinstance(existing, dict):
+            has_existing_override = True
+            current = dict(existing)
+        else:
+            has_existing_override = False
+            current = baseline
 
         status = str(data.get("status", ""))
         llm_skipped = bool(data.get("llm_skipped", False))
@@ -107,6 +111,27 @@ def optimize_budgets_from_metrics(metrics_file: Path, client_name: str = "") -> 
                 next_cfg["max_chunks"] = max(4, int(current.get("max_chunks", 8)) - 1)
         elif llm_skipped:
             next_cfg["max_chunks"] = max(4, int(current.get("max_chunks", 8)) - 1)
+        elif has_existing_override:
+            # A clean run earns a small step back toward the provider baseline.
+            # Never create an override for a skill that has no existing entry.
+            current_chunks = int(current.get("max_chunks", baseline["max_chunks"]))
+            current_tokens = int(
+                current.get("max_tokens_per_chunk", baseline["max_tokens_per_chunk"])
+            )
+            current_items = int(
+                current.get("distill_max_list_items", baseline["distill_max_list_items"])
+            )
+            if current_chunks < baseline["max_chunks"]:
+                next_cfg["max_chunks"] = min(baseline["max_chunks"], current_chunks + 1)
+            if current_tokens < baseline["max_tokens_per_chunk"]:
+                next_cfg["max_tokens_per_chunk"] = min(
+                    baseline["max_tokens_per_chunk"],
+                    current_tokens + max(1, int(current_tokens * 0.25)),
+                )
+            if current_items < baseline["distill_max_list_items"]:
+                next_cfg["distill_max_list_items"] = min(
+                    baseline["distill_max_list_items"], current_items + 3
+                )
 
         if next_cfg != current:
             entries[key] = next_cfg
