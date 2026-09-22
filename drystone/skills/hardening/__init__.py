@@ -342,9 +342,19 @@ class HardeningSkill(BaseSkill):
             # Get config rules compliance
             try:
                 compliance_list = []
-                rules = config_client.describe_config_rules()
+                config_rules: List[Dict[str, Any]] = []
+                config_token: Optional[str] = None
+                while True:
+                    config_args: Dict[str, Any] = {}
+                    if config_token:
+                        config_args["NextToken"] = config_token
+                    rules = config_client.describe_config_rules(**config_args)
+                    config_rules.extend(rules.get("ConfigRules", []) or [])
+                    config_token = rules.get("NextToken")
+                    if not config_token:
+                        break
 
-                for rule in rules.get("ConfigRules", []):
+                for rule in config_rules:
                     rule_name = rule.get("ConfigRuleName")
                     try:
                         compliance = config_client.describe_compliance_by_config_rule(
@@ -630,8 +640,17 @@ class HardeningSkill(BaseSkill):
 
             # List backup plans
             try:
-                plans = backup_client.list_backup_plans()
-                plans_list = plans.get("BackupPlansList", []) or []
+                plans_list: List[Dict[str, Any]] = []
+                plans_token: Optional[str] = None
+                while True:
+                    plans_args: Dict[str, Any] = {"MaxResults": 1000}
+                    if plans_token:
+                        plans_args["NextToken"] = plans_token
+                    plans = backup_client.list_backup_plans(**plans_args)
+                    plans_list.extend(plans.get("BackupPlansList", []) or [])
+                    plans_token = plans.get("NextToken")
+                    if not plans_token:
+                        break
                 self._save_json(evidence_path / "backup-plans.json", plans_list)
 
                 # Add selections per plan (coverage signal)
@@ -649,8 +668,21 @@ class HardeningSkill(BaseSkill):
                     }
                     if plan_id:
                         try:
-                            sel = backup_client.list_backup_selections(BackupPlanId=plan_id)
-                            entry["Selections"] = sel.get("BackupSelectionsList", []) or []
+                            selections: List[Dict[str, Any]] = []
+                            selections_token: Optional[str] = None
+                            while True:
+                                selections_args: Dict[str, Any] = {
+                                    "BackupPlanId": plan_id,
+                                    "MaxResults": 1000,
+                                }
+                                if selections_token:
+                                    selections_args["NextToken"] = selections_token
+                                sel = backup_client.list_backup_selections(**selections_args)
+                                selections.extend(sel.get("BackupSelectionsList", []) or [])
+                                selections_token = sel.get("NextToken")
+                                if not selections_token:
+                                    break
+                            entry["Selections"] = selections
                         except Exception as e:
                             entry["SelectionsError"] = str(e)
                     plans_detailed.append(entry)

@@ -377,6 +377,67 @@ class TestCollectConfigErrors:
         assert "error" in recorders
 
 
+class TestCollectPagination:
+    def test_config_rules_collects_all_pages(self, skill, aws_client, mock_session):
+        evidence_dir = mock_session.get_evidence_path.return_value
+        cfg_mock = _make_config_client()
+        cfg_mock.describe_config_rules.side_effect = [
+            {"ConfigRules": [{"ConfigRuleName": "rule-one"}], "NextToken": "page-2"},
+            {"ConfigRules": [{"ConfigRuleName": "rule-two"}]},
+        ]
+        cfg_mock.describe_compliance_by_config_rule.side_effect = lambda **_kwargs: {
+            "ComplianceByConfigRules": [
+                {"Compliance": {"ComplianceType": "COMPLIANT"}}
+            ]
+        }
+
+        with patch("boto3.client", side_effect=_boto3_factory(config=cfg_mock)):
+            skill.collect(aws_client, mock_session)
+
+        compliance = json.loads((evidence_dir / "config-compliance.json").read_text())
+        assert [item["ConfigRuleName"] for item in compliance] == ["rule-one", "rule-two"]
+
+    def test_backup_plans_collects_all_pages(self, skill, aws_client, mock_session):
+        evidence_dir = mock_session.get_evidence_path.return_value
+        backup_mock = _make_backup_client()
+        backup_mock.list_backup_plans.side_effect = [
+            {
+                "BackupPlansList": [{"BackupPlanId": "plan-one"}],
+                "NextToken": "page-2",
+            },
+            {"BackupPlansList": [{"BackupPlanId": "plan-two"}]},
+        ]
+        backup_mock.list_backup_selections.return_value = {"BackupSelectionsList": []}
+
+        with patch("boto3.client", side_effect=_boto3_factory(backup=backup_mock)):
+            skill.collect(aws_client, mock_session)
+
+        plans = json.loads((evidence_dir / "backup-plans.json").read_text())
+        assert [plan["BackupPlanId"] for plan in plans] == ["plan-one", "plan-two"]
+
+    def test_backup_selections_collects_all_pages(self, skill, aws_client, mock_session):
+        evidence_dir = mock_session.get_evidence_path.return_value
+        backup_mock = _make_backup_client()
+        backup_mock.list_backup_plans.return_value = {
+            "BackupPlansList": [{"BackupPlanId": "plan-one"}]
+        }
+        backup_mock.list_backup_selections.side_effect = [
+            {
+                "BackupSelectionsList": [{"SelectionId": "selection-one"}],
+                "NextToken": "page-2",
+            },
+            {"BackupSelectionsList": [{"SelectionId": "selection-two"}]},
+        ]
+
+        with patch("boto3.client", side_effect=_boto3_factory(backup=backup_mock)):
+            skill.collect(aws_client, mock_session)
+
+        detailed = json.loads((evidence_dir / "backup-plans-detailed.json").read_text())
+        assert [
+            selection["SelectionId"] for selection in detailed[0]["Selections"]
+        ] == ["selection-one", "selection-two"]
+
+
 # ── collect: GuardDuty detectors ─────────────────────────────────────────────
 
 
