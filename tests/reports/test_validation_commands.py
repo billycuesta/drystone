@@ -225,3 +225,78 @@ def test_alerting_sns_topic_arn_suggests_region_specific_topic_command():
         )
         for c in commands
     )
+
+
+# ── Path-qualified IAM resources (AWS SSO roles, etc) ────────────────────
+
+
+def test_extract_resource_name_iam_role_with_sso_path():
+    """Verify bare role name is extracted from AWS SSO-generated path-qualified role."""
+    result = extract_resource_name(
+        "arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_AdministratorAccess_abc123"
+    )
+    assert result["service"] == "iam"
+    assert result["type"] == "role"
+    # Should extract only the bare role name, not the path prefix
+    assert result["name"] == "AWSReservedSSO_AdministratorAccess_abc123"
+
+
+def test_extract_resource_name_iam_role_with_simple_path():
+    """Verify bare role name is extracted from path-qualified role with simple path."""
+    result = extract_resource_name("arn:aws:iam::123456789012:role/team-a/deploy-role")
+    assert result["service"] == "iam"
+    assert result["type"] == "role"
+    # Should extract only the bare role name (final segment), not team-a/deploy-role
+    assert result["name"] == "deploy-role"
+
+
+def test_extract_resource_name_iam_user_with_path():
+    """Verify bare user name is extracted from path-qualified user."""
+    result = extract_resource_name("arn:aws:iam::123456789012:user/engineers/alice")
+    assert result["service"] == "iam"
+    assert result["type"] == "user"
+    assert result["name"] == "alice"
+
+
+def test_extract_resource_name_iam_role_without_path_still_works():
+    """Regression: simple role name (no path) still works correctly."""
+    result = extract_resource_name("arn:aws:iam::123456789012:role/admin-role")
+    assert result["service"] == "iam"
+    assert result["type"] == "role"
+    assert result["name"] == "admin-role"
+
+
+def test_arn_specific_commands_iam_role_with_sso_path():
+    """End-to-end: SSO role ARN produces valid --role-name command with bare name only."""
+    commands = suggest_aws_cli_commands(
+        skill="iam",
+        evidence_refs=[],
+        region="us-east-1",
+        affected_resources=[
+            "arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_AdministratorAccess_abc123"
+        ],
+    )
+    # Should use bare role name, not path-qualified version
+    assert any(
+        "get-role --role-name AWSReservedSSO_AdministratorAccess_abc123" in c
+        for c in commands
+    )
+    # Should NOT include the path prefix
+    assert not any("aws-reserved" in c and "--role-name" in c for c in commands)
+
+
+def test_iam_iam041_with_sso_path_role():
+    """IAM-041 with SSO path-qualified role → uses bare role name in CLI command."""
+    commands = suggest_aws_cli_commands(
+        skill="iam",
+        evidence_refs=[],
+        region="us-east-1",
+        finding_id="IAM-041",
+        affected_resources=[
+            "arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_AdministratorAccess_abc123"
+        ],
+    )
+    assert any(
+        "list-attached-role-policies --role-name AWSReservedSSO_AdministratorAccess_abc123" in c
+        for c in commands
+    )

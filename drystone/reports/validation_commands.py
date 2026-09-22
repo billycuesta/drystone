@@ -11,8 +11,12 @@ def extract_resource_name(arn: str) -> Dict[str, str]:
     Returns a dict with keys: service, type, name.
     Returns empty dict if ARN is not parseable.
 
+    For IAM resources with paths (e.g. arn:aws:iam::123:role/team-a/deploy-role),
+    extracts only the bare resource name (final path segment), not the full path.
+
     Examples:
         arn:aws:iam::123:role/admin-role  -> {service: iam, type: role, name: admin-role}
+        arn:aws:iam::123:role/team-a/deploy-role  -> {service: iam, type: role, name: deploy-role}
         arn:aws:s3:::my-bucket            -> {service: s3, type: my-bucket, name: my-bucket}
         arn:aws:ec2:us-east-1:123:instance/i-abc -> {service: ec2, type: instance, name: i-abc}
     """
@@ -25,7 +29,7 @@ def extract_resource_name(arn: str) -> Dict[str, str]:
         return {}
     resource_parts = resource.split("/", 1)
     resource_type = resource_parts[0]
-    resource_name = resource_parts[1] if len(resource_parts) > 1 else resource
+    resource_name = resource_parts[1].rsplit("/", 1)[-1] if len(resource_parts) > 1 else resource
     return {"service": service, "type": resource_type, "name": resource_name}
 
 
