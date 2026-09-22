@@ -166,6 +166,7 @@ def _analyze_evidence(
         "model": config.claude_cli_model,
         "scan_depth": getattr(config, "scan_depth", "normal"),
         "qsa_depth": getattr(config, "qsa_depth", "standard"),
+        "client_name": session.client_name,
     }
 
     agent = AgentClient(provider_config=provider_config)
@@ -437,13 +438,13 @@ def _generate_reports(
         return False
 
 
-def _optimize_budgets(metrics_file: Path, _msg: Msg) -> None:
+def _optimize_budgets(metrics_file: Path, _msg: Msg, client_name: str = "") -> None:
     """Phase: P3 optimizer -- shrink per-skill chunk budgets based on this
     session's actual metrics. Silently no-ops on any failure."""
     try:
         from drystone.agent.optimizer import optimize_budgets_from_metrics
 
-        opt = optimize_budgets_from_metrics(metrics_file)
+        opt = optimize_budgets_from_metrics(metrics_file, client_name=client_name)
         updated = int(opt.get("updated", 0))
         if updated > 0:
             _msg(f"   ⚙️  P3 optimizer updated {updated} budget override(s)")
@@ -553,7 +554,7 @@ def run_audit(
         label = "Reporting complete" if all_findings else "Reporting skipped"
         _print_progress(label, phase_done, phase_total)
 
-    _optimize_budgets(metrics_file, _msg)
+    _optimize_budgets(metrics_file, _msg, session.client_name)
 
     qa_failed = _run_qa_gate(session, config, _msg)
 

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 
-def optimize_budgets_from_metrics(metrics_file: Path) -> Dict[str, Any]:
+def optimize_budgets_from_metrics(metrics_file: Path, client_name: str = "") -> Dict[str, Any]:
     """Create/update budget overrides from metrics.json.
 
     Heuristic:
@@ -37,7 +37,24 @@ def optimize_budgets_from_metrics(metrics_file: Path) -> Dict[str, Any]:
     except Exception:
         payload = {"skills": {}}
 
-    entries = payload.setdefault("skills", {})
+    if client_name:
+        clients = payload.setdefault("clients", {})
+        if not isinstance(clients, dict):
+            clients = {}
+            payload["clients"] = clients
+        client_payload = clients.setdefault(client_name, {})
+        if not isinstance(client_payload, dict):
+            client_payload = {}
+            clients[client_name] = client_payload
+        entries = client_payload.setdefault("skills", {})
+        if not isinstance(entries, dict):
+            entries = {}
+            client_payload["skills"] = entries
+    else:
+        entries = payload.setdefault("skills", {})
+        if not isinstance(entries, dict):
+            entries = {}
+            payload["skills"] = entries
     updated = 0
 
     for skill_name, data in skills.items():

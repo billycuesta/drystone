@@ -263,3 +263,50 @@ class TestHeuristics:
             optimize_budgets_from_metrics(metrics_file)
         data = json.loads((tmp_path / ".drystone" / "budget-overrides.json").read_text())
         assert "last_optimized_from" in data
+
+
+def test_optimizer_scopes_client_overrides_without_overwriting_other_clients(metrics_file, tmp_path):
+    overrides_path = tmp_path / ".drystone" / "budget-overrides.json"
+    overrides_path.parent.mkdir(parents=True)
+    overrides_path.write_text(
+        json.dumps(
+            {
+                "clients": {
+                    "client-b": {
+                        "skills": {
+                            "claude-cli:iam": {
+                                "max_tokens_per_chunk": 12000,
+                                "max_chunks": 10,
+                                "distill_max_list_items": 20,
+                            }
+                        }
+                    }
+                }
+            }
+        )
+    )
+    _write_metrics(
+        metrics_file,
+        {"iam": {"status": "failed", "provider": "claude-cli", "retries": []}},
+    )
+
+    with patch("pathlib.Path.home", return_value=tmp_path):
+        result = optimize_budgets_from_metrics(metrics_file, client_name="client-a")
+
+    assert result["updated"] == 1
+    data = json.loads(overrides_path.read_text())
+    assert data["clients"]["client-a"]["skills"]["claude-cli:iam"]["max_chunks"] == 6
+    assert data["clients"]["client-b"]["skills"]["claude-cli:iam"]["max_chunks"] == 10
+
+
+def test_optimizer_without_client_name_keeps_legacy_global_shape(metrics_file, tmp_path):
+    _write_metrics(
+        metrics_file,
+        {"iam": {"status": "failed", "provider": "claude-cli", "retries": []}},
+    )
+
+    with patch("pathlib.Path.home", return_value=tmp_path):
+        optimize_budgets_from_metrics(metrics_file)
+
+    data = json.loads((tmp_path / ".drystone" / "budget-overrides.json").read_text())
+    assert data["skills"]["claude-cli:iam"]["max_chunks"] == 6

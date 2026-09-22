@@ -24,7 +24,10 @@ def _load_overrides() -> dict:
 
 
 def get_budget_policy(
-    provider_type: str, skill_name: str, scan_depth: str = "normal"
+    provider_type: str,
+    skill_name: str,
+    scan_depth: str = "normal",
+    client_name: str = "",
 ) -> BudgetPolicy:
     """Return conservative token/chunk budgets by provider.
 
@@ -54,9 +57,18 @@ def get_budget_policy(
     base.max_chunks = max(4, int(base.max_chunks * chunk_factor))
     base.distill_max_list_items = max(12, int(base.distill_max_list_items * list_factor))
 
-    overrides = _load_overrides().get("skills", {})
+    payload = _load_overrides()
     key = f"{p}:{s}"
-    custom = overrides.get(key)
+    custom = None
+    if client_name:
+        clients = payload.get("clients", {})
+        client_overrides = clients.get(client_name, {}) if isinstance(clients, dict) else {}
+        client_skills = client_overrides.get("skills", {}) if isinstance(client_overrides, dict) else {}
+        if isinstance(client_skills, dict):
+            custom = client_skills.get(key)
+    if not isinstance(custom, dict):
+        overrides = payload.get("skills", {})
+        custom = overrides.get(key) if isinstance(overrides, dict) else None
     if isinstance(custom, dict):
         base.max_tokens_per_chunk = int(
             custom.get("max_tokens_per_chunk", base.max_tokens_per_chunk)
