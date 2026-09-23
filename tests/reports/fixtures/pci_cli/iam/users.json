@@ -1,0 +1,22 @@
+[
+  {
+    "UserName": "alice",
+    "Arn": "arn:aws:iam::123456789012:user/alice",
+    "MFADevices": [
+      {
+        "SerialNumber": "arn:aws:iam::123456789012:mfa/alice"
+      }
+    ],
+    "AccessKeys": [],
+    "Groups": ["SecurityAdmins"],
+    "AttachedPolicies": []
+  },
+  {
+    "UserName": "ci-bot",
+    "Arn": "arn:aws:iam::123456789012:user/ci-bot",
+    "MFADevices": [],
+    "AccessKeys": [],
+    "Groups": ["Automation"],
+    "AttachedPolicies": []
+  }
+]

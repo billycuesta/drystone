@@ -45,6 +45,21 @@ def sample_config():
 # ── AI provider defaults ──────────────────────────────────────────────────────
 
 
+class TestProjectId:
+    def test_project_id_accepts_allowed_characters(self):
+        config = WizardConfig(client_name="ACME", project_id="ACME.PCI_2026-01", skills=["iam"])
+        assert config.project_id == "ACME.PCI_2026-01"
+
+    def test_blank_project_id_normalizes_to_none(self):
+        config = WizardConfig(client_name="ACME", project_id="   ", skills=["iam"])
+        assert config.project_id is None
+
+    @pytest.mark.parametrize("project_id", ["bad id", "bad/id", "x" * 41])
+    def test_project_id_rejects_invalid_values(self, project_id):
+        with pytest.raises(ValueError, match="Project ID must match"):
+            WizardConfig(client_name="ACME", project_id=project_id, skills=["iam"])
+
+
 class TestAIProviderDefaults:
     def test_defaults_to_claude_api(self):
         config = WizardConfig(
@@ -255,10 +270,12 @@ class TestLoadLastConfig:
 
 class TestRoundTrip:
     def test_save_then_load_returns_equivalent_config(self, tmp_config_dir, sample_config):
+        sample_config.project_id = "ACME-PCI-2026"
         save_config(sample_config)
         loaded = load_last_config()
         assert loaded is not None
         assert loaded.client_name == sample_config.client_name
+        assert loaded.project_id == sample_config.project_id
         assert loaded.aws_region == sample_config.aws_region
         assert loaded.skills == sample_config.skills
         assert loaded.output_formats == sample_config.output_formats

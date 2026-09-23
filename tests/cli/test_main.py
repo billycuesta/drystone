@@ -209,6 +209,10 @@ class TestAuditCliOverrides:
         _stop_at_credentials(runner, sample_config, "--region", "eu-west-1")
         assert sample_config.aws_region == "eu-west-1"
 
+    def test_project_id_override(self, runner, sample_config):
+        _stop_at_credentials(runner, sample_config, "--project-id", "ACME-PCI-2026")
+        assert sample_config.project_id == "ACME-PCI-2026"
+
     def test_skills_single_skill_override(self, runner, sample_config):
         _stop_at_credentials(runner, sample_config, "--skills", "network")
         assert sample_config.skills == ["network"]

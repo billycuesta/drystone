@@ -43,6 +43,10 @@ def cli(debug: bool) -> None:
     help="Client/project name",
 )
 @click.option(
+    "--project-id",
+    help="Optional stable project identifier",
+)
+@click.option(
     "--region",
     help="AWS region",
 )
@@ -114,6 +118,7 @@ def cli(debug: bool) -> None:
 def audit(
     non_interactive: bool,
     client: Optional[str] = None,
+    project_id: Optional[str] = None,
     region: Optional[str] = None,
     skills: Optional[str] = None,
     formats: tuple = (),
@@ -139,6 +144,7 @@ def audit(
     # Determine if we should use interactive mode
     has_cli_args = bool(
         client
+        or project_id
         or region
         or skills
         or formats
@@ -192,6 +198,8 @@ def audit(
             # Override config with CLI args
             if client:
                 config.client_name = client
+            if project_id is not None:
+                config.project_id = WizardConfig.validate_project_id(project_id)
             if region:
                 config.aws_region = region
             if skills:

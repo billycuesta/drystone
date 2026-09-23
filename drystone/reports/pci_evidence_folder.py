@@ -24,17 +24,18 @@ collapsed ok/ko status (which cannot distinguish SKIP from PASS):
 
 from __future__ import annotations
 
-import inspect
 import json
 import logging
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Tuple, cast
 
-from drystone.reports.formats.pci_dss import get_requirement_name
-from drystone.validation.pre_checks import PRE_CHECK_REGISTRY, PreCheckResult, run_pre_checks
+from drystone.reports.pci_cli_queries import resolve_query
+from drystone.reports.pci_text_table import apply_output_spec
+from drystone.validation.pre_checks import PRE_CHECK_REGISTRY, PreCheckResult
 
 if TYPE_CHECKING:
     from drystone.models import WizardConfig
@@ -44,8 +45,6 @@ logger = logging.getLogger(__name__)
 
 _SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
 _QSA_DEPTH_ORDER = {"obvious": 0, "standard": 1, "deep": 2}
-_MAX_SLUG_LEN = 60
-
 STATUS_PASS = "PASS"
 STATUS_FAIL = "FAIL"
 STATUS_INCONCLUSIVE = "INCONCLUSIVE"
@@ -68,6 +67,10 @@ class _EvidenceEntry:
     status: str
     pre_check: Optional[PreCheckResult]
     finding: Optional[Dict[str, Any]]
+    consulted_stems: Tuple[str, ...]
+    evidence: Dict[str, Any]
+    region: str
+    captured_at: str
 
 
 # ---------------------------------------------------------------------------
@@ -91,13 +94,13 @@ def generate_pci_evidence_folder(
         all_findings: ``{skill_name: findings_dict}`` as produced by analysis.
         skills: Skills to cover (those analysed in this audit).
     """
-    out_dir = session.get_pci_evidence_path()
+    out_dir = cast(Path, session.get_pci_evidence_path())
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     used_names: set = set()
 
     for entry in _iter_evidence_entries(config, session, all_findings, skills):
-        filename = _filename(session.client_name, entry, used_names)
-        content = _render_markdown(entry, session.client_name, generated_at)
+        filename = _filename(getattr(config, "project_id", None) or session.client_name, entry, used_names)
+        content = _render_markdown(entry, generated_at)
         (out_dir / filename).write_text(content, encoding="utf-8")
 
     return out_dir
@@ -126,18 +129,32 @@ def _load_checklist(skill_name: str, qsa_depth: str) -> Optional[Dict[str, Any]]
     return checklist
 
 
-def _recompute_pre_checks(
-    config: "WizardConfig",
-    session: "AuditSession",
-    skill_name: str,
-    checklist: Dict[str, Any],
-) -> List[PreCheckResult]:
-    """Re-run the (pure, side-effect-free) Tier 1 pre-checks for a skill.
+class _AccessRecordingEvidence(dict):
+    """Dict wrapper recording top-level evidence stems consulted by a pre-check."""
 
-    Mirrors the evidence loading in ``BaseSkill.analyze()``, including the
-    skill's ``_load_extra_evidence`` hook (e.g. IAM's credential-report.csv),
-    so results match what the analysis phase computed.
-    """
+    def __init__(self, evidence: Dict[str, Any]):
+        super().__init__(evidence)
+        self.consulted_stems: List[str] = []
+
+    def _record(self, key: Any) -> None:
+        stem = str(key)
+        if stem not in self.consulted_stems:
+            self.consulted_stems.append(stem)
+
+    def get(self, key: Any, default: Any = None) -> Any:  # noqa: D401 - mirrors dict.get
+        self._record(key)
+        return super().get(key, default)
+
+    def __getitem__(self, key: Any) -> Any:
+        self._record(key)
+        return super().__getitem__(key)
+
+    def __contains__(self, key: object) -> bool:
+        self._record(key)
+        return super().__contains__(key)
+
+
+def _load_skill_evidence(session: "AuditSession", skill_name: str) -> Dict[str, Any]:
     evidence_path = session.get_evidence_path(skill_name)
     evidence: Dict[str, Any] = {}
     for json_file in sorted(evidence_path.glob("*.json")):
@@ -156,7 +173,28 @@ def _recompute_pre_checks(
     except Exception as exc:
         logger.warning("PCI evidence: extra evidence hook failed for %s: %s", skill_name, exc)
 
-    return run_pre_checks(skill_name, evidence, checklist)
+    return evidence
+
+
+def _recompute_pre_checks(
+    session: "AuditSession",
+    skill_name: str,
+) -> Tuple[List[PreCheckResult], Dict[str, Tuple[str, ...]], Dict[str, Any]]:
+    """Re-run Tier 1 pre-checks and record evidence stems each function consults."""
+    evidence = _load_skill_evidence(session, skill_name)
+    results: List[PreCheckResult] = []
+    consulted_by_id: Dict[str, Tuple[str, ...]] = {}
+
+    for check_fn in PRE_CHECK_REGISTRY.get(skill_name.lower(), []):
+        recorder = _AccessRecordingEvidence(evidence)
+        try:
+            result = check_fn(recorder)
+            results.append(result)
+            consulted_by_id[result.check_id] = tuple(recorder.consulted_stems)
+        except Exception as exc:
+            logger.warning("Pre-check %s failed: %s", check_fn.__name__, exc, exc_info=True)
+
+    return results, consulted_by_id, evidence
 
 
 def _iter_checklist_items(
@@ -213,10 +251,11 @@ def _iter_evidence_entries(
         if checklist is None:
             continue
 
-        pre_checks = {
-            r.check_id: r for r in _recompute_pre_checks(config, session, skill_name, checklist)
-        }
+        pre_check_results, consulted_by_id, evidence = _recompute_pre_checks(session, skill_name)
+        pre_checks = {r.check_id: r for r in pre_check_results}
         skill_findings = (all_findings.get(skill_name) or {}).get("findings") or []
+        region = _evidence_region(evidence, getattr(config, "aws_region", ""))
+        captured_at = _evidence_captured_at(evidence, getattr(session, "timestamp", ""))
         findings_by_id: Dict[str, Dict[str, Any]] = {}
         for f in skill_findings:
             if isinstance(f, dict) and f.get("id"):
@@ -227,6 +266,7 @@ def _iter_evidence_entries(
             pre_check = pre_checks.get(item_id)
             finding = findings_by_id.get(item_id)
             status = _resolve_status(pre_check, finding)
+            consulted_stems = _consulted_stems_for_item(item, pre_check, finding, consulted_by_id)
             for pci in pci_entries:
                 reason = pci["reason"]
                 if status == STATUS_FAIL:
@@ -239,7 +279,29 @@ def _iter_evidence_entries(
                     status=status,
                     pre_check=pre_check,
                     finding=finding,
+                    consulted_stems=consulted_stems,
+                    evidence=evidence,
+                    region=region,
+                    captured_at=captured_at,
                 )
+
+
+def _evidence_metadata(evidence: Dict[str, Any]) -> Dict[str, Any]:
+    metadata = evidence.get("_audit_metadata")
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _evidence_region(evidence: Dict[str, Any], fallback: str) -> str:
+    region = _evidence_metadata(evidence).get("_region")
+    return str(region or fallback or "")
+
+
+def _evidence_captured_at(evidence: Dict[str, Any], fallback: str) -> str:
+    metadata = _evidence_metadata(evidence)
+    captured = metadata.get("_collected_at") or metadata.get("_timestamp")
+    if captured:
+        return str(captured).split("T", 1)[0]
+    return str(fallback or "")
 
 
 # ---------------------------------------------------------------------------
@@ -247,40 +309,39 @@ def _iter_evidence_entries(
 # ---------------------------------------------------------------------------
 
 
-def _slugify(text: str, max_len: int = _MAX_SLUG_LEN) -> str:
-    """Lowercase kebab-case slug restricted to [a-z0-9-]."""
-    slug = re.sub(r"[^a-z0-9]+", "-", str(text).lower()).strip("-")
-    if len(slug) > max_len:
-        slug = slug[:max_len].rsplit("-", 1)[0] or slug[:max_len]
-    return slug.strip("-")
-
-
-def _safe_component(text: str, fallback: str) -> str:
-    """Allowlist a filename component to [A-Za-z0-9.-] (no path separators, no '..')."""
-    safe = re.sub(r"[^A-Za-z0-9.\-]+", "-", str(text)).strip("-.")
-    safe = re.sub(r"\.{2,}", ".", safe)
+def _safe_filename_component(text: str, fallback: str) -> str:
+    """Normalize a filename component while preserving QSA-readable spaces."""
+    normalized = unicodedata.normalize("NFKD", str(text).replace("_", " "))
+    ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
+    safe = re.sub(r"[^A-Za-z0-9 ._-]+", "", ascii_text)
+    safe = re.sub(r"\s+", " ", safe)
+    while ".." in safe:
+        safe = safe.replace("..", ".")
+    safe = safe.strip(" .")
     return safe or fallback
 
 
+def _truncate_evidence_name(evidence_name: str, max_length: int = 80) -> str:
+    if len(evidence_name) <= max_length:
+        return evidence_name
+
+    truncated = evidence_name[:max_length].rstrip()
+    word_boundary = truncated.rfind(" ")
+    if word_boundary > 0:
+        truncated = truncated[:word_boundary].rstrip()
+    return truncated or evidence_name[:max_length].rstrip()
+
+
 def _filename(client_name: str, entry: _EvidenceEntry, used_names: set) -> str:
-    client = _safe_component(client_name, "client")
-    control = _safe_component(entry.control, "control")
-    evidence_name = (
-        "-".join(
-            p
-            for p in (
-                _slugify(str(entry.item.get("id", "")), 40),
-                _slugify(entry.item.get("title", "")),
-            )
-            if p
-        )
-        or "evidence"
-    )
+    query = resolve_query(entry.skill_name, str(entry.item.get("id", "")), entry.consulted_stems, entry.item)
+    client = _safe_filename_component(client_name, "client")
+    control = _safe_filename_component(entry.control, "control")
+    evidence_name = _truncate_evidence_name(_safe_filename_component(query.evidence_name, "evidence"))
     stem = f"{client}_{control}_{evidence_name}"
     name = f"{stem}.md"
     suffix = 2
     while name in used_names:
-        name = f"{stem}-{suffix}.md"
+        name = f"{stem} ({suffix}).md"
         suffix += 1
     used_names.add(name)
     return name
@@ -291,13 +352,29 @@ def _filename(client_name: str, entry: _EvidenceEntry, used_names: set) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _pre_check_fn_index(skill_name: str) -> Dict[str, Any]:
-    """Map check IDs to their registered pre-check function (by naming convention)."""
-    index: Dict[str, Any] = {}
-    for fn in PRE_CHECK_REGISTRY.get(skill_name.lower(), []):
-        check_id = fn.__name__.removeprefix("check_").upper().replace("_", "-")
-        index.setdefault(check_id, fn)
-    return index
+def _consulted_stems_for_item(
+    item: Dict[str, Any],
+    pre_check: Optional[PreCheckResult],
+    finding: Optional[Dict[str, Any]],
+    consulted_by_id: Dict[str, Tuple[str, ...]],
+) -> Tuple[str, ...]:
+    """Return evidence stems for query resolution, falling back to checklist files."""
+    item_id = str(item.get("id") or "")
+    stems: List[str] = list(consulted_by_id.get(item_id, ()))
+
+    if finding is not None:
+        for ref in finding.get("evidence_refs") or []:
+            stem = Path(str(ref).split("#", 1)[0]).stem
+            if stem and stem not in stems:
+                stems.append(stem)
+
+    if pre_check is None and not stems:
+        for evidence_file in item.get("evidence_files") or []:
+            stem = Path(str(evidence_file)).stem
+            if stem and stem not in stems:
+                stems.append(stem)
+
+    return tuple(stems)
 
 
 def _fence(body: str, lang: str = "") -> str:
@@ -307,156 +384,52 @@ def _fence(body: str, lang: str = "") -> str:
     return f"{ticks}{lang}\n{body.rstrip()}\n{ticks}"
 
 
-def _evidence_files_text(item: Dict[str, Any]) -> str:
-    files = [str(f) for f in item.get("evidence_files") or [] if f]
-    return ", ".join(f"`{f}`" for f in files) if files else "the evidence collected for this skill"
+def _render_commands(commands: Tuple[str, ...]) -> str:
+    return "\nor\n".join(commands)
 
 
-def _render_query(entry: _EvidenceEntry) -> str:
-    item = entry.item
-    finding = entry.finding
-
-    if finding is not None:
-        refs = [str(r) for r in finding.get("evidence_refs") or [] if r]
-        if refs:
-            lines = [f"Finding `{finding.get('id')}` is traced to the following evidence:", ""]
-            lines += [f"- `{r}`" for r in refs]
-            return "\n".join(lines)
-        return (
-            f"Finding `{finding.get('id')}` raised during AI analysis of "
-            f"{_evidence_files_text(item)}. No evidence reference was recorded."
-        )
-
-    fn = _pre_check_fn_index(entry.skill_name).get(str(item.get("id")))
-    if entry.pre_check is not None:
-        fn_name = fn.__name__ if fn is not None else f"pre-check for {item.get('id')}"
-        doc = (
-            (inspect.getdoc(fn) or "").strip().splitlines()[0]
-            if fn is not None and fn.__doc__
-            else ""
-        )
-        doc_part = f' ("{doc}")' if doc else ""
-        text = (
-            f"Deterministic check `{fn_name}`{doc_part} -- inspects {_evidence_files_text(item)}."
-        )
-        if entry.status == STATUS_INCONCLUSIVE:
-            text += " The check ran but no verdict was reached (SKIP)."
-        return text
-
-    return (
-        f"No deterministic pre-check exists for `{item.get('id')}`. The item was evaluated "
-        f"by the AI analysis of {_evidence_files_text(item)}, which raised no finding; "
-        "no verdict was recorded."
-    )
-
-
-def _render_result(entry: _EvidenceEntry) -> str:
-    finding = entry.finding
-    if finding is not None:
-        snippet = finding.get("evidence_snippet")
-        if snippet:
-            return _fence(json.dumps(snippet, indent=2, sort_keys=True, default=str), "json")
-        fallback_lines = []
-        if entry.pre_check is not None and entry.pre_check.evidence_summary:
-            fallback_lines.append(entry.pre_check.evidence_summary)
-        resources = [str(r) for r in finding.get("affected_resources") or []]
-        if resources:
-            fallback_lines.append("Affected resources:")
-            fallback_lines += [f"- {r}" for r in resources]
-        label = (
-            "No raw evidence snippet captured -- theoretical finding."
-            if finding.get("exploitability_status") == "theoretical"
-            else "No raw evidence snippet captured."
-        )
-        body = "\n".join(fallback_lines) or "(no evidence summary available)"
-        return f"_{label}_\n\n{_fence(body)}"
+def _render_output(entry: _EvidenceEntry, outputs: Tuple[Any, ...]) -> str:
+    rendered = [table for spec in outputs if (table := apply_output_spec(spec, entry.evidence))]
+    if rendered:
+        return "\n\n".join(rendered)
 
     if entry.pre_check is not None:
-        pc = entry.pre_check
-        lines = [pc.evidence_summary or "(empty evidence summary)"]
-        if pc.affected_resources:
+        lines = [entry.pre_check.evidence_summary or "(empty evidence summary)"]
+        if entry.pre_check.affected_resources:
             lines.append("Affected resources:")
-            lines += [f"- {r}" for r in pc.affected_resources]
-        return _fence("\n".join(lines))
+            lines.extend(f"- {resource}" for resource in entry.pre_check.affected_resources)
+        return "\n".join(lines)
 
-    return _fence("(no deterministic result -- no finding raised by AI analysis)")
+    finding = entry.finding or {}
+    snippet = finding.get("evidence_snippet")
+    if snippet:
+        return json.dumps(snippet, indent=2, sort_keys=True, default=str)
 
-
-def _render_assessment(entry: _EvidenceEntry) -> str:
-    parts: List[str] = []
-    finding = entry.finding
-
-    if entry.status == STATUS_FAIL and finding is not None:
-        for key in ("description", "impact"):
-            if finding.get(key):
-                parts.append(str(finding[key]).strip())
-        if finding.get("security_analogy"):
-            parts.append(f"_Analogy:_ {str(finding['security_analogy']).strip()}")
-        if entry.reason:
-            parts.append(f"**PCI DSS {entry.control}:** {entry.reason.strip()}")
-        if finding.get("remediation"):
-            parts.append(f"**Remediation:** {str(finding['remediation']).strip()}")
-        severity = finding.get("severity")
-        sev = f" (severity: {severity})" if severity else ""
-        parts.append(
-            f"**Status: Control requirement not met**{sev} -- see finding `{finding.get('id')}`."
-        )
-        return "\n\n".join(parts)
-
-    if entry.status == STATUS_FAIL:
-        # Pre-check FAIL with no matching finding in the findings file.
-        summary = entry.pre_check.evidence_summary if entry.pre_check else ""
-        desc = str(entry.item.get("description") or "").strip()
-        parts.append(
-            f"The deterministic check for `{entry.item.get('id')}` failed ({summary}). {desc}".strip()
-        )
-        if entry.reason:
-            parts.append(f"**PCI DSS {entry.control}:** {entry.reason.strip()}")
-        if entry.item.get("remediation"):
-            parts.append(f"**Remediation:** {str(entry.item['remediation']).strip()}")
-        parts.append("**Status: Control requirement not met.**")
-        return "\n\n".join(parts)
-
-    if entry.status == STATUS_PASS and entry.pre_check is not None:
-        summary = (entry.pre_check.evidence_summary or "").strip()
-        parts.append(
-            f"Automated evidence collected during this audit confirms that the requirement "
-            f'"{entry.item.get("title", entry.item.get("id"))}" is satisfied ({summary}).'
-        )
-        if entry.reason:
-            parts.append(f"**PCI DSS {entry.control}:** {entry.reason.strip()}")
-        parts.append(f"**Status: {_PASS_CLOSING}**")
-        return "\n\n".join(parts)
-
-    parts.append(_INCONCLUSIVE_CLOSING)
-    if entry.pre_check is not None and entry.pre_check.evidence_summary:
-        parts.append(f"Pre-check outcome: {entry.pre_check.evidence_summary.strip()}")
-    if entry.reason:
-        parts.append(f"**PCI DSS {entry.control}:** {entry.reason.strip()}")
-    parts.append("**Status: Inconclusive -- manual QSA review recommended.**")
-    return "\n\n".join(parts)
+    return "(no tabular output available from collected evidence)"
 
 
-def _render_markdown(entry: _EvidenceEntry, client_name: str, generated_at: str) -> str:
-    item = entry.item
-    item_id = item.get("id", "")
-    title = item.get("title", item_id)
-    requirement = get_requirement_name(entry.control.split(".")[0])
-
-    header = [
-        f"# PCI DSS Control {entry.control} -- Evidence: {title}",
-        "",
-        f"**Client:** {client_name}  ",
-        f"**Control:** {entry.control} -- {requirement}  ",
-        f"**Checklist item:** {item_id} -- {title}  ",
-        f"**Skill:** {entry.skill_name}  ",
-        f"**Status:** {entry.status}  ",
-        f"**Generated:** {generated_at} (automated, during audit scan)",
+def _short_description(entry: _EvidenceEntry, generated_at: str, derived_note: Optional[str]) -> str:
+    item_id = entry.item.get("id", "")
+    title = entry.item.get("title", item_id)
+    pieces = [
+        f"PCI DSS {entry.control} evidence for {item_id} ({title}) is {entry.status.lower()} based on {entry.skill_name} evidence captured at {entry.captured_at or generated_at} in {entry.region or 'the configured AWS region'}."
     ]
+    if derived_note:
+        pieces.append(derived_note)
+    if entry.reason:
+        pieces.append(entry.reason.strip())
+    if entry.status == STATUS_PASS:
+        pieces.append(_PASS_CLOSING)
+    elif entry.status == STATUS_INCONCLUSIVE:
+        pieces.append(_INCONCLUSIVE_CLOSING)
+    return " ".join(piece for piece in pieces if piece).strip()
+
+
+def _render_markdown(entry: _EvidenceEntry, generated_at: str) -> str:
+    query = resolve_query(entry.skill_name, str(entry.item.get("id", "")), entry.consulted_stems, entry.item)
     sections = [
-        "\n".join(header),
-        f"## Query\n\n{_render_query(entry)}",
-        f"## Raw result\n\n{_render_result(entry)}",
-        f"## Assessment\n\n{_render_assessment(entry)}",
+        f"Query:\n{_fence(_render_commands(query.commands), 'bash')}",
+        f"Output:\n{_fence(_render_output(entry, query.outputs))}",
+        f"Evidence description:\n{_fence(_short_description(entry, generated_at, query.derived_note))}",
     ]
     return "\n\n".join(sections) + "\n"

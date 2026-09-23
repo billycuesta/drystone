@@ -1,0 +1,8 @@
+{
+  "SummaryMap": {
+    "AccountMFAEnabled": 1,
+    "Users": 2,
+    "UsersQuota": 5000,
+    "AccessKeysPerUserQuota": 2
+  }
+}

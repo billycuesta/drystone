@@ -1,9 +1,10 @@
 """Configuration models for Drystone."""
 
 import os
+import re
 from datetime import datetime
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
@@ -13,6 +14,7 @@ from drystone.skills.registry import skill_names as _registry_skill_names
 # nosec B105 - Example credentials from AWS documentation, not real secrets
 _EXAMPLE_AWS_ACCESS_KEY = "AKIAIOSFODNN7EXAMPLE"  # nosec
 _EXAMPLE_AWS_SECRET_KEY = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"  # nosec
+_PROJECT_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,40}$")
 
 
 # Canonical pentest skill list — single source of truth for --skills=pentest
@@ -27,6 +29,10 @@ class WizardConfig(BaseModel):
 
     # Step 1: Client/Project
     client_name: str = Field(..., description="Client or project name")
+    project_id: Optional[str] = Field(
+        default=None,
+        description="Optional stable project identifier (letters, digits, dot, underscore, hyphen; max 40 chars)",
+    )
 
     # Step 2: AWS Credentials Source
     # OPCIÓN 1: Credenciales directas (manual entry, backward compat)
@@ -156,6 +162,7 @@ class WizardConfig(BaseModel):
         json_schema_extra={
             "example": {
                 "client_name": "ACME Corp",
+                "project_id": "ACME-PCI-2026",
                 "aws_access_key_id": _EXAMPLE_AWS_ACCESS_KEY,
                 "aws_secret_access_key": _EXAMPLE_AWS_SECRET_KEY,
                 "aws_session_token": None,
@@ -185,6 +192,21 @@ class WizardConfig(BaseModel):
             }
         },
     )
+
+    @field_validator("project_id", mode="before")
+    @classmethod
+    def validate_project_id(cls, v: Optional[str]) -> Optional[str]:
+        """Normalize and validate optional project identifier."""
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            raise ValueError("Project ID must be a string")
+        value = v.strip()
+        if not value:
+            return None
+        if not _PROJECT_ID_RE.fullmatch(value):
+            raise ValueError("Project ID must match [A-Za-z0-9._-]{1,40}")
+        return value
 
     def get_aws_credentials(self) -> tuple[str, str, Optional[str]]:
         """Get credentials with priority: manual > file > env."""
@@ -371,10 +393,10 @@ class WizardConfig(BaseModel):
             raise ValueError(f"Invalid scan_depth: {value}. Valid: {sorted(allowed)}")
         return value
 
-    def dict_for_json(self) -> dict:
+    def dict_for_json(self) -> Dict[str, Any]:
         """Convert to JSON-serializable dict, excluding sensitive credentials if not stored directly."""
         # Convert Path objects to strings for JSON serialization
-        data = self.model_dump(mode="json")
+        data = cast(Dict[str, Any], self.model_dump(mode="json"))
 
         # Never persist credentials — always strip secrets from saved config
         data.pop("aws_access_key_id", None)

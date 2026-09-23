@@ -13,6 +13,15 @@ from drystone.skills.registry import skill_display_names as _registry_skill_disp
 from drystone.skills.registry import wizard_choices as _registry_wizard_choices
 
 
+def validate_project_id_input(value: str) -> bool | str:
+    """Validate optional Project ID for questionary prompts."""
+    try:
+        WizardConfig.validate_project_id(value)
+    except ValueError:
+        return "Project ID must match [A-Za-z0-9._-]{1,40}"
+    return True
+
+
 def validate_aws_config(config: WizardConfig) -> bool:
     """Validate AWS credentials through the managed AWSClient path."""
 
@@ -151,6 +160,8 @@ def display_config_summary(project_config: dict, ai_config: dict) -> None:
     # Menu A: Project Scope
     print("\n📋 Project Scope:")
     print(f"   Client Name: {project_config['client_name']}")
+    if project_config.get("project_id"):
+        print(f"   Project ID: {project_config['project_id']}")
     print(f"   AWS Region: {project_config['aws_region']}")
 
     # Display AWS credential source
@@ -241,6 +252,15 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
     ).ask()
     if client_name is None:
         raise KeyboardInterrupt("Wizard cancelled")
+
+    project_id = questionary.text(
+        "Project ID (optional, letters/digits/._-, max 40; press Enter to skip):",
+        default=defaults.get("project_id") or "",
+        validate=validate_project_id_input,
+    ).ask()
+    if project_id is None:
+        raise KeyboardInterrupt("Wizard cancelled")
+    project_id = WizardConfig.validate_project_id(project_id)
 
     # ── Step 2: Skill Selection ───────────────────────────────────
     current_skills = defaults.get("skills", ["iam"])
@@ -487,6 +507,7 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
     # ── Assemble result ───────────────────────────────────────────
     project_config = {
         "client_name": client_name,
+        "project_id": project_id,
         "aws_region": aws_region,
         "skills": skills,
         "qsa_depth": qsa_depth,
