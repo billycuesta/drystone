@@ -318,6 +318,14 @@ class ReportGenerator:
             "low": sum(1 for f in merged_findings if f.get("severity") == "Low"),
         }
 
+        # Recalculate overall_risk_score using the same weighted-average formula as
+        # FindingsNormalizer.recalculate_summary() (line ~1627 in findings_normalizer.py),
+        # but over merged_findings (aggregated across ALL skills). This differs from the
+        # overall_risk_score in any individual skill's findings/<skill>.json file, which
+        # is computed over that skill's findings only. The discrepancy is expected: the
+        # same weighted-average formula applied to different finding sets yields different
+        # results. A report's overall_risk_score reflects the aggregate view, not any
+        # single skill's score.
         weights = {"Critical": 3.0, "High": 2.0, "Medium": 1.0, "Low": 0.5}
         weighted_sum = 0.0
         total_weight = 0.0
@@ -386,7 +394,13 @@ class ReportGenerator:
             "low": sum(1 for f in filtered_findings if f.get("severity") == "Low"),
         }
 
-        # Recalculate overall risk score using the same weighted approach as FindingsNormalizer.
+        # Recalculate overall_risk_score using the same weighted-average formula as
+        # FindingsNormalizer.recalculate_summary() (line ~1627 in findings_normalizer.py),
+        # but over filtered_findings (severity-filtered subset). The formula and weights
+        # are identical to the canonical implementation, but applied to a reduced finding
+        # set after severity filtering. This results in a different overall_risk_score
+        # than the unfiltered or per-skill view -- intentional by design, reflecting the
+        # risk profile of the displayed (filtered) findings, not all findings.
         weights = {
             "Critical": 3.0,
             "High": 2.0,

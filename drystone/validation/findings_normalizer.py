@@ -1635,6 +1635,15 @@ class FindingsNormalizer:
             - Medium: 1.0
             - Low: 0.5
 
+        NOTE: This method computes the score for a single skill's findings (e.g., contents
+        of findings/<skill>.json). The reporting layer (drystone/reports/generator.py)
+        recomputes this same weighted-average formula over different finding sets
+        (aggregated across all skills, or filtered by severity), so the resulting
+        overall_risk_score in a generated report can legitimately differ from any
+        individual skill's own findings file -- this is expected behavior, not a bug.
+        See _load_and_merge_all_findings() and _filter_findings_by_severity() in
+        generator.py for the cross-skill and filtered-view cases.
+
         Example:
             >>> findings = [Critical(9.5), High(7.0), Medium(4.0)]
             >>> summary = normalizer.recalculate_summary(findings)
