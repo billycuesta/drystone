@@ -6,8 +6,7 @@ and the chosen qsa_depth level from WizardConfig.
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 

@@ -672,3 +672,214 @@ class TestAnalyzeEvidence:
         assert results["iam"]["partial_results"] is False
         assert results["network"]["partial_results"] is True
         assert results["network"]["failed_chunks"] == 1
+
+    def test_empty_chunks_all_non_empty_chunks_zero_counter(self, tmp_path):
+        """QA-36: All chunks return non-empty findings -> empty_chunks == 0."""
+        client = _make_api_client()
+        client.findings_cache = FindingsCache(cache_dir=tmp_path)
+
+        class _AllChunks:
+            def should_chunk(self, evidence):
+                return True
+
+            def chunk_evidence(self, evidence):
+                return [
+                    EvidenceChunk(
+                        chunk_id=1,
+                        total_chunks=2,
+                        evidence={"first": []},
+                        metadata={"source_file": "first"},
+                    ),
+                    EvidenceChunk(
+                        chunk_id=2,
+                        total_chunks=2,
+                        evidence={"second": []},
+                        metadata={"source_file": "second"},
+                    ),
+                ]
+
+        findings_with_issues = SkillFindings(
+            skill="iam",
+            findings=[
+                {
+                    "id": "IAM-001",
+                    "severity": "Critical",
+                    "risk_score": 9.0,
+                    "title": "Root has active access keys",
+                    "description": "Root account should not have access keys",
+                    "impact": "High",
+                    "evidence_refs": ["users.json#root"],
+                    "affected_resources": ["arn:aws:iam::123456789012:root"],
+                    "remediation": "Delete root access keys",
+                    "cis_reference": "1.5",
+                }
+            ],
+            summary=FindingsSummary(
+                total_findings=1,
+                critical=1,
+                high=0,
+                medium=0,
+                low=0,
+                overall_risk_score=9.0,
+            ),
+            evidence_count=1,
+            checklist_version="1.0",
+        )
+
+        with patch.object(client, "analyze_evidence", return_value=findings_with_issues):
+            result = client.analyze_evidence_chunked(
+                "iam",
+                {"large": ["x"]},
+                MINIMAL_CHECKLIST,
+                chunker=_AllChunks(),
+            )
+
+        # Both chunks return the same finding object (mocked), so dedup yields 1
+        assert result.summary.total_findings >= 1
+        status = client.get_last_analysis_status("iam")
+        assert "empty_chunks" in status
+        assert status["empty_chunks"] == 0, "All chunks returned findings, so empty_chunks should be 0"
+        assert status["failed_chunks"] == 0
+
+    def test_empty_chunks_tracks_empty_separately_from_failed(self, tmp_path):
+        """QA-36: 2 of 3 chunks return zero findings -> empty_chunks == 2, failed_chunks == 0."""
+        client = _make_api_client()
+        client.findings_cache = FindingsCache(cache_dir=tmp_path)
+
+        class _ThreeChunks:
+            def should_chunk(self, evidence):
+                return True
+
+            def chunk_evidence(self, evidence):
+                return [
+                    EvidenceChunk(
+                        chunk_id=1,
+                        total_chunks=3,
+                        evidence={"chunk1": []},
+                        metadata={"source_file": "chunk1"},
+                    ),
+                    EvidenceChunk(
+                        chunk_id=2,
+                        total_chunks=3,
+                        evidence={"chunk2": []},
+                        metadata={"source_file": "chunk2"},
+                    ),
+                    EvidenceChunk(
+                        chunk_id=3,
+                        total_chunks=3,
+                        evidence={"chunk3": []},
+                        metadata={"source_file": "chunk3"},
+                    ),
+                ]
+
+        empty = SkillFindings(
+            skill="iam",
+            findings=[],
+            summary=FindingsSummary(
+                total_findings=0,
+                critical=0,
+                high=0,
+                medium=0,
+                low=0,
+                overall_risk_score=0.0,
+            ),
+            evidence_count=0,
+            checklist_version="1.0",
+        )
+
+        findings_with_issues = SkillFindings(
+            skill="iam",
+            findings=[
+                {
+                    "id": "IAM-005",
+                    "severity": "High",
+                    "risk_score": 7.0,
+                    "title": "IAM policy too permissive",
+                    "description": "desc",
+                    "impact": "impact",
+                    "evidence_refs": ["chunk3.json"],
+                    "affected_resources": ["arn:aws:iam::123456789012:role/Admin"],
+                    "remediation": "Restrict policy",
+                    "cis_reference": "1.20",
+                }
+            ],
+            summary=FindingsSummary(
+                total_findings=1,
+                critical=0,
+                high=1,
+                medium=0,
+                low=0,
+                overall_risk_score=7.0,
+            ),
+            evidence_count=1,
+            checklist_version="1.0",
+        )
+
+        # chunks 1 and 2 return empty, chunk 3 returns a finding
+        with patch.object(
+            client, "analyze_evidence", side_effect=[empty, empty, findings_with_issues]
+        ):
+            result = client.analyze_evidence_chunked(
+                "iam",
+                {"large": ["x"]},
+                MINIMAL_CHECKLIST,
+                chunker=_ThreeChunks(),
+            )
+
+        assert result.summary.total_findings == 1
+        status = client.get_last_analysis_status("iam")
+        assert "empty_chunks" in status
+        assert status["empty_chunks"] == 2
+        assert status["failed_chunks"] == 0
+        assert status["partial_results"] is False
+
+    def test_empty_chunks_key_present_in_status_dict(self, tmp_path):
+        """QA-36: Verify empty_chunks key is always present in status dict."""
+        client = _make_api_client()
+        client.findings_cache = FindingsCache(cache_dir=tmp_path)
+
+        class _SingleChunk:
+            def should_chunk(self, evidence):
+                return True
+
+            def chunk_evidence(self, evidence):
+                return [
+                    EvidenceChunk(
+                        chunk_id=1,
+                        total_chunks=1,
+                        evidence={"data": []},
+                        metadata={"source_file": "data"},
+                    ),
+                ]
+
+        empty = SkillFindings(
+            skill="iam",
+            findings=[],
+            summary=FindingsSummary(
+                total_findings=0,
+                critical=0,
+                high=0,
+                medium=0,
+                low=0,
+                overall_risk_score=0.0,
+            ),
+            evidence_count=0,
+            checklist_version="1.0",
+        )
+
+        with patch.object(client, "analyze_evidence", return_value=empty):
+            client.analyze_evidence_chunked(
+                "iam",
+                {"large": ["x"]},
+                MINIMAL_CHECKLIST,
+                chunker=_SingleChunk(),
+            )
+
+        status = client.get_last_analysis_status("iam")
+        # Verify the key exists and has expected keys for tracking metrics
+        assert isinstance(status, dict)
+        assert "empty_chunks" in status
+        assert "failed_chunks" in status
+        assert "processed_chunks" in status
+        assert "total_chunks" in status
+        assert "partial_results" in status

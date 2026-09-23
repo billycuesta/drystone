@@ -1,7 +1,6 @@
 """Unit tests for sistemas_explotables_red skill helper logic."""
 
 import json
-from typing import Dict, Any
 from unittest.mock import MagicMock, patch
 
 from drystone.skills.sistemas_explotables_red import SistemasExplotablesRedSkill
