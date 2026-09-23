@@ -10,19 +10,91 @@ import pytest
 from drystone.reports import pci_cli_queries
 from drystone.reports.pci_cli_queries import CliQuery, OutputSpec, resolve_query
 
-IAM_LAYER_1_STEMS = {
-    "account-summary",
-    "account-aliases",
-    "password-policy",
-    "credential-report",
-    "users",
-    "groups",
-    "roles",
-    "policies",
-    "assumeRole-chains",
-    "resource-based-policies",
-    "instance-profiles",
-    "effective-scps",
+EXPECTED_LAYER_1_STEMS = {
+    "iam": {
+        "account-summary",
+        "account-aliases",
+        "password-policy",
+        "credential-report",
+        "users",
+        "groups",
+        "roles",
+        "policies",
+        "assumeRole-chains",
+        "resource-based-policies",
+        "instance-profiles",
+        "effective-scps",
+    },
+    "network": {
+        "security-groups",
+        "network-acls",
+        "route-tables",
+        "subnets",
+        "vpcs",
+        "ec2-instances",
+        "network-interfaces",
+        "rds-instances",
+        "lambda-functions",
+        "vpc-endpoints",
+        "internet-gateways",
+        "vpn-connections",
+        "transit-gateway-topology",
+        "nat-gateway-routes",
+    },
+    "exposure": {
+        "s3-buckets",
+        "rds-instances",
+        "security-groups",
+        "ami-images",
+        "cloudfront-distributions",
+        "load-balancers",
+        "load-balancer-listeners",
+        "wafv2-web-acls",
+        "wafv2-web-acl-alb-associations",
+        "lambda-function-urls",
+        "api-gateway-stages",
+        "api-gateway-routes",
+        "ecs-eks-ingress",
+        "elasticsearch-domains",
+        "resource-based-policies",
+    },
+    "waf": {
+        "cloudfront-distributions",
+        "cloudfront-wafv2-associations",
+        "cloudfront-classic-associations",
+        "wafv2-web-acls",
+        "wafv2-ip-sets",
+        "wafv2-rule-groups",
+        "wafv2-managed-rule-groups",
+        "alb-waf-associations",
+        "api-entrypoints-waf-associations",
+        "waf-classic",
+        "waf-collection-status",
+    },
+    "hardening": {
+        "security-hub-status",
+        "security-hub-findings",
+        "security-hub-findings-summary",
+        "security-hub-enabled-standards",
+        "config-recorders",
+        "config-delivery-channels",
+        "config-recorder-status",
+        "config-compliance",
+        "config-compliance-summary",
+        "config-conformance-packs",
+        "config-conformance-pack-compliance",
+        "acm-certificates",
+        "guardduty-detectors",
+        "macie-session",
+        "macie-findings",
+        "backup-vaults",
+        "backup-plans",
+        "backup-plans-detailed",
+        "account-summary",
+        "account-aliases",
+        "password-policy",
+        "hardening-collection-status",
+    },
 }
 
 
@@ -116,16 +188,22 @@ def test_resolve_query_preserves_alternative_commands_as_data_structure(monkeypa
     )
 
 
-def test_p1_complete_skills_only_contains_iam():
-    assert pci_cli_queries.COMPLETE_SKILLS == frozenset({"iam"})
+def test_complete_skills_contains_p1_and_p2_catalogs():
+    assert pci_cli_queries.COMPLETE_SKILLS == frozenset({"iam", "network", "exposure", "waf", "hardening"})
 
 
-def test_iam_has_layer_1_recipes_for_plan_stems():
-    assert set(pci_cli_queries.SOURCE_QUERIES["iam"]) == IAM_LAYER_1_STEMS
+@pytest.mark.parametrize("skill, expected_stems", EXPECTED_LAYER_1_STEMS.items())
+def test_complete_skills_have_layer_1_recipes_for_expected_stems(skill: str, expected_stems: set[str]):
+    assert set(pci_cli_queries.SOURCE_QUERIES[skill]) == expected_stems
 
 
-def test_every_iam_checklist_item_with_pci_dss_has_layer_2_recipe():
-    checklist = json_load(Path("drystone/skills/iam/checklist.json"))
+def test_iam_keeps_p1_layer_1_recipes_for_plan_stems():
+    assert set(pci_cli_queries.SOURCE_QUERIES["iam"]) == EXPECTED_LAYER_1_STEMS["iam"]
+
+
+@pytest.mark.parametrize("skill", sorted(pci_cli_queries.COMPLETE_SKILLS))
+def test_every_complete_skill_checklist_item_with_pci_dss_has_layer_2_recipe(skill: str):
+    checklist = json_load(Path(f"drystone/skills/{skill}/checklist.json"))
     pci_check_ids = {item["id"] for item in checklist["items"] if item.get("pci_dss")}
 
     assert pci_check_ids <= set(pci_cli_queries.CHECK_QUERIES)

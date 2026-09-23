@@ -170,6 +170,10 @@ def _import_skill_module(name: str) -> None:
 
 
 _import_skill_module("iam")
+_import_skill_module("network")
+_import_skill_module("exposure")
+_import_skill_module("waf")
+_import_skill_module("hardening")
 
 __all__ = [
     "CHECK_QUERIES",
