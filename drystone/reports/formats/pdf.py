@@ -776,68 +776,7 @@ class PDFFormatter(BaseFormatter):
 
         return "".join(item(label, value) for label, value in fields)
 
-    # Mapping of evidence filenames → human-readable labels (mirrors MarkdownFormatter)
-    _EVIDENCE_FILE_LABELS: Dict[str, str] = {
-        # IAM
-        "users.json": "IAM Users",
-        "roles.json": "IAM Roles",
-        "policies.json": "IAM Policies",
-        "groups.json": "IAM Groups",
-        "account-summary.json": "Account Summary",
-        "mfa-devices.json": "MFA Devices",
-        "access-keys.json": "Access Keys",
-        # Alerting / Monitoring
-        "cloudtrail-trails.json": "CloudTrail Trails",
-        "cloudwatch-alarms.json": "CloudWatch Alarms",
-        "cloudwatch-log-groups.json": "CloudWatch Log Groups",
-        "cloudwatch-metric-filters.json": "CloudWatch Metric Filters",
-        "eventbridge-rules.json": "EventBridge Rules",
-        "sns-topics.json": "SNS Topics",
-        "sns-subscriptions.json": "SNS Subscriptions",
-        "vpc-flow-logs.json": "VPC Flow Logs",
-        # Network
-        "vpcs.json": "VPCs",
-        "security-groups.json": "Security Groups",
-        "nacls.json": "Network ACLs",
-        "subnets.json": "Subnets",
-        "route-tables.json": "Route Tables",
-        "internet-gateways.json": "Internet Gateways",
-        "nat-gateways.json": "NAT Gateways",
-        "vpc-endpoints.json": "VPC Endpoints",
-        "transit-gateways.json": "Transit Gateways",
-        # Load Balancing / Compute
-        "load-balancers.json": "Load Balancers",
-        "ec2-instances.json": "EC2 Instances",
-        "lambda-functions.json": "Lambda Functions",
-        "auto-scaling-groups.json": "Auto Scaling Groups",
-        # Exposure / Storage / API
-        "s3-buckets.json": "S3 Buckets",
-        "rds-instances.json": "RDS Instances",
-        "api-gateways.json": "API Gateways",
-        "cloudfront-distributions.json": "CloudFront Distributions",
-        "elasticache-clusters.json": "ElastiCache Clusters",
-        "opensearch-domains.json": "OpenSearch Domains",
-        # Vulns
-        "inspector-findings.json": "Inspector Findings",
-        # Hardening
-        "config-rules.json": "AWS Config Rules",
-        "security-hub-findings.json": "Security Hub Findings",
-        "security-hub-standards.json": "Security Hub Standards",
-        "guardduty-detectors.json": "GuardDuty Detectors",
-        "guardduty-findings.json": "GuardDuty Findings",
-        # Secrets Manager
-        "secrets.json": "Secrets",
-        # WAF
-        "web-acls.json": "Web ACLs",
-        "waf-rules.json": "WAF Rules",
-        "ip-sets.json": "IP Sets",
-        # ECR
-        "repositories.json": "ECR Repositories",
-        "scanning-config.json": "ECR Scanning Config",
-        "lifecycle-policies.json": "ECR Lifecycle Policies",
-        # KMS
-        "kms-keys.json": "KMS Keys",
-    }
+    # Use unified mapping on BaseFormatter._EVIDENCE_FILE_LABELS
 
     def _skill_resources_audited_html(self) -> str:
         """Build an HTML table of audited resources from skill evidence files.

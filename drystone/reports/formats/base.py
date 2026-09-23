@@ -21,6 +21,86 @@ class BaseFormatter(ABC):
     # changes in a way that isn't backward compatible.
     REPORT_FORMAT_VERSION = "1.0"
 
+    # Unified mapping of evidence filenames -> human-friendly labels.
+    # This used to be duplicated in MarkdownFormatter and PDFFormatter;
+    # keep a single canonical copy here so subclasses inherit the same object
+    # (tests assert identity using `is`).
+    _EVIDENCE_FILE_LABELS: Dict[str, str] = {
+        # IAM
+        "users.json": "IAM Users",
+        "roles.json": "IAM Roles",
+        "policies.json": "IAM Policies",
+        "groups.json": "IAM Groups",
+        "account-summary.json": "Account Summary",
+        "mfa-devices.json": "MFA Devices",
+        "access-keys.json": "Access Keys",
+        # Alerting / Monitoring
+        "cloudtrail-trails.json": "CloudTrail Trails",
+        "cloudtrail-s3-notifications.json": "CloudTrail S3 Notifications",
+        "cloudtrail-log-subscriptions.json": "CloudTrail Log Subscriptions",
+        "cloudwatch-alarms.json": "CloudWatch Alarms",
+        "cloudwatch-log-groups.json": "CloudWatch Log Groups",
+        "cloudwatch-metric-filters.json": "CloudWatch Metric Filters",
+        "eventbridge-rules.json": "EventBridge Rules",
+        "sns-topics.json": "SNS Topics",
+        "sns-subscriptions.json": "SNS Subscriptions",
+        "vpc-flow-logs.json": "VPC Flow Logs",
+        # Network
+        "vpcs.json": "VPCs",
+        "security-groups.json": "Security Groups",
+        "nacls.json": "Network ACLs",
+        "network-acls.json": "Network ACLs",  # actual network skill filename
+        "subnets.json": "Subnets",
+        "route-tables.json": "Route Tables",
+        "internet-gateways.json": "Internet Gateways",
+        "nat-gateways.json": "NAT Gateways",
+        "nat-gateway-routes.json": "NAT Gateways",  # actual network skill filename
+        "vpc-endpoints.json": "VPC Endpoints",
+        "transit-gateways.json": "Transit Gateways",
+        "vpn-connections.json": "VPN Connections",  # actual network skill filename
+        # Load Balancing / Compute
+        "load-balancers.json": "Load Balancers",
+        "ec2-instances.json": "EC2 Instances",
+        "lambda-functions.json": "Lambda Functions",
+        "auto-scaling-groups.json": "Auto Scaling Groups",
+        # Exposure / Storage / API
+        "s3-buckets.json": "S3 Buckets",
+        "rds-instances.json": "RDS Instances",
+        "api-gateways.json": "API Gateways",
+        "cloudfront-distributions.json": "CloudFront Distributions",
+        "elasticache-clusters.json": "ElastiCache Clusters",
+        "opensearch-domains.json": "OpenSearch Domains",
+        # Vulns
+        "inspector-findings.json": "Inspector Findings",
+        # Hardening
+        "config-rules.json": "AWS Config Rules",
+        "security-hub-findings.json": "Security Hub Findings",
+        "security-hub-standards.json": "Security Hub Standards",
+        "guardduty-detectors.json": "GuardDuty Detectors",
+        "guardduty-findings.json": "GuardDuty Findings",
+        # Secrets Manager
+        "secrets.json": "Secrets",
+        # WAF
+        "web-acls.json": "Web ACLs",
+        "waf-rules.json": "WAF Rules",
+        "ip-sets.json": "IP Sets",
+        # ECR
+        "repositories.json": "ECR Repositories",
+        "scanning-config.json": "ECR Scanning Config",
+        "lifecycle-policies.json": "ECR Lifecycle Policies",
+        # KMS
+        "kms-keys.json": "KMS Keys",
+        # Sistemas Explotables por Red (SER)
+        "compute-inventory.json": "Compute Inventory (EC2/ECS/Lambda/RDS)",
+        "network-controls.json": "Network Controls (SGs/Route Tables/NACLs)",
+        "front-doors.json": "Front Doors (LBs/Lambda URLs/API GW Routes)",
+        "reachability-graph.json": "Reachability Graph",
+        "attack-path-candidates.json": "Attack Path Candidates",
+        "inspector-findings-normalized.json": "Inspector Findings (normalized)",
+        "port-service-hypothesis.json": "Port/Service Hypothesis",
+        "cve-intelligence.json": "CVE Intelligence",
+    }
+
     def __init__(self, findings_data: Dict[str, Any], session: AuditSession, config: WizardConfig):
         """Initialize formatter.
 
