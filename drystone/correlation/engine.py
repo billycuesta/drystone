@@ -143,6 +143,63 @@ class CorrelationEngine:
             # former deterministic and pentest-style patterns. The old
             # per-module PATTERN_METADATA loop has been removed.
 
+            # Backwards-compatibility: if `self.patterns` was populated (tests
+            # or external integrations may inject legacy-style pattern dicts),
+            # apply them using the same matching/prioritization logic as the
+            # former loop. This keeps test fixtures working while the global
+            # PATTERN_METADATA symbol has been removed.
+            if self.patterns:
+                for pattern_meta in list(self.patterns):
+                    # Check required skills
+                    if not all(skill in findings_by_skill for skill in pattern_meta.get("skills_required", [])):
+                        logger.debug(f"Skipping pattern {pattern_meta.get('id')} (missing required skills)")
+                        continue
+
+                    # Timeout / capacity checks
+                    if time.time() - start_time > self.MAX_EXECUTION_TIME_SECONDS:
+                        message = (
+                            f"Correlation analysis was truncated after the "
+                            f"{self.MAX_EXECUTION_TIME_SECONDS}s execution limit."
+                        )
+                        logger.warning(message)
+                        errors.append(f"Timeout after {self.MAX_EXECUTION_TIME_SECONDS}s")
+                        _mark_truncated("timeout", message)
+                        break
+
+                    remaining_capacity = self.MAX_TOTAL_CORRELATIONS - len(correlations)
+                    if remaining_capacity <= 0:
+                        message = (
+                            f"Correlation analysis was truncated after reaching the "
+                            f"{self.MAX_TOTAL_CORRELATIONS} total correlation cap."
+                        )
+                        logger.warning(message)
+                        _mark_truncated("max_total_correlations", message)
+                        break
+
+                    try:
+                        logger.info(f"Applying legacy-style pattern: {pattern_meta.get('id')}...")
+                        match_function = pattern_meta.get("match_function")
+                        matches = match_function(findings_by_skill, self._resource_index_cache) or []
+
+                        # Limit per-pattern
+                        if len(matches) > self.MAX_CORRELATIONS_PER_PATTERN:
+                            matches = self._prioritize_matches(matches, self.MAX_CORRELATIONS_PER_PATTERN)
+
+                        remaining_capacity = self.MAX_TOTAL_CORRELATIONS - len(correlations)
+                        if len(matches) > remaining_capacity:
+                            matches = self._prioritize_matches(matches, remaining_capacity)
+
+                        for match_group in matches:
+                            corr_finding = self._create_correlated_finding(pattern_meta, match_group)
+                            if corr_finding:
+                                correlations.append(corr_finding)
+
+                        if matches:
+                            patterns_applied.append(pattern_meta.get("id"))
+                    except Exception as e:
+                        logger.error(f"Pattern {pattern_meta.get('id')} failed: {e}", exc_info=True)
+                        errors.append(f"Pattern {pattern_meta.get('id')}: {str(e)}")
+
             # Step 3b: Apply dynamic pentest patterns (best-effort)
             dynamic_patterns = PATTERN_REGISTRY.get_patterns_for_skills(
                 list(findings_by_skill.keys())
