@@ -6,6 +6,7 @@ import types
 from pathlib import Path
 from unittest.mock import Mock
 
+from drystone.reports.formats.markdown import MarkdownFormatter
 from drystone.reports.formats.pdf import PDFFormatter
 from drystone.storage.session import AuditSession
 
@@ -44,6 +45,15 @@ def _sample_findings():
             }
         ],
     }
+
+
+def test_pdf_evidence_file_labels_cover_markdown_labels():
+    """PDF evidence labels must not drift behind the Markdown formatter."""
+    missing_keys = set(MarkdownFormatter._EVIDENCE_FILE_LABELS) - set(
+        PDFFormatter._EVIDENCE_FILE_LABELS
+    )
+
+    assert missing_keys == set()
 
 
 def test_pdf_formatter_generates_pdf_with_weasyprint_stub(tmp_path, monkeypatch):

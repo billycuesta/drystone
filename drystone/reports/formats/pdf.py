@@ -755,6 +755,8 @@ class PDFFormatter(BaseFormatter):
         "access-keys.json": "Access Keys",
         # Alerting / Monitoring
         "cloudtrail-trails.json": "CloudTrail Trails",
+        "cloudtrail-s3-notifications.json": "CloudTrail S3 Notifications",
+        "cloudtrail-log-subscriptions.json": "CloudTrail Log Subscriptions",
         "cloudwatch-alarms.json": "CloudWatch Alarms",
         "cloudwatch-log-groups.json": "CloudWatch Log Groups",
         "cloudwatch-metric-filters.json": "CloudWatch Metric Filters",
@@ -766,12 +768,15 @@ class PDFFormatter(BaseFormatter):
         "vpcs.json": "VPCs",
         "security-groups.json": "Security Groups",
         "nacls.json": "Network ACLs",
+        "network-acls.json": "Network ACLs",  # actual network skill filename
         "subnets.json": "Subnets",
         "route-tables.json": "Route Tables",
         "internet-gateways.json": "Internet Gateways",
         "nat-gateways.json": "NAT Gateways",
+        "nat-gateway-routes.json": "NAT Gateways",  # actual network skill filename
         "vpc-endpoints.json": "VPC Endpoints",
         "transit-gateways.json": "Transit Gateways",
+        "vpn-connections.json": "VPN Connections",  # actual network skill filename
         # Load Balancing / Compute
         "load-balancers.json": "Load Balancers",
         "ec2-instances.json": "EC2 Instances",
@@ -804,6 +809,15 @@ class PDFFormatter(BaseFormatter):
         "lifecycle-policies.json": "ECR Lifecycle Policies",
         # KMS
         "kms-keys.json": "KMS Keys",
+        # Sistemas Explotables por Red (SER)
+        "compute-inventory.json": "Compute Inventory (EC2/ECS/Lambda/RDS)",
+        "network-controls.json": "Network Controls (SGs/Route Tables/NACLs)",
+        "front-doors.json": "Front Doors (LBs/Lambda URLs/API GW Routes)",
+        "reachability-graph.json": "Reachability Graph",
+        "attack-path-candidates.json": "Attack Path Candidates",
+        "inspector-findings-normalized.json": "Inspector Findings (normalized)",
+        "port-service-hypothesis.json": "Port/Service Hypothesis",
+        "cve-intelligence.json": "CVE Intelligence",
     }
 
     def _skill_resources_audited_html(self) -> str:
