@@ -109,11 +109,10 @@ class FindingsNormalizer:
         ("HRD-008", "HRD-015"): "keep_higher",  # Compliance: 50-70% vs 85-95%
         ("HRD-011", "HRD-015"): "keep_higher",  # Compliance: 70-85% vs 85-95%
         # IAM: User state
-        ("IAM-003", "IAM-004"): "keep_specific",  # Inactive user vs no MFA
-        ("IAM-005", "IAM-007"): "keep_specific",  # No rotation vs old keys
-        ("IAM-008", "IAM-009"): "keep_specific",  # Weak policy vs no policy
+        ("IAM-003", "IAM-012"): "keep_specific",  # Inactive credentials (>90d, IAM-003) vs inactive user (>90d, IAM-012) -- same underlying 90-day-inactivity condition, two checklist items
+        ("IAM-004", "IAM-013"): "keep_specific",  # No rotation (>90d, IAM-004) vs unused-but-active key (>30d, IAM-013) -- a genuinely stale key can trip both
         # IAM: Root account
-        ("IAM-001", "IAM-002"): "keep_higher",  # No MFA vs partial MFA
+        ("IAM-002", "IAM-010"): "keep_specific",  # General IAM-user MFA (IAM-002, which itself names "especially privileged users") vs administrative-user MFA specifically (IAM-010) -- IAM-010 is a literal subset of what IAM-002 already covers, an admin user missing MFA trips both
         # KMS: grant broadness vs persistence-specific finding
         ("KMS-002", "KMS-007"): "keep_specific",
         # Alerting: CloudTrail state

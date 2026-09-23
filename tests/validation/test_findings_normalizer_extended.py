@@ -70,12 +70,17 @@ IAM_CHECKLIST = {
         },
         {
             "id": "IAM-004",
-            "title": "Usuarios sin MFA",
+            "title": "Access keys should be rotated every 90 days",
             "severity": "High",
         },
         {
+            "id": "IAM-005",
+            "title": "Password policy minimum length",
+            "severity": "Medium",
+        },
+        {
             "id": "IAM-007",
-            "title": "Access keys viejas (>90 dias)",
+            "title": "Inline policies should not be used",
             "severity": "Medium",
         },
         {
@@ -89,9 +94,19 @@ IAM_CHECKLIST = {
             "severity": "Critical",
         },
         {
+            "id": "IAM-010",
+            "title": "Administrative users must have MFA enabled",
+            "severity": "High",
+        },
+        {
             "id": "IAM-012",
             "title": "Inactive users should be removed",
             "severity": "High",
+        },
+        {
+            "id": "IAM-013",
+            "title": "Access keys unused but active",
+            "severity": "Medium",
         },
         {
             "id": "IAM-014",
@@ -655,21 +670,46 @@ class TestAlertingEvidenceValidation:
 class TestMutualExclusionsNewPairs:
     """Test new mutual exclusion pairs (IAM and Alerting)."""
 
-    def test_mutual_exclusion_iam_003_004(self):
-        """Test that IAM-003 and IAM-004 are mutually exclusive."""
+    def _resolved_ids(self, *findings):
         normalizer = FindingsNormalizer(IAM_CHECKLIST, "iam")
+        normalized = normalizer.normalize(list(findings))
+        return {finding.id for finding in normalizer._resolve_mutual_exclusions(normalized)}
 
-        findings = [
-            make_finding("IAM-003", "Medium", 5.0, "Inactive users", "Users inactive"),
-            make_finding("IAM-004", "High", 7.0, "No MFA", "MFA missing"),
-        ]
+    def test_mutual_exclusion_iam_003_012(self):
+        """IAM-003 and IAM-012 are mutually exclusive; keep more specific ID."""
+        ids = self._resolved_ids(
+            make_finding("IAM-003", "Medium", 5.0, "Inactive credentials", "Old credentials"),
+            make_finding("IAM-012", "High", 7.0, "Inactive user", "User inactive"),
+        )
 
-        normalized = normalizer.normalize(findings)
-        resolved = normalizer._resolve_mutual_exclusions(normalized)
+        assert ids == {"IAM-012"}
 
-        # Should keep IAM-004 (higher ID = more specific)
-        assert len(resolved) == 1
-        assert resolved[0].id == "IAM-004"
+    def test_mutual_exclusion_iam_004_013(self):
+        """IAM-004 and IAM-013 are mutually exclusive; keep more specific ID."""
+        ids = self._resolved_ids(
+            make_finding("IAM-004", "High", 7.0, "Key rotation overdue", "Old key"),
+            make_finding("IAM-013", "Medium", 5.0, "Unused active key", "Stale key"),
+        )
+
+        assert ids == {"IAM-013"}
+
+    def test_mutual_exclusion_iam_002_010(self):
+        """IAM-002 and IAM-010 are mutually exclusive; keep admin-user MFA finding."""
+        ids = self._resolved_ids(
+            make_finding("IAM-002", "High", 7.0, "User MFA missing", "Missing MFA"),
+            make_finding("IAM-010", "High", 7.5, "Admin MFA missing", "Admin missing MFA"),
+        )
+
+        assert ids == {"IAM-010"}
+
+    def test_iam_005_and_iam_007_are_not_mutually_exclusive(self):
+        """Regression: unrelated old IAM-005/IAM-007 pair must no longer drop either finding."""
+        ids = self._resolved_ids(
+            make_finding("IAM-005", "Medium", 5.0, "Password length", "Weak password policy"),
+            make_finding("IAM-007", "Medium", 5.0, "Inline policies", "Inline policies used"),
+        )
+
+        assert ids == {"IAM-005", "IAM-007"}
 
     def test_mutual_exclusion_alr_001_003(self):
         """Test that ALR-001 and ALR-003 are mutually exclusive."""
