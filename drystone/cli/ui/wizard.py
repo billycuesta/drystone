@@ -370,6 +370,61 @@ def run_project_menu(current_config: Optional[dict] = None) -> dict:
     if aws_region is None:
         raise KeyboardInterrupt("Wizard cancelled")
 
+    # ── Optional: AssumeRole configuration ───────────────────────────
+    # Ask whether the user wants to assume a role after authenticating.
+    assume_role_default = bool(defaults.get("aws_role_arn"))
+    assume_role = questionary.confirm(
+        "Assume an IAM role after authenticating? (cross-account access)",
+        default=assume_role_default,
+    ).ask()
+    if assume_role is None:
+        raise KeyboardInterrupt("Wizard cancelled")
+
+    if assume_role:
+        # Role ARN (required when assuming)
+        creds_config["aws_role_arn"] = questionary.text(
+            "Role ARN to assume:",
+            default=defaults.get("aws_role_arn", ""),
+            validate=lambda x: len(x) > 0 or "Role ARN cannot be empty",
+        ).ask()
+        if creds_config["aws_role_arn"] is None:
+            raise KeyboardInterrupt("Wizard cancelled")
+
+        # Session name (optional)
+        creds_config["aws_role_session_name"] = questionary.text(
+            "Role session name (optional):",
+            default=defaults.get("aws_role_session_name", "drystone-audit"),
+        ).ask()
+        if creds_config["aws_role_session_name"] is None:
+            raise KeyboardInterrupt("Wizard cancelled")
+
+        # External ID (sensitive) - do NOT prefill defaults
+        creds_config["aws_external_id"] = questionary.password(
+            "External ID (optional, will NOT be shown or pre-filled):",
+        ).ask()
+        if creds_config["aws_external_id"] is None:
+            raise KeyboardInterrupt("Wizard cancelled")
+        if not creds_config["aws_external_id"].strip():
+            creds_config["aws_external_id"] = None
+
+        # Duration seconds (optional, numeric)
+        duration_default = str(defaults.get("aws_role_duration_seconds", 3600))
+        while True:
+            dur = questionary.text(
+                "Role duration seconds (optional, default 3600):",
+                default=duration_default,
+            ).ask()
+            if dur is None:
+                raise KeyboardInterrupt("Wizard cancelled")
+            if not dur.strip():
+                creds_config["aws_role_duration_seconds"] = None
+                break
+            try:
+                creds_config["aws_role_duration_seconds"] = int(dur)
+                break
+            except ValueError:
+                print("Please enter a valid integer for duration seconds.")
+
     # ── Step 5: Auditor Visibility ───────────────────────────────
     print()
     print("  Auditor Visibility filters which checks are executed based on auditor depth.")

@@ -94,6 +94,23 @@ def cli(debug: bool) -> None:
         "plaintext secrets (off by default)"
     ),
 )
+@click.option(
+    "--role-arn",
+    help="ARN of the role to assume after authenticating (AssumeRole)",
+)
+@click.option(
+    "--role-session-name",
+    help="Session name to use when assuming role",
+)
+@click.option(
+    "--external-id",
+    help="External ID for AssumeRole (sensitive). If provided, it will be used but not printed",
+)
+@click.option(
+    "--role-duration-seconds",
+    type=int,
+    help="Duration in seconds for the assumed role session",
+)
 def audit(
     non_interactive: bool,
     client: Optional[str] = None,
@@ -105,6 +122,10 @@ def audit(
     scan_depth: Optional[Literal["shallow", "normal", "deep", "very-deep"]] = None,
     no_active_verification: bool = False,
     scan_terraform_state: bool = False,
+    role_arn: Optional[str] = None,
+    role_session_name: Optional[str] = None,
+    external_id: Optional[str] = None,
+    role_duration_seconds: Optional[int] = None,
 ) -> None:
     """Run AWS security audit."""
 
@@ -125,6 +146,11 @@ def audit(
         or report_type
         or scan_depth
         or no_active_verification
+        or scan_terraform_state
+        or role_arn
+        or role_session_name
+        or external_id
+        or role_duration_seconds
     )
     should_use_interactive = not non_interactive and not has_cli_args
 
@@ -184,6 +210,15 @@ def audit(
                 config.report_type = cast(Literal["general", "pci-dss", "pentest"], report_type)
             if scan_depth:
                 config.scan_depth = scan_depth
+            # AssumeRole CLI overrides
+            if role_arn:
+                config.aws_role_arn = role_arn
+            if role_session_name:
+                config.aws_role_session_name = role_session_name
+            if external_id:
+                config.aws_external_id = external_id
+            if role_duration_seconds:
+                config.aws_role_duration_seconds = role_duration_seconds
 
         else:  # non-interactive and no other args
             # No interactive mode and no CLI args - try last config

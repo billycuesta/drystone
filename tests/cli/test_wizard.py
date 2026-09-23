@@ -7,6 +7,7 @@ import pytest
 from drystone.cli.ui.wizard import (
     display_config_summary,
     run_ai_menu,
+    run_project_menu,
     run_setup_wizard,
     validate_ai_provider_credentials,
 )
@@ -167,6 +168,7 @@ class TestRunAiMenuClaudeCliPreflight:
             run_ai_menu()
 
 
+
 class TestRunSetupWizard:
     def test_retries_aws_validation_and_only_offers_continue_after_success(self, project_config):
         action_prompts = [
@@ -238,3 +240,79 @@ class TestRunSetupWizard:
             pytest.raises(KeyboardInterrupt, match="Wizard cancelled"),
         ):
             run_setup_wizard()
+
+class TestRunProjectMenuAssumeRole:
+    """run_project_menu() drives sequential questionary prompts across several
+    kinds (text/select/password/checkbox/confirm); each kind is mocked
+    separately with its own call-order sequence, matching the pattern used by
+    TestRunProjectMenu (roadmap/haiku-project-menu-tests, tests/cli/test_wizard.py).
+    """
+
+    def test_assume_role_no_skips_role_prompts(self):
+        # client name (text) -> skill/cred method "env"/region/qsa_depth/report_type
+        # (select) -> assume_role confirm -> no -> output formats (checkbox).
+        text_prompts = [_ask_mock("MyClient")]  # client name
+        select_prompts = [
+            _ask_mock("iam"),  # skill selection
+            _ask_mock("env"),  # credentials method
+            _ask_mock("us-east-1"),  # region
+            _ask_mock("standard"),  # qsa_depth
+            _ask_mock("general"),  # report type
+        ]
+        confirm_prompts = [_ask_mock(False)]  # assume_role -> no
+        checkbox_prompts = [_ask_mock(["markdown"])]  # output formats
+
+        with (
+            patch("questionary.text", side_effect=text_prompts),
+            patch("questionary.select", side_effect=select_prompts),
+            patch("questionary.confirm", side_effect=confirm_prompts),
+            patch("questionary.checkbox", side_effect=checkbox_prompts),
+        ):
+            cfg = run_project_menu(current_config=None)
+
+        assert cfg.get("aws_role_arn") is None
+        assert cfg.get("aws_role_session_name") is None
+        assert cfg.get("aws_external_id") is None
+        assert cfg.get("aws_role_duration_seconds") is None
+
+    def test_assume_role_yes_prompts_for_values(self):
+        # client name / manual-creds access key / role arn / session name /
+        # duration are all questionary.text; secret key / session token /
+        # external id are questionary.password; skill/cred method "manual"/
+        # region/qsa_depth/report_type are questionary.select; assume_role and
+        # output formats are their own kinds.
+        text_prompts = [
+            _ask_mock("MyClient"),  # client name
+            _ask_mock("AKIAFOO"),  # access key id
+            _ask_mock("arn:aws:iam::999999999999:role/TestRole"),  # role arn
+            _ask_mock("test-session"),  # role session name
+            _ask_mock("900"),  # duration seconds
+        ]
+        password_prompts = [
+            _ask_mock("SECRET"),  # secret access key
+            _ask_mock(""),  # session token (blank -> None)
+            _ask_mock("ext-123"),  # external id
+        ]
+        select_prompts = [
+            _ask_mock("iam"),  # skill selection
+            _ask_mock("manual"),  # credentials method
+            _ask_mock("us-east-1"),  # region
+            _ask_mock("standard"),  # qsa_depth
+            _ask_mock("general"),  # report type
+        ]
+        confirm_prompts = [_ask_mock(True)]  # assume_role -> yes
+        checkbox_prompts = [_ask_mock(["markdown"])]  # output formats
+
+        with (
+            patch("questionary.text", side_effect=text_prompts),
+            patch("questionary.password", side_effect=password_prompts),
+            patch("questionary.select", side_effect=select_prompts),
+            patch("questionary.confirm", side_effect=confirm_prompts),
+            patch("questionary.checkbox", side_effect=checkbox_prompts),
+        ):
+            cfg = run_project_menu(current_config=None)
+
+        assert cfg.get("aws_role_arn") == "arn:aws:iam::999999999999:role/TestRole"
+        assert cfg.get("aws_role_session_name") == "test-session"
+        assert cfg.get("aws_external_id") == "ext-123"
+        assert cfg.get("aws_role_duration_seconds") == 900

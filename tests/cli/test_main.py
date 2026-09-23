@@ -235,6 +235,26 @@ class TestAuditCliOverrides:
         _stop_at_credentials(runner, sample_config, "--no-active-verification")
         assert sample_config.active_verification is False
 
+    def test_assume_role_cli_flags_are_applied(self, runner, sample_config):
+        # Ensure CLI flags populate the config fields when a saved config is loaded
+        assert getattr(sample_config, "aws_role_arn", None) is None
+        _stop_at_credentials(
+            runner,
+            sample_config,
+            "--role-arn",
+            "arn:aws:iam::999999999999:role/TestRole",
+            "--role-session-name",
+            "test-session",
+            "--external-id",
+            "ext-123",
+            "--role-duration-seconds",
+            "900",
+        )
+        assert sample_config.aws_role_arn == "arn:aws:iam::999999999999:role/TestRole"
+        assert sample_config.aws_role_session_name == "test-session"
+        assert sample_config.aws_external_id == "ext-123"
+        assert sample_config.aws_role_duration_seconds == 900
+
     def test_active_verification_stays_on_by_default(self, runner, sample_config):
         _stop_at_credentials(runner, sample_config, "--client", "ACME")
         assert sample_config.active_verification is True
