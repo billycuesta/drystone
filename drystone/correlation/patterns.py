@@ -550,7 +550,7 @@ def vulns_hardening_persistent_cve(
 # ============================================================================
 
 # Legacy pattern metadata (migrated into PATTERN_REGISTRY)
-LEGACY_PATTERNS = [
+LEGACY_PATTERNS: List[Dict[str, Any]] = [
     {
         "id": "iam_network_ssh_compromise",
         "name": "SSH Access Without MFA Protection",
@@ -629,14 +629,48 @@ LEGACY_PATTERNS = [
 # This keeps backward compatibility for the engine which now supports multi-match
 # source_finder return values (List[List[Finding]]). Each legacy entry is converted
 # preserving title/description/templates and amplification_factor.
+def _make_legacy_attack_path_gen(
+    steps: List[str],
+) -> Callable[[Dict[str, Any]], List[str]]:
+    def _gen(_ctx: Dict[str, Any]) -> List[str]:
+        return list(steps)
+
+    return _gen
+
+
+def _make_legacy_remediation_gen(
+    steps: List[str],
+) -> Callable[[Dict[str, Any]], List[str]]:
+    def _gen(_ctx: Dict[str, Any]) -> List[str]:
+        return list(steps)
+
+    return _gen
+
+
+def _make_legacy_matcher(
+    match_function: Callable[[Dict[str, List[Finding]], Dict[str, List[Finding]]], Any],
+) -> Callable[[Dict[str, List[Finding]], Dict[str, List[Finding]], Dict[str, Any]], bool]:
+    def _matcher(
+        fb: Dict[str, List[Finding]], ri: Dict[str, List[Finding]], _ev: Dict[str, Any]
+    ) -> bool:
+        return bool(match_function(fb, ri))
+
+    return _matcher
+
+
+def _make_legacy_source_finder(
+    match_function: Callable[[Dict[str, List[Finding]], Dict[str, List[Finding]]], Any],
+) -> Callable[[Dict[str, List[Finding]], Dict[str, List[Finding]], Dict[str, Any]], Any]:
+    def _source_finder(
+        fb: Dict[str, List[Finding]], ri: Dict[str, List[Finding]], _ev: Dict[str, Any]
+    ) -> Any:
+        return match_function(fb, ri)
+
+    return _source_finder
+
+
 for meta in LEGACY_PATTERNS:
-    # Build attack_path_generator/remediation_generator from templates
-    def make_attack_path_gen(steps):
-        return (lambda _ctx, s=steps: list(s))
-
-    def make_remediation_gen(steps):
-        return (lambda _ctx, s=steps: list(s))
-
+    _match_fn = meta["match_function"]
     PATTERN_REGISTRY.register(
         DynamicCorrelationPattern(
             id=meta["id"],
@@ -644,13 +678,14 @@ for meta in LEGACY_PATTERNS:
             description=meta.get("description_template", ""),
             severity=meta.get("severity", "High"),
             skills_required=meta.get("skills_required", []),
-            matcher=(
-                # Wrap legacy match_function to dynamic matcher signature
-                lambda fb, ri, ev, mf=meta.get("match_function"):
-                bool(mf(fb, ri))
+            # Wrap legacy match_function to the dynamic matcher signature
+            matcher=_make_legacy_matcher(_match_fn),
+            attack_path_generator=_make_legacy_attack_path_gen(
+                meta.get("attack_path_steps", [])
             ),
-            attack_path_generator=make_attack_path_gen(meta.get("attack_path_steps", [])),
-            remediation_generator=make_remediation_gen(meta.get("remediation_template", [])),
+            remediation_generator=_make_legacy_remediation_gen(
+                meta.get("remediation_template", [])
+            ),
             threat_context=ThreatContext(
                 mitre_attack_tactics=[],
                 mitre_attack_techniques=[],
@@ -665,9 +700,7 @@ for meta in LEGACY_PATTERNS:
             ),
             amplification_factor=meta.get("amplification_factor", 1.3),
             # Provide a source_finder adapter that returns a list of finding-groups
-            source_finder=(
-                lambda fb, ri, ev, mf=meta.get("match_function"): mf(fb, ri)
-            ),
+            source_finder=_make_legacy_source_finder(_match_fn),
         )
     )
 

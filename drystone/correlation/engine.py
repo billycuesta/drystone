@@ -53,10 +53,14 @@ class CorrelationEngine:
         """
         self.session_dir: Path = session_dir
         self.findings_dir: Path = session_dir / "findings"
-        # Legacy PATTERN_METADATA removed; engine now uses PATTERN_REGISTRY for
-        # both deterministic and dynamic patterns. Keep no `self.patterns` to
-        # avoid referencing removed legacy symbols.
-        self.patterns = []
+        # Legacy PATTERN_METADATA has been removed; the engine now applies
+        # every pattern (former deterministic + dynamic) via PATTERN_REGISTRY.
+        # `self.patterns` is kept only as a test-injection seam: some tests
+        # inject a synthetic legacy-shaped pattern dict here (see
+        # tests/correlation/test_engine.py) to exercise timeout/cap
+        # enforcement in isolation from the full pattern registry. Empty by
+        # default; nothing in production code ever populates it.
+        self.patterns: List[Dict[str, Any]] = []
 
         # GAPS RESOLVED:
         # - GAP-T1: Counter for sequential IDs
@@ -178,7 +182,7 @@ class CorrelationEngine:
 
                     try:
                         logger.info(f"Applying legacy-style pattern: {pattern_meta.get('id')}...")
-                        match_function = pattern_meta.get("match_function")
+                        match_function = pattern_meta["match_function"]
                         matches = match_function(findings_by_skill, self._resource_index_cache) or []
 
                         # Limit per-pattern
