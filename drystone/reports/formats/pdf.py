@@ -2695,13 +2695,14 @@ class PDFFormatter(BaseFormatter):
         if getattr(self.config, "report_type", "general") != "pci-dss":
             return ""
 
-        from drystone.reports.formats.pci_dss import build_pci_controls_map, get_requirement_name
-
-        findings = self.findings.get("findings", [])
+        # Use BaseFormatter PCI helpers. Read from the redacted findings view,
+        # not raw self.findings -- matching PCIDSSFormatter's own established
+        # redaction discipline (see rec RPT-H) as defense in depth.
+        findings = self.report_context.redacted_findings.get("findings", [])
         skills = list(getattr(self.config, "skills", [])) or [self.findings.get("skill", "unknown")]
 
-        data = build_pci_controls_map(findings, skills)
-        controls = data["controls"]
+        data = self._build_pci_controls_map(findings, skills)
+        controls = data.get("controls", [])
 
         if not controls:
             return ""
@@ -2738,7 +2739,7 @@ class PDFFormatter(BaseFormatter):
             req_num = ctrl["requirement"]
             if req_num != current_req:
                 current_req = req_num
-                req_name = html.escape(get_requirement_name(req_num))
+                req_name = html.escape(self._get_requirement_name(req_num))
                 rows_html.append(
                     f'<tr class="pci-req-header">'
                     f'<td colspan="3"><strong>Requirement {html.escape(req_num)} · {req_name}</strong></td>'

@@ -1687,13 +1687,16 @@ Generated with [Drystone](https://github.com/billycuesta/drystone)
         if getattr(self.config, "report_type", "general") != "pci-dss":
             return ""
 
-        from drystone.reports.formats.pci_dss import build_pci_controls_map, get_requirement_name
-
-        findings = self.findings.get("findings", [])
+        # Use BaseFormatter PCI helpers. Read from the redacted findings view,
+        # not raw self.findings -- this section can surface finding IDs and
+        # checklist-authored reason text; matching PCIDSSFormatter's own
+        # established redaction discipline (see rec RPT-H) is defense in
+        # depth in case this section is later extended to show more fields.
+        findings = self.report_context.redacted_findings.get("findings", [])
         skills = list(getattr(self.config, "skills", [])) or [self.findings.get("skill", "unknown")]
 
-        data = build_pci_controls_map(findings, skills)
-        controls = data["controls"]
+        data = self._build_pci_controls_map(findings, skills)
+        controls = data.get("controls", [])
 
         if not controls:
             return ""
@@ -1747,7 +1750,7 @@ Generated with [Drystone](https://github.com/billycuesta/drystone)
                 if current_req is not None:
                     lines.append("")
                 current_req = req_num
-                req_name = get_requirement_name(req_num)
+                req_name = self._get_requirement_name(req_num)
                 lines.append(f"### Requirement {req_num} · {req_name}")
                 lines.append("")
                 lines.append(f"| {header_control} | {header_status} | {header_just} |")

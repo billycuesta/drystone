@@ -1,8 +1,10 @@
 """Base formatter for report generation."""
 
+import json
+import re
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from drystone.models.config import WizardConfig
 from drystone.reports.context import ReportContext
@@ -81,3 +83,90 @@ class BaseFormatter(ABC):
             return f"🟡 {score:.1f}/10 (Medium)"
         else:
             return f"🟢 {score:.1f}/10 (Low)"
+
+    # ------------------------------------------------------------------
+    # PCI DSS helpers moved here so all formatters can reuse them.
+    # These were previously implemented in pci_dss.py; keeping them
+    # as instance helpers on BaseFormatter reduces duplication.
+    # ------------------------------------------------------------------
+    _REQUIREMENT_NAMES: Dict[str, str] = {
+        "1": "Network Security Controls",
+        "2": "Secure Configurations",
+        "3": "Data Protection",
+        "4": "Transmission Security",
+        "5": "Malware Protection",
+        "6": "Secure Development",
+        "7": "Access Control",
+        "8": "Identification & Authentication",
+        "9": "Physical Access",
+        "10": "Logging & Monitoring",
+        "11": "Testing Security",
+        "12": "Security Policies",
+    }
+
+    def _get_requirement_name(self, req_num: str) -> str:
+        """Return PCI DSS requirement name from its number."""
+        return self._REQUIREMENT_NAMES.get(req_num, f"Requirement {req_num}")
+
+    def _get_checklist_path(self, skill: str) -> Path:
+        """Get the path to a skill's checklist.json (project-root relative)."""
+        return Path(__file__).parent.parent.parent / "skills" / skill / "checklist.json"
+
+    def _build_pci_controls_map(self, findings: List[Dict], skills: List[str]) -> Dict:
+        """Build a structured map of PCI DSS controls from checklists and findings.
+
+        Returns same shape as the previous build_pci_controls_map helper used by
+        the specialized PCIDSS formatter.
+        """
+        all_controls: Dict[str, Dict] = {}
+        for skill_name in skills:
+            checklist_path = self._get_checklist_path(skill_name)
+            if not checklist_path.exists():
+                # Fallback: resolve relative to this module file
+                checklist_path = (
+                    Path(__file__).parent.parent.parent / "skills" / skill_name / "checklist.json"
+                )
+            if not checklist_path.exists():
+                continue
+            try:
+                with open(checklist_path) as f:
+                    checklist = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                continue
+
+            for item in checklist.get("items", []):
+                for pci in item.get("pci_dss", []):
+                    cid = pci.get("control")
+                    if not cid:
+                        continue
+                    if cid not in all_controls:
+                        req_num = cid.split(".")[0]
+                        all_controls[cid] = {
+                            "control": cid,
+                            "requirement": req_num,
+                            "req_name": self._get_requirement_name(req_num),
+                            "reason": pci.get("reason", "Control mapping found in checklist."),
+                            "checks": [],
+                            "findings": [],
+                            "status": "ok",
+                        }
+                    if item.get("id") and item.get("title"):
+                        all_controls[cid]["checks"].append({"id": item["id"], "title": item["title"]})
+
+        # Map findings to controls
+        for finding in findings:
+            for pci in finding.get("pci_dss") or []:
+                cid = pci.get("control")
+                if cid and cid in all_controls:
+                    all_controls[cid]["findings"].append(finding)
+                    all_controls[cid]["status"] = "ko"
+
+        # Natural sort helper
+        def _sort_key(c: Dict) -> List:
+            return [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", c["control"])]
+
+        sorted_controls = sorted(all_controls.values(), key=_sort_key)
+        ok = sum(1 for c in sorted_controls if c["status"] == "ok")
+        ko = len(sorted_controls) - ok
+
+        return {"controls": sorted_controls, "summary": {"total": len(sorted_controls), "ok": ok, "ko": ko}}
