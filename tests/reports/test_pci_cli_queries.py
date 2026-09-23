@@ -152,6 +152,46 @@ EXPECTED_LAYER_1_STEMS = {
         "ec2-inventory",
         "lambda-inventory",
     },
+    "cloudtrail_events": {
+        "root-events",
+        "console-login-events",
+        "assume-role-events",
+        "stop-logging-events",
+        "delete-trail-events",
+        "update-trail-events",
+        "create-access-key-events",
+        "attach-user-policy-events",
+        "attach-role-policy-events",
+        "create-login-profile-events",
+        "credential-report-events",
+        "get-credential-report-events",
+        "disable-security-hub-events",
+        "delete-detector-events",
+        "disable-alarm-actions-events",
+        "get-secret-value-events",
+        "get-parameter-events",
+        "update-assume-role-events",
+        "put-role-policy-events",
+        "write-events",
+        "access-denied-events",
+        "throttling-events",
+        "delete-events",
+        "audit-tampering-events",
+        "privilege-escalation-events",
+    },
+    "sistemas_explotables_red": {
+        "compute-inventory",
+        "network-controls",
+        "front-doors",
+        "inspector-findings-normalized",
+        "reachability-graph",
+        "port-service-hypothesis",
+        "attack-path-candidates",
+        "cve-intelligence",
+    },
+    "ecr": {"registry", "repositories", "ecr-collection-status"},
+    "messaging": {"sqs-queues", "sns-topics"},
+    "cicd": {"codebuild-projects", "codebuild-source-credentials"},
 }
 
 
@@ -259,6 +299,11 @@ def test_complete_skills_contains_p1_p2_and_p3_catalogs():
             "secretsmanager",
             "kms",
             "compute",
+            "cloudtrail_events",
+            "sistemas_explotables_red",
+            "ecr",
+            "messaging",
+            "cicd",
         }
     )
 
@@ -292,8 +337,23 @@ def test_catalogued_aws_cli_operations_exist_in_botocore_models():
         assert operation in cli_operations, f"aws {service} {operation}"
 
 
-@pytest.mark.parametrize("skill", ["vulns", "alerting", "recon", "secretsmanager", "kms", "compute"])
-def test_p3_source_query_output_specs_resolve_against_stored_evidence_shapes(skill: str):
+@pytest.mark.parametrize(
+    "skill",
+    [
+        "vulns",
+        "alerting",
+        "recon",
+        "secretsmanager",
+        "kms",
+        "compute",
+        "cloudtrail_events",
+        "sistemas_explotables_red",
+        "ecr",
+        "messaging",
+        "cicd",
+    ],
+)
+def test_p3_and_p4_source_query_output_specs_resolve_against_stored_evidence_shapes(skill: str):
     evidence = p3_minimal_stored_evidence()[skill]
 
     unresolved = [
@@ -535,6 +595,117 @@ def p3_minimal_stored_evidence() -> dict[str, dict[str, Any]]:
                         "FunctionUrl": "https://fn.lambda-url.aws",
                         "AuthType": "AWS_IAM",
                         "AttachedPolicies": [],
+                    }
+                ]
+            },
+        },
+        "cloudtrail_events": {
+            stem: [
+                {
+                    "EventTime": "2026-01-01T00:00:00Z",
+                    "EventName": "ConsoleLogin",
+                    "Username": "alice",
+                    "EventSource": "signin.amazonaws.com",
+                    "ErrorCode": "-",
+                    "sourceIPAddress": "203.0.113.10",
+                    "callerAccountId": "123456789012",
+                    "callerArn": "arn:aws:iam::123456789012:user/alice",
+                }
+            ]
+            for stem in EXPECTED_LAYER_1_STEMS["cloudtrail_events"]
+        },
+        "sistemas_explotables_red": {
+            "compute-inventory": {
+                "ec2_instances": [{"InstanceId": "i-123", "PublicIpAddress": "203.0.113.10"}],
+                "ecs_services": [{"serviceArn": "arn:aws:ecs:service/app"}],
+                "lambda_functions": [{"FunctionName": "fn"}],
+                "rds_instances": [{"DBInstanceIdentifier": "db-1", "PubliclyAccessible": True}],
+            },
+            "network-controls": {
+                "security_groups": [{"GroupId": "sg-123", "IpPermissions": []}],
+                "route_tables": [{"RouteTableId": "rtb-123", "Routes": []}],
+                "network_acls": [{"NetworkAclId": "acl-123", "Entries": []}],
+            },
+            "front-doors": {
+                "load_balancers": [{"LoadBalancerArn": "arn:aws:elasticloadbalancing:lb", "Scheme": "internet-facing"}],
+                "listeners": [{"ListenerArn": "arn:aws:elasticloadbalancing:listener"}],
+                "target_groups": [{"TargetGroupArn": "arn:aws:elasticloadbalancing:targetgroup"}],
+                "lambda_function_urls": [{"FunctionName": "fn", "AuthType": "NONE"}],
+                "api_gateway_routes": [{"RouteKey": "GET /", "AuthorizationType": "NONE"}],
+            },
+            "inspector-findings-normalized": {
+                "findings": [
+                    {"resourceId": "i-123", "severity": "HIGH", "status": "ACTIVE", "title": "openssl", "cve": "CVE-2026-0001"}
+                ]
+            },
+            "reachability-graph": {"edges": [{"source": "internet", "target": "i-123", "type": "sg", "reason": "0.0.0.0/0"}]},
+            "port-service-hypothesis": {"items": [{"resource": "i-123", "port": 22, "service": "ssh", "confidence": "high"}]},
+            "attack-path-candidates": {"paths": [{"asset": "i-123", "path": "internet->ssh", "severity": "critical", "signals": ["sg", "cve"]}]},
+            "cve-intelligence": {"cves": [{"id": "CVE-2026-0001", "cisa_kev": True}], "instances": {"i-123": ["CVE-2026-0001"]}},
+        },
+        "ecr": {
+            "registry": {
+                "region": "us-east-1",
+                "registry": {"registryId": "123456789012"},
+                "registry_policy": {},
+                "registry_scanning": {"scanType": "ENHANCED", "rules": []},
+            },
+            "repositories": {
+                "repositories": [
+                    {
+                        "repositoryName": "repo",
+                        "repositoryArn": "arn:aws:ecr:repo",
+                        "imageTagMutability": "IMMUTABLE",
+                        "imageScanningConfiguration": {"scanOnPush": True},
+                        "encryptionConfiguration": {"encryptionType": "KMS"},
+                        "Policy": {},
+                        "LifecyclePolicy": {},
+                        "Tags": [],
+                    }
+                ]
+            },
+            "ecr-collection-status": {"status": "ok", "errors": []},
+        },
+        "messaging": {
+            "sqs-queues": {
+                "items": [
+                    {
+                        "QueueUrl": "https://sqs.us-east-1.amazonaws.com/123/q",
+                        "QueueArn": "arn:aws:sqs:q",
+                        "KmsMasterKeyId": "alias/aws/sqs",
+                        "SqsManagedSseEnabled": True,
+                        "Policy": {},
+                        "RedrivePolicy": {},
+                        "RedriveAllowPolicy": {},
+                    }
+                ]
+            },
+            "sns-topics": {
+                "items": [
+                    {"TopicArn": "arn:aws:sns:topic", "Attributes": {"Policy": "{}"}, "Subscriptions": []}
+                ]
+            },
+        },
+        "cicd": {
+            "codebuild-projects": {
+                "items": [
+                    {
+                        "name": "project",
+                        "arn": "arn:aws:codebuild:project/project",
+                        "serviceRole": "arn:aws:iam::123:role/codebuild",
+                        "source": {"type": "GITHUB", "insecureSsl": False},
+                        "environment": {"privilegedMode": False, "environmentVariables": []},
+                    }
+                ]
+            },
+            "codebuild-source-credentials": {
+                "items": [
+                    {
+                        "arn": "arn:aws:codebuild:source-credential/1",
+                        "serverType": "GITHUB",
+                        "authType": "PERSONAL_ACCESS_TOKEN",
+                        "resource": "github.com/org/repo",
+                        "createdAt": "2026-01-01T00:00:00Z",
                     }
                 ]
             },

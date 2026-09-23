@@ -180,6 +180,11 @@ _import_skill_module("recon")
 _import_skill_module("secretsmanager")
 _import_skill_module("kms")
 _import_skill_module("compute")
+_import_skill_module("cloudtrail_events")
+_import_skill_module("sistemas_explotables_red")
+_import_skill_module("ecr")
+_import_skill_module("messaging")
+_import_skill_module("cicd")
 
 __all__ = [
     "CHECK_QUERIES",
