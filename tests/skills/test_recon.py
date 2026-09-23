@@ -1,5 +1,6 @@
 """Tests for the ReconSkill collector and recon pre-checks."""
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
@@ -258,6 +259,32 @@ def test_recon_collect_writes_all_evidence_files(tmp_path: Path):
         "attack-surface-score.json",
     }
     assert expected.issubset(set(saved)), f"Missing files: {expected - set(saved)}"
+
+
+def test_recon_collect_writes_audit_metadata(tmp_path: Path):
+    aws_client = Mock()
+    aws_client.access_key_id = "AKIA0000000000000000"
+    aws_client.secret_access_key = "x" * 40
+    aws_client.region_name = "us-east-1"
+    aws_client.session_token = None
+    aws_client.client_kwargs.return_value = {
+        "aws_access_key_id": aws_client.access_key_id,
+        "aws_secret_access_key": aws_client.secret_access_key,
+        "region_name": aws_client.region_name,
+    }
+
+    session = Mock()
+    session.get_evidence_path.return_value = tmp_path
+    session.account_id = "123456789012"
+
+    with patch("boto3.client", side_effect=_make_boto_client):
+        ReconSkill().collect(aws_client, session)
+
+    metadata = json.loads((tmp_path / "_audit_metadata.json").read_text())
+    assert metadata["_skill"] == "recon"
+    assert metadata["_region"] == "us-east-1"
+    assert metadata["_scope"] == "single-region"
+    assert "attack-surface-score.json" in metadata["evidence_files"]
 
 
 def test_recon_skill_name():

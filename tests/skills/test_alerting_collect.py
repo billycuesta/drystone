@@ -55,6 +55,7 @@ def _make_session(tmp_path, skill_name="alerting"):
     evidence_path = tmp_path / "evidence" / skill_name
     evidence_path.mkdir(parents=True)
     session.get_evidence_path.return_value = evidence_path
+    session.account_id = "123456789012"
     return session, evidence_path
 
 
@@ -314,6 +315,17 @@ class TestCollectHappyPath:
         ]
         for fname in expected:
             assert (evidence_path / fname).exists(), f"Missing: {fname}"
+
+    def test_collect_writes_audit_metadata(self, skill, aws_client, tmp_path):
+        session, evidence_path = _make_session(tmp_path)
+        with patch("boto3.client", side_effect=_boto3_factory()):
+            skill.collect(aws_client, session)
+
+        metadata = json.loads((evidence_path / "_audit_metadata.json").read_text())
+        assert metadata["_skill"] == "alerting"
+        assert metadata["_region"] == "us-east-1"
+        assert metadata["_scope"] == "single-region"
+        assert "cloudwatch-alarms.json" in metadata["evidence_files"]
 
     def test_cloudtrail_trails_content(self, skill, aws_client, tmp_path):
         session, evidence_path = _make_session(tmp_path)

@@ -318,6 +318,41 @@ class CloudTrailEventsSkill(BaseSkill):
 
         # === SUMMARY ===
         (evidence_path / "_summary.json").write_text(json.dumps(summary, indent=2, default=str))
+        self._save_json(
+            evidence_path / "_audit_metadata.json",
+            self._audit_metadata(
+                session,
+                aws_client.region_name,
+                evidence_files=[
+                    "root-events.json",
+                    "console-login-events.json",
+                    "assume-role-events.json",
+                    "stop-logging-events.json",
+                    "delete-trail-events.json",
+                    "update-trail-events.json",
+                    "create-access-key-events.json",
+                    "attach-user-policy-events.json",
+                    "attach-role-policy-events.json",
+                    "create-login-profile-events.json",
+                    "credential-report-events.json",
+                    "get-credential-report-events.json",
+                    "disable-security-hub-events.json",
+                    "delete-detector-events.json",
+                    "disable-alarm-actions-events.json",
+                    "get-secret-value-events.json",
+                    "get-parameter-events.json",
+                    "update-assume-role-events.json",
+                    "put-role-policy-events.json",
+                    "write-events.json",
+                    "access-denied-events.json",
+                    "throttling-events.json",
+                    "delete-events.json",
+                    "audit-tampering-events.json",
+                    "privilege-escalation-events.json",
+                    "_summary.json",
+                ],
+            ),
+        )
 
         total_events = sum(summary["categories_collected"].values())
         print(

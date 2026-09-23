@@ -404,6 +404,28 @@ class IAMSkill(BaseSkill):
             },
         )
 
+        self._save_json(
+            evidence_path / "_audit_metadata.json",
+            self._audit_metadata(
+                session,
+                aws_client.region_name,
+                evidence_files=[
+                    "account-summary.json",
+                    "account-aliases.json",
+                    "password-policy.json",
+                    "users.json",
+                    "groups.json",
+                    "roles.json",
+                    "policies.json",
+                    "credential-report.csv",
+                    "assumeRole-chains.json",
+                    "resource-based-policies.json",
+                    "instance-profiles.json",
+                    "effective-scps.json",
+                ],
+            ),
+        )
+
         # === SUMMARY ===
         print("\n✅ IAM collection complete:")
         print(f"   - {len(users_detailed)} users")
