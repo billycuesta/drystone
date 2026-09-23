@@ -480,6 +480,7 @@ class AgentClient:
                 pass
 
         failed_chunks = 0
+        empty_chunks = 0
         failed_chunk_details = []
         aborted_due_to_quota = False
         aborted_due_to_auth = False
@@ -513,6 +514,11 @@ class AgentClient:
                     skill_name,
                     max_retries=3,
                 )
+
+                # Track empty chunks (successful analysis with zero findings)
+                if not chunk_findings.findings:
+                    empty_chunks += 1
+                    logger.info(f"Chunk {i + 1}/{len(chunks)} ({source_file}) returned zero findings")
 
                 # Aggregate findings
                 aggregator.add_findings(chunk_findings)
@@ -582,6 +588,8 @@ class AgentClient:
 
         if failed_chunks:
             print(f"  ⚠️  {failed_chunks}/{len(chunks)} chunks failed (skipped)")
+        if empty_chunks:
+            print(f"  ℹ️  {empty_chunks}/{len(chunks)} chunks returned zero findings")
         if aborted_due_to_quota:
             print("  ⚠️  Results may be partial due to provider quota/rate limit")
         if aborted_due_to_auth:
@@ -595,6 +603,7 @@ class AgentClient:
         self._set_last_analysis_status(skill_name, {
             "partial_results": failed_chunks > 0,
             "failed_chunks": failed_chunks,
+            "empty_chunks": empty_chunks,
             "processed_chunks": processed_chunks,
             "total_chunks": len(chunks),
             "failed_chunk_details": failed_chunk_details,
