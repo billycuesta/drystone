@@ -121,7 +121,7 @@ def test_qa_gate_detects_wildcard_iam_arn_when_real_arn_exists(tmp_path: Path):
                         "title": "Multiple keys",
                         "description": "Multiple keys",
                         "remediation": "Fix",
-                        "exploitability_status": "validated",
+                        "exploitability_status": "confirmed",
                         "affected_resources": ["arn:aws:iam::*:user/alice"],
                         "evidence_refs": ["users.json#/0"],
                     }
@@ -146,7 +146,7 @@ def test_qa_gate_detects_validated_finding_missing_resource_refs(tmp_path: Path)
                         "title": "Multiple keys",
                         "description": "Multiple keys",
                         "remediation": "Fix",
-                        "exploitability_status": "validated",
+                        "exploitability_status": "confirmed",
                         "affected_resources": [
                             "arn:aws:iam::123:user/a",
                             "arn:aws:iam::123:user/b",

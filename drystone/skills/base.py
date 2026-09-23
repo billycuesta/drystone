@@ -736,7 +736,7 @@ class BaseSkill(ABC):
                         evidence_refs=evidence_refs,
                         evidence_snippet=evidence_snippet,
                         cis_reference=item.get("cis_reference") or item.get("cis_id"),
-                        exploitability_status="validated",
+                        exploitability_status="confirmed",
                         impact=PRE_CHECK_IMPACTS.get(check_id),
                         security_analogy=analogy,
                     )
@@ -825,7 +825,7 @@ class BaseSkill(ABC):
                             f.severity = "Medium"
                         else:
                             f.severity = "Low"
-                    f.exploitability_status = "validated"
+                    f.exploitability_status = "confirmed"
                     _logger.debug(
                         f"Pre-check reconciliation: corrected authoritative evidence for {check_id}"
                     )

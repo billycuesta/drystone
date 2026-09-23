@@ -30,10 +30,10 @@ class Finding(BaseModel):
             "Two paragraphs: (1) technical attacker scenario, (2) business consequence."
         ),
     )
-    exploitability_status: Optional[Literal["validated", "probable", "theoretical"]] = Field(
+    exploitability_status: Optional[Literal["confirmed", "probable", "theoretical"]] = Field(
         default=None,
         description=(
-            "Exploitability confidence: 'validated' for deterministic pre-check FAILs "
+            "Exploitability confidence: 'confirmed' for deterministic pre-check FAILs "
             "(binary, evidence-proven), 'probable' for LLM findings with evidence snippet, "
             "'theoretical' for LLM findings without evidence snippet."
         ),

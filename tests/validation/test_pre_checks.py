@@ -5404,9 +5404,9 @@ class TestExploitabilityStatus:
             title="Root without MFA",
             description="Root account has no MFA.",
             remediation="Enable MFA.",
-            exploitability_status="validated",
+            exploitability_status="confirmed",
         )
-        assert f.exploitability_status == "validated"
+        assert f.exploitability_status == "confirmed"
 
     def test_finding_accepts_probable(self):
         from drystone.models.findings import Finding

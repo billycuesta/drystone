@@ -233,7 +233,7 @@ class TestPreCheckImpactInjection:
         assert injected is not None
         assert injected.impact is not None
         assert "root account" in injected.impact.lower()
-        assert injected.exploitability_status == "validated"
+        assert injected.exploitability_status == "confirmed"
 
     def test_injected_finding_no_impact_when_not_defined(self):
         """IAM-020 has no entry in PRE_CHECK_IMPACTS → impact is None."""
@@ -251,7 +251,7 @@ class TestPreCheckImpactInjection:
         assert injected is not None
         # No entry in PRE_CHECK_IMPACTS for IAM-020, so impact should be None
         assert injected.impact is None
-        assert injected.exploitability_status == "validated"
+        assert injected.exploitability_status == "confirmed"
 
 
 class TestSeverityToRisk:

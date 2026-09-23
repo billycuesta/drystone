@@ -146,7 +146,7 @@ class TestRunActiveVerification:
         correlated_after = json.loads((findings_dir / "correlated.json").read_text())
         assert correlated_after["correlations"][0]["active_verification"]["result"] == "success"
 
-        # The denied S3 attempt must NOT annotate exposure.json (no false "validated" claim).
+        # The denied S3 attempt must NOT annotate exposure.json (no false "confirmed" claim).
         exposure_after = json.loads((findings_dir / "exposure.json").read_text())
         assert "active_verification" not in exposure_after["findings"][0]
 

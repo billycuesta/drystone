@@ -251,9 +251,9 @@ def run_qa_gate(base_path: Path, skills: List[str]) -> QAGateResult:
                         )
                         break
 
-                if affected and (finding.get("exploitability_status") == "validated" or high_or_critical):
+                if affected and (finding.get("exploitability_status") == "confirmed" or high_or_critical):
                     if not refs:
-                        issues.append(f"{finding_file.name}:{fid} validated finding has no evidence_refs")
+                        issues.append(f"{finding_file.name}:{fid} confirmed finding has no evidence_refs")
                     elif len(refs) < len(affected):
                         issues.append(
                             f"{finding_file.name}:{fid} evidence_refs do not cover all affected resources"

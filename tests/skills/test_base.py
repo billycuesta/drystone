@@ -438,7 +438,7 @@ class TestReconcileWithPreChecks:
 
         result = SKILL._reconcile_with_pre_checks(findings, pre_checks, checklist)
         injected = next(f for f in result.findings if f.id == "IAM-001")
-        assert injected.exploitability_status == "validated"
+        assert injected.exploitability_status == "confirmed"
 
     def test_refresh_summary_uses_final_finding_severity_and_risk(self):
         findings = _skill_findings(
@@ -524,7 +524,7 @@ class TestReconcileWithPreChecks:
             "s3-buckets.json#/items/1",
         ]
         assert exp_finding.impact
-        assert exp_finding.exploitability_status == "validated"
+        assert exp_finding.exploitability_status == "confirmed"
         assert len(exp_finding.evidence_snippet["affected_resources"]) == 2
 
     def test_injects_ser_ec2_002_with_resource_level_evidence_refs(self):

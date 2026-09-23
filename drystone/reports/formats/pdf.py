@@ -51,7 +51,7 @@ class PDFFormatter(BaseFormatter):
             return ""
 
         status = str(exploit_status).strip().lower()
-        if status not in {"validated", "probable", "theoretical"}:
+        if status not in {"confirmed", "probable", "theoretical"}:
             status = "theoretical"
 
         return f"<span class='exploit-pill exploit-pill-{status}'>{status.title()}</span>"

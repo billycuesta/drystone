@@ -423,13 +423,13 @@ def test_pdf_formatter_renders_single_exploitability_pill(tmp_path):
     config.min_severity = "low"
 
     formatter = PDFFormatter(_sample_findings(), session, config)
-    finding = dict(_sample_findings()["findings"][0], exploitability_status="validated")
+    finding = dict(_sample_findings()["findings"][0], exploitability_status="confirmed")
 
     card = formatter._finding_card_html(finding)
 
-    assert "exploit-pill exploit-pill-validated" in card
+    assert "exploit-pill exploit-pill-confirmed" in card
     assert "style='padding:2px 8px" not in card
-    assert card.count("Validated") == 1
+    assert card.count("Confirmed") == 1
 
 
 def test_pdf_formatter_places_finding_id_after_title_content(tmp_path):
