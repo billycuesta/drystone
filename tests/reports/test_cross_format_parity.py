@@ -215,9 +215,16 @@ class TestTrendParity:
         """RPT-F: PDFFormatter has no equivalent of markdown.py's _trend_section()."""
         assert not hasattr(PDFFormatter, "_trend_section")
 
-    def test_pentest_markdown_has_no_trend_section_known_gap(self):
-        """RPT-F: PentestFormatter has no equivalent of markdown.py's _trend_section()."""
-        assert not hasattr(PentestFormatter, "_trend_section")
+    def test_pentest_markdown_has_trend_section_now(self, tmp_path):
+        """Trend section was added to PentestFormatter by RPT-F port.
+
+        Update the parity assertion to expect presence.
+        """
+        # Sanity: ensure trend is present and renders when trend.json exists
+        _write_sidecars(tmp_path)
+        formatter = PentestFormatter(_sample_findings(), _mock_session(tmp_path), _config())
+        text = formatter.generate().read_text()
+        assert "Trend Since Last Audit" in text
 
 
 class TestCorrelationParity:
