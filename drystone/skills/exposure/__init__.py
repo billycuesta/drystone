@@ -1,7 +1,6 @@
 """Exposure security skill for AWS audit."""
 
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
@@ -300,14 +299,12 @@ class ExposureSkill(BaseSkill):
         region = aws_client.region_name
 
         # === AUDIT METADATA ===
-        audit_metadata: Dict[str, Any] = {
-            "_region": region,
-            "_timestamp": datetime.now(timezone.utc).isoformat(),
-            "_scope": "single-region",
-            "_skill": self.name,
-            "_account_id": session.account_id,
-            "evidence_files": [],
-        }
+        audit_metadata = self._audit_metadata(
+            session,
+            region,
+            scope="single-region",
+            evidence_files=[],
+        )
 
         def _save(filepath: Path, data: Any) -> None:
             self._save_json(filepath, data)

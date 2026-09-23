@@ -8,7 +8,6 @@ interception configurations (HackTricks Cloud AWS).
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Dict, List, Tuple
 
 from botocore.exceptions import ClientError
@@ -36,12 +35,10 @@ class CICDSkill(BaseSkill):
         session_obj = aws_client.boto3_session()
         codebuild = session_obj.client("codebuild", region_name=region)
 
-        metadata = {
-            "_collected_at": datetime.utcnow().isoformat() + "Z",
-            "_region": region,
-            "_skill": self.name,
-        }
-        self._save_json(evidence_path / "_audit_metadata.json", metadata)
+        self._save_json(
+            evidence_path / "_audit_metadata.json",
+            self._audit_metadata(session, region),
+        )
 
         projects, proj_errors = self._collect_codebuild_projects(codebuild)
         self._save_json(

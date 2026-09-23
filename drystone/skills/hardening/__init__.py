@@ -702,15 +702,10 @@ class HardeningSkill(BaseSkill):
 
         # === AUDIT METADATA ===
         # Save region and scope information for evidence validation
-        from datetime import datetime
-
-        audit_metadata = {
-            "_region": aws_client.region_name,
-            "_timestamp": datetime.now().isoformat(),
-            "_scope": "single-region",
-            "_skill": self.name,
-        }
-        self._save_json(evidence_path / "_audit_metadata.json", audit_metadata)
+        self._save_json(
+            evidence_path / "_audit_metadata.json",
+            self._audit_metadata(session, aws_client.region_name, scope="single-region"),
+        )
 
         # === COLLECTION STATUS ===
         self._save_json(evidence_path / "hardening-collection-status.json", collection_status)

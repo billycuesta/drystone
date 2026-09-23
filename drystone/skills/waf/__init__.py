@@ -245,16 +245,19 @@ class WAFSkill(BaseSkill):
         self._save_json(evidence_path / "waf-collection-status.json", collection_status)
 
         # === AUDIT METADATA ===
-        audit_metadata = {
-            "_region": aws_client.region_name,
-            "_timestamp": datetime.now().isoformat(),
-            "_scope": "single-region",
-            "_skill": self.name,
-            "regions_scanned": regions,
-            "includes_cloudfront_global": True,
-            "includes_waf_classic": True,
-        }
-        self._save_json(evidence_path / "_audit_metadata.json", audit_metadata)
+        self._save_json(
+            evidence_path / "_audit_metadata.json",
+            self._audit_metadata(
+                session,
+                aws_client.region_name,
+                scope="single-region",
+                extra={
+                    "regions_scanned": regions,
+                    "includes_cloudfront_global": True,
+                    "includes_waf_classic": True,
+                },
+            ),
+        )
 
         print("\n✅ WAF collection complete")
 

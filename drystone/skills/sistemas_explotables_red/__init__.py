@@ -58,14 +58,12 @@ class SistemasExplotablesRedSkill(BaseSkill):
         ecs = boto3.client("ecs", **client_kwargs)
         rds = boto3.client("rds", **client_kwargs)
 
-        metadata = {
-            "_region": region,
-            "_timestamp": datetime.now(timezone.utc).isoformat(),
-            "_scope": "single-region",
-            "_skill": self.name,
-            "_account_id": session.account_id,
-            "evidence_files": [],
-        }
+        metadata = self._audit_metadata(
+            session,
+            region,
+            scope="single-region",
+            evidence_files=[],
+        )
 
         def _save(filename: str, data: Any) -> None:
             filepath = evidence_path / filename

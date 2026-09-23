@@ -1,6 +1,7 @@
 """Unit tests for WAF security skill."""
 
 import json
+from contextlib import ExitStack
 from unittest.mock import Mock, patch
 
 import pytest
@@ -243,6 +244,55 @@ class TestWAFSkill:
                                             # This should not raise an exception
                                             skill.collect(mock_aws_client, mock_session)
                                             assert mock_session.get_evidence_path.called
+
+    def test_collect_saves_audit_metadata_with_waf_extra_fields(
+        self, skill, mock_aws_client, mock_session
+    ):
+        """Test collect() preserves WAF-specific audit metadata fields."""
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch.object(skill, "_collect_cloudfront_distributions", return_value=([], None))
+            )
+            stack.enter_context(
+                patch.object(skill, "_collect_wafv2_web_acls_for_scope", return_value=([], None))
+            )
+            stack.enter_context(patch.object(skill, "_collect_wafv2_ip_sets", return_value=([], None)))
+            stack.enter_context(
+                patch.object(skill, "_collect_wafv2_rule_groups", return_value=([], None))
+            )
+            stack.enter_context(
+                patch.object(skill, "_collect_wafv2_regex_pattern_sets", return_value=([], None))
+            )
+            stack.enter_context(
+                patch.object(skill, "_collect_wafv2_managed_rule_groups", return_value={})
+            )
+            stack.enter_context(
+                patch.object(skill, "_collect_alb_waf_associations", return_value=([], {}))
+            )
+            stack.enter_context(
+                patch.object(
+                    skill,
+                    "_collect_api_entrypoints_waf_associations",
+                    return_value=([], {}),
+                )
+            )
+            stack.enter_context(
+                patch.object(skill, "_collect_waf_classic_inventory", return_value=([], None))
+            )
+
+            skill.collect(mock_aws_client, mock_session)
+
+        metadata_path = mock_session.get_evidence_path.return_value / "_audit_metadata.json"
+        with open(metadata_path) as f:
+            metadata = json.load(f)
+
+        assert metadata["regions_scanned"] == ["us-east-1"]
+        assert metadata["includes_cloudfront_global"] is True
+        assert metadata["includes_waf_classic"] is True
+        assert metadata["_region"] == "us-east-1"
+        assert metadata["_scope"] == "single-region"
+        assert metadata["_skill"] == "waf"
+        assert metadata["_account_id"] == "123456789012"
 
     def test_collect_with_client_error_handling(self, skill, mock_aws_client, mock_session):
         """Test collect() handles errors gracefully."""

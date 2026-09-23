@@ -9,7 +9,6 @@ Focus: persistence and data-plane abuse paths (HackTricks Cloud AWS).
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from typing import Any, Dict, List, Tuple
 
 from botocore.exceptions import ClientError
@@ -38,12 +37,10 @@ class MessagingSkill(BaseSkill):
         sqs = session_obj.client("sqs", region_name=region)
         sns = session_obj.client("sns", region_name=region)
 
-        metadata = {
-            "_collected_at": datetime.utcnow().isoformat() + "Z",
-            "_region": region,
-            "_skill": self.name,
-        }
-        self._save_json(evidence_path / "_audit_metadata.json", metadata)
+        self._save_json(
+            evidence_path / "_audit_metadata.json",
+            self._audit_metadata(session, region),
+        )
 
         queues, q_errors = self._collect_sqs_queues(sqs)
         self._save_json(evidence_path / "sqs-queues.json", {"items": queues, "errors": q_errors})

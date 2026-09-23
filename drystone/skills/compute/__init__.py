@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import base64
 import re
-from datetime import datetime
 from typing import Any, Dict, List, Tuple
 
 from botocore.exceptions import ClientError
@@ -45,12 +44,10 @@ class ComputeSkill(BaseSkill):
         eks = session_obj.client("eks", region_name=region)
         events = session_obj.client("events", region_name=region)
 
-        metadata = {
-            "_collected_at": datetime.utcnow().isoformat() + "Z",
-            "_region": region,
-            "_skill": self.name,
-        }
-        self._save_json(evidence_path / "_audit_metadata.json", metadata)
+        self._save_json(
+            evidence_path / "_audit_metadata.json",
+            self._audit_metadata(session, region),
+        )
 
         ecs_out, ecs_errors = self._collect_ecs(ecs)
         self._save_json(evidence_path / "ecs-inventory.json", ecs_out)
