@@ -174,6 +174,12 @@ _import_skill_module("network")
 _import_skill_module("exposure")
 _import_skill_module("waf")
 _import_skill_module("hardening")
+_import_skill_module("vulns")
+_import_skill_module("alerting")
+_import_skill_module("recon")
+_import_skill_module("secretsmanager")
+_import_skill_module("kms")
+_import_skill_module("compute")
 
 __all__ = [
     "CHECK_QUERIES",

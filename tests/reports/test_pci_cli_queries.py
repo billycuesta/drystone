@@ -9,6 +9,7 @@ import pytest
 
 from drystone.reports import pci_cli_queries
 from drystone.reports.pci_cli_queries import CliQuery, OutputSpec, resolve_query
+from drystone.reports.pci_text_table import apply_output_spec
 
 EXPECTED_LAYER_1_STEMS = {
     "iam": {
@@ -94,6 +95,62 @@ EXPECTED_LAYER_1_STEMS = {
         "account-aliases",
         "password-policy",
         "hardening-collection-status",
+    },
+    "vulns": {
+        "inspector-org-config",
+        "inspector-findings",
+        "ec2-patch-status",
+        "patch-baselines",
+        "rds-patch-info",
+        "ecr-image-scans",
+        "ec2-user-data",
+        "lambda-environment-variables",
+        "imds-configuration",
+        "instance-profiles-permissions",
+        "ebs-snapshot-sharing",
+        "guardduty-status",
+        "ecs-task-env-secrets",
+        "terraform-state-scan",
+    },
+    "alerting": {
+        "cloudtrail-trails",
+        "cloudtrail-s3-notifications",
+        "cloudtrail-log-subscriptions",
+        "cloudwatch-log-groups",
+        "cloudwatch-metric-filters",
+        "cloudwatch-alarms",
+        "eventbridge-rules",
+        "sns-topics",
+        "vpc-flow-logs",
+        "config-rules",
+    },
+    "recon": {
+        "route53-zones",
+        "api-gateway-stages",
+        "lambda-urls",
+        "load-balancer-dns",
+        "public-endpoints",
+        "cloudfront-origins",
+        "attack-surface-score",
+    },
+    "secretsmanager": {
+        "secrets",
+        "cloudwatch_alarms",
+        "eventbridge_rules",
+    },
+    "kms": {
+        "kms-keys",
+        "kms-key-policies",
+        "kms-grants",
+        "kms-aliases",
+        "kms-custom-key-stores",
+    },
+    "compute": {
+        "ecs-inventory",
+        "eventbridge-rules",
+        "eks-inventory",
+        "ec2-inventory",
+        "lambda-inventory",
     },
 }
 
@@ -188,8 +245,22 @@ def test_resolve_query_preserves_alternative_commands_as_data_structure(monkeypa
     )
 
 
-def test_complete_skills_contains_p1_and_p2_catalogs():
-    assert pci_cli_queries.COMPLETE_SKILLS == frozenset({"iam", "network", "exposure", "waf", "hardening"})
+def test_complete_skills_contains_p1_p2_and_p3_catalogs():
+    assert pci_cli_queries.COMPLETE_SKILLS == frozenset(
+        {
+            "iam",
+            "network",
+            "exposure",
+            "waf",
+            "hardening",
+            "vulns",
+            "alerting",
+            "recon",
+            "secretsmanager",
+            "kms",
+            "compute",
+        }
+    )
 
 
 @pytest.mark.parametrize("skill, expected_stems", EXPECTED_LAYER_1_STEMS.items())
@@ -219,6 +290,256 @@ def test_catalogued_aws_cli_operations_exist_in_botocore_models():
         model = session.get_service_model(aliases.get(service, service))
         cli_operations = {botocore_package.xform_name(name).replace("_", "-") for name in model.operation_names}
         assert operation in cli_operations, f"aws {service} {operation}"
+
+
+@pytest.mark.parametrize("skill", ["vulns", "alerting", "recon", "secretsmanager", "kms", "compute"])
+def test_p3_source_query_output_specs_resolve_against_stored_evidence_shapes(skill: str):
+    evidence = p3_minimal_stored_evidence()[skill]
+
+    unresolved = [
+        stem
+        for stem, query in pci_cli_queries.SOURCE_QUERIES[skill].items()
+        if query.output is not None and apply_output_spec(query.output, evidence) is None
+    ]
+
+    assert unresolved == []
+
+
+def p3_minimal_stored_evidence() -> dict[str, dict[str, Any]]:
+    return {
+        "vulns": {
+            "inspector-org-config": {"Status": "enabled"},
+            "inspector-findings": [
+                {
+                    "findingArn": "arn:aws:inspector2:finding/1",
+                    "severity": "HIGH",
+                    "status": "ACTIVE",
+                    "type": "PACKAGE_VULNERABILITY",
+                    "title": "openssl vulnerable",
+                    "resources": [{"id": "i-123"}],
+                    "exploitAvailable": "NO",
+                    "fixAvailable": "YES",
+                }
+            ],
+            "ec2-patch-status": [
+                {"InstanceId": "i-123", "Platform": "Linux", "State": "running", "SSMStatus": "Online", "PatchCompliance": "COMPLIANT"}
+            ],
+            "patch-baselines": [
+                {
+                    "BaselineId": "pb-123",
+                    "BaselineName": "Default",
+                    "OperatingSystemFamily": "AMAZON_LINUX_2",
+                    "DefaultBaseline": True,
+                    "Details": {"approved_patches": []},
+                }
+            ],
+            "rds-patch-info": [
+                {
+                    "DBInstanceIdentifier": "db-1",
+                    "Engine": "postgres",
+                    "EngineVersion": "15.4",
+                    "UpgradeAvailable": True,
+                    "MinorUpgradeCount": 1,
+                    "MajorUpgradeCount": 0,
+                }
+            ],
+            "ecr-image-scans": [
+                {
+                    "RepositoryName": "repo",
+                    "ImageId": {"imageDigest": "sha256:1"},
+                    "ImageScanStatus": {"status": "COMPLETE"},
+                    "ImageScanFindingsSummary": {"findingSeverityCounts": {}},
+                    "ScanFindings": [],
+                }
+            ],
+            "ec2-user-data": {"items": [{"InstanceId": "i-123", "UserData": "IyEvYmluL2Jhc2g="}]},
+            "lambda-environment-variables": {"items": [{"FunctionName": "fn", "Environment": {"Variables": {"MODE": "test"}}}]},
+            "imds-configuration": {"items": [{"InstanceId": "i-123", "MetadataOptions": {"HttpTokens": "required"}}]},
+            "instance-profiles-permissions": {"items": [{"InstanceProfileName": "profile", "Roles": ["role"]}]},
+            "ebs-snapshot-sharing": {"items": [{"SnapshotId": "snap-123", "CreateVolumePermissions": []}]},
+            "guardduty-status": {
+                "detectors": [
+                    {
+                        "DetectorId": "det-123",
+                        "Status": "ENABLED",
+                        "S3LogsEnabled": True,
+                        "MalwareProtectionEnabled": True,
+                        "KubernetesAuditLogsEnabled": False,
+                        "AutoArchiveRuleCount": 0,
+                    }
+                ]
+            },
+            "ecs-task-env-secrets": {"items": [{"taskDefinitionArn": "td", "containerDefinitions": []}]},
+            "terraform-state-scan": {"items": [{"bucket": "tf-state", "key": "state.tfstate", "sensitive_matches": []}]},
+        },
+        "alerting": {
+            "cloudtrail-trails": [
+                {
+                    "Name": "trail",
+                    "IsMultiRegionTrail": True,
+                    "CloudWatchLogsLogGroupArn": "arn:aws:logs:group",
+                    "KmsKeyId": "key",
+                    "LogFileValidationEnabled": True,
+                }
+            ],
+            "cloudtrail-s3-notifications": [
+                {
+                    "bucket_name": "trail-bucket",
+                    "trail_name": "trail",
+                    "lambda_configs": [],
+                    "sqs_configs": [],
+                    "sns_configs": [],
+                    "error": None,
+                }
+            ],
+            "cloudtrail-log-subscriptions": [
+                {"log_group_name": "/aws/cloudtrail", "trail_name": "trail", "subscription_filters": [], "error": None}
+            ],
+            "cloudwatch-log-groups": [
+                {"LogGroupName": "/aws/cloudtrail", "RetentionInDays": 365, "StoredBytes": 1, "Arn": "arn:aws:logs", "ResourcePolicies": []}
+            ],
+            "cloudwatch-metric-filters": [{"FilterName": "RootUsage", "LogGroupName": "/aws/cloudtrail", "FilterPattern": "$.userIdentity.type=Root"}],
+            "cloudwatch-alarms": [
+                {
+                    "AlarmName": "RootUsage",
+                    "MetricName": "RootUsage",
+                    "Namespace": "CloudTrailMetrics",
+                    "AlarmActions": ["arn:aws:sns:topic"],
+                    "StateValue": "OK",
+                    "Threshold": 1,
+                }
+            ],
+            "eventbridge-rules": [{"Name": "iam-change", "EventPattern": {}, "ScheduleExpression": None, "Targets": []}],
+            "sns-topics": [{"TopicArn": "arn:aws:sns:topic", "Policy": {}, "Subscriptions": []}],
+            "vpc-flow-logs": [{"FlowLogId": "fl-123", "ResourceId": "vpc-123", "FlowLogStatus": "ACTIVE"}],
+            "config-rules": [{"ConfigRuleName": "required-tags", "Source": {}, "Scope": {}}],
+        },
+        "recon": {
+            "route53-zones": {
+                "zones": [{"Id": "/hostedzone/Z1", "Name": "example.com.", "IsPrivate": False, "RecordCount": 2, "Records": [], "SensitivityAnalysis": {}}]
+            },
+            "api-gateway-stages": {"apis": [{"Id": "api", "Name": "api", "Type": "REST", "Stages": [], "UnauthenticatedRouteCount": 0}]},
+            "lambda-urls": {
+                "urls": [
+                    {
+                        "FunctionName": "fn",
+                        "FunctionArn": "arn:aws:lambda:fn",
+                        "FunctionUrl": "https://fn.lambda-url.aws",
+                        "AuthType": "AWS_IAM",
+                        "IsPublic": False,
+                        "Cors": {},
+                    }
+                ]
+            },
+            "load-balancer-dns": {
+                "load_balancers": [
+                    {
+                        "Name": "alb",
+                        "DNSName": "alb.example.com",
+                        "Scheme": "internet-facing",
+                        "Type": "application",
+                        "IsPublic": True,
+                        "Listeners": [],
+                        "WafWebAclArn": "arn:aws:wafv2:acl",
+                    }
+                ]
+            },
+            "public-endpoints": {"elastic_ips": [{"PublicIp": "203.0.113.10", "AssociatedWithInstance": True, "InstanceId": "i-123", "PermissiveSGRules": []}]},
+            "cloudfront-origins": {
+                "distributions": [
+                    {
+                        "Id": "dist",
+                        "DomainName": "d111.cloudfront.net",
+                        "Aliases": ["www.example.com"],
+                        "Enabled": True,
+                        "Origins": [],
+                        "LoggingEnabled": True,
+                        "WebAclId": "acl",
+                    }
+                ]
+            },
+            "attack-surface-score": {"score": 1, "public_endpoint_count": 1},
+        },
+        "secretsmanager": {
+            "secrets": {
+                "secrets": [
+                    {
+                        "Region": "us-east-1",
+                        "Name": "secret",
+                        "ARN": "arn:aws:secretsmanager:secret",
+                        "KmsKeyId": "key",
+                        "RotationEnabled": True,
+                        "RotationRules": {"AutomaticallyAfterDays": 30},
+                        "LastRotatedDate": "2026-01-01",
+                        "LastAccessedDate": "2026-01-02",
+                        "Tags": [],
+                        "ResourcePolicy": {},
+                        "ReplicationStatus": [],
+                        "SecurityIssues": [],
+                        "RiskScore": 0,
+                    }
+                ]
+            },
+            "cloudwatch_alarms": {"us-east-1": {"likely_relevant": []}},
+            "eventbridge_rules": {"us-east-1": {"likely_relevant": []}},
+        },
+        "kms": {
+            "kms-keys": {"items": [{"KeyId": "key", "KeyArn": "arn:aws:kms:key", "Metadata": {}, "KeyRotationEnabled": True}]},
+            "kms-key-policies": {"items": [{"KeyId": "key", "PolicyName": "default", "Policy": {}}]},
+            "kms-grants": {"items": [{"KeyId": "key", "GrantId": "grant", "GranteePrincipal": "arn:aws:iam::123:role/R", "Operations": ["Decrypt"]}]},
+            "kms-aliases": {"items": [{"AliasName": "alias/app", "AliasArn": "arn:aws:kms:alias/app", "TargetKeyId": "key"}]},
+            "kms-custom-key-stores": {"items": [{"CustomKeyStoreId": "cks", "CustomKeyStoreName": "store", "ConnectionState": "CONNECTED"}]},
+        },
+        "compute": {
+            "ecs-inventory": {
+                "task_definitions": [
+                    {
+                        "taskDefinitionArn": "arn:aws:ecs:task-definition/app:1",
+                        "family": "app",
+                        "taskRoleArn": "arn:aws:iam::123:role/task",
+                        "executionRoleArn": "arn:aws:iam::123:role/execution",
+                        "containerDefinitions": [],
+                    }
+                ]
+            },
+            "eventbridge-rules": {"rules": [{"Name": "schedule", "ScheduleExpression": "rate(1 day)", "State": "ENABLED", "Targets": []}]},
+            "eks-inventory": {
+                "clusters": [
+                    {
+                        "name": "cluster",
+                        "arn": "arn:aws:eks:cluster",
+                        "resourcesVpcConfig": {"endpointPublicAccess": False},
+                        "logging": {},
+                        "status": "ACTIVE",
+                    }
+                ]
+            },
+            "ec2-inventory": {
+                "instances": [
+                    {
+                        "InstanceId": "i-123",
+                        "IamInstanceProfile": {},
+                        "MetadataOptions": {"HttpTokens": "required"},
+                        "UserData": "IyEvYmluL2Jhc2g=",
+                        "ContainsSecrets": False,
+                        "HasRemoteBootstrap": False,
+                    }
+                ]
+            },
+            "lambda-inventory": {
+                "functions": [
+                    {
+                        "FunctionName": "fn",
+                        "FunctionArn": "arn:aws:lambda:fn",
+                        "Role": "arn:aws:iam::123:role/lambda",
+                        "FunctionUrl": "https://fn.lambda-url.aws",
+                        "AuthType": "AWS_IAM",
+                        "AttachedPolicies": [],
+                    }
+                ]
+            },
+        },
+    }
 
 
 def json_load(path: Path) -> dict[str, Any]:
