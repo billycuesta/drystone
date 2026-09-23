@@ -179,6 +179,7 @@ def check_iam_028(evidence: Dict[str, Any]) -> PreCheckResult:
             "FAIL",
             f"{len(affected)} IAM principal(s) (users/roles) without any tags",
             affected[:10],
+            metadata={"count": len(affected)},
         )
     return PreCheckResult("IAM-028", "PASS", "all IAM users and roles have at least one tag", [])
 

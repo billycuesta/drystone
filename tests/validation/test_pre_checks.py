@@ -948,6 +948,7 @@ class TestIAM028TagCoverage:
         assert r.status == "FAIL"
         assert "11 IAM principal(s)" in r.evidence_summary
         assert len(r.affected_resources) == 10
+        assert r.metadata["count"] == 11
         assert r.affected_resources == [f"arn:aws:iam::123:user/user{i}" for i in range(10)]
 
 
