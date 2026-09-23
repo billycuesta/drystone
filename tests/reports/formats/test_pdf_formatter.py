@@ -932,3 +932,140 @@ def test_executive_narrative_html_handles_non_dict_assessment_dates(tmp_path):
     html_out = formatter._executive_narrative_html(_sample_findings()["summary"])
 
     assert "Assessment period" not in html_out
+
+
+def test_trend_section_html_returns_empty_when_no_trend_file(tmp_path):
+    """_trend_section_html() should return empty string if trend.json doesn't exist."""
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.report_type = "general"
+
+    formatter = PDFFormatter(_sample_findings(), session, config)
+    html = formatter._trend_section_html()
+
+    assert html == ""
+
+
+def test_trend_section_html_returns_empty_when_no_previous_session(tmp_path):
+    """_trend_section_html() should return empty string if no previous_session key."""
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.report_type = "general"
+
+    # Create trend.json with no previous_session
+    trend_file = tmp_path / "findings"
+    trend_file.mkdir(exist_ok=True)
+    trend_file_path = trend_file / "trend.json"
+    trend_file_path.write_text(json.dumps({"skills": []}))
+
+    formatter = PDFFormatter(_sample_findings(), session, config)
+    html = formatter._trend_section_html()
+
+    assert html == ""
+
+
+def test_trend_section_html_renders_non_empty_trend_data(tmp_path):
+    """_trend_section_html() should render real data from trend.json."""
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.report_type = "general"
+
+    # Create trend.json with actual trend data
+    trend_file = tmp_path / "findings"
+    trend_file.mkdir(exist_ok=True)
+    trend_file_path = trend_file / "trend.json"
+    trend_data = {
+        "previous_session": "2026-02-09T10:00:00",
+        "skills": [
+            {
+                "skill": "iam",
+                "new": [
+                    {"id": "IAM-001", "title": "Root key active"},
+                    {"id": "IAM-002", "title": "MFA disabled"},
+                ],
+                "fixed": [
+                    {"id": "IAM-003", "title": "Overpermissive role"},
+                ],
+                "persisting_count": 2,
+            },
+            {
+                "skill": "exposure",
+                "new": [],
+                "fixed": [],
+                "persisting_count": 0,
+            },
+        ],
+    }
+    trend_file_path.write_text(json.dumps(trend_data))
+
+    formatter = PDFFormatter(_sample_findings(), session, config)
+    html = formatter._trend_section_html()
+
+    # Should contain header
+    assert "<h2>Trend Since Last Audit</h2>" in html
+    # Should contain summary counts
+    assert "🆕 New: 2" in html
+    assert "✅ Fixed: 1" in html
+    assert "➖ Still open: 2" in html
+    # Should contain finding IDs (escaped properly)
+    assert "IAM-001" in html
+    assert "Root key active" in html
+    assert "IAM-002" in html
+    assert "MFA disabled" in html
+    assert "IAM-003" in html
+    assert "Overpermissive role" in html
+    # Should contain skill name
+    assert "IAM" in html
+    # Should not be empty
+    assert html != ""
+
+
+def test_trend_section_html_escapes_special_characters(tmp_path):
+    """_trend_section_html() should HTML-escape user/finding-derived text."""
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.report_type = "general"
+
+    # Create trend.json with special characters in data
+    trend_file = tmp_path / "findings"
+    trend_file.mkdir(exist_ok=True)
+    trend_file_path = trend_file / "trend.json"
+    trend_data = {
+        "previous_session": "2026-02-09 <script>alert('xss')</script>",
+        "skills": [
+            {
+                "skill": "iam",
+                "new": [
+                    {"id": "TEST-001", "title": "Test & Title <with> tags"},
+                ],
+                "fixed": [],
+                "persisting_count": 0,
+            },
+        ],
+    }
+    trend_file_path.write_text(json.dumps(trend_data))
+
+    formatter = PDFFormatter(_sample_findings(), session, config)
+    html = formatter._trend_section_html()
+
+    # Should contain escaped content, not raw tags
+    assert "&lt;script&gt;" in html
+    assert "&lt;with&gt;" in html
+    assert "&amp;" in html
+    # Should not contain raw tags
+    assert "<script>" not in html
+    assert "alert('xss')" not in html
+
+
+def test_trend_section_key_exists_in_build_placeholders(tmp_path):
+    """Verify TREND_SECTION key exists in _build_placeholders() output."""
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.report_type = "general"
+    config.min_severity = "low"
+
+    formatter = PDFFormatter(_sample_findings(), session, config)
+    placeholders = formatter._build_placeholders()
+
+    assert "TREND_SECTION" in placeholders
+    assert isinstance(placeholders["TREND_SECTION"], str)

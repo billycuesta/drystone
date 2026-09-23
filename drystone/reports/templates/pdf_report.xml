@@ -1685,6 +1685,8 @@
   <div class="page-break"></div>
   {{CORRELATION_SECTION}}
 
+  {{TREND_SECTION}}
+
   <!-- REMEDIATION TIMELINE -->
   <div class="section-divider">
     <h2>Remediation Timeline</h2>

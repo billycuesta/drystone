@@ -135,6 +135,7 @@ class PDFFormatter(BaseFormatter):
 
         architecture_html = self._architecture_section_html()
         correlation_html = self._correlation_section_html()
+        trend_html = self._trend_section_html()
         is_pentest = str(getattr(self.config, "report_type", "general")) == "pentest"
         findings_html = (
             self._findings_by_phase_html(findings)
@@ -183,6 +184,7 @@ class PDFFormatter(BaseFormatter):
             "TOP_FINDINGS_ROWS": self._top_findings_rows_html(findings),
             "ARCHITECTURE_SECTION": architecture_html,
             "CORRELATION_SECTION": correlation_html,
+            "TREND_SECTION": trend_html,
             "PAGEBREAK_ARCH_CORR": pagebreak_arch_corr,
             "FINDINGS_BY_SEVERITY": findings_html,
             "PAGEBREAK_FINDINGS": pagebreak_findings,
@@ -1551,6 +1553,78 @@ class PDFFormatter(BaseFormatter):
             + warning_html
             + intro_html
             + "".join(blocks)
+        )
+
+    def _trend_section_html(self) -> str:
+        """Render the trend-since-last-audit section if prior audit data exists."""
+        trend_file = self.session.base_path / "findings" / "trend.json"
+        if not trend_file.exists():
+            return ""
+
+        try:
+            with open(trend_file, "r") as f:
+                trend_data = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return ""
+
+        previous_session = trend_data.get("previous_session")
+        if not previous_session:
+            return ""
+
+        skills = trend_data.get("skills") or []
+        total_new = sum(len(s.get("new") or []) for s in skills)
+        total_fixed = sum(len(s.get("fixed") or []) for s in skills)
+        total_persisting = sum(int(s.get("persisting_count") or 0) for s in skills)
+
+        previous_session_escaped = html.escape(str(previous_session))
+
+        if not skills:
+            return (
+                "<h2>Trend Since Last Audit</h2>"
+                f"<p>Compared against the previous audit for this client "
+                f"(<code>{previous_session_escaped}</code>): no changes in any commonly-audited skill.</p>"
+            )
+
+        # Build skill breakdown
+        skill_blocks = []
+        for skill_trend in skills:
+            skill_name = html.escape(str(skill_trend.get("skill", "unknown")).upper())
+            new_items = skill_trend.get("new") or []
+            fixed_items = skill_trend.get("fixed") or []
+            if not new_items and not fixed_items:
+                continue
+
+            skill_html = f"<h3>{skill_name}</h3>"
+            if new_items:
+                skill_html += "<div class='finding-description'><strong>New:</strong><ul>"
+                for item in new_items:
+                    item_id = html.escape(str(item.get("id", "?")))
+                    item_title = html.escape(str(item.get("title", "")))
+                    skill_html += f"<li><code>{item_id}</code> {item_title}</li>"
+                skill_html += "</ul></div>"
+            if fixed_items:
+                skill_html += "<div class='finding-description'><strong>Fixed since last audit:</strong><ul>"
+                for item in fixed_items:
+                    item_id = html.escape(str(item.get("id", "?")))
+                    item_title = html.escape(str(item.get("title", "")))
+                    skill_html += f"<li><code>{item_id}</code> {item_title}</li>"
+                skill_html += "</ul></div>"
+            skill_blocks.append(skill_html)
+
+        summary_html = (
+            "<div class='finding-description'>"
+            f"<p><strong>Summary:</strong> "
+            f"<span>🆕 New: {total_new}</span> | "
+            f"<span>✅ Fixed: {total_fixed}</span> | "
+            f"<span>➖ Still open: {total_persisting}</span></p>"
+            f"<p>Compared against the previous audit for this client: <code>{previous_session_escaped}</code></p>"
+            "</div>"
+        )
+
+        return (
+            "<h2>Trend Since Last Audit</h2>"
+            + summary_html
+            + "".join(skill_blocks)
         )
 
     def _correlation_card_html(self, corr: Dict[str, Any]) -> str:
