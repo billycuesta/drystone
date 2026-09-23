@@ -31,9 +31,12 @@ class DynamicCorrelationPattern:
     # Finding-based patterns should implement this so correlations get proper
     # source_finding_ids, source_findings, and affected_resources.
     # Evidence-based patterns leave this as None (source_finding_ids stays []).
+    # source_finder may return either a single list of Findings (one match)
+    # or a list of finding-groups (List[List[Finding]]) for multi-match patterns.
     source_finder: Optional[
         Callable[
-            [Dict[str, List[Finding]], Dict[str, List[Finding]], Dict[str, Any]], List[Finding]
+            [Dict[str, List[Finding]], Dict[str, List[Finding]], Dict[str, Any]],
+            Any,
         ]
     ] = None
 
@@ -546,8 +549,8 @@ def vulns_hardening_persistent_cve(
 # PATTERN REGISTRY
 # ============================================================================
 
-# Pattern metadata (used by engine)
-PATTERN_METADATA = [
+# Legacy pattern metadata (migrated into PATTERN_REGISTRY)
+LEGACY_PATTERNS = [
     {
         "id": "iam_network_ssh_compromise",
         "name": "SSH Access Without MFA Protection",
@@ -621,6 +624,56 @@ PATTERN_METADATA = [
         ],
     },
 ]
+
+# --- Migrate legacy PATTERN_METADATA into PATTERN_REGISTRY as DynamicCorrelationPattern
+# This keeps backward compatibility for the engine which now supports multi-match
+# source_finder return values (List[List[Finding]]). Each legacy entry is converted
+# preserving title/description/templates and amplification_factor.
+for meta in LEGACY_PATTERNS:
+    # Build attack_path_generator/remediation_generator from templates
+    def make_attack_path_gen(steps):
+        return (lambda _ctx, s=steps: list(s))
+
+    def make_remediation_gen(steps):
+        return (lambda _ctx, s=steps: list(s))
+
+    PATTERN_REGISTRY.register(
+        DynamicCorrelationPattern(
+            id=meta["id"],
+            name=meta.get("name", meta["id"]),
+            description=meta.get("description_template", ""),
+            severity=meta.get("severity", "High"),
+            skills_required=meta.get("skills_required", []),
+            matcher=(
+                # Wrap legacy match_function to dynamic matcher signature
+                lambda fb, ri, ev, mf=meta.get("match_function"):
+                bool(mf(fb, ri))
+            ),
+            attack_path_generator=make_attack_path_gen(meta.get("attack_path_steps", [])),
+            remediation_generator=make_remediation_gen(meta.get("remediation_template", [])),
+            threat_context=ThreatContext(
+                mitre_attack_tactics=[],
+                mitre_attack_techniques=[],
+                observed_in_wild=False,
+                exploit_maturity="Not Defined",
+            ),
+            exploitability=ExploitabilityInfo(
+                exploitation_steps=[],
+                tools_required=[],
+                exploitation_complexity="Unknown",
+                estimated_time_to_compromise="Unknown",
+            ),
+            amplification_factor=meta.get("amplification_factor", 1.3),
+            # Provide a source_finder adapter that returns a list of finding-groups
+            source_finder=(
+                lambda fb, ri, ev, mf=meta.get("match_function"): mf(fb, ri)
+            ),
+        )
+    )
+
+# Legacy metadata list intentionally left out of module exports. We register
+# each legacy entry into PATTERN_REGISTRY above and do not expose a
+# PATTERN_METADATA symbol for the engine to consume.
 
 
 def _match_assume_role_escalation(

@@ -27,7 +27,7 @@ from drystone.correlation.models import (
     SourceFindingRef,
     ThreatContext,
 )
-from drystone.correlation.patterns import PATTERN_METADATA, PATTERN_REGISTRY
+from drystone.correlation.patterns import PATTERN_REGISTRY
 from drystone.models.findings import Finding
 from drystone.skills.registry import skill_name_by_id_prefix
 
@@ -53,7 +53,10 @@ class CorrelationEngine:
         """
         self.session_dir: Path = session_dir
         self.findings_dir: Path = session_dir / "findings"
-        self.patterns: List[Dict[str, Any]] = PATTERN_METADATA
+        # Legacy PATTERN_METADATA removed; engine now uses PATTERN_REGISTRY for
+        # both deterministic and dynamic patterns. Keep no `self.patterns` to
+        # avoid referencing removed legacy symbols.
+        self.patterns = []
 
         # GAPS RESOLVED:
         # - GAP-T1: Counter for sequential IDs
@@ -134,77 +137,11 @@ class CorrelationEngine:
             correlations = []
             patterns_applied = []
 
-            for pattern_meta in self.patterns:
-                # Check if required skills were executed
-                if not all(skill in findings_by_skill for skill in pattern_meta["skills_required"]):
-                    logger.debug(f"Skipping pattern {pattern_meta['id']} (missing required skills)")
-                    continue
-
-                # Check timeout and total-result cap before each pattern.
-                if time.time() - start_time > self.MAX_EXECUTION_TIME_SECONDS:
-                    message = (
-                        f"Correlation analysis was truncated after the "
-                        f"{self.MAX_EXECUTION_TIME_SECONDS}s execution limit."
-                    )
-                    logger.warning(message)
-                    errors.append(f"Timeout after {self.MAX_EXECUTION_TIME_SECONDS}s")
-                    _mark_truncated("timeout", message)
-                    break
-
-                remaining_capacity = self.MAX_TOTAL_CORRELATIONS - len(correlations)
-                if remaining_capacity <= 0:
-                    message = (
-                        f"Correlation analysis was truncated after reaching the "
-                        f"{self.MAX_TOTAL_CORRELATIONS} total correlation cap."
-                    )
-                    logger.warning(message)
-                    _mark_truncated("max_total_correlations", message)
-                    break
-
-                try:
-                    logger.info(f"Applying pattern: {pattern_meta['id']}...")
-
-                    # Call pattern match function
-                    match_function = pattern_meta["match_function"]
-                    matches = match_function(findings_by_skill, self._resource_index_cache)
-
-                    # GAPS RESOLVED: GAP-T8 (limit matches)
-                    if len(matches) > self.MAX_CORRELATIONS_PER_PATTERN:
-                        logger.warning(
-                            f"Pattern {pattern_meta['id']} generated {len(matches)} matches, "
-                            f"limiting to {self.MAX_CORRELATIONS_PER_PATTERN} highest-risk"
-                        )
-                        matches = self._prioritize_matches(
-                            matches, self.MAX_CORRELATIONS_PER_PATTERN
-                        )
-
-                    remaining_capacity = self.MAX_TOTAL_CORRELATIONS - len(correlations)
-                    if len(matches) > remaining_capacity:
-                        message = (
-                            f"Correlation analysis was truncated after reaching the "
-                            f"{self.MAX_TOTAL_CORRELATIONS} total correlation cap."
-                        )
-                        logger.warning(message)
-                        _mark_truncated("max_total_correlations", message)
-                        matches = self._prioritize_matches(matches, remaining_capacity)
-
-                    # Generate correlated findings
-                    for match_group in matches:
-                        corr_finding = self._create_correlated_finding(pattern_meta, match_group)
-
-                        if corr_finding:  # Not a duplicate
-                            correlations.append(corr_finding)
-
-                    if matches:
-                        patterns_applied.append(pattern_meta["id"])
-                        logger.info(f"Pattern {pattern_meta['id']}: {len(matches)} correlations")
-                    else:
-                        logger.debug(f"Pattern {pattern_meta['id']}: No matches")
-
-                except Exception as e:
-                    # GAPS RESOLVED: GAP-TS4 (error handling)
-                    logger.error(f"Pattern {pattern_meta['id']} failed: {e}", exc_info=True)
-                    errors.append(f"Pattern {pattern_meta['id']}: {str(e)}")
+            # Deterministic (legacy) patterns have been migrated into
+            # PATTERN_REGISTRY as DynamicCorrelationPattern instances. The
+            # engine now applies dynamic patterns (below) which cover both the
+            # former deterministic and pentest-style patterns. The old
+            # per-module PATTERN_METADATA loop has been removed.
 
             # Step 3b: Apply dynamic pentest patterns (best-effort)
             dynamic_patterns = PATTERN_REGISTRY.get_patterns_for_skills(
@@ -238,82 +175,106 @@ class CorrelationEngine:
                     ):
                         continue
 
-                    # Resolve source findings: use source_finder if available (finding-based
-                    # patterns), otherwise leave empty (evidence-based patterns).
-                    source_findings_list: list = []
+                    # Resolve source findings: pattern.source_finder may return either
+                    # a single list (one match) or a list of finding-groups (multi-match).
+                    source_matches: List[List[Finding]] = []
                     if pattern.source_finder is not None:
                         try:
-                            source_findings_list = (
-                                pattern.source_finder(
-                                    findings_by_skill, self._resource_index_cache, evidence_by_skill
-                                )
-                                or []
-                            )
+                            raw = pattern.source_finder(
+                                findings_by_skill, self._resource_index_cache, evidence_by_skill
+                            ) or []
+                            # Normalize: accept either List[Finding] or List[List[Finding]]
+                            if isinstance(raw, list) and raw and all(
+                                hasattr(item, "id") for item in raw
+                            ):
+                                # Single group
+                                source_matches = [raw]
+                            else:
+                                # Assume it's a list of groups (possibly empty)
+                                source_matches = [g for g in raw if isinstance(g, list)]
                         except Exception as _sf_err:
                             logger.warning(f"source_finder for {pattern.id} failed: {_sf_err}")
 
-                    source_ids = sorted({f.id for f in source_findings_list})
-                    source_refs = [
-                        SourceFindingRef(
-                            id=f.id,
-                            skill=skill_name_by_id_prefix().get(
-                                f.id.split("-")[0].lower(), f.id.split("-")[0].lower()
-                            ),
-                            title=f.title,
-                            severity=f.severity,
-                            risk_score=f.risk_score,
-                            contribution_weight=1.0 / max(len(source_findings_list), 1),
+                    # If no source_matches produced, but matcher returned True,
+                    # fall back to a single empty group to allow evidence-based patterns
+                    if not source_matches:
+                        source_matches = [[]]
+
+                    # Cap per-pattern matches similar to legacy behavior
+                    if len(source_matches) > self.MAX_CORRELATIONS_PER_PATTERN:
+                        logger.warning(
+                            f"Dynamic pattern {pattern.id} produced {len(source_matches)} matches, "
+                            f"limiting to {self.MAX_CORRELATIONS_PER_PATTERN} highest-risk"
                         )
-                        for f in source_findings_list
-                    ]
-                    affected_resources = list(
-                        {arn for f in source_findings_list for arn in f.affected_resources}
-                    )
+                        # Prioritize by compound risk where possible
+                        try:
+                            prioritized = self._prioritize_matches(source_matches, self.MAX_CORRELATIONS_PER_PATTERN)
+                            source_matches = prioritized
+                        except Exception:
+                            source_matches = source_matches[: self.MAX_CORRELATIONS_PER_PATTERN]
 
-                    # Compound risk: use actual finding scores when available, fallback to formula.
-                    if source_findings_list:
-                        compound_risk = self._calculate_compound_risk(
-                            source_findings_list, pattern.amplification_factor
+                    # Generate correlated findings for each match group
+                    for match_group in source_matches:
+                        # Build refs and compute compound risk
+                        source_ids = sorted({f.id for f in match_group}) if match_group else []
+                        source_refs = [
+                            SourceFindingRef(
+                                id=f.id,
+                                skill=skill_name_by_id_prefix().get(
+                                    f.id.split("-")[0].lower(), f.id.split("-")[0].lower()
+                                ),
+                                title=f.title,
+                                severity=f.severity,
+                                risk_score=f.risk_score,
+                                contribution_weight=1.0 / max(len(match_group), 1),
+                            )
+                            for f in match_group
+                        ]
+                        affected_resources = list({arn for f in match_group for arn in f.affected_resources}) if match_group else []
+
+                        if match_group:
+                            compound_risk = self._calculate_compound_risk(match_group, pattern.amplification_factor)
+                        else:
+                            compound_risk = min(10.0, 6.5 * pattern.amplification_factor)
+
+                        self._corr_counter += 1
+                        session_id = self.session_dir.name
+                        session_prefix = session_id[:8] if len(session_id) >= 8 else "00000000"
+                        corr_id = f"CORR-{session_prefix}-{self._corr_counter:03d}"
+
+                        narrative_context = {
+                            "evidence_by_skill": evidence_by_skill,
+                            "findings_by_skill": findings_by_skill,
+                        }
+
+                        synthetic = CorrelatedFinding(
+                            id=corr_id,
+                            pattern_id=pattern.id,
+                            severity=pattern.severity,
+                            compound_risk_score=compound_risk,
+                            title=pattern.name,
+                            description=pattern.description,
+                            attack_path=pattern.attack_path_generator(narrative_context),
+                            source_finding_ids=source_ids,
+                            source_findings=source_refs,
+                            affected_resources=affected_resources,
+                            remediation_priority=self._get_remediation_priority(compound_risk),
+                            remediation_steps=pattern.remediation_generator(narrative_context),
+                            cis_reference=None,
+                            pci_dss=None,
                         )
-                    else:
-                        compound_risk = min(10.0, 6.5 * pattern.amplification_factor)
 
-                    self._corr_counter += 1
-                    session_id = self.session_dir.name
-                    session_prefix = session_id[:8] if len(session_id) >= 8 else "00000000"
-                    corr_id = f"CORR-{session_prefix}-{self._corr_counter:03d}"
-
-                    narrative_context = {
-                        "evidence_by_skill": evidence_by_skill,
-                        "findings_by_skill": findings_by_skill,
-                    }
-
-                    synthetic = CorrelatedFinding(
-                        id=corr_id,
-                        pattern_id=pattern.id,
-                        severity=pattern.severity,
-                        compound_risk_score=compound_risk,
-                        title=pattern.name,
-                        description=pattern.description,
-                        attack_path=pattern.attack_path_generator(narrative_context),
-                        source_finding_ids=source_ids,
-                        source_findings=source_refs,
-                        affected_resources=affected_resources,
-                        remediation_priority=self._get_remediation_priority(compound_risk),
-                        remediation_steps=pattern.remediation_generator(narrative_context),
-                        cis_reference=None,
-                        pci_dss=None,
-                    )
-                    if len(correlations) >= self.MAX_TOTAL_CORRELATIONS:
-                        message = (
-                            f"Correlation analysis was truncated after reaching the "
-                            f"{self.MAX_TOTAL_CORRELATIONS} total correlation cap."
-                        )
-                        logger.warning(message)
-                        _mark_truncated("max_total_correlations", message)
-                        break
-                    correlations.append(synthetic)
-                    patterns_applied.append(pattern.id)
+                        if len(correlations) >= self.MAX_TOTAL_CORRELATIONS:
+                            message = (
+                                f"Correlation analysis was truncated after reaching the "
+                                f"{self.MAX_TOTAL_CORRELATIONS} total correlation cap."
+                            )
+                            logger.warning(message)
+                            _mark_truncated("max_total_correlations", message)
+                            break
+                        correlations.append(synthetic)
+                    if source_matches:
+                        patterns_applied.append(pattern.id)
                 except Exception as e:
                     errors.append(f"Dynamic pattern {pattern.id}: {e}")
 
@@ -327,7 +288,10 @@ class CorrelationEngine:
                     "generated_at": datetime.now().isoformat(),
                     "skills_analyzed": list(findings_by_skill.keys()),
                     "total_source_findings": total_findings,
-                    "patterns_evaluated": len(self.patterns) + len(dynamic_patterns),
+                    # patterns_evaluated reflects only dynamic patterns now;
+                    # legacy module-level metadata was removed and migrated
+                    # into PATTERN_REGISTRY, so count dynamic_patterns only.
+                    "patterns_evaluated": len(dynamic_patterns),
                     "patterns_matched": len(patterns_applied),
                 },
                 "correlations": [
