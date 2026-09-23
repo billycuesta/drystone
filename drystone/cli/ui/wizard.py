@@ -560,6 +560,16 @@ def run_ai_menu(current_config: Optional[dict] = None) -> dict:
         raise KeyboardInterrupt("Wizard cancelled")
     result["active_verification"] = active_verification
 
+    # ── Terraform state scan opt-in (sensitive read) ─────────────
+    current_tf_opt_in = defaults.get("terraform_state_scan_enabled", False)
+    terraform_state_scan_enabled = questionary.confirm(
+        "Enable Terraform state scanning? (Read first 8KB of .tfstate files in candidate S3 buckets to detect plaintext secrets)",
+        default=current_tf_opt_in,
+    ).ask()
+    if terraform_state_scan_enabled is None:
+        raise KeyboardInterrupt("Wizard cancelled")
+    result["terraform_state_scan_enabled"] = terraform_state_scan_enabled
+
     return result
 
 

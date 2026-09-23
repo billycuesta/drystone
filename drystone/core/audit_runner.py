@@ -60,6 +60,13 @@ def _create_session(
     _msg("📁 Creating audit session...")
     session = AuditSession(config.client_name, account_id)
     session.scan_depth = getattr(config, "scan_depth", "normal")  # propagate to skills
+    # Populate feature flags from WizardConfig so skills can respect opt-in gates.
+    try:
+        session.feature_flags = {
+            "terraform_state_scan_enabled": bool(getattr(config, "terraform_state_scan_enabled", False))
+        }
+    except Exception:
+        session.feature_flags = {}
     _msg(f"   Session: {session.base_path}\n")
 
     metrics_file = session.base_path / "metrics.json"

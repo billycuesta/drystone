@@ -46,6 +46,10 @@ class AuditSession:
             Path.cwd() / "audit-logs" / f"{self.client_name}_{self.timestamp}_{rand_suffix}"
         )
 
+        # Optional feature flags populated by the audit runner from WizardConfig.
+        # Keys are strings like 'terraform_state_scan_enabled'. Default falsey.
+        self.feature_flags: dict = {}
+
         # Create directory structure
         self._create_directories()
 

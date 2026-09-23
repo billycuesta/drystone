@@ -73,10 +73,10 @@ def cli(debug: bool) -> None:
     type=click.Choice(["shallow", "normal", "deep", "very-deep"]),
     help="Scan depth controlling chunk budget and token usage",
 )
-@click.option(
-    "--no-active-verification",
-    is_flag=True,
-    default=False,
+    @click.option(
+        "--no-active-verification",
+        is_flag=True,
+        default=False,
     help=(
         "Skip active verification (real, non-destructive AWS API calls -- AssumeRole, "
         "unauthenticated S3 HEAD/List -- that prove specific findings are exploitable). "
@@ -84,6 +84,12 @@ def cli(debug: bool) -> None:
         "account's CloudTrail logs, so disable it for engagements whose authorized "
         "scope doesn't cover active testing."
     ),
+    )
+@click.option(
+    "--scan-terraform-state",
+    is_flag=True,
+    default=False,
+    help="Opt-in: allow reading first 8KB of terraform .tfstate files found in S3 to detect plaintext secrets (off by default)",
 )
 def audit(
     non_interactive: bool,
@@ -95,6 +101,7 @@ def audit(
     report_type: Optional[Literal["general", "pci-dss", "pentest"]] = None,
     scan_depth: Optional[Literal["shallow", "normal", "deep", "very-deep"]] = None,
     no_active_verification: bool = False,
+    scan_terraform_state: bool = False,
 ) -> None:
     """Run AWS security audit."""
 
@@ -193,6 +200,8 @@ def audit(
         config.scan_depth = scan_depth
     if no_active_verification and config is not None:
         config.active_verification = False
+    if scan_terraform_state and config is not None:
+        config.terraform_state_scan_enabled = True
     # Show summary
     try:
         print_summary(config)

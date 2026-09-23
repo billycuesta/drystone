@@ -412,11 +412,29 @@ class VulnsSkill(BaseSkill):
         # === TERRAFORM STATE FILES IN S3 ===
         print("  Scanning S3 buckets for Terraform state files...")
         try:
-            tf_data, tf_error = self._collect_terraform_state_secrets(client_kwargs)
-            self._save_json(
-                evidence_path / "terraform-state-scan.json",
-                {"items": tf_data, "error": tf_error},
-            )
+            # Pass session so the collector can respect opt-in feature flags.
+            tf_result = self._collect_terraform_state_secrets(client_kwargs, session)
+            # _collect_terraform_state_secrets may return a 4-tuple when skipped
+            # for backward-compatibility with existing callers handle both forms.
+            if isinstance(tf_result, tuple) and len(tf_result) == 4:
+                tf_data, tf_error, skipped, reason = tf_result
+            else:
+                tf_data, tf_error = tf_result
+                skipped = False
+                reason = None
+
+            if skipped:
+                # Write an explicit skipped marker so evidence consumers know the
+                # scan was intentionally not run (opt-in required).
+                self._save_json(
+                    evidence_path / "terraform-state-scan.json",
+                    {"items": [], "error": None, "skipped": True, "reason": reason},
+                )
+            else:
+                self._save_json(
+                    evidence_path / "terraform-state-scan.json",
+                    {"items": tf_data, "error": tf_error},
+                )
         except Exception as e:
             logger.error(f"Could not scan for Terraform state files: {e}")
 
@@ -720,8 +738,8 @@ class VulnsSkill(BaseSkill):
             return out, str(e)
 
     def _collect_terraform_state_secrets(
-        self, client_kwargs: Dict[str, Any]
-    ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+        self, client_kwargs: Dict[str, Any], session: Optional[AuditSession] = None
+    ) -> Tuple[List[Dict[str, Any]], Optional[str]] | tuple:
         """Scan S3 buckets for Terraform state files that may contain plaintext secrets.
 
         Strategy:
@@ -750,7 +768,17 @@ class VulnsSkill(BaseSkill):
             re.compile(r'"access_key"\s*:\s*"AKIA[0-9A-Z]{16}"'),  # AWS access keys
             re.compile(r'"secret_access_key"\s*:\s*"[A-Za-z0-9/+=]{30,}"'),
         ]
+        # Respect opt-in: if an AuditSession was provided and the feature flag is
+        # not enabled, skip scanning entirely and return a skipped marker so the
+        # caller can persist an explanatory evidence file.
         try:
+            if session is not None:
+                enabled = bool(getattr(session, "feature_flags", {}).get("terraform_state_scan_enabled", False))
+                if not enabled:
+                    # Early return with a skipped marker so callers can persist a clear
+                    # evidence file indicating the scan was intentionally skipped.
+                    return [], None, True, "terraform_state_scan_enabled is False (opt-in required)"
+
             buckets_resp = s3.list_buckets()
             all_buckets = [b["Name"] for b in buckets_resp.get("Buckets", []) if b.get("Name")]
             candidate_buckets = [b for b in all_buckets if tf_name_pattern.search(b)]

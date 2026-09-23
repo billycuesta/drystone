@@ -131,6 +131,16 @@ class WizardConfig(BaseModel):
         ),
     )
 
+    # Feature flags (opt-in gates for sensitive reads)
+    terraform_state_scan_enabled: bool = Field(
+        default=False,
+        description=(
+            "Opt-in: when True, the vulns skill will enumerate candidate S3 buckets and read the first "
+            "8KB of any .tfstate objects found to detect plaintext secrets. Defaults to False to avoid "
+            "accidental data-plane reads."
+        ),
+    )
+
     # Report language
     report_language: Literal["en", "es"] = Field(
         default="en",
