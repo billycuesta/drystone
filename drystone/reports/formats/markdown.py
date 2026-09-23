@@ -634,7 +634,11 @@ This report presents security findings from the {self._get_skill_display_name(sk
                     section += f"| Region | {region} |\n"
                     section += f"| Period | {start_fmt} → {end_fmt} ({days_back} days) |\n"
                     section += f"| Scan Depth | {scan_depth} |\n"
-                    total_events = sum(ct_summary.get("categories_collected", {}).values())
+                    categories = ct_summary.get("categories_collected", {})
+                    total_events = sum(
+                        item.get("count", 0) if isinstance(item, dict) else item
+                        for item in categories.values()
+                    )
                     section += f"| Total Events Processed | {total_events:,} |\n"
                     section += "\n"
                 except Exception:

@@ -594,6 +594,159 @@ class TestChecklistJson:
 
 
 # =============================================================================
+# ERROR VISIBILITY TESTS (SKL-L)
+# =============================================================================
+
+
+class TestErrorVisibility:
+    """Tests for error visibility in categories_collected (SKL-L)."""
+
+    def test_paginate_lookup_returns_error_on_failure(self, tmp_path):
+        """_paginate_lookup() should return (events, error) tuple on ClientError."""
+        from botocore.exceptions import ClientError
+
+        from drystone.skills.cloudtrail_events import _paginate_lookup
+
+        # Mock paginator that raises ClientError
+        mock_ct = MagicMock()
+        mock_paginator = MagicMock()
+        mock_error = ClientError(
+            {"Error": {"Code": "ThrottlingException", "Message": "Rate exceeded"}},
+            "LookupEvents"
+        )
+        mock_paginator.paginate.side_effect = mock_error
+        mock_ct.get_paginator.return_value = mock_paginator
+
+        start_time = datetime(2026, 3, 1, tzinfo=timezone.utc)
+        end_time = datetime(2026, 3, 8, tzinfo=timezone.utc)
+
+        events, error = _paginate_lookup(mock_ct, start_time, end_time, "Username", "root")
+
+        assert events == []
+        assert error is not None
+        assert "ThrottlingException" in error
+
+    def test_paginate_lookup_returns_none_error_on_success(self, tmp_path):
+        """_paginate_lookup() should return (events, None) on success."""
+        from drystone.skills.cloudtrail_events import _paginate_lookup
+
+        mock_ct = MagicMock()
+        mock_paginator = MagicMock()
+        mock_page = {"Events": [_sample_event("ConsoleLogin", "alice")]}
+        mock_paginator.paginate.return_value = iter([mock_page])
+        mock_ct.get_paginator.return_value = mock_paginator
+
+        start_time = datetime(2026, 3, 1, tzinfo=timezone.utc)
+        end_time = datetime(2026, 3, 8, tzinfo=timezone.utc)
+
+        events, error = _paginate_lookup(mock_ct, start_time, end_time, "EventName", "ConsoleLogin")
+
+        assert len(events) > 0
+        assert error is None
+
+    def test_collect_records_error_in_summary(self, tmp_path):
+        """collect() should record errors in categories_collected as {count, error}."""
+        from botocore.exceptions import ClientError
+
+        from drystone.skills.cloudtrail_events import CloudTrailEventsSkill
+
+        aws_client = _make_aws_client()
+        session, evidence_path = _make_session(tmp_path)
+
+        # Mock paginator that fails on first category, succeeds on others
+        mock_ct = MagicMock()
+        mock_error = ClientError(
+            {"Error": {"Code": "AccessDenied"}},
+            "LookupEvents"
+        )
+
+        call_count = [0]
+        def get_paginator(service_name):
+            pag = MagicMock()
+            call_count[0] += 1
+            if call_count[0] == 1:  # First call raises error
+                pag.paginate.side_effect = mock_error
+            else:  # Others succeed
+                pag.paginate.return_value = iter([{"Events": [_sample_event()]}])
+            return pag
+
+        mock_ct.get_paginator = get_paginator
+
+        with patch("boto3.client", return_value=mock_ct):
+            skill = CloudTrailEventsSkill()
+            skill.collect(aws_client, session)
+
+        summary = json.loads((evidence_path / "_summary.json").read_text())
+        categories = summary["categories_collected"]
+
+        # At least one category should have an error (the first targeted lookup)
+        first_category = next(iter(categories.values()))
+        assert isinstance(first_category, dict), "Category should be dict with 'count' and 'error' keys"
+        assert "count" in first_category
+        assert "error" in first_category
+
+    def test_collect_successful_category_has_no_error(self, tmp_path):
+        """Successful categories should have error=None."""
+        from drystone.skills.cloudtrail_events import CloudTrailEventsSkill
+
+        aws_client = _make_aws_client()
+        session, evidence_path = _make_session(tmp_path)
+
+        mock_ct = MagicMock()
+        mock_ct.get_paginator.return_value = _make_paginator({"Events": [_sample_event()]})
+
+        with patch("boto3.client", return_value=mock_ct):
+            skill = CloudTrailEventsSkill()
+            skill.collect(aws_client, session)
+
+        summary = json.loads((evidence_path / "_summary.json").read_text())
+        categories = summary["categories_collected"]
+
+        # All categories should have error=None (no errors occurred in this run)
+        for cat_name, cat_data in categories.items():
+            assert isinstance(cat_data, dict), f"Category {cat_name} should be dict"
+            assert cat_data.get("error") is None, f"Category {cat_name} should have error=None"
+
+    def test_error_does_not_stop_other_categories(self, tmp_path):
+        """One category's error should not prevent collecting others."""
+        from botocore.exceptions import ClientError
+
+        from drystone.skills.cloudtrail_events import CloudTrailEventsSkill
+
+        aws_client = _make_aws_client()
+        session, evidence_path = _make_session(tmp_path)
+
+        # Mock: fail on first lookup, succeed on rest
+        mock_ct = MagicMock()
+        mock_error = ClientError(
+            {"Error": {"Code": "ThrottlingException"}},
+            "LookupEvents"
+        )
+
+        call_count = [0]
+        def get_paginator(service_name):
+            pag = MagicMock()
+            call_count[0] += 1
+            if call_count[0] == 1:  # First paginator fails
+                pag.paginate.side_effect = mock_error
+            else:  # Rest succeed
+                pag.paginate.return_value = iter([{"Events": []}])
+            return pag
+
+        mock_ct.get_paginator = get_paginator
+
+        with patch("boto3.client", return_value=mock_ct):
+            skill = CloudTrailEventsSkill()
+            skill.collect(aws_client, session)
+
+        summary = json.loads((evidence_path / "_summary.json").read_text())
+        categories = summary["categories_collected"]
+
+        # Should have many categories, not just one
+        assert len(categories) > 1, "Collection should continue after error"
+
+
+# =============================================================================
 # TEST HELPERS
 # =============================================================================
 

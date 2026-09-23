@@ -102,7 +102,9 @@ class TestResourcesAuditedSection:
                     "end_time": "2026-05-08T00:00:00+00:00",
                     "region": "eu-west-1",
                     "account_id": "",
-                    "categories_collected": {"audit-tampering-events": 1},
+                    "categories_collected": {
+                        "audit-tampering-events": {"count": 1, "error": None}
+                    },
                 }
             )
         )
