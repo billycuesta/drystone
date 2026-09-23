@@ -62,7 +62,8 @@
           "reason": "Exposing a database to the world violates the principle of least privilege. Access should be restricted to only specific, authorized application components."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "one_ref_per_resource": true
     },
     {
       "id": "EXP-003",
@@ -102,7 +103,8 @@
           "reason": "This control requires disabling unnecessary functionality. While the service (e.g., SSH, MySQL) may be necessary for the server, exposing it via an open port is an unnecessary and insecure function."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "one_ref_per_resource": true
     },
     {
       "id": "EXP-005",
@@ -160,7 +162,8 @@
           "reason": "This control requires an automated technical solution (like a WAF) to be installed in front of public-facing web applications to detect and prevent web-based attacks. This finding is a direct violation."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "one_ref_per_resource": true
     },
     {
       "id": "EXP-009",
@@ -224,7 +227,8 @@
           "reason": "Strong cryptography must be used for transmission of sensitive data. Enforcing aws:SecureTransport helps ensure TLS is used for S3 access."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "one_ref_per_resource": true
     },
     {
       "id": "EXP-014",
@@ -238,7 +242,8 @@
           "reason": "Audit logs must be protected from unauthorized modification. Versioning helps preserve historical copies and supports integrity controls."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "one_ref_per_resource": true
     },
     {
       "id": "EXP-012",
@@ -450,13 +455,14 @@
           "reason": "Storage of sensitive authentication and audit data requires strong cryptography with auditable key management."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "one_ref_per_resource": true
     },
     {
       "id": "EXP-023",
       "title": "Resource-based policies with unrestricted Principal:* (SQS, SNS, OpenSearch, ECR, Secrets Manager)",
       "severity": "Critical",
-      "description": "Managed AWS services (SQS queues, SNS topics, OpenSearch domains, ECR repositories, Secrets Manager secrets) with resource-based policies that allow any AWS identity (Principal: *) without conditions scoping access to a specific account, VPC, or organization are effectively public. Any AWS identity \u2014 including from other accounts \u2014 can perform the allowed actions.",
+      "description": "Managed AWS services (SQS queues, SNS topics, OpenSearch domains, ECR repositories, Secrets Manager secrets) with resource-based policies that allow any AWS identity (Principal: *) without conditions scoping access to a specific account, VPC, or organization are effectively public. Any AWS identity — including from other accounts — can perform the allowed actions.",
       "evidence_files": [
         "resource-based-policies.json"
       ],

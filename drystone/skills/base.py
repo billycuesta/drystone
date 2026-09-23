@@ -448,7 +448,7 @@ class BaseSkill(ABC):
             findings = self._reconcile_with_pre_checks(
                 findings, pre_check_results, checklist, evidence=evidence
             )
-            self._validate_final_precheck_findings(findings, fail_ids)
+            self._validate_final_precheck_findings(findings, fail_ids, checklist)
             findings = self._refresh_summary(findings, checklist)
 
         # 5b. Check checklist coverage (log missing criticals)
@@ -880,30 +880,11 @@ class BaseSkill(ABC):
         self,
         findings: "SkillFindings",
         fail_ids: set[str],
+        checklist: Dict[str, Any],
     ) -> None:
         """Block client-facing output if deterministic High/Critical findings are incomplete."""
         issues: List[str] = []
-        one_ref_per_resource_checks = {
-            "EXP-002",
-            "EXP-004",
-            "EXP-007",
-            "EXP-013",
-            "EXP-014",
-            "EXP-024",
-            "NET-001",
-            "NET-003",
-            "NET-007",
-            "NET-008",
-            "NET-009",
-            "NET-010",
-            "NET-011",
-            "NET-013",
-                "NET-016",
-                "NET-022",
-                "NET-025",
-                "NET-027",
-                "SER-EC2-002",
-            }
+        checklist_map = {item["id"]: item for item in checklist.get("items", []) if "id" in item}
         for finding in findings.findings:
             if finding.id not in fail_ids:
                 continue
@@ -914,7 +895,8 @@ class BaseSkill(ABC):
                 issues.append(f"{finding.id} {severity} deterministic finding has empty impact")
             affected = list(finding.affected_resources or [])
             refs = list(finding.evidence_refs or [])
-            if finding.id in one_ref_per_resource_checks and affected and len(refs) < len(affected):
+            item = checklist_map.get(finding.id, {})
+            if item.get("one_ref_per_resource", False) and affected and len(refs) < len(affected):
                 issues.append(
                     f"{finding.id} deterministic finding has {len(affected)} affected "
                     f"resource(s) but only {len(refs)} evidence ref(s)"

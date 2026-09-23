@@ -11,9 +11,12 @@ Covers:
 
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from drystone.models.findings import Finding, FindingsSummary, SkillFindings
 from drystone.skills.base import BaseSkill, _severity_to_risk
@@ -132,19 +135,20 @@ def _pre_check(
     return r
 
 
-def _checklist(*ids, severity="High"):
-    return {
-        "items": [
-            {
-                "id": cid,
-                "title": f"Check {cid}",
-                "severity": severity,
-                "description": f"Desc {cid}",
-                "remediation": f"Fix {cid}",
-            }
-            for cid in ids
-        ]
-    }
+def _checklist(*ids, severity="High", one_ref_per_resource=False):
+    items = []
+    for cid in ids:
+        item = {
+            "id": cid,
+            "title": f"Check {cid}",
+            "severity": severity,
+            "description": f"Desc {cid}",
+            "remediation": f"Fix {cid}",
+        }
+        if one_ref_per_resource:
+            item["one_ref_per_resource"] = True
+        items.append(item)
+    return {"items": items}
 
 
 # ── _severity_to_risk ─────────────────────────────────────────────────────────
@@ -610,6 +614,57 @@ class TestReconcileWithPreChecks:
         findings = _skill_findings(_finding("IAM-001"))
         result = SKILL._reconcile_with_pre_checks(findings, [], _checklist("IAM-001"))
         assert len(result.findings) == 1
+
+
+# ── _validate_final_precheck_findings ────────────────────────────────────────
+
+
+class TestValidateFinalPrecheckFindings:
+    def test_one_ref_per_resource_flag_present_raises_for_missing_refs(self):
+        findings = _skill_findings(
+            _finding(
+                "EXP-002",
+                severity="High",
+                affected_resources=["db-a", "db-b", "db-c"],
+                evidence_refs=["rds-instances.json#/items/0"],
+                impact="impact",
+            )
+        )
+        checklist = _checklist("EXP-002", one_ref_per_resource=True)
+
+        with pytest.raises(ValueError) as exc:
+            SKILL._validate_final_precheck_findings(findings, {"EXP-002"}, checklist)
+
+        assert "EXP-002 deterministic finding has 3 affected resource(s) but only 1 evidence ref(s)" in str(exc.value)
+
+    def test_one_ref_per_resource_flag_absent_does_not_raise_for_missing_refs(self):
+        findings = _skill_findings(
+            _finding(
+                "EXP-002",
+                severity="High",
+                affected_resources=["db-a", "db-b", "db-c"],
+                evidence_refs=["rds-instances.json#/items/0"],
+                impact="impact",
+            )
+        )
+        checklist = _checklist("EXP-002")
+
+        SKILL._validate_final_precheck_findings(findings, {"EXP-002"}, checklist)
+
+        assert findings.findings[0].affected_resources == ["db-a", "db-b", "db-c"]
+
+    def test_real_checklists_mark_one_ref_per_resource_ids(self):
+        checklist_expectations = {
+            "drystone/skills/exposure/checklist.json": {"EXP-002", "EXP-004", "EXP-024"},
+            "drystone/skills/network/checklist.json": {"NET-001", "NET-016", "NET-027"},
+        }
+
+        for checklist_path, expected_ids in checklist_expectations.items():
+            data = json.loads(Path(checklist_path).read_text())
+            items = {item["id"]: item for item in data["items"]}
+
+            for check_id in expected_ids:
+                assert items[check_id].get("one_ref_per_resource") is True
 
 
 # ── _build_precheck_traceability ─────────────────────────────────────────────
