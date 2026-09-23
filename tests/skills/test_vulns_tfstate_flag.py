@@ -1,8 +1,3 @@
-import types
-
-import boto3
-import pytest
-
 from drystone.skills.vulns import VulnsSkill
 from drystone.storage.session import AuditSession
 
@@ -11,16 +6,18 @@ class FakeS3:
     def __init__(self):
         self.calls = []
 
-    def list_buckets(self):
+    def list_buckets(self, **kwargs):
         self.calls.append("list_buckets")
         return {"Buckets": [{"Name": "my-terraform-state-bucket"}]}
 
-    def list_objects_v2(self, Bucket=None, MaxKeys=None):
-        self.calls.append(("list_objects_v2", Bucket))
+    def list_objects_v2(self, **kwargs):
+        self.calls.append(("list_objects_v2", kwargs.get("Bucket")))
         return {"Contents": []}
 
-    def get_object(self, Bucket=None, Key=None, Range=None):
-        self.calls.append(("get_object", Bucket, Key, Range))
+    def get_object(self, **kwargs):
+        self.calls.append(
+            ("get_object", kwargs.get("Bucket"), kwargs.get("Key"), kwargs.get("Range"))
+        )
         raise RuntimeError("Should not actually read from network in tests")
 
 

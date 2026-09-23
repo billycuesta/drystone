@@ -100,7 +100,10 @@ class TestRunAiMenuClaudeCliPreflight:
             _ask_mock("sonnet"),  # model choice
             _ask_mock("normal"),  # scan depth
         ]
-        confirm_prompts = [_ask_mock(True)]  # active verification only
+        confirm_prompts = [
+            _ask_mock(True),  # active verification
+            _ask_mock(False),  # terraform state scan opt-in
+        ]
 
         with (
             patch("questionary.select", side_effect=select_prompts),
@@ -124,6 +127,7 @@ class TestRunAiMenuClaudeCliPreflight:
         confirm_prompts = [
             _ask_mock(True),  # "switch to API?" -> yes
             _ask_mock(True),  # active verification
+            _ask_mock(False),  # terraform state scan opt-in
         ]
 
         with (
