@@ -396,6 +396,26 @@ class AlertingSkill(BaseSkill):
         except Exception as e:
             print(f"    Warning: Could not collect Config rules: {e}")
 
+        self._save_json(
+            evidence_path / "_audit_metadata.json",
+            self._audit_metadata(
+                session,
+                aws_client.region_name,
+                evidence_files=[
+                    "cloudtrail-trails.json",
+                    "cloudtrail-s3-notifications.json",
+                    "cloudtrail-log-subscriptions.json",
+                    "cloudwatch-log-groups.json",
+                    "cloudwatch-metric-filters.json",
+                    "cloudwatch-alarms.json",
+                    "eventbridge-rules.json",
+                    "sns-topics.json",
+                    "vpc-flow-logs.json",
+                    "config-rules.json",
+                ],
+            ),
+        )
+
         print("\n✅ Alerting collection complete")
 
 __all__ = ["AlertingSkill"]

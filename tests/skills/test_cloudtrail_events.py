@@ -38,6 +38,7 @@ def _make_session(tmp_path, skill_name="cloudtrail_events", scan_depth="normal")
     evidence_path.mkdir(parents=True)
     session.get_evidence_path.return_value = evidence_path
     session.scan_depth = scan_depth
+    session.account_id = "123456789012"
     return session, evidence_path
 
 
@@ -138,6 +139,16 @@ class TestCloudTrailEventsCollect:
         assert "start_time" in summary
         assert "end_time" in summary
         assert "categories_collected" in summary
+
+    def test_collect_writes_audit_metadata(self, tmp_path):
+        """collect() should write audit metadata for deterministic region inference."""
+        evidence_path = self._run_collect(tmp_path)
+        metadata = json.loads((evidence_path / "_audit_metadata.json").read_text())
+
+        assert metadata["_skill"] == "cloudtrail_events"
+        assert metadata["_region"] == "us-east-1"
+        assert metadata["_scope"] == "single-region"
+        assert "write-events.json" in metadata["evidence_files"]
 
     def test_distillation_reduces_fields(self, tmp_path):
         """Distilled events should only contain essential fields."""

@@ -420,6 +420,30 @@ class VulnsSkill(BaseSkill):
         except Exception as e:
             logger.error(f"Could not scan for Terraform state files: {e}")
 
+        self._save_json(
+            evidence_path / "_audit_metadata.json",
+            self._audit_metadata(
+                session,
+                aws_client.region_name,
+                evidence_files=[
+                    "inspector-org-config.json",
+                    "inspector-findings.json",
+                    "ec2-patch-status.json",
+                    "patch-baselines.json",
+                    "rds-patch-info.json",
+                    "ecr-image-scans.json",
+                    "ec2-user-data.json",
+                    "lambda-environment-variables.json",
+                    "imds-configuration.json",
+                    "instance-profiles-permissions.json",
+                    "ebs-snapshot-sharing.json",
+                    "guardduty-status.json",
+                    "ecs-task-env-secrets.json",
+                    "terraform-state-scan.json",
+                ],
+            ),
+        )
+
         print("\n✅ Vulnerability collection complete")
 
     def _collect_guardduty_status(self, client_kwargs: Dict[str, Any]) -> Dict[str, Any]:

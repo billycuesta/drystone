@@ -364,6 +364,17 @@ class TestCollectHappyPath:
         data = json.loads((evidence_path / "password-policy.json").read_text())
         assert data == {"error": "No password policy configured"}
 
+    def test_collect_writes_audit_metadata(self, skill, aws_client, tmp_path):
+        session, evidence_path = _make_session(tmp_path)
+        with patch("boto3.client", side_effect=_boto3_factory()):
+            skill.collect(aws_client, session)
+
+        metadata = json.loads((evidence_path / "_audit_metadata.json").read_text())
+        assert metadata["_skill"] == "iam"
+        assert metadata["_region"] == "us-east-1"
+        assert metadata["_scope"] == "single-region"
+        assert "users.json" in metadata["evidence_files"]
+
 
 # ── Session token branch ──────────────────────────────────────────────────────
 

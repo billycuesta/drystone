@@ -166,6 +166,19 @@ class SecretsManagerSkill(BaseSkill):
 
         eb_data = self._collect_eventbridge_rules(session_obj, regions)
         self._save_json(evidence_path / "eventbridge_rules.json", eb_data)
+        self._save_json(
+            evidence_path / "_audit_metadata.json",
+            self._audit_metadata(
+                session,
+                aws_client.region_name,
+                scope="multi-region",
+                evidence_files=[
+                    "secrets.json",
+                    "cloudwatch_alarms.json",
+                    "eventbridge_rules.json",
+                ],
+            ),
+        )
 
         print("  ✅ Alerting evidence saved")
 

@@ -90,6 +90,22 @@ class ReconSkill(BaseSkill):
             route53_data, apigw_data, lambda_urls, lb_data, public_eps, cf_data
         )
         self._save_json(evidence_path / "attack-surface-score.json", score)
+        self._save_json(
+            evidence_path / "_audit_metadata.json",
+            self._audit_metadata(
+                session,
+                aws_client.region_name,
+                evidence_files=[
+                    "route53-zones.json",
+                    "api-gateway-stages.json",
+                    "lambda-urls.json",
+                    "load-balancer-dns.json",
+                    "public-endpoints.json",
+                    "cloudfront-origins.json",
+                    "attack-surface-score.json",
+                ],
+            ),
+        )
 
         print(
             f"\n✅ Recon collection complete — "

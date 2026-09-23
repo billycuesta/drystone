@@ -37,6 +37,7 @@ class TestSecretsManagerSkill:
         evidence_dir = tmp_path / "evidence" / "secretsmanager"
         evidence_dir.mkdir(parents=True, exist_ok=True)
         session.get_evidence_path.return_value = evidence_dir
+        session.account_id = "123456789012"
         return session
 
     def test_skill_name(self, skill):
@@ -255,6 +256,41 @@ class TestSecretsManagerSkill:
         # Verify new alerting evidence files are created
         assert (mock_session.get_evidence_path.return_value / "cloudwatch_alarms.json").exists()
         assert (mock_session.get_evidence_path.return_value / "eventbridge_rules.json").exists()
+
+    def test_collect_writes_audit_metadata(self, skill, mock_aws_client, mock_session):
+        """collect() should write multi-region audit metadata."""
+        mock_ec2 = MagicMock()
+        mock_secrets = MagicMock()
+        mock_cw = MagicMock()
+        mock_events = MagicMock()
+
+        mock_ec2.describe_regions.return_value = {"Regions": [{"RegionName": "us-east-1"}]}
+        mock_secrets.get_paginator.return_value.paginate.return_value = [{"SecretList": []}]
+        mock_cw.get_paginator.return_value.paginate.return_value = [{"MetricAlarms": []}]
+        mock_events.get_paginator.return_value.paginate.return_value = [{"Rules": []}]
+
+        def _client(service, **kwargs):
+            if service == "ec2":
+                return mock_ec2
+            if service == "secretsmanager":
+                return mock_secrets
+            if service == "cloudwatch":
+                return mock_cw
+            if service == "events":
+                return mock_events
+            raise AssertionError(f"Unexpected boto3 client service: {service}")
+
+        mock_aws_client.boto3_session.return_value.client.side_effect = _client
+
+        skill.collect(mock_aws_client, mock_session)
+
+        metadata = json.loads(
+            (mock_session.get_evidence_path.return_value / "_audit_metadata.json").read_text()
+        )
+        assert metadata["_skill"] == "secretsmanager"
+        assert metadata["_region"] == "us-east-1"
+        assert metadata["_scope"] == "multi-region"
+        assert "secrets.json" in metadata["evidence_files"]
 
     def test_get_resource_policy_no_policy(self, skill):
         """Test getting resource policy when none exists."""
