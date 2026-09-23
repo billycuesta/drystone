@@ -806,6 +806,15 @@ class PDFFormatter(BaseFormatter):
         "kms-keys.json": "KMS Keys",
     }
 
+    # Primary item key per evidence file (for nested-dict evidence structures).
+    # Used by _skill_resources_audited_html() when evidence is neither a raw list
+    # nor uses the standard {"items": [...]} envelope.
+    _EVIDENCE_FILE_COUNT_KEYS: dict = {
+        "attack-path-candidates.json": "paths",
+        "inspector-findings-normalized.json": "findings",
+        "reachability-graph.json": "edges",
+    }
+
     def _skill_resources_audited_html(self) -> str:
         """Build an HTML table of audited resources from skill evidence files.
 
@@ -829,12 +838,29 @@ class PDFFormatter(BaseFormatter):
                     data = json.load(f)
             except (json.JSONDecodeError, OSError):
                 continue
-            # Count items: handle raw list evidence and dict evidence with 'items' key
-            # (network/waf/ecr skills store evidence as {"_meta": ..., "items": [...], "by_id": {...}})
+            # Count items: handle raw list, standard {"items": [...]} envelope,
+            # known single-key dicts (SER skill), and multi-list dicts (compute-inventory).
             if isinstance(data, list):
                 count = len(data)
             elif isinstance(data, dict) and isinstance(data.get("items"), list):
                 count = len(data["items"])
+            elif isinstance(data, dict):
+                # Try known single primary-key shortcut first
+                item_key = self._EVIDENCE_FILE_COUNT_KEYS.get(json_file.name)
+                if item_key and isinstance(data.get(item_key), list):
+                    count = len(data[item_key])
+                else:
+                    # Fallback: sum items across all collection values
+                    # (handles compute-inventory, front-doors, cve-intelligence, etc.)
+                    count = sum(
+                        len(v)
+                        for k, v in data.items()
+                        if not k.startswith("_")
+                        and k not in ("summary", "errors", "enrichment_errors")
+                        and isinstance(v, (list, dict))
+                    )
+                if count == 0:
+                    continue
             else:
                 # Skip scalar dicts (password-policy) or unrecognized structures
                 continue

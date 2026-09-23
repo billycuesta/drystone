@@ -74,6 +74,72 @@ def test_pdf_formatter_generates_pdf_with_weasyprint_stub(tmp_path, monkeypatch)
     assert "██████╗" in captured["html"]
 
 
+def _formatter_for_skill_inventory(tmp_path, skill="sistemas_explotables_red"):
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.aws_region = "us-east-1"
+    config.min_severity = "low"
+    config.report_type = "general"
+    findings = _sample_findings()
+    findings["skill"] = skill
+    evidence_dir = tmp_path / "evidence" / skill
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    return PDFFormatter(findings, session, config), evidence_dir
+
+
+def test_skill_resources_audited_counts_known_primary_key_dict(tmp_path):
+    formatter, evidence_dir = _formatter_for_skill_inventory(tmp_path)
+    (evidence_dir / "reachability-graph.json").write_text(
+        json.dumps({"edges": [{}, {}, {}, {}], "summary": {"ignored": True}})
+    )
+
+    html = formatter._skill_resources_audited_html()
+
+    assert "Reachability Graph" in html
+    assert ">4</td>" in html
+
+
+def test_skill_resources_audited_counts_multi_collection_dict(tmp_path):
+    formatter, evidence_dir = _formatter_for_skill_inventory(tmp_path)
+    (evidence_dir / "compute-inventory.json").write_text(
+        json.dumps(
+            {
+                "ec2_instances": [{}, {}, {}],
+                "lambda_functions": [{}, {}],
+                "summary": {"ignored": True},
+                "errors": [{"ignored": True}],
+                "_metadata": [{"ignored": True}],
+            }
+        )
+    )
+
+    html = formatter._skill_resources_audited_html()
+
+    assert "Compute Inventory" in html
+    assert ">5</td>" in html
+
+
+def test_skill_resources_audited_skips_zero_count_dict(tmp_path):
+    formatter, evidence_dir = _formatter_for_skill_inventory(tmp_path)
+    (evidence_dir / "front-doors.json").write_text(
+        json.dumps(
+            {
+                "load_balancers": [],
+                "api_gateways": [],
+                "summary": {"ignored": True},
+                "errors": [],
+                "enrichment_errors": [],
+                "_metadata": {"ignored": True},
+            }
+        )
+    )
+
+    html = formatter._skill_resources_audited_html()
+
+    assert "Front Doors" not in html
+    assert html == "<p>No countable evidence items found.</p>"
+
+
 def test_pdf_template_uses_physical_page_margins_for_safe_area():
     template_path = (
         Path(__file__).parents[3] / "drystone" / "reports" / "templates" / "pdf_report.xml"
