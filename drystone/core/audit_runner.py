@@ -1,8 +1,9 @@
 """CLI-agnostic audit orchestration core.
 
 Runs evidence collection, AI analysis, correlation, active verification,
-report generation, the QA gate, and a final chain-of-custody manifest for an
-already-configured and already-credential-validated audit.
+report generation, the PCI DSS evidence folder, the QA gate, and a final
+chain-of-custody manifest for an already-configured and
+already-credential-validated audit.
 
 This module must stay free of `click` (and of `sys.exit`) so it can be
 called programmatically -- not only from the `drystone audit` CLI command --
@@ -445,6 +446,29 @@ def _generate_reports(
         return False
 
 
+def _generate_pci_evidence_folder(
+    config: WizardConfig,
+    session: "AuditSession",
+    all_findings: Dict[str, Any],
+    _msg: Msg,
+) -> None:
+    """Phase: write the per-control PCI DSS evidence folder (pci-dss audits only).
+
+    Runs after report generation and before the integrity manifest so the
+    evidence files are hashed. Covers the skills that were actually analysed
+    (``all_findings``). Non-blocking: a failure here shouldn't fail the audit.
+    """
+    if config.report_type != "pci-dss" or not all_findings:
+        return
+    try:
+        from drystone.reports.pci_evidence_folder import generate_pci_evidence_folder
+
+        path = generate_pci_evidence_folder(config, session, all_findings, list(all_findings))
+        _msg(f"   📁 PCI DSS evidence folder: {path}")
+    except Exception as e:
+        _msg(f"   ⚠️  PCI evidence folder generation failed: {e}")
+
+
 def _optimize_budgets(metrics_file: Path, _msg: Msg) -> None:
     """Phase: P3 optimizer -- shrink per-skill chunk budgets based on this
     session's actual metrics. Silently no-ops on any failure."""
@@ -555,6 +579,7 @@ def run_audit(
     _run_active_verification(config, session, aws_client, _msg)
 
     reports_ok = _generate_reports(config, session, all_findings, skill_display_names, _msg)
+    _generate_pci_evidence_folder(config, session, all_findings, _msg)
     if reports_ok:
         phase_done += 1
         label = "Reporting complete" if all_findings else "Reporting skipped"

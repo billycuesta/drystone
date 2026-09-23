@@ -13,6 +13,7 @@ from drystone.core.audit_runner import (
     AuditRunResult,
     _analyze_evidence,
     _collect_pentest_inventory_if_needed,
+    _generate_pci_evidence_folder,
     _optimize_budgets,
     _run_correlation,
     _run_qa_gate,
@@ -478,6 +479,81 @@ class TestWriteIntegrityManifestPhase:
         ):
             _write_integrity_manifest(mock_session, messages.append)
         assert any("Could not write integrity manifest" in m and "boom" in m for m in messages)
+
+
+class TestGeneratePciEvidenceFolderPhase:
+    _TARGET = "drystone.reports.pci_evidence_folder.generate_pci_evidence_folder"
+
+    def test_no_op_when_report_type_is_not_pci_dss(self, config, mock_session):
+        messages = []
+        with patch(self._TARGET) as mock_gen:
+            _generate_pci_evidence_folder(config, mock_session, {"iam": {}}, messages.append)
+        mock_gen.assert_not_called()
+        assert messages == []
+
+    def test_no_op_when_nothing_was_analyzed(self, config, mock_session):
+        config.report_type = "pci-dss"
+        with patch(self._TARGET) as mock_gen:
+            _generate_pci_evidence_folder(config, mock_session, {}, lambda m: None)
+        mock_gen.assert_not_called()
+
+    def test_runs_for_analyzed_skills_when_pci_dss(self, config, mock_session, tmp_path):
+        config.report_type = "pci-dss"
+        messages = []
+        with patch(self._TARGET, return_value=tmp_path / "pci-evidence") as mock_gen:
+            _generate_pci_evidence_folder(
+                config, mock_session, {"iam": {}, "network": {}}, messages.append
+            )
+        mock_gen.assert_called_once_with(
+            config, mock_session, {"iam": {}, "network": {}}, ["iam", "network"]
+        )
+        assert any("PCI DSS evidence folder" in m for m in messages)
+
+    def test_failure_is_non_blocking(self, config, mock_session):
+        config.report_type = "pci-dss"
+        messages = []
+        with patch(self._TARGET, side_effect=RuntimeError("boom")):
+            _generate_pci_evidence_folder(config, mock_session, {"iam": {}}, messages.append)
+        assert any("PCI evidence folder generation failed" in m and "boom" in m for m in messages)
+
+    def test_run_audit_generates_before_integrity_manifest(
+        self, config, mock_aws_client, mock_session, report_file
+    ):
+        config.report_type = "pci-dss"
+        calls = []
+        qa_result = QAGateResult(passed=True, issues=[])
+        patches = _patched(mock_session, qa_result, report_file, mock_aws_client) + (
+            patch(self._TARGET, side_effect=lambda *a, **k: calls.append("pci-evidence")),
+            patch(
+                "drystone.storage.manifest.write_manifest",
+                side_effect=lambda *a, **k: (
+                    calls.append("manifest") or (Path("/tmp/manifest.json"), "deadbeef")
+                ),
+            ),
+        )
+        _apply(patches)
+        try:
+            run_audit(config, "123456789012")
+        finally:
+            _stop(patches)
+
+        assert calls == ["pci-evidence", "manifest"]
+
+    def test_run_audit_skips_phase_for_general_report(
+        self, config, mock_aws_client, mock_session, report_file
+    ):
+        qa_result = QAGateResult(passed=True, issues=[])
+        patches = _patched(mock_session, qa_result, report_file, mock_aws_client) + (
+            patch(self._TARGET),
+        )
+        mocks = _apply(patches)
+        try:
+            run_audit(config, "123456789012")
+        finally:
+            _stop(patches)
+
+        mocks[-1].assert_not_called()
+        assert not (mock_session.base_path / "pci-evidence").exists()
 
 
 class TestOptimizeBudgetsPhase:
