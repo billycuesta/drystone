@@ -411,13 +411,86 @@ class PCIDSSFormatter(BaseFormatter):
 
     def _compliance_statistics(self) -> str:
         """Generate compliance statistics by PCI requirement."""
-        # Placeholder - a full implementation would be more complex
-        return "## 📊 Compliance Statistics\n\n- (Statistics by requirement TBD)"
+        all_controls = self._get_all_pci_controls_from_checklists()
+        if not all_controls:
+            return ""
+
+        findings_map = self._map_findings_to_controls()
+
+        # Group controls by requirement number (1-12)
+        requirement_stats = {}
+        for control in all_controls:
+            control_id = control["control"]
+            req_num = control_id.split(".")[0]
+            if req_num not in requirement_stats:
+                requirement_stats[req_num] = {"total": 0, "compliant": 0}
+            requirement_stats[req_num]["total"] += 1
+            if control_id not in findings_map:
+                requirement_stats[req_num]["compliant"] += 1
+
+        # Build table of only requirements with at least one control
+        if not requirement_stats:
+            return ""
+
+        lines = ["## 📊 Compliance Statistics\n"]
+        lines.append("| Requirement | Controls | Compliant | Non-Compliant | Rate |")
+        lines.append("|---|---|---|---|---|")
+
+        for req_num in sorted(requirement_stats.keys(), key=lambda x: int(x)):
+            stats = requirement_stats[req_num]
+            total = stats["total"]
+            compliant = stats["compliant"]
+            non_compliant = total - compliant
+            rate = (compliant / total * 100) if total > 0 else 0
+            req_name = self._get_requirement_name(req_num)
+            lines.append(
+                f"| {req_num}. {req_name} | {total} | {compliant} | {non_compliant} | {rate:.0f}% |"
+            )
+
+        return "\n".join(lines)
 
     def _recommendations(self) -> str:
         """Generate prioritized remediation recommendations."""
-        # Placeholder
-        return "## 📝 Recommendations\n\n- (Prioritized recommendations TBD)"
+        findings_map = self._map_findings_to_controls()
+        if not findings_map:
+            return ""
+
+        # Build list of findings sorted by risk_score descending
+        findings_with_risk = []
+        for control_id, finding in findings_map.items():
+            risk_score = float(finding.get("risk_score", 0) or 0)
+            findings_with_risk.append((control_id, finding, risk_score))
+
+        findings_with_risk.sort(key=lambda x: x[2], reverse=True)
+
+        # Cap at top 10
+        max_recommendations = 10
+        truncated = len(findings_with_risk) > max_recommendations
+        displayed = findings_with_risk[:max_recommendations]
+
+        lines = ["## 📝 Recommendations\n"]
+
+        for i, (control_id, finding, risk_score) in enumerate(displayed, 1):
+            title = finding.get("title", "Unknown")
+            remediation = finding.get("remediation", "No remediation provided.")
+            # Truncate remediation to first sentence or ~150 chars
+            first_sentence = remediation.split(".")[0] + "."
+            if len(first_sentence) > 150:
+                truncated_remediation = remediation[:147] + "..."
+            else:
+                truncated_remediation = first_sentence
+
+            lines.append(f"{i}. **[{control_id}]** {title}")
+            lines.append(f"   - Risk Score: {risk_score:.1f}/10")
+            lines.append(f"   - Remediation: {truncated_remediation}\n")
+
+        if truncated:
+            total_count = len(findings_with_risk)
+            lines.append(
+                f"\n*Top {max_recommendations} of {total_count} recommendations shown. Review full details in Critical Non-Compliances section.*"
+            )
+
+        return "\n".join(lines)
 
     def _footer(self) -> str:
         """Generate the report footer."""
