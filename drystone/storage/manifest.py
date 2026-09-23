@@ -1,6 +1,6 @@
 """Evidence & findings chain-of-custody manifest.
 
-Hashes every evidence/findings/report artifact in a session directory and
+Hashes every evidence/findings/report/pci-evidence artifact in a session directory and
 persists a manifest.json (file -> sha256 -> size) so post-audit
 tampering can be detected later, independently of the report itself.
 """
@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 MANIFEST_FILENAME = "manifest.json"
-_HASHABLE_SUBDIRS = ("evidence", "findings", "reports")
+_HASHABLE_SUBDIRS = ("evidence", "findings", "reports", "pci-evidence")
 
 
 def _sha256_file(path: Path) -> str:

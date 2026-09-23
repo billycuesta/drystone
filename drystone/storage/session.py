@@ -86,6 +86,18 @@ class AuditSession:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
+    def get_pci_evidence_path(self) -> Path:
+        """Get or create the PCI DSS evidence-attachment folder.
+
+        Only populated for ``report_type == "pci-dss"`` audits.
+
+        Returns:
+            Path to the pci-evidence directory
+        """
+        path = self.base_path / "pci-evidence"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
     def get_findings_path(self) -> Path:
         """Get findings directory for all skills.
 

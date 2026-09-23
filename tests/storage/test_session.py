@@ -158,6 +158,32 @@ class TestGetEvidencePath:
         assert path.exists()
 
 
+# ── AuditSession.get_pci_evidence_path ────────────────────────────────────────
+
+
+class TestGetPciEvidencePath:
+    def test_returns_path_under_base(self, tmp_path):
+        session = make_session(tmp_path)
+        path = session.get_pci_evidence_path()
+        assert path == session.base_path / "pci-evidence"
+
+    def test_directory_created(self, tmp_path):
+        session = make_session(tmp_path)
+        path = session.get_pci_evidence_path()
+        assert path.is_dir()
+
+    def test_not_created_by_session_init(self, tmp_path):
+        session = make_session(tmp_path)
+        assert not (session.base_path / "pci-evidence").exists()
+
+    def test_idempotent_when_called_twice(self, tmp_path):
+        session = make_session(tmp_path)
+        p1 = session.get_pci_evidence_path()
+        p2 = session.get_pci_evidence_path()
+        assert p1 == p2
+        assert p2.is_dir()
+
+
 # ── AuditSession.get_findings_path ────────────────────────────────────────────
 
 

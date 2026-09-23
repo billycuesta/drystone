@@ -132,3 +132,42 @@ def test_verify_manifest_corrupt_manifest_file(tmp_path):
 
     assert result["ok"] is False
     assert "not valid JSON" in result["error"]
+
+
+def test_build_manifest_includes_pci_evidence_markdown_files(tmp_path):
+    _make_session_tree(tmp_path)
+    pci_dir = tmp_path / "pci-evidence"
+    pci_dir.mkdir()
+    (pci_dir / "Acme_8.4.1_iam-001-root-mfa.md").write_text("# PCI DSS Control 8.4.1")
+    (pci_dir / "Acme_7.2.1_iam-001-root-mfa.md").write_text("# PCI DSS Control 7.2.1")
+
+    manifest = build_manifest(tmp_path)
+
+    assert manifest["file_count"] == 5
+    assert "pci-evidence/Acme_8.4.1_iam-001-root-mfa.md" in manifest["files"]
+    assert "pci-evidence/Acme_7.2.1_iam-001-root-mfa.md" in manifest["files"]
+
+
+def test_verify_manifest_detects_tampered_pci_evidence(tmp_path):
+    _make_session_tree(tmp_path)
+    pci_dir = tmp_path / "pci-evidence"
+    pci_dir.mkdir()
+    evidence_file = pci_dir / "Acme_8.4.1_iam-001-root-mfa.md"
+    evidence_file.write_text("**Status:** FAIL")
+    write_manifest(tmp_path)
+
+    evidence_file.write_text("**Status:** PASS")
+
+    result = verify_manifest(tmp_path)
+
+    assert result["ok"] is False
+    assert result["tampered"] == ["pci-evidence/Acme_8.4.1_iam-001-root-mfa.md"]
+
+
+def test_build_manifest_without_pci_evidence_dir_is_unaffected(tmp_path):
+    _make_session_tree(tmp_path)
+
+    manifest = build_manifest(tmp_path)
+
+    assert manifest["file_count"] == 3
+    assert not any(k.startswith("pci-evidence/") for k in manifest["files"])
