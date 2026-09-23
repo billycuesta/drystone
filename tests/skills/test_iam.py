@@ -311,10 +311,25 @@ class TestCollectHappyPath:
             skill.collect(aws_client, session)
 
         data = json.loads((evidence_path / "groups.json").read_text())
-        assert len(data) == 1
-        assert data[0]["GroupName"] == "admins"
-        assert data[0]["Users"] == [{"UserName": "alice"}]
-        assert data[0]["AttachedPolicies"] == [{"PolicyName": "AdministratorAccess"}]
+        assert data["error"] is None
+        assert len(data["groups"]) == 1
+        assert data["groups"][0]["GroupName"] == "admins"
+        assert data["groups"][0]["Users"] == [{"UserName": "alice"}]
+        assert data["groups"][0]["AttachedPolicies"] == [{"PolicyName": "AdministratorAccess"}]
+
+    def test_groups_empty_success_is_distinguishable_from_failure(
+        self, skill, aws_client, tmp_path
+    ):
+        session, evidence_path = _make_session(tmp_path)
+        iam = _make_iam_client()
+        _override_paginator(iam, "list_groups", {"Groups": []})
+
+        with patch("boto3.client", side_effect=_boto3_factory(iam=iam)):
+            skill.collect(aws_client, session)
+
+        data = json.loads((evidence_path / "groups.json").read_text())
+        assert data["error"] is None
+        assert data["groups"] == []
 
     def test_roles_content_and_type_classification(self, skill, aws_client, tmp_path):
         session, evidence_path = _make_session(tmp_path)
@@ -559,7 +574,7 @@ class TestSubCallResilience:
         data = json.loads((evidence_path / "users.json").read_text())
         assert data == []
 
-    def test_list_groups_failure_writes_empty_list(self, skill, aws_client, tmp_path):
+    def test_list_groups_failure_writes_error_wrapper(self, skill, aws_client, tmp_path):
         session, evidence_path = _make_session(tmp_path)
         iam = _make_iam_client()
         _fail_one_paginator(iam, "list_groups", Exception("AccessDenied"))
@@ -568,7 +583,9 @@ class TestSubCallResilience:
             skill.collect(aws_client, session)
 
         data = json.loads((evidence_path / "groups.json").read_text())
-        assert data == []
+        assert data["groups"] == []
+        assert data["error"]
+        assert "AccessDenied" in data["error"]
 
     def test_list_access_keys_failure_still_saves_user(self, skill, aws_client, tmp_path):
         session, evidence_path = _make_session(tmp_path)
@@ -658,7 +675,8 @@ class TestPagination:
             skill.collect(aws_client, session)
 
         data = json.loads((evidence_path / "groups.json").read_text())
-        assert {g["GroupName"] for g in data} == {"admins", "readonly"}
+        assert data["error"] is None
+        assert {g["GroupName"] for g in data["groups"]} == {"admins", "readonly"}
 
     def test_list_roles_aggregates_across_multiple_pages(self, skill, aws_client, tmp_path):
         session, evidence_path = _make_session(tmp_path)

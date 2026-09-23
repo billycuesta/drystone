@@ -131,9 +131,11 @@ def _iam_group_refs(evidence: Dict[str, Any], details: List[Dict[str, Any]]) -> 
             if isinstance(group, str):
                 group_names.add(group)
     refs: List[str] = []
+    groups_doc = (evidence or {}).get("groups")
+    pointer_prefix = "groups.json#/groups/" if isinstance(groups_doc, dict) else "groups.json#/"
     for idx, group in enumerate(list_from_evidence(evidence, "groups")):
         if str(group.get("GroupName") or "") in group_names:
-            refs.append(f"groups.json#/{idx}")
+            refs.append(f"{pointer_prefix}{idx}")
     return refs
 
 

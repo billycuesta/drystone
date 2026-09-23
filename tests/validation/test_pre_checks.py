@@ -659,6 +659,70 @@ class TestIAM020:
         assert r.status == "FAIL"
 
 
+class TestUserPermissionContextGroups:
+    def _context(self, groups_doc):
+        from drystone.validation.pre_checks.helpers import _user_permission_context
+
+        evidence = {
+            "groups": groups_doc,
+            "policies": [
+                {
+                    "PolicyName": "AdminPolicy",
+                    "Arn": "arn:aws:iam::123:policy/AdminPolicy",
+                    "PolicyDocument": {
+                        "Statement": [
+                            {"Effect": "Allow", "Action": "iam:*", "Resource": "*"}
+                        ]
+                    },
+                }
+            ],
+        }
+        user = {
+            "UserName": "alice",
+            "Groups": [{"GroupName": "admins"}],
+        }
+        return _user_permission_context(evidence, user)
+
+    def test_wrapped_groups_evidence_preserves_group_policy_context(self):
+        ctx = self._context(
+            {
+                "groups": [
+                    {
+                        "GroupName": "admins",
+                        "AttachedPolicies": [
+                            {
+                                "PolicyName": "AdminPolicy",
+                                "PolicyArn": "arn:aws:iam::123:policy/AdminPolicy",
+                            }
+                        ],
+                    }
+                ],
+                "error": None,
+            }
+        )
+        assert ctx["groups"] == ["admins"]
+        assert ctx["group_policy_arns"] == ["arn:aws:iam::123:policy/AdminPolicy"]
+        assert "iam:*" in ctx["resolved_actions_sample"]
+
+    def test_legacy_bare_groups_list_still_preserves_group_policy_context(self):
+        ctx = self._context(
+            [
+                {
+                    "GroupName": "admins",
+                    "AttachedPolicies": [
+                        {
+                            "PolicyName": "AdminPolicy",
+                            "PolicyArn": "arn:aws:iam::123:policy/AdminPolicy",
+                        }
+                    ],
+                }
+            ]
+        )
+        assert ctx["groups"] == ["admins"]
+        assert ctx["group_policy_arns"] == ["arn:aws:iam::123:policy/AdminPolicy"]
+        assert "iam:*" in ctx["resolved_actions_sample"]
+
+
 class TestIAM015And016Metadata:
     def test_iam015_includes_direct_policy_metadata(self):
         evidence = {

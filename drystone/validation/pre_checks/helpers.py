@@ -66,7 +66,8 @@ def _policy_index(evidence: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
 def _user_permission_context(evidence: Dict[str, Any], user: Dict[str, Any]) -> Dict[str, Any]:
     """Summarize direct/group policy context for user-scoped IAM findings."""
     policy_map = _policy_index(evidence)
-    group_docs = evidence.get("groups")
+    groups_doc = evidence.get("groups")
+    group_docs = groups_doc.get("groups") if isinstance(groups_doc, dict) else groups_doc
     groups_by_name = (
         {str(g.get("GroupName")): g for g in group_docs if isinstance(g, dict)}
         if isinstance(group_docs, list)

@@ -169,6 +169,7 @@ class IAMSkill(BaseSkill):
         # === GROUPS (detailed) ===
         print("  Collecting IAM groups...")
         groups_detailed = []
+        groups_error = None
         try:
             groups_basic = []
             for page in iam_client.get_paginator("list_groups").paginate():
@@ -211,8 +212,12 @@ class IAMSkill(BaseSkill):
                 groups_detailed.append(group_detail)
         except Exception as e:
             logger.error(f"Could not list IAM groups: {e}")
+            groups_error = str(e)
 
-        self._save_json(evidence_path / "groups.json", groups_detailed)
+        self._save_json(
+            evidence_path / "groups.json",
+            {"groups": groups_detailed, "error": groups_error},
+        )
 
         # === ROLES (detailed) ===
         print("  Collecting IAM roles...")
