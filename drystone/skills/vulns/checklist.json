@@ -77,7 +77,8 @@
           "reason": "This control requires preventing common software attacks. CVEs with exploit availability represent higher-priority attack paths that must be mitigated or formally risk-accepted."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "VULN-005",
@@ -149,7 +150,8 @@
           "reason": "Requires addressing all identified security vulnerabilities and weaknesses. A lack of a remediation plan indicates a gap in this process."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "VULN-009",
@@ -177,7 +179,8 @@
           "reason": "Access to system components is based on need-to-know and least privilege. Vulnerabilities in critical service components undermine the security of these sensitive areas."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "VULN-011",
@@ -191,7 +194,8 @@
           "reason": "Requires maintaining an inventory of software components and addressing vulnerabilities. Unscanned ECR images create a gap in this process."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "VULN-012",

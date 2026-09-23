@@ -749,51 +749,12 @@ class BaseSkill(ABC):
         # Rule 2b: Correct existing LLM/deterministic findings using authoritative pre-check data.
         # Some checks are generated deterministically and should not keep older/minimal evidence
         # shapes if the pre-check has richer resource-level metadata.
-        _resource_authoritative_checks = {
-            "EXP-002",
-            "EXP-007",
-            "EXP-013",
-            "EXP-014",
-            "EXP-015",
-            "EXP-024",
-            "NET-001",
-            "NET-003",
-            "NET-007",
-            "NET-008",
-            "NET-009",
-            "NET-010",
-            "NET-011",
-            "NET-013",
-            "NET-016",
-            "NET-022",
-            "NET-025",
-            "NET-027",
-            "VULN-004",
-            "VULN-008",
-            "VULN-010",
-            "VULN-011",
-            "ALRT-002",
-            "ALRT-005",
-            "ALRT-007",
-            "ALRT-010",
-            "ALRT-017",
-            "HRD-004",
-            "HRD-005",
-            "HRD-009",
-            "HRD-010",
-            "HRD-012",
-            "HRD-014",
-            "SER-EC2-002",
-            "WAF-001",
-            "WAF-004",
-            "WAF-006",
-            "WAF-010",
-        }
         corrected = 0
         from drystone.validation.pre_checks import PRE_CHECK_IMPACTS
 
         for check_id, result in fail_results.items():
-            if check_id not in _resource_authoritative_checks:
+            item = checklist_map.get(check_id, {})
+            if not item.get("resource_authoritative", False):
                 continue
             if check_id not in existing_ids or not result.affected_resources:
                 continue

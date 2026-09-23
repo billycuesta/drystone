@@ -73,7 +73,8 @@
           "reason": "A low compliance score is a direct indicator of inadequate implementation of security controls, thus reflecting a weak risk management program."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "HRD-005",
@@ -91,7 +92,8 @@
           "reason": "Requires addressing security incidents and identified weaknesses. Unremediated critical findings represent significant security weaknesses."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "HRD-006",
@@ -159,7 +161,8 @@
           "reason": "Requires timely addressing of identified security weaknesses to prevent potential incidents."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "HRD-010",
@@ -173,7 +176,8 @@
           "reason": "Conformance Packs provide automated continuous compliance checks, directly supporting and enhancing the risk management program's effectiveness."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "HRD-011",
@@ -205,7 +209,8 @@
           "reason": "Accumulation of unaddressed medium findings represents a failure to effectively manage and address identified security weaknesses."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "HRD-013",
@@ -233,7 +238,8 @@
           "reason": "This control requires monitoring security events and alerting personnel. Lack of integration with an alerting system directly impacts the effectiveness of security event monitoring."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "HRD-015",

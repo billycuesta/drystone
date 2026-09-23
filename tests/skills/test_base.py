@@ -11,6 +11,7 @@ Covers:
 
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict
 from unittest.mock import MagicMock, patch
@@ -132,19 +133,20 @@ def _pre_check(
     return r
 
 
-def _checklist(*ids, severity="High"):
-    return {
-        "items": [
-            {
-                "id": cid,
-                "title": f"Check {cid}",
-                "severity": severity,
-                "description": f"Desc {cid}",
-                "remediation": f"Fix {cid}",
-            }
-            for cid in ids
-        ]
-    }
+def _checklist(*ids, severity="High", resource_authoritative=False):
+    items = []
+    for cid in ids:
+        item = {
+            "id": cid,
+            "title": f"Check {cid}",
+            "severity": severity,
+            "description": f"Desc {cid}",
+            "remediation": f"Fix {cid}",
+        }
+        if resource_authoritative:
+            item["resource_authoritative"] = True
+        items.append(item)
+    return {"items": items}
 
 
 # ── _severity_to_risk ─────────────────────────────────────────────────────────
@@ -473,7 +475,7 @@ class TestReconcileWithPreChecks:
                 affected=["arn:aws:iam::99:root"],
             )
         ]
-        checklist = _checklist("EXP-015")
+        checklist = _checklist("EXP-015", resource_authoritative=True)
 
         result = SKILL._reconcile_with_pre_checks(findings, pre_checks, checklist)
         exp_finding = next(f for f in result.findings if f.id == "EXP-015")
@@ -503,7 +505,7 @@ class TestReconcileWithPreChecks:
                 },
             )
         ]
-        checklist = _checklist("EXP-014")
+        checklist = _checklist("EXP-014", resource_authoritative=True)
         evidence = {
             "s3-buckets": {
                 "items": [
@@ -526,6 +528,53 @@ class TestReconcileWithPreChecks:
         assert exp_finding.impact
         assert exp_finding.exploitability_status == "validated"
         assert len(exp_finding.evidence_snippet["affected_resources"]) == 2
+
+    def test_resource_authoritative_gate_is_checklist_driven_for_real_ids(self):
+        """Rule 2b uses checklist metadata, not a hardcoded cross-skill ID set."""
+        for check_id, resource in (
+            ("EXP-015", "arn:aws:s3:::external-policy-bucket"),
+            ("NET-001", "sg-open-ssh"),
+            ("WAF-001", "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/public"),
+        ):
+            findings = _skill_findings(_finding(check_id, affected_resources=["wrong-resource"]))
+            pre_checks = [_pre_check(check_id, status="FAIL", affected=[resource])]
+            checklist = _checklist(check_id, resource_authoritative=True)
+
+            result = SKILL._reconcile_with_pre_checks(findings, pre_checks, checklist)
+            corrected = next(f for f in result.findings if f.id == check_id)
+
+            assert corrected.affected_resources == [resource]
+            assert corrected.exploitability_status == "validated"
+
+    def test_resource_authoritative_absent_checklist_flag_does_not_correct(self):
+        findings = _skill_findings(_finding("EXP-015", affected_resources=["wrong-resource"]))
+        pre_checks = [
+            _pre_check(
+                "EXP-015",
+                status="FAIL",
+                affected=["arn:aws:s3:::authoritative-bucket"],
+            )
+        ]
+        checklist = _checklist("EXP-015")
+
+        result = SKILL._reconcile_with_pre_checks(findings, pre_checks, checklist)
+        exp_finding = next(f for f in result.findings if f.id == "EXP-015")
+
+        assert exp_finding.affected_resources == ["wrong-resource"]
+
+    def test_real_checklists_mark_resource_authoritative_ids(self):
+        checklist_expectations = {
+            "drystone/skills/exposure/checklist.json": {"EXP-002", "EXP-015"},
+            "drystone/skills/network/checklist.json": {"NET-001", "NET-027"},
+            "drystone/skills/waf/checklist.json": {"WAF-001", "WAF-010"},
+        }
+
+        for checklist_path, expected_ids in checklist_expectations.items():
+            data = json.loads(Path(checklist_path).read_text())
+            items = {item["id"]: item for item in data["items"]}
+
+            for check_id in expected_ids:
+                assert items[check_id].get("resource_authoritative") is True
 
     def test_injects_ser_ec2_002_with_resource_level_evidence_refs(self):
         findings = _skill_findings()

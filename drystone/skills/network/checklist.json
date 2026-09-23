@@ -25,7 +25,8 @@
           "reason": "Access to system components must be based on the principle of least privilege. Unrestricted inbound access to sensitive ports violates this by granting maximum privilege from any source."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "NET-002",
@@ -61,7 +62,8 @@
           "reason": "Access control systems (NACLs) must be set to 'deny all' by default. An explicit 'ALLOW ALL' rule bypasses this security principle."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "NET-004",
@@ -97,7 +99,8 @@
           "reason": "System components storing cardholder data must not be directly accessible from untrusted networks. Public subnet routing requires validation that sensitive components are not exposed."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "NET-005",
@@ -151,7 +154,8 @@
           "reason": "For public-facing web applications, an automated technical solution that detects and prevents web-based attacks is required. Network Firewall can provide this layer of defense."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "NET-008",
@@ -165,7 +169,8 @@
           "reason": "System components storing cardholder data must not be directly accessible from untrusted networks. Deploying critical resources into public subnets is a direct violation of this requirement."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "NET-009",
@@ -183,7 +188,8 @@
           "reason": "Least privilege principle requires granting only necessary access. Broad IP ranges grant more access than typically needed."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "NET-010",
@@ -201,7 +207,8 @@
           "reason": "Access control systems must deny all by default. Default permissive NACLs contradict this."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "NET-011",
@@ -219,7 +226,8 @@
           "reason": "Maintaining an accurate inventory of components is aided by clear descriptions of security configurations."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "NET-012",
@@ -247,7 +255,8 @@
           "reason": "This control (in v4.0) encourages keeping traffic within trusted networks. Using VPC Endpoints is a key mechanism for reducing exposure by not routing sensitive traffic over the public internet."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "NET-014",
@@ -289,7 +298,8 @@
           "reason": "The default NACL's 'allow all' behavior fails to implement the required traffic restriction for inbound traffic, creating a significant security weakness."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "NET-017",
@@ -423,7 +433,8 @@
           "reason": "Classification tags on subnets help in clearly defining network segments and their associated security requirements, contributing to an accurate inventory and segmentation strategy."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "NET-026",
@@ -451,7 +462,8 @@
           "reason": "Tags are critical for maintaining an accurate inventory of system components, which includes network security controls like Security Groups."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "NET-028",

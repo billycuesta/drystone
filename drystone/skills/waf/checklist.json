@@ -24,7 +24,8 @@
           "reason": "Public-facing web applications must be protected by an automated technical solution that detects and prevents web-based attacks (e.g., WAF)."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "WAF-002",
@@ -99,7 +100,8 @@
           "reason": "Audit logs must be secured and limited to what is necessary. Redaction reduces exposure in audit trails."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "WAF-005",
@@ -149,7 +151,8 @@
           "reason": "A WAF solution must be configured to detect and prevent attacks; managed rules are a baseline configuration capability."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "WAF-007",
@@ -238,7 +241,8 @@
           "reason": "Secure configurations should follow industry-accepted standards. Using legacy/obsolete security controls can create gaps in hardening and monitoring."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "WAF-011",

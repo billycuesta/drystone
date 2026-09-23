@@ -37,7 +37,8 @@
           "reason": "EventBridge can act as a crucial part of the security event monitoring and alerting pipeline, enabling real-time response. Lack of integration hinders proactive event management."
         }
       ],
-      "qsa_visibility": "obvious"
+      "qsa_visibility": "obvious",
+      "resource_authoritative": true
     },
     {
       "id": "ALRT-003",
@@ -79,7 +80,8 @@
           "reason": "Without active subscribers, notifications cannot reach responsible personnel, rendering the entire alerting mechanism ineffective and violating the requirement for notifying personnel."
         }
       ],
-      "qsa_visibility": "obvious"
+      "qsa_visibility": "obvious",
+      "resource_authoritative": true
     },
     {
       "id": "ALRT-006",
@@ -111,7 +113,8 @@
           "reason": "Failing to alert on administrative actions (like ConsoleLogin, CreateUser) or audit log tampering (StopLogging, DeleteTrail) means these critical events are not being effectively monitored."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "ALRT-008",
@@ -153,7 +156,8 @@
           "reason": "Alarms in 'INSUFFICIENT_DATA' state cannot reliably generate alerts for security events, creating a blind spot in real-time monitoring."
         }
       ],
-      "qsa_visibility": "obvious"
+      "qsa_visibility": "obvious",
+      "resource_authoritative": true
     },
     {
       "id": "ALRT-011",
@@ -263,7 +267,8 @@
           "reason": "This control requires audit logs to be retained for a minimum of one year. A retention policy of less than 90 days is a clear violation for PCI DSS scope."
         }
       ],
-      "qsa_visibility": "standard"
+      "qsa_visibility": "standard",
+      "resource_authoritative": true
     },
     {
       "id": "ALRT-018",
@@ -382,7 +387,10 @@
       "title": "CloudTrail S3 bucket exposes downstream attack surface via event notifications",
       "severity": "Medium",
       "description": "The S3 bucket receiving CloudTrail logs has event notification configurations that trigger Lambda functions, SQS queues, or SNS topics. An attacker who compromises any of these downstream services can silently destroy audit logs without directly touching CloudTrail. This broadens the attack surface for audit trail tampering (TrailGuard threat model).",
-      "evidence_files": ["cloudtrail-s3-notifications.json", "cloudtrail-trails.json"],
+      "evidence_files": [
+        "cloudtrail-s3-notifications.json",
+        "cloudtrail-trails.json"
+      ],
       "remediation": "Review and restrict S3 event notification targets on the CloudTrail bucket. Ensure Lambda/SQS/SNS destinations have least-privilege IAM policies and cannot be used to disrupt log delivery. Prefer no event notifications unless operationally required.",
       "pci_dss": [
         {
@@ -401,7 +409,9 @@
       "title": "CloudTrail CloudWatch log group has downstream subscription filter consumers",
       "severity": "Low",
       "description": "The CloudWatch log group receiving CloudTrail logs has subscription filters that stream events to Lambda functions, Kinesis streams, or Firehose delivery streams. Compromising any of these downstream consumers can disrupt real-time log streaming without alerting CloudTrail. This extends the logging pipeline attack surface.",
-      "evidence_files": ["cloudtrail-log-subscriptions.json"],
+      "evidence_files": [
+        "cloudtrail-log-subscriptions.json"
+      ],
       "remediation": "Document all subscription filters on the CloudTrail log group. Ensure Lambda/Kinesis/Firehose destinations have least-privilege IAM roles and cannot be used to disrupt real-time log streaming. Review whether all subscriptions are operationally required.",
       "pci_dss": [
         {
