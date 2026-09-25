@@ -13,6 +13,7 @@ from typing import Any, Dict, List
 
 MANIFEST_FILENAME = "manifest.json"
 _HASHABLE_SUBDIRS = ("evidence", "findings", "reports")
+_HASHABLE_TOP_LEVEL_FILES = ("audit.log",)
 
 
 def _sha256_file(path: Path) -> str:
@@ -32,6 +33,10 @@ def _hashable_files(base_path: Path) -> List[Path]:
         for p in sorted(x for x in d.rglob("*") if x.is_file()):
             if p.name == MANIFEST_FILENAME:
                 continue
+            files.append(p)
+    for filename in _HASHABLE_TOP_LEVEL_FILES:
+        p = base_path / filename
+        if p.exists() and p.is_file():
             files.append(p)
     return files
 

@@ -1,7 +1,7 @@
 """CLI-agnostic audit orchestration core.
 
 Runs evidence collection, AI analysis, correlation, active verification,
-chain-of-custody manifest, report generation, and the QA gate for an
+report generation, the QA gate, and a final chain-of-custody manifest for an
 already-configured and already-credential-validated audit.
 
 This module must stay free of `click` (and of `sys.exit`) so it can be
@@ -351,15 +351,16 @@ def _run_active_verification(
 def _write_integrity_manifest(session: "AuditSession", _msg: Msg) -> None:
     """Phase: hash every evidence/findings/report artifact so post-audit
     tampering with any of it is detectable later via `drystone verify-integrity`.
-    Runs after collection, analysis, active verification, and report generation
-    are all done. Non-blocking: a manifest failure shouldn't fail the audit.
+    Runs after every expected audit-log write, so audit.log is covered without
+    making a normal completed audit appear tampered. Non-blocking: a manifest
+    failure shouldn't fail the audit.
     """
+    _msg("  🔒 Writing evidence integrity manifest...\n")
     try:
         from drystone.storage.manifest import write_manifest
 
         _manifest_path, _manifest_hash = write_manifest(session.base_path)
         session.integrity_manifest_sha256 = _manifest_hash
-        _msg(f"  🔒 Evidence integrity manifest written ({_manifest_path.name})\n")
     except Exception as _manifest_err:
         _msg(f"  ⚠️  Could not write integrity manifest: {_manifest_err}\n")
 
@@ -547,7 +548,6 @@ def run_audit(
     _run_active_verification(config, session, aws_client, _msg)
 
     reports_ok = _generate_reports(config, session, all_findings, skill_display_names, _msg)
-    _write_integrity_manifest(session, _msg)
     if reports_ok:
         phase_done += 1
         label = "Reporting complete" if all_findings else "Reporting skipped"
@@ -558,5 +558,7 @@ def run_audit(
     qa_failed = _run_qa_gate(session, config, _msg)
 
     _print_completion_summary(session, metrics_tracker, _msg)
+
+    _write_integrity_manifest(session, _msg)
 
     return AuditRunResult(session=session, all_findings=all_findings, qa_passed=not qa_failed)

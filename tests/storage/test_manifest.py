@@ -49,6 +49,16 @@ def test_build_manifest_includes_reports_and_non_json_evidence_artifacts(tmp_pat
     }
 
 
+def test_build_manifest_includes_audit_log(tmp_path):
+    _make_session_tree(tmp_path)
+    (tmp_path / "audit.log").write_text("Audit completed\n")
+
+    manifest = build_manifest(tmp_path)
+
+    assert "audit.log" in manifest["files"]
+    assert manifest["file_count"] == 4
+
+
 def test_write_manifest_persists_file_and_returns_stable_hash(tmp_path):
     _make_session_tree(tmp_path)
 

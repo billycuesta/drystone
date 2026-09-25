@@ -1,6 +1,7 @@
 """Tests for the CLI-agnostic audit orchestration core."""
 
 import json
+import logging
 import sys
 import types
 from pathlib import Path
@@ -103,14 +104,14 @@ def report_file(tmp_path):
     return path
 
 
-def _patched(mock_session, qa_result, report_file, mock_aws_client):
+def _patched(mock_session, qa_result, report_file, mock_aws_client, *, mock_manifest=True):
     """Patch every collaborator run_audit() touches, at their lazy-import origin."""
     _install_fake_skill_module(mock_session.base_path)
 
     generator = MagicMock()
     generator.generate_reports.return_value = {"markdown": report_file}
 
-    return (
+    patches = (
         patch("drystone.cloud.aws.client.AWSClient", return_value=mock_aws_client),
         patch("drystone.storage.session.AuditSession", return_value=mock_session),
         patch("drystone.audit_logging.MetricsTracker"),
@@ -133,14 +134,18 @@ def _patched(mock_session, qa_result, report_file, mock_aws_client):
                 "log_path": "/tmp/verify.log",
             },
         ),
-        patch(
-            "drystone.storage.manifest.write_manifest",
-            return_value=(Path("/tmp/manifest.json"), "deadbeef"),
-        ),
         patch("drystone.agent.optimizer.optimize_budgets_from_metrics", return_value={"updated": 0}),
         patch("drystone.validation.qa_gate.run_qa_gate", return_value=qa_result),
         patch("drystone.reports.ReportGenerator", return_value=generator),
     )
+    if mock_manifest:
+        patches += (
+            patch(
+                "drystone.storage.manifest.write_manifest",
+                return_value=(Path("/tmp/manifest.json"), "deadbeef"),
+            ),
+        )
+    return patches
 
 
 def _apply(patches):
@@ -194,6 +199,42 @@ class TestRunAuditHappyPath:
         assert "Executing IAM Security Audit" in joined
         assert "QA Gate: PASS" in joined
         assert "Audit Complete" in joined
+
+    def test_final_manifest_includes_audit_log_and_verifies_cleanly(
+        self, config, mock_aws_client, mock_session, report_file, tmp_path
+    ):
+        from drystone.storage.manifest import verify_manifest
+        from drystone.utils.logging import setup_file_logging
+
+        qa_result = QAGateResult(passed=True, issues=[])
+        patches = _patched(
+            mock_session, qa_result, report_file, mock_aws_client, mock_manifest=False
+        )
+        logger = logging.getLogger("drystone")
+        setup_file_logging(tmp_path / "audit.log")
+
+        def log_message(message):
+            if stripped := message.strip():
+                logger.info(stripped)
+
+        _apply(patches)
+        try:
+            run_audit(config, "123456789012", on_message=log_message)
+        finally:
+            _stop(patches)
+            for handler in list(logger.handlers):
+                if getattr(handler, "_drystone_session_file_handler", False):
+                    logger.removeHandler(handler)
+                    handler.close()
+
+        manifest = json.loads((tmp_path / "manifest.json").read_text())
+        result = verify_manifest(tmp_path)
+
+        assert "audit.log" in manifest["files"]
+        assert result["ok"] is True
+        assert result["tampered"] == []
+        assert result["missing"] == []
+        assert result["added"] == []
 
 
 class TestRunAuditTrendAnalysis:
@@ -428,7 +469,7 @@ class TestWriteIntegrityManifestPhase:
             _write_integrity_manifest(mock_session, messages.append)
 
         assert mock_session.integrity_manifest_sha256 == "deadbeef"
-        assert any("manifest.json" in m for m in messages)
+        assert any("Writing evidence integrity manifest" in m for m in messages)
 
     def test_failure_is_non_blocking(self, mock_session):
         messages = []
