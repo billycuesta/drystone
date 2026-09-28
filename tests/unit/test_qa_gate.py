@@ -1,5 +1,5 @@
-from pathlib import Path
 import json
+from pathlib import Path
 
 from drystone.validation.qa_gate import run_qa_gate
 

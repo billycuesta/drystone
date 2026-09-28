@@ -251,7 +251,10 @@ class TestRunProjectMenuAssumeRole:
     def test_assume_role_no_skips_role_prompts(self):
         # client name (text) -> skill/cred method "env"/region/qsa_depth/report_type
         # (select) -> assume_role confirm -> no -> output formats (checkbox).
-        text_prompts = [_ask_mock("MyClient")]  # client name
+        text_prompts = [
+            _ask_mock("MyClient"),  # client name
+            _ask_mock(""),  # project id (blank -> None)
+        ]
         select_prompts = [
             _ask_mock("iam"),  # skill selection
             _ask_mock("env"),  # credentials method
@@ -283,6 +286,7 @@ class TestRunProjectMenuAssumeRole:
         # output formats are their own kinds.
         text_prompts = [
             _ask_mock("MyClient"),  # client name
+            _ask_mock(""),  # project id (blank -> None)
             _ask_mock("AKIAFOO"),  # access key id
             _ask_mock("arn:aws:iam::999999999999:role/TestRole"),  # role arn
             _ask_mock("test-session"),  # role session name
