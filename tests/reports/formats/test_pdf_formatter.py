@@ -46,6 +46,93 @@ def _sample_findings():
     }
 
 
+def test_pdf_formatter_redacts_secret_material_from_visible_html(tmp_path, monkeypatch):
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.aws_region = "us-east-1"
+    config.min_severity = "low"
+    config.report_type = "general"
+    config.ai_provider = "claude-cli"
+    config.ai_model = "auto"
+
+    access_key = "AKIA1234567890ABCDEF"
+    secret_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+    findings = {
+        "skill": "iam",
+        "analyzed_at": "2026-09-28T00:00:00+00:00",
+        "summary": {
+            "total_findings": 1,
+            "critical": 1,
+            "high": 0,
+            "medium": 0,
+            "low": 0,
+            "overall_risk_score": 9.5,
+        },
+        "findings": [
+            {
+                "id": "IAM-SECRET",
+                "severity": "Critical",
+                "risk_score": 9.5,
+                "title": f"Exposed key {access_key}",
+                "description": f"Secret was present: {secret_key}",
+                "remediation": f"Rotate {access_key} immediately",
+                "affected_resources": [f"arn:aws:iam::123456789012:user/{access_key}"],
+                "evidence_snippet": {"SecretAccessKey": secret_key},
+            }
+        ],
+        "architecture": {"flow_diagram": f"Architecture includes {access_key}"},
+    }
+
+    captured = {}
+
+    class FakeHTML:
+        def __init__(self, string):
+            captured["html"] = string
+
+        def write_pdf(self, output_path):
+            with open(output_path, "wb") as f:
+                f.write(b"%PDF-1.4 test")
+
+    fake_module = types.SimpleNamespace(HTML=FakeHTML)
+    monkeypatch.setitem(sys.modules, "weasyprint", fake_module)
+
+    PDFFormatter(findings, session, config).generate()
+
+    rendered = captured["html"]
+    assert access_key not in rendered
+    assert secret_key not in rendered
+    assert "AKIA****************" in rendered
+    assert "[REDACTED_SECRET]" in rendered
+
+
+def test_pdf_formatter_uses_report_context_metadata_for_document_control(tmp_path, monkeypatch):
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.aws_region = "us-east-1"
+    config.min_severity = "low"
+    config.report_type = "general"
+    findings = _sample_findings()
+    findings["report_metadata"] = {"integrity_manifest_sha256": "abc123"}
+
+    captured = {}
+
+    class FakeHTML:
+        def __init__(self, string):
+            captured["html"] = string
+
+        def write_pdf(self, output_path):
+            with open(output_path, "wb") as f:
+                f.write(b"%PDF-1.4 test")
+
+    fake_module = types.SimpleNamespace(HTML=FakeHTML)
+    monkeypatch.setitem(sys.modules, "weasyprint", fake_module)
+
+    PDFFormatter(findings, session, config).generate()
+
+    assert "Evidence Integrity (SHA-256)" in captured["html"]
+    assert "abc123" in captured["html"]
+
+
 def test_pdf_formatter_generates_pdf_with_weasyprint_stub(tmp_path, monkeypatch):
     session = _mock_session(tmp_path)
     config = Mock()
