@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from botocore.exceptions import ClientError
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -45,6 +46,13 @@ def _make_paginator(*pages):
     pag = MagicMock()
     pag.paginate.return_value = iter(pages)
     return pag
+
+
+def _client_error(code="ThrottlingException"):
+    return ClientError(
+        error_response={"Error": {"Code": code, "Message": f"{code} message"}},
+        operation_name="LookupEvents",
+    )
 
 
 def _sample_event(
@@ -204,6 +212,102 @@ class TestCloudTrailEventsCollect:
 
         deletes = json.loads((evidence_path / "delete-events.json").read_text())
         assert isinstance(deletes, list)
+
+
+class TestCloudTrailEventsPaginationRetry:
+    """Tests for throttling-aware CloudTrail LookupEvents pagination."""
+
+    def test_targeted_lookup_retries_throttling_then_returns_events(self):
+        """Targeted lookup should retry throttling without real sleep."""
+        from drystone.skills.cloudtrail_events import _paginate_lookup
+
+        start_time = datetime(2026, 3, 15, 9, 0, tzinfo=timezone.utc)
+        end_time = datetime(2026, 3, 15, 10, 0, tzinfo=timezone.utc)
+        paginator = MagicMock()
+        paginator.paginate.side_effect = [
+            _client_error("ThrottlingException"),
+            iter([{"Events": [_sample_event("ConsoleLogin", "alice")]}]),
+        ]
+        ct_client = MagicMock()
+        ct_client.get_paginator.return_value = paginator
+        sleeps = []
+
+        events = _paginate_lookup(
+            ct_client,
+            start_time,
+            end_time,
+            "EventName",
+            "ConsoleLogin",
+            sleep_fn=sleeps.append,
+        )
+
+        assert [event["EventName"] for event in events] == ["ConsoleLogin"]
+        assert paginator.paginate.call_count == 2
+        assert sleeps == [1.0]
+
+    def test_write_events_retry_throttling_then_returns_events(self):
+        """Write-events lookup should retry throttling without real sleep."""
+        from drystone.skills.cloudtrail_events import _paginate_write_events
+
+        start_time = datetime(2026, 3, 15, 9, 0, tzinfo=timezone.utc)
+        end_time = datetime(2026, 3, 15, 10, 0, tzinfo=timezone.utc)
+        paginator = MagicMock()
+        paginator.paginate.side_effect = [
+            _client_error("RequestLimitExceeded"),
+            iter([{"Events": [_sample_event("DeleteBucket", "alice")]}]),
+        ]
+        ct_client = MagicMock()
+        ct_client.get_paginator.return_value = paginator
+        sleeps = []
+
+        events = _paginate_write_events(ct_client, start_time, end_time, sleep_fn=sleeps.append)
+
+        assert [event["EventName"] for event in events] == ["DeleteBucket"]
+        assert paginator.paginate.call_count == 2
+        assert sleeps == [1.0]
+
+    def test_targeted_lookup_non_throttling_client_error_does_not_retry(self):
+        """Non-throttling ClientError should preserve graceful no-retry behavior."""
+        from drystone.skills.cloudtrail_events import _paginate_lookup
+
+        start_time = datetime(2026, 3, 15, 9, 0, tzinfo=timezone.utc)
+        end_time = datetime(2026, 3, 15, 10, 0, tzinfo=timezone.utc)
+        paginator = MagicMock()
+        paginator.paginate.side_effect = _client_error("AccessDeniedException")
+        ct_client = MagicMock()
+        ct_client.get_paginator.return_value = paginator
+        sleeps = []
+
+        events = _paginate_lookup(
+            ct_client,
+            start_time,
+            end_time,
+            "EventName",
+            "ConsoleLogin",
+            sleep_fn=sleeps.append,
+        )
+
+        assert events == []
+        assert paginator.paginate.call_count == 1
+        assert sleeps == []
+
+    def test_write_events_non_throttling_client_error_does_not_retry(self):
+        """Non-throttling write-events ClientError should not retry."""
+        from drystone.skills.cloudtrail_events import _paginate_write_events
+
+        start_time = datetime(2026, 3, 15, 9, 0, tzinfo=timezone.utc)
+        end_time = datetime(2026, 3, 15, 10, 0, tzinfo=timezone.utc)
+        paginator = MagicMock()
+        paginator.paginate.side_effect = _client_error("InvalidTimeRangeException")
+        ct_client = MagicMock()
+        ct_client.get_paginator.return_value = paginator
+        sleeps = []
+
+        events = _paginate_write_events(ct_client, start_time, end_time, sleep_fn=sleeps.append)
+
+        assert events == []
+        assert paginator.paginate.call_count == 1
+        assert sleeps == []
 
 
 # =============================================================================

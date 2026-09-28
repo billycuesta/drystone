@@ -3,7 +3,8 @@
 import json
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from time import sleep as _sleep
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 import boto3
 from botocore.exceptions import ClientError
@@ -30,6 +31,16 @@ MAX_EVENTS_PER_CATEGORY = 500
 
 # Max write events pulled for general analysis (mass deletions, access denied)
 MAX_WRITE_EVENTS = 1000
+
+# Bounded retry/backoff for transient CloudTrail LookupEvents throttling.
+_LOOKUP_RETRYABLE_ERROR_CODES = {
+    "ThrottlingException",
+    "ThrottledException",
+    "TooManyRequestsException",
+    "RequestLimitExceeded",
+}
+_LOOKUP_MAX_ATTEMPTS = 3
+_LOOKUP_BACKOFF_BASE_SECONDS = 1.0
 
 # Fields to KEEP per event (distillation — reduces size ~80%)
 _KEEP_FIELDS = {
@@ -123,6 +134,73 @@ def _distill_event(event: dict) -> dict:
     return {k: v for k, v in distilled.items() if v is not None}
 
 
+def _client_error_code(error: ClientError) -> str:
+    """Return the AWS error code from a botocore ClientError."""
+    return str(error.response.get("Error", {}).get("Code", ""))
+
+
+def _is_lookup_throttling_error(error: ClientError) -> bool:
+    """Return True when CloudTrail LookupEvents failed due to retryable throttling."""
+    return _client_error_code(error) in _LOOKUP_RETRYABLE_ERROR_CODES
+
+
+def _paginate_lookup_events(
+    ct_client: Any,
+    lookup_attributes: list[dict[str, str]],
+    start_time: datetime,
+    end_time: datetime,
+    max_events: int,
+    warning_context: str,
+    sleep_fn: Callable[[float], None] = _sleep,
+) -> list[dict]:
+    """Paginate CloudTrail lookup_events with bounded throttling retry/backoff."""
+    last_events: list[dict] = []
+
+    for attempt in range(1, _LOOKUP_MAX_ATTEMPTS + 1):
+        events: list[dict] = []
+        paginator = ct_client.get_paginator("lookup_events")
+        try:
+            page_iterator = paginator.paginate(
+                LookupAttributes=lookup_attributes,
+                StartTime=start_time,
+                EndTime=end_time,
+                PaginationConfig={"MaxItems": max_events, "PageSize": 50},
+            )
+            for page in page_iterator:
+                for event in page.get("Events", []):
+                    events.append(_distill_event(event))
+                    if len(events) >= max_events:
+                        return events
+            return events
+        except ClientError as e:
+            last_events = events
+            if not _is_lookup_throttling_error(e):
+                logger.warning("lookup_events failed for %s: %s", warning_context, e)
+                return last_events
+
+            if attempt >= _LOOKUP_MAX_ATTEMPTS:
+                logger.warning(
+                    "lookup_events throttled for %s after %d attempts: %s",
+                    warning_context,
+                    attempt,
+                    e,
+                )
+                return last_events
+
+            delay = _LOOKUP_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
+            logger.warning(
+                "lookup_events throttled for %s (attempt %d/%d); retrying in %.1fs: %s",
+                warning_context,
+                attempt,
+                _LOOKUP_MAX_ATTEMPTS,
+                delay,
+                e,
+            )
+            sleep_fn(delay)
+
+    return last_events
+
+
 def _paginate_lookup(
     ct_client: Any,
     start_time: datetime,
@@ -130,27 +208,18 @@ def _paginate_lookup(
     attribute_key: str,
     attribute_value: str,
     max_events: int = MAX_EVENTS_PER_CATEGORY,
+    sleep_fn: Callable[[float], None] = _sleep,
 ) -> list[dict]:
     """Paginate CloudTrail lookup_events for a single attribute filter."""
-    events: list[dict] = []
-    paginator = ct_client.get_paginator("lookup_events")
-
-    try:
-        page_iterator = paginator.paginate(
-            LookupAttributes=[{"AttributeKey": attribute_key, "AttributeValue": attribute_value}],
-            StartTime=start_time,
-            EndTime=end_time,
-            PaginationConfig={"MaxItems": max_events, "PageSize": 50},
-        )
-        for page in page_iterator:
-            for event in page.get("Events", []):
-                events.append(_distill_event(event))
-                if len(events) >= max_events:
-                    return events
-    except ClientError as e:
-        logger.warning("lookup_events failed for %s=%s: %s", attribute_key, attribute_value, e)
-
-    return events
+    return _paginate_lookup_events(
+        ct_client=ct_client,
+        lookup_attributes=[{"AttributeKey": attribute_key, "AttributeValue": attribute_value}],
+        start_time=start_time,
+        end_time=end_time,
+        max_events=max_events,
+        warning_context=f"{attribute_key}={attribute_value}",
+        sleep_fn=sleep_fn,
+    )
 
 
 def _paginate_write_events(
@@ -158,27 +227,18 @@ def _paginate_write_events(
     start_time: datetime,
     end_time: datetime,
     max_events: int = MAX_WRITE_EVENTS,
+    sleep_fn: Callable[[float], None] = _sleep,
 ) -> list[dict]:
     """Collect all write events (ReadOnly=false) for general analysis."""
-    events: list[dict] = []
-    paginator = ct_client.get_paginator("lookup_events")
-
-    try:
-        page_iterator = paginator.paginate(
-            LookupAttributes=[{"AttributeKey": "ReadOnly", "AttributeValue": "false"}],
-            StartTime=start_time,
-            EndTime=end_time,
-            PaginationConfig={"MaxItems": max_events, "PageSize": 50},
-        )
-        for page in page_iterator:
-            for event in page.get("Events", []):
-                events.append(_distill_event(event))
-                if len(events) >= max_events:
-                    return events
-    except ClientError as e:
-        logger.warning("lookup_events (write events) failed: %s", e)
-
-    return events
+    return _paginate_lookup_events(
+        ct_client=ct_client,
+        lookup_attributes=[{"AttributeKey": "ReadOnly", "AttributeValue": "false"}],
+        start_time=start_time,
+        end_time=end_time,
+        max_events=max_events,
+        warning_context="write events",
+        sleep_fn=sleep_fn,
+    )
 
 
 class CloudTrailEventsSkill(BaseSkill):
