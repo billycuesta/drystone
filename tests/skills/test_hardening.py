@@ -266,7 +266,14 @@ class TestCollectHappyPath:
         evidence_dir = mock_session.get_evidence_path.return_value
         with patch("boto3.client", side_effect=_boto3_factory()):
             skill.collect(aws_client, mock_session)
-        assert (evidence_dir / "hardening-collection-status.json").exists()
+        status_path = evidence_dir / "hardening-collection-status.json"
+        assert status_path.exists()
+        status = json.loads(status_path.read_text())
+        assert status["_schema"] == "drystone.collection_status.v1"
+        assert status["_skill"] == "hardening"
+        assert "ok" in status
+        assert "errors" in status
+        assert "config" in status
 
     def test_audit_metadata_file_written(self, skill, aws_client, mock_session):
         evidence_dir = mock_session.get_evidence_path.return_value

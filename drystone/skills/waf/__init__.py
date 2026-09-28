@@ -242,7 +242,7 @@ class WAFSkill(BaseSkill):
         self._save_json(evidence_path / "waf-classic.json", waf_classic)
 
         # Persist collection quality metadata (used to gate analysis and avoid false positives).
-        self._save_json(evidence_path / "waf-collection-status.json", collection_status)
+        self._save_collection_status(evidence_path, collection_status)
 
         # === AUDIT METADATA ===
         audit_metadata = {

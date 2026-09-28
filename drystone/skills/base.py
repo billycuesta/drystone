@@ -88,6 +88,63 @@ class BaseSkill(ABC):
         with open(filepath, "w") as f:
             json.dump(data, f, indent=2, default=str)
 
+    def _save_collection_status(
+        self,
+        evidence_path: Path,
+        status: Dict[str, Any],
+        *,
+        filename: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Normalize and persist a backward-compatible collection status file.
+
+        Existing skill-specific keys are preserved. The shared fields give
+        reports, QA, and future tooling a small common contract without forcing
+        every skill into a new envelope.
+        """
+        normalized: Dict[str, Any] = dict(status)
+        normalized.setdefault("_schema", "drystone.collection_status.v1")
+        normalized.setdefault("_skill", self.name)
+        normalized.setdefault("ok", self._collection_status_ok(normalized))
+        normalized.setdefault("errors", self._collection_status_errors(normalized))
+
+        output_name = filename or f"{self.name}-collection-status.json"
+        self._save_json(evidence_path / output_name, normalized)
+        return normalized
+
+    def _collection_status_ok(self, value: Any) -> bool:
+        """Derive aggregate collection status from nested legacy status dicts."""
+        if isinstance(value, dict):
+            if value.get("ok") is False:
+                return False
+            return all(self._collection_status_ok(v) for k, v in value.items() if not k.startswith("_"))
+        if isinstance(value, list):
+            return all(self._collection_status_ok(v) for v in value)
+        return True
+
+    def _collection_status_errors(self, value: Any) -> Dict[str, Any]:
+        """Extract compact nested error details from legacy status dicts."""
+
+        def _walk(node: Any) -> Any:
+            if isinstance(node, dict):
+                collected: Dict[str, Any] = {}
+                error = node.get("error")
+                if error:
+                    collected["error"] = error
+                for key, child in node.items():
+                    if key.startswith("_") or key in {"error", "errors"}:
+                        continue
+                    child_errors = _walk(child)
+                    if child_errors not in ({}, [], None):
+                        collected[key] = child_errors
+                return collected
+            if isinstance(node, list):
+                collected_items = [_walk(item) for item in node]
+                return [item for item in collected_items if item not in ({}, [], None)]
+            return {}
+
+        errors = _walk(value)
+        return errors if isinstance(errors, dict) else {}
+
     def _audit_metadata(
         self,
         session: AuditSession,

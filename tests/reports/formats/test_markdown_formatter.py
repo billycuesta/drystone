@@ -114,6 +114,27 @@ class TestResourcesAuditedSection:
 
         assert "| Account ID | `123456789012` |" in section
 
+    def test_collection_status_files_are_not_counted_as_resources(self, tmp_path):
+        formatter = _make_formatter(tmp_path, findings={"skill": "waf", "findings": []})
+        evidence_dir = tmp_path / "evidence" / "waf"
+        evidence_dir.mkdir(parents=True)
+        (evidence_dir / "waf-collection-status.json").write_text(
+            json.dumps(
+                {
+                    "_schema": "drystone.collection_status.v1",
+                    "_skill": "waf",
+                    "ok": False,
+                    "cloudfront": {"ok": False, "error": "AccessDenied", "count": 0},
+                }
+            )
+        )
+        (evidence_dir / "wafv2-web-acls.json").write_text(json.dumps([{"Name": "acl"}]))
+
+        section = formatter._resources_audited_section()
+
+        assert "Collection Status" not in section
+        assert "Wafv2 Web Acls" in section
+
 
 # ── _looks_spanish ─────────────────────────────────────────────────────────────
 

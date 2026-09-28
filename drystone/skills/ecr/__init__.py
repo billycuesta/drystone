@@ -7,7 +7,7 @@ Focus: access control, immutability, scanning, encryption, and lifecycle hygiene
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from botocore.exceptions import ClientError
@@ -202,7 +202,7 @@ class ECRSkill(BaseSkill):
         # === AUDIT METADATA ===
         audit_metadata = {
             "_region": region,
-            "_timestamp": datetime.utcnow().isoformat() + "Z",
+            "_timestamp": datetime.now(timezone.utc).isoformat(),
             "_scope": "single-region",
             "_skill": self.name,
         }
@@ -210,7 +210,7 @@ class ECRSkill(BaseSkill):
         self._save_json(evidence_path / "_audit_metadata.json", audit_metadata)
         self._save_json(evidence_path / "registry.json", registry)
         self._save_json(evidence_path / "repositories.json", {"repositories": repositories})
-        self._save_json(evidence_path / "ecr-collection-status.json", collection_status)
+        self._save_collection_status(evidence_path, collection_status)
 
         print(f"  ✅ Found {len(repositories)} repositories")
 

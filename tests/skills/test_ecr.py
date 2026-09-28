@@ -75,6 +75,12 @@ class TestECRSkill:
             data = json.load(f)
         assert "repositories" in data
 
+        status = json.loads((evidence_dir / "ecr-collection-status.json").read_text())
+        assert status["_schema"] == "drystone.collection_status.v1"
+        assert status["_skill"] == "ecr"
+        assert "ok" in status
+        assert "errors" in status
+
     def test_collect_registry_scanning_get_fallback(self, skill, mock_aws_client, mock_session):
         """If SDK doesn't expose describe_*, collector should fallback to get_*."""
 

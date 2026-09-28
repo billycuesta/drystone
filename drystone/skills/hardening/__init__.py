@@ -713,7 +713,7 @@ class HardeningSkill(BaseSkill):
         self._save_json(evidence_path / "_audit_metadata.json", audit_metadata)
 
         # === COLLECTION STATUS ===
-        self._save_json(evidence_path / "hardening-collection-status.json", collection_status)
+        self._save_collection_status(evidence_path, collection_status)
 
         print("\n✅ Hardening collection complete")
 

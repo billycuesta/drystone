@@ -168,8 +168,16 @@ class TestWAFSkill:
                                             # Run collect
                                             skill.collect(mock_aws_client, mock_session)
 
-                                            # Verify collection status was saved
-                                            assert mock_session.get_evidence_path.called
+                                            # Verify collection status was saved with common fields
+                                            evidence_dir = mock_session.get_evidence_path.return_value
+                                            status = json.loads(
+                                                (evidence_dir / "waf-collection-status.json").read_text()
+                                            )
+                                            assert status["_schema"] == "drystone.collection_status.v1"
+                                            assert status["_skill"] == "waf"
+                                            assert status["ok"] is True
+                                            assert status["errors"] == {}
+                                            assert "wafv2" in status
 
     def test_collect_saves_cloudfront_distributions(self, skill, mock_aws_client, mock_session):
         """Test collect() saves CloudFront distributions evidence."""

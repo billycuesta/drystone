@@ -551,8 +551,8 @@ This report presents security findings from the {self._get_skill_display_name(sk
 
         rows = []
         for json_file in sorted(evidence_dir.glob("*.json")):
-            # Skip internal / metadata files
-            if json_file.stem.startswith("_"):
+            # Skip internal / metadata files and collection quality metadata.
+            if json_file.stem.startswith("_") or json_file.name.endswith("-collection-status.json"):
                 continue
 
             try:
