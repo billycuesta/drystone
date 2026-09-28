@@ -60,6 +60,32 @@ class TestProjectId:
             WizardConfig(client_name="ACME", project_id=project_id, skills=["iam"])
 
 
+class TestExternalIntelMode:
+    def test_defaults_to_live(self):
+        config = WizardConfig(client_name="ACME", aws_region="us-east-1", skills=["iam"])
+
+        assert config.external_intel_mode == "live"
+
+    def test_accepts_cached_mode(self):
+        config = WizardConfig(
+            client_name="ACME",
+            aws_region="us-east-1",
+            skills=["iam"],
+            external_intel_mode="cached",
+        )
+
+        assert config.external_intel_mode == "cached"
+
+    def test_rejects_invalid_mode(self):
+        with pytest.raises(ValueError, match="Invalid external_intel_mode"):
+            WizardConfig(
+                client_name="ACME",
+                aws_region="us-east-1",
+                skills=["iam"],
+                external_intel_mode="sometimes",
+            )
+
+
 class TestAIProviderDefaults:
     def test_defaults_to_claude_api(self):
         config = WizardConfig(

@@ -1,6 +1,8 @@
 """Unit tests for sistemas_explotables_red skill helper logic."""
 
 import json
+from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from drystone.skills.sistemas_explotables_red import SistemasExplotablesRedSkill
@@ -561,6 +563,97 @@ class TestExploitEnrichment:
         )
         poc_urls = result["instances"]["i-test"]["cves"][0]["exploit_intel"]["poc_urls"]
         assert poc_urls.count("https://github.com/dup-poc") == 1
+
+    # ── external intel modes ─────────────────────────────────
+
+    def test_external_intel_off_makes_no_network_calls(self) -> None:
+        skill = self._make_skill()
+        with patch("urllib.request.urlopen", side_effect=AssertionError("network disabled")):
+            result = skill._collect_cve_intelligence(
+                inspector_doc={"findings": [{"severity": "HIGH", "title": "CVE-2024-26130 pkg", "resources": [{"id": "i-test", "type": "AWS_EC2_INSTANCE"}]}]},
+                network_controls={},
+                compute_inventory={},
+                external_intel_mode="off",
+            )
+
+        intel = result["instances"]["i-test"]["cves"][0]["exploit_intel"]
+        assert intel["has_public_exploit"] is False
+        assert intel["sources_checked"] == ["external_intel_disabled"]
+        assert "External vulnerability intelligence disabled" in result["enrichment_errors"]
+
+    def test_external_intel_cached_uses_disk_cache_without_network(self, tmp_path: Path) -> None:
+        skill = self._make_skill()
+        cache_dir = tmp_path / "external-intel"
+        cache_dir.mkdir()
+        fetched_at = datetime.now(timezone.utc).isoformat()
+        (cache_dir / "cisa_kev.json").write_text(
+            json.dumps(
+                {
+                    "_schema": skill._EXTERNAL_INTEL_CACHE_SCHEMA,
+                    "source": "cisa_kev",
+                    "fetched_at": fetched_at,
+                    "ttl_seconds": 86400,
+                    "data": {
+                        "CVE-2024-26130": {
+                            "date_added": "2025-06-15",
+                            "vendor": "x",
+                            "product": "y",
+                            "ransomware_use": "Known",
+                        }
+                    },
+                }
+            )
+        )
+        (cache_dir / "exploitdb.json").write_text(
+            json.dumps(
+                {
+                    "_schema": skill._EXTERNAL_INTEL_CACHE_SCHEMA,
+                    "source": "exploitdb",
+                    "fetched_at": fetched_at,
+                    "ttl_seconds": 86400,
+                    "data": {},
+                }
+            )
+        )
+        (cache_dir / "nvd.json").write_text(
+            json.dumps(
+                {
+                    "_schema": skill._EXTERNAL_INTEL_CACHE_SCHEMA,
+                    "source": "nvd",
+                    "fetched_at": fetched_at,
+                    "ttl_seconds": 86400,
+                    "data": {
+                        "CVE-2024-26130": {
+                            "cvss_score": 9.8,
+                            "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                            "description": "cached nvd",
+                            "poc_urls": ["https://github.com/example/poc"],
+                        }
+                    },
+                }
+            )
+        )
+
+        with (
+            patch.object(skill, "_external_intel_cache_dir", return_value=cache_dir),
+            patch("urllib.request.urlopen", side_effect=AssertionError("cached mode must not fetch")),
+        ):
+            result = skill._collect_cve_intelligence(
+                inspector_doc={"findings": [{"severity": "HIGH", "title": "CVE-2024-26130 pkg", "resources": [{"id": "i-test", "type": "AWS_EC2_INSTANCE"}]}]},
+                network_controls={},
+                compute_inventory={},
+                external_intel_mode="cached",
+            )
+
+        cve = result["instances"]["i-test"]["cves"][0]
+        assert cve["cvss_score"] == 9.8
+        assert cve["exploit_intel"]["has_public_exploit"] is True
+        assert cve["exploit_intel"]["sources_checked"] == [
+            "cisa_kev_cache",
+            "exploit_db_cache",
+            "nvd_cache",
+        ]
+        assert result["enrichment_errors"] == ["Exploit-DB cache miss"]
 
     # ── exploit_intel dict tests ──────────────────────────────
 

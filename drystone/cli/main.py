@@ -99,6 +99,14 @@ def cli(debug: bool) -> None:
     ),
 )
 @click.option(
+    "--external-intel",
+    type=click.Choice(["off", "live", "cached"]),
+    help=(
+        "External vulnerability intelligence mode for sistemas_explotables_red: "
+        "off disables enrichment, live fetches, cached reads local cache only"
+    ),
+)
+@click.option(
     "--role-arn",
     help="ARN of the role to assume after authenticating (AssumeRole)",
 )
@@ -127,6 +135,7 @@ def audit(
     scan_depth: Optional[Literal["shallow", "normal", "deep", "very-deep"]] = None,
     no_active_verification: bool = False,
     scan_terraform_state: bool = False,
+    external_intel: Optional[Literal["off", "live", "cached"]] = None,
     role_arn: Optional[str] = None,
     role_session_name: Optional[str] = None,
     external_id: Optional[str] = None,
@@ -153,6 +162,7 @@ def audit(
         or scan_depth
         or no_active_verification
         or scan_terraform_state
+        or external_intel
         or role_arn
         or role_session_name
         or external_id
@@ -248,6 +258,8 @@ def audit(
         config.active_verification = False
     if scan_terraform_state and config is not None:
         config.terraform_state_scan_enabled = True
+    if external_intel and config is not None:
+        config.external_intel_mode = external_intel
     # Show summary
     try:
         print_summary(config)

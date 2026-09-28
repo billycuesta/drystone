@@ -14,6 +14,7 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import boto3
@@ -346,11 +347,15 @@ class SistemasExplotablesRedSkill(BaseSkill):
         )
         _save("attack-path-candidates.json", {"paths": attack_paths})
 
-        # CVE Intelligence: enrich Inspector findings with NVD/GitHub data
+        # CVE Intelligence: enrich Inspector findings with external data according to mode.
+        external_intel_mode = str(
+            (getattr(session, "feature_flags", {}) or {}).get("external_intel_mode", "live")
+        ).lower()
         cve_intel = self._collect_cve_intelligence(
             inspector_doc=inspector_doc,
             network_controls=network_controls,
             compute_inventory=compute_inventory,
+            external_intel_mode=external_intel_mode,
         )
         _save("cve-intelligence.json", cve_intel)
 
@@ -379,6 +384,43 @@ class SistemasExplotablesRedSkill(BaseSkill):
     _EXPLOITDB_CSV_URL = "https://gitlab.com/exploit-database/exploitdb/-/raw/main/files_exploits.csv"
     _EXPLOITDB_MAX_SIZE = 15 * 1024 * 1024  # 15 MB guard
     _POC_DOMAINS = {"github.com", "exploit-db.com", "packetstormsecurity.com"}
+    _EXTERNAL_INTEL_CACHE_SCHEMA = "drystone.external_intel_cache.v1"
+    _EXTERNAL_INTEL_CACHE_TTL_SECONDS = 24 * 60 * 60
+
+    def _external_intel_cache_dir(self) -> Path:
+        return Path.home() / ".drystone" / "cache" / "external-intel"
+
+    def _read_external_intel_cache(self, source: str) -> Optional[Dict[str, Any]]:
+        path = self._external_intel_cache_dir() / f"{source}.json"
+        try:
+            raw = json.loads(path.read_text())
+            if raw.get("_schema") != self._EXTERNAL_INTEL_CACHE_SCHEMA:
+                return None
+            fetched_at = datetime.fromisoformat(str(raw.get("fetched_at") or ""))
+            if fetched_at.tzinfo is None:
+                fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+            ttl = int(raw.get("ttl_seconds") or self._EXTERNAL_INTEL_CACHE_TTL_SECONDS)
+            if (datetime.now(timezone.utc) - fetched_at).total_seconds() > ttl:
+                return None
+            data = raw.get("data")
+            return data if isinstance(data, dict) else None
+        except Exception:
+            return None
+
+    def _write_external_intel_cache(self, source: str, data: Dict[str, Any]) -> None:
+        try:
+            cache_dir = self._external_intel_cache_dir()
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "_schema": self._EXTERNAL_INTEL_CACHE_SCHEMA,
+                "source": source,
+                "fetched_at": datetime.now(timezone.utc).isoformat(),
+                "ttl_seconds": self._EXTERNAL_INTEL_CACHE_TTL_SECONDS,
+                "data": data,
+            }
+            (cache_dir / f"{source}.json").write_text(json.dumps(payload, indent=2, default=str))
+        except Exception as exc:
+            logger.debug("External intel cache write failed for %s: %s", source, exc)
 
     @staticmethod
     def _classify_impact(cvss_vector: str) -> str:
@@ -445,6 +487,7 @@ class SistemasExplotablesRedSkill(BaseSkill):
                         "ransomware_use": entry.get("knownRansomwareCampaignUse", "Unknown"),
                     }
             self._kev_cache = lookup
+            self._write_external_intel_cache("cisa_kev", lookup)
             return lookup
         except Exception as exc:
             logger.warning("CISA KEV fetch failed: %s", exc)
@@ -492,6 +535,7 @@ class SistemasExplotablesRedSkill(BaseSkill):
                     if code_upper not in full_index:
                         full_index[code_upper] = entry
             self._edb_cache = full_index
+            self._write_external_intel_cache("exploitdb", full_index)
             return {cve: full_index[cve] for cve in cve_ids if cve in full_index}
         except Exception as exc:
             logger.warning("Exploit-DB CSV fetch failed: %s", exc)
@@ -505,6 +549,7 @@ class SistemasExplotablesRedSkill(BaseSkill):
         inspector_doc: Dict[str, Any],
         network_controls: Dict[str, Any],
         compute_inventory: Dict[str, Any],
+        external_intel_mode: str = "live",
     ) -> Dict[str, Any]:
         """Enrich Inspector CVE findings with NVD API data and open-port analysis.
 
@@ -697,124 +742,143 @@ class SistemasExplotablesRedSkill(BaseSkill):
 
         cve_id_set = {c.upper() for c in all_cve_ids if c.upper().startswith("CVE-")}
 
-        # 4a. Fetch CISA KEV and Exploit-DB catalogs (before NVD loop)
+        # 4a. Resolve external intelligence mode and source catalogs.
+        mode = str(external_intel_mode or "live").lower()
+        if mode not in {"off", "live", "cached"}:
+            mode = "live"
+
         kev_lookup: Dict[str, Dict[str, Any]] = {}
         edb_lookup: Dict[str, Dict[str, Any]] = {}
-        if cve_id_set:
-            try:
-                kev_lookup = self._fetch_cisa_kev()
-            except Exception as exc:
-                enrichment_errors.append(f"CISA KEV fetch failed: {exc}")
-            try:
-                edb_lookup = self._fetch_exploitdb_index(cve_id_set)
-            except Exception as exc:
-                enrichment_errors.append(f"Exploit-DB fetch failed: {exc}")
-
-        # 4b. Query NVD API per CVE and extract PoC URLs from references
-        # Rate limit: NVD public API allows ~5 requests/30s without an API key.
-        # We add a 0.6s delay between requests and retry once on HTTP 429.
         nvd_cache: Dict[str, Dict[str, Any]] = {}
 
-        def _parse_nvd_response(body: dict) -> Optional[Dict[str, Any]]:
-            """Extract CVSS, description, and PoC URLs from a NVD API v2 response."""
-            vulns = body.get("vulnerabilities", [])
-            if not vulns:
-                return None
-            cve_data = vulns[0].get("cve", {})
-            metrics = cve_data.get("metrics", {})
-            cvss_score: Optional[float] = None
-            cvss_vector = ""
-            for metric_key in ("cvssMetricV31", "cvssMetricV30", "cvssMetricV2"):
-                metric_list = metrics.get(metric_key, [])
-                if metric_list and isinstance(metric_list, list):
-                    cvss_data = metric_list[0].get("cvssData", {})
-                    cvss_score = cvss_data.get("baseScore")
-                    cvss_vector = str(cvss_data.get("vectorString", ""))
-                    break
-            descriptions_list = cve_data.get("descriptions", [])
-            cve_description = next(
-                (
-                    d.get("value", "")
-                    for d in descriptions_list
-                    if isinstance(d, dict) and d.get("lang") == "en"
-                ),
-                "",
-            )
-            poc_urls_inner: List[str] = []
-            seen_urls_inner: Set[str] = set()
-            for ref in cve_data.get("references", []):
-                if not isinstance(ref, dict):
-                    continue
-                ref_url = str(ref.get("url") or "")
-                if not ref_url or ref_url in seen_urls_inner:
-                    continue
-                tags = ref.get("tags", []) or []
-                is_exploit_tag = any("Exploit" in str(t) for t in tags)
-                is_poc_domain = any(d in ref_url for d in self._POC_DOMAINS)
-                if is_exploit_tag or is_poc_domain:
-                    poc_urls_inner.append(ref_url)
-                    seen_urls_inner.add(ref_url)
-            return {
-                "cvss_score": cvss_score,
-                "cvss_vector": cvss_vector,
-                "description": cve_description if cve_description else "",
-                "poc_urls": poc_urls_inner,
-            }
+        if mode == "off":
+            if cve_id_set:
+                enrichment_errors.append("External vulnerability intelligence disabled")
+        elif mode == "cached":
+            if cve_id_set:
+                kev_lookup = self._read_external_intel_cache("cisa_kev") or {}
+                edb_full = self._read_external_intel_cache("exploitdb") or {}
+                edb_lookup = {cve: edb_full[cve] for cve in cve_id_set if cve in edb_full}
+                nvd_cache = self._read_external_intel_cache("nvd") or {}
+                if not kev_lookup:
+                    enrichment_errors.append("CISA KEV cache miss")
+                if not edb_lookup:
+                    enrichment_errors.append("Exploit-DB cache miss")
+                for cve_id in all_cve_ids:
+                    if cve_id.upper().startswith("CVE-") and cve_id not in nvd_cache:
+                        enrichment_errors.append(f"NVD cache miss for {cve_id}")
+        else:
+            if cve_id_set:
+                try:
+                    kev_lookup = self._fetch_cisa_kev()
+                except Exception as exc:
+                    enrichment_errors.append(f"CISA KEV fetch failed: {exc}")
+                try:
+                    edb_lookup = self._fetch_exploitdb_index(cve_id_set)
+                except Exception as exc:
+                    enrichment_errors.append(f"Exploit-DB fetch failed: {exc}")
 
-        for cve_id in all_cve_ids:
-            if not cve_id.upper().startswith("CVE-"):
-                continue
-            url = f"https://services.nvd.nist.gov/rest/json/cves/2.0?cveId={cve_id}"
-            req = urllib.request.Request(
-                url,
-                headers={"User-Agent": "drystone-security-audit/1.0"},
-            )
-            try:
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    body = json.loads(resp.read().decode())
-                parsed = _parse_nvd_response(body)
-                if parsed:
-                    nvd_cache[cve_id] = parsed
-            except urllib.error.HTTPError as http_err:
-                if http_err.code == 429:
-                    # Exponential backoff: 30s → 60s → 120s (3 retries total)
-                    _retried = False
-                    for _attempt in range(3):
-                        try:
-                            _delay = 30 * (2 ** _attempt)
-                            logger.warning(
-                                "NVD rate limited for %s (attempt %d/3), retrying in %ss",
-                                cve_id, _attempt + 1, _delay,
-                            )
-                            time.sleep(_delay)
-                            with urllib.request.urlopen(req, timeout=10) as resp2:
-                                body2 = json.loads(resp2.read().decode())
-                            parsed2 = _parse_nvd_response(body2)
-                            if parsed2:
-                                nvd_cache[cve_id] = parsed2
-                            _retried = True
-                            break
-                        except urllib.error.HTTPError as retry_err:
-                            if retry_err.code != 429:
+            # 4b. Query NVD API per CVE and extract PoC URLs from references.
+            def _parse_nvd_response(body: dict) -> Optional[Dict[str, Any]]:
+                """Extract CVSS, description, and PoC URLs from a NVD API v2 response."""
+                vulns = body.get("vulnerabilities", [])
+                if not vulns:
+                    return None
+                cve_data = vulns[0].get("cve", {})
+                metrics = cve_data.get("metrics", {})
+                cvss_score: Optional[float] = None
+                cvss_vector = ""
+                for metric_key in ("cvssMetricV31", "cvssMetricV30", "cvssMetricV2"):
+                    metric_list = metrics.get(metric_key, [])
+                    if metric_list and isinstance(metric_list, list):
+                        cvss_data = metric_list[0].get("cvssData", {})
+                        cvss_score = cvss_data.get("baseScore")
+                        cvss_vector = str(cvss_data.get("vectorString", ""))
+                        break
+                descriptions_list = cve_data.get("descriptions", [])
+                cve_description = next(
+                    (
+                        d.get("value", "")
+                        for d in descriptions_list
+                        if isinstance(d, dict) and d.get("lang") == "en"
+                    ),
+                    "",
+                )
+                poc_urls_inner: List[str] = []
+                seen_urls_inner: Set[str] = set()
+                for ref in cve_data.get("references", []):
+                    if not isinstance(ref, dict):
+                        continue
+                    ref_url = str(ref.get("url") or "")
+                    if not ref_url or ref_url in seen_urls_inner:
+                        continue
+                    tags = ref.get("tags", []) or []
+                    is_exploit_tag = any("Exploit" in str(t) for t in tags)
+                    is_poc_domain = any(d in ref_url for d in self._POC_DOMAINS)
+                    if is_exploit_tag or is_poc_domain:
+                        poc_urls_inner.append(ref_url)
+                        seen_urls_inner.add(ref_url)
+                return {
+                    "cvss_score": cvss_score,
+                    "cvss_vector": cvss_vector,
+                    "description": cve_description if cve_description else "",
+                    "poc_urls": poc_urls_inner,
+                }
+
+            for cve_id in all_cve_ids:
+                if not cve_id.upper().startswith("CVE-"):
+                    continue
+                url = f"https://services.nvd.nist.gov/rest/json/cves/2.0?cveId={cve_id}"
+                req = urllib.request.Request(
+                    url,
+                    headers={"User-Agent": "drystone-security-audit/1.0"},
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        body = json.loads(resp.read().decode())
+                    parsed = _parse_nvd_response(body)
+                    if parsed:
+                        nvd_cache[cve_id] = parsed
+                except urllib.error.HTTPError as http_err:
+                    if http_err.code == 429:
+                        _retried = False
+                        for _attempt in range(3):
+                            try:
+                                _delay = 30 * (2 ** _attempt)
+                                logger.warning(
+                                    "NVD rate limited for %s (attempt %d/3), retrying in %ss",
+                                    cve_id, _attempt + 1, _delay,
+                                )
+                                time.sleep(_delay)
+                                with urllib.request.urlopen(req, timeout=10) as resp2:
+                                    body2 = json.loads(resp2.read().decode())
+                                parsed2 = _parse_nvd_response(body2)
+                                if parsed2:
+                                    nvd_cache[cve_id] = parsed2
+                                _retried = True
+                                break
+                            except urllib.error.HTTPError as retry_err:
+                                if retry_err.code != 429:
+                                    enrichment_errors.append(
+                                        f"NVD lookup failed for {cve_id} (attempt {_attempt+1}): {retry_err}"
+                                    )
+                                    _retried = True
+                                    break
+                            except Exception as retry_exc:
                                 enrichment_errors.append(
-                                    f"NVD lookup failed for {cve_id} (attempt {_attempt+1}): {retry_err}"
+                                    f"NVD lookup failed for {cve_id} (attempt {_attempt+1}): {retry_exc}"
                                 )
                                 _retried = True
                                 break
-                        except Exception as retry_exc:
-                            enrichment_errors.append(
-                                f"NVD lookup failed for {cve_id} (attempt {_attempt+1}): {retry_exc}"
-                            )
-                            _retried = True
-                            break
-                    if not _retried:
-                        enrichment_errors.append(f"NVD lookup failed for {cve_id}: exhausted retries")
-                else:
-                    enrichment_errors.append(f"NVD lookup failed for {cve_id}: {http_err}")
-            except Exception as e:
-                enrichment_errors.append(f"NVD lookup failed for {cve_id}: {e}")
-            # Respect NVD rate limit: ~5 req/30s without API key → 0.6s between requests
-            time.sleep(0.6)
+                        if not _retried:
+                            enrichment_errors.append(f"NVD lookup failed for {cve_id}: exhausted retries")
+                    else:
+                        enrichment_errors.append(f"NVD lookup failed for {cve_id}: {http_err}")
+                except Exception as e:
+                    enrichment_errors.append(f"NVD lookup failed for {cve_id}: {e}")
+                time.sleep(0.6)
+            if nvd_cache:
+                self._write_external_intel_cache("nvd", nvd_cache)
 
         # 5. Build per-instance intel with enriched CVEs and attack path
         for iid, raw_cves in instance_cves_raw.items():
@@ -843,7 +907,12 @@ class SistemasExplotablesRedSkill(BaseSkill):
                 nvd_poc_urls = nvd.get("poc_urls", [])
 
                 has_public_exploit = bool(kev_entry or edb_entry or nvd_poc_urls)
-                sources_checked = ["cisa_kev", "exploit_db", "nvd_references"]
+                if mode == "off":
+                    sources_checked = ["external_intel_disabled"]
+                elif mode == "cached":
+                    sources_checked = ["cisa_kev_cache", "exploit_db_cache", "nvd_cache"]
+                else:
+                    sources_checked = ["cisa_kev", "exploit_db", "nvd_references"]
 
                 # Build human-readable summary
                 summary_parts: List[str] = []

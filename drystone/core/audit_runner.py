@@ -79,7 +79,8 @@ def _create_session(
     # Populate feature flags from WizardConfig so skills can respect opt-in gates.
     try:
         session.feature_flags = {
-            "terraform_state_scan_enabled": bool(getattr(config, "terraform_state_scan_enabled", False))
+            "terraform_state_scan_enabled": bool(getattr(config, "terraform_state_scan_enabled", False)),
+            "external_intel_mode": str(getattr(config, "external_intel_mode", "live") or "live"),
         }
     except Exception:
         session.feature_flags = {}

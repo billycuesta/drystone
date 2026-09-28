@@ -137,6 +137,15 @@ class WizardConfig(BaseModel):
         ),
     )
 
+    external_intel_mode: Literal["off", "live", "cached"] = Field(
+        default="live",
+        description=(
+            "External vulnerability intelligence mode for sistemas_explotables_red: "
+            "off disables KEV/Exploit-DB/NVD enrichment, live fetches and updates cache, "
+            "cached reads only the local cache without network calls."
+        ),
+    )
+
     # Feature flags (opt-in gates for sensitive reads)
     terraform_state_scan_enabled: bool = Field(
         default=False,
@@ -376,6 +385,15 @@ class WizardConfig(BaseModel):
                 v = env_key.strip()
 
         return v
+
+    @field_validator("external_intel_mode", mode="before")
+    @classmethod
+    def normalize_external_intel_mode(cls, v: Optional[str]) -> str:
+        value = str(v or "live").strip().lower()
+        allowed = {"off", "live", "cached"}
+        if value not in allowed:
+            raise ValueError(f"Invalid external_intel_mode: {value}. Valid: {sorted(allowed)}")
+        return value
 
     @field_validator("scan_depth", mode="before")
     @classmethod

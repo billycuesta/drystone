@@ -201,6 +201,7 @@ class TestRunAuditHappyPath:
         assert phase_by_name["analysis"].status == "success"
         assert phase_by_name["reporting"].status == "success"
         assert phase_by_name["qa_gate"].status == "success"
+        assert mock_session.feature_flags["external_intel_mode"] == "live"
 
     def test_on_message_none_does_not_raise(self, config, mock_aws_client, mock_session, report_file):
         qa_result = QAGateResult(passed=True, issues=[])
