@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from drystone.core.audit_runner import (
+    AuditPhaseResult,
     AuditRunResult,
     _analyze_evidence,
     _collect_pentest_inventory_if_needed,
@@ -158,6 +159,13 @@ def _stop(patches):
         p.stop()
 
 
+class TestAuditRunResult:
+    def test_phase_results_default_preserves_backward_compatible_construction(self):
+        result = AuditRunResult(session=object(), all_findings={}, qa_passed=True)
+
+        assert result.phase_results == []
+
+
 class TestRunAuditHappyPath:
     def test_returns_result_with_qa_passed_true(self, config, mock_aws_client, mock_session, report_file):
         qa_result = QAGateResult(passed=True, issues=[])
@@ -173,6 +181,26 @@ class TestRunAuditHappyPath:
         assert "iam" in result.all_findings
         assert result.all_findings["iam"]["summary"]["total_findings"] == 2
         assert result.session is mock_session
+        assert all(isinstance(phase, AuditPhaseResult) for phase in result.phase_results)
+        phase_by_name = {phase.name: phase for phase in result.phase_results}
+        for name in (
+            "session",
+            "aws_client",
+            "collection",
+            "analysis",
+            "reporting",
+            "qa_gate",
+            "integrity_manifest",
+        ):
+            assert name in phase_by_name
+        assert phase_by_name["collection"].status == "success"
+        assert phase_by_name["collection"].metadata == {
+            "requested_skills": 1,
+            "collected_skills": 1,
+        }
+        assert phase_by_name["analysis"].status == "success"
+        assert phase_by_name["reporting"].status == "success"
+        assert phase_by_name["qa_gate"].status == "success"
 
     def test_on_message_none_does_not_raise(self, config, mock_aws_client, mock_session, report_file):
         qa_result = QAGateResult(passed=True, issues=[])
@@ -389,6 +417,8 @@ class TestRunAuditQaFailure:
             _stop(patches)
 
         assert result.qa_passed is False
+        phase_by_name = {phase.name: phase for phase in result.phase_results}
+        assert phase_by_name["qa_gate"].status == "failed"
         assert any("QA Gate: FAIL" in m for m in messages)
         assert any("Missing critical checks" in m for m in messages)
 

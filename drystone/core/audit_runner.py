@@ -27,7 +27,7 @@ import json
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Literal, Optional, Tuple
 
 from drystone.models import WizardConfig
 
@@ -39,6 +39,20 @@ if TYPE_CHECKING:
     from drystone.storage.session import AuditSession
 
 
+PhaseStatus = Literal["success", "failed", "skipped"]
+
+
+@dataclass
+class AuditPhaseResult:
+    """Structured post-run status for one audit orchestration phase."""
+
+    name: str
+    status: PhaseStatus
+    message: str = ""
+    error: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
 @dataclass
 class AuditRunResult:
     """Outcome of a single `run_audit()` call."""
@@ -46,6 +60,7 @@ class AuditRunResult:
     session: "AuditSession"
     all_findings: dict = field(default_factory=dict)
     qa_passed: bool = True
+    phase_results: list[AuditPhaseResult] = field(default_factory=list)
 
 
 Msg = Callable[[str], None]
@@ -548,7 +563,28 @@ def run_audit(
     _msg("")
     from drystone.cloud.aws.client import AWSClient
 
+    phase_results: list[AuditPhaseResult] = []
+
+    def _record_phase(
+        name: str,
+        status: PhaseStatus,
+        message: str = "",
+        *,
+        error: Optional[Exception | str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        phase_results.append(
+            AuditPhaseResult(
+                name=name,
+                status=status,
+                message=message,
+                error=str(error) if error else None,
+                metadata=metadata or {},
+            )
+        )
+
     session, metrics_tracker, metrics_file = _create_session(config, account_id, _msg)
+    _record_phase("session", "success", "Audit session created")
 
     phase_total = 3
     phase_done = 0
@@ -561,36 +597,77 @@ def run_audit(
 
     # Create AWS client
     aws_client = AWSClient(config)
+    _record_phase("aws_client", "success", "AWS client created")
 
     _collect_pentest_inventory_if_needed(config, aws_client, session, _msg)
+    _record_phase(
+        "pentest_inventory",
+        "success" if str(getattr(config, "report_type", "")).lower() == "pentest" else "skipped",
+    )
 
     skill_instances, skill_display_names = _collect_evidence(config, aws_client, session, _msg)
+    _record_phase(
+        "collection",
+        "success",
+        metadata={
+            "requested_skills": len(getattr(config, "skills", []) or []),
+            "collected_skills": len(skill_instances),
+        },
+    )
     phase_done += 1
     _print_progress("Collection complete", phase_done, phase_total)
 
     all_findings = _analyze_evidence(
         config, session, skill_instances, skill_display_names, metrics_tracker, _msg
     )
+    _record_phase(
+        "analysis",
+        "success" if skill_instances else "skipped",
+        metadata={"finding_skills": len(all_findings)},
+    )
     phase_done += 1
     _print_progress("Analysis complete", phase_done, phase_total)
 
     _run_correlation(session, all_findings, _msg)
+    _record_phase("correlation", "success" if len(all_findings) >= 2 else "skipped")
     _run_trend_analysis(config, session, all_findings, _msg)
+    _record_phase("trend_analysis", "success" if all_findings else "skipped")
     _run_active_verification(config, session, aws_client, _msg)
+    _record_phase(
+        "active_verification",
+        "success" if bool(getattr(config, "active_verification", True)) and bool(all_findings) else "skipped",
+    )
 
     reports_ok = _generate_reports(config, session, all_findings, skill_display_names, _msg)
+    _record_phase(
+        "reporting",
+        "success" if reports_ok and all_findings else ("skipped" if reports_ok else "failed"),
+    )
     _generate_pci_evidence_folder(config, session, all_findings, _msg)
+    _record_phase(
+        "pci_evidence_folder",
+        "success" if getattr(config, "report_type", "") == "pci-dss" and bool(all_findings) else "skipped",
+    )
     if reports_ok:
         phase_done += 1
         label = "Reporting complete" if all_findings else "Reporting skipped"
         _print_progress(label, phase_done, phase_total)
 
     _optimize_budgets(metrics_file, _msg)
+    _record_phase("budget_optimization", "success")
 
     qa_failed = _run_qa_gate(session, config, _msg)
+    _record_phase("qa_gate", "failed" if qa_failed else "success")
 
     _print_completion_summary(session, metrics_tracker, _msg)
+    _record_phase("completion_summary", "success")
 
     _write_integrity_manifest(session, _msg)
+    _record_phase("integrity_manifest", "success")
 
-    return AuditRunResult(session=session, all_findings=all_findings, qa_passed=not qa_failed)
+    return AuditRunResult(
+        session=session,
+        all_findings=all_findings,
+        qa_passed=not qa_failed,
+        phase_results=phase_results,
+    )
