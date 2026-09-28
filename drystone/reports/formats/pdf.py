@@ -8,7 +8,7 @@ import json
 import mimetypes
 import re
 import xml.etree.ElementTree as ET  # noqa: N817
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -16,6 +16,11 @@ from drystone.reports.formats.base import BaseFormatter
 from drystone.reports.pentest_inventory_summary import build_environment_narrative
 from drystone.reports.safety import redact_secrets
 from drystone.reports.validation_commands import suggest_aws_cli_commands
+
+
+def _utc_now_iso() -> str:
+    """Return the current timezone-aware UTC timestamp."""
+    return datetime.now(timezone.utc).isoformat()
 
 
 class PDFFormatter(BaseFormatter):
@@ -130,7 +135,7 @@ class PDFFormatter(BaseFormatter):
     def _build_placeholders(self) -> Dict[str, str]:
         findings = self.findings.get("findings", [])
         summary = self.findings.get("summary", {})
-        report_date = self.findings.get("analyzed_at") or datetime.utcnow().isoformat()
+        report_date = self.findings.get("analyzed_at") or _utc_now_iso()
         report_date = report_date.replace("T", " ").split(".")[0]
 
         architecture_html = self._architecture_section_html()
@@ -715,7 +720,7 @@ class PDFFormatter(BaseFormatter):
             return f"<tr><td>{html.escape(label)}</td>" f"<td>{html.escape(value)}</td></tr>"
 
         access_key = self._masked_access_key()
-        report_date = self.findings.get("analyzed_at", datetime.utcnow().isoformat())
+        report_date = self.findings.get("analyzed_at") or _utc_now_iso()
         report_date = report_date.replace("T", " ").split(".")[0]
         fields = [
             ("Client", str(self.session.client_name or "Unknown")),
@@ -2545,7 +2550,7 @@ class PDFFormatter(BaseFormatter):
     def _document_control_html(self) -> str:
         """Generate document control section with metadata."""
         client = str(self.session.client_name or "Unknown")
-        report_date = self.findings.get("analyzed_at", datetime.utcnow().isoformat())
+        report_date = self.findings.get("analyzed_at") or _utc_now_iso()
         report_date_clean = report_date.replace("T", " ").split(".")[0]
         date_short = report_date_clean.split(" ")[0]  # YYYY-MM-DD
 

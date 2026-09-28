@@ -3,7 +3,7 @@
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -11,6 +11,11 @@ from drystone.reports.formats.base import BaseFormatter
 from drystone.reports.safety import redact_secrets
 
 logger = logging.getLogger(__name__)
+
+
+def _utc_now_iso() -> str:
+    """Return the current timezone-aware UTC timestamp."""
+    return datetime.now(timezone.utc).isoformat()
 
 
 class MarkdownFormatter(BaseFormatter):
@@ -394,7 +399,7 @@ This security assessment evaluated the {scope} for **{client}**. {findings_text}
     def _header(self) -> str:
         """Generate report header."""
         skill = self.findings.get("skill", "Unknown")
-        timestamp = self.findings.get("analyzed_at", datetime.utcnow().isoformat())
+        timestamp = self.findings.get("analyzed_at") or _utc_now_iso()
         account_id = self.session.account_id
         client_name = self.session.client_name
         min_sev = getattr(self.config, "min_severity", "low")

@@ -10,11 +10,16 @@ from __future__ import annotations
 import copy
 import json
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from drystone.reports.safety import redact_secrets_in_obj
 from drystone.storage.session import AuditSession
+
+
+def _utc_now_iso() -> str:
+    """Return the current timezone-aware UTC timestamp."""
+    return datetime.now(timezone.utc).isoformat()
 
 
 @dataclass(frozen=True)
@@ -70,7 +75,7 @@ def _metadata(
         "client": session.client_name,
         "aws_account": session.account_id,
         "skill": findings.get("skill", "unknown"),
-        "analyzed_at": findings.get("analyzed_at", datetime.utcnow().isoformat()),
+        "analyzed_at": findings.get("analyzed_at") or _utc_now_iso(),
         "checklist_version": findings.get("checklist_version", "1.0"),
         "report_format_version": report_format_version,
         "evidence_count": findings.get("evidence_count", 0),

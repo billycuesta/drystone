@@ -1,11 +1,16 @@
 """JSON report formatter."""
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
 from drystone.reports.formats.base import BaseFormatter
+
+
+def _utc_now_iso() -> str:
+    """Return the current timezone-aware UTC timestamp."""
+    return datetime.now(timezone.utc).isoformat()
 
 
 class JSONFormatter(BaseFormatter):
@@ -41,7 +46,7 @@ class JSONFormatter(BaseFormatter):
             "findings": context.redacted_findings.get("findings", []),
             "summary": context.redacted_findings.get("summary", {}),
             "statistics": self._calculate_statistics(),
-            "export_timestamp": datetime.utcnow().isoformat(),
+            "export_timestamp": _utc_now_iso(),
         }
         if context.attack_path_candidates:
             payload["attack_path_candidates"] = context.attack_path_candidates
@@ -140,7 +145,7 @@ class JSONFormatter(BaseFormatter):
             "client": self.session.client_name,
             "aws_account": self.session.account_id,
             "skill": self.findings.get("skill", "unknown"),
-            "analyzed_at": self.findings.get("analyzed_at", datetime.utcnow().isoformat()),
+            "analyzed_at": self.findings.get("analyzed_at") or _utc_now_iso(),
             "checklist_version": self.findings.get("checklist_version", "1.0"),
             "report_format_version": self.REPORT_FORMAT_VERSION,
             "evidence_count": self.findings.get("evidence_count", 0),

@@ -6,11 +6,21 @@ Ensures metrics are updated atomically even during concurrent skill execution.
 import json
 import logging
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def _utc_now() -> datetime:
+    """Return the current timezone-aware UTC datetime."""
+    return datetime.now(timezone.utc)
+
+
+def _utc_now_iso() -> str:
+    """Return the current timezone-aware UTC timestamp."""
+    return _utc_now().isoformat()
 
 
 class MetricsTracker:
@@ -46,7 +56,7 @@ class MetricsTracker:
         """Ensure metrics file exists with initial structure."""
         if not self.metrics_file.exists():
             initial_metrics = {
-                "start_time": datetime.utcnow().isoformat(),
+                "start_time": _utc_now_iso(),
                 "skills": {},
                 "total_findings": 0,
                 "total_risk_score": 0.0,
@@ -74,7 +84,7 @@ class MetricsTracker:
             backup_path = (
                 self.metrics_file.parent
                 / f"{self.metrics_file.stem}.corrupted-"
-                f"{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}{self.metrics_file.suffix}"
+                f"{_utc_now().strftime('%Y%m%dT%H%M%SZ')}{self.metrics_file.suffix}"
             )
             try:
                 self.metrics_file.rename(backup_path)
@@ -113,7 +123,7 @@ class MetricsTracker:
                 metrics["skills"] = {}
 
             metrics["skills"][skill_name] = {
-                "start_time": datetime.utcnow().isoformat(),
+                "start_time": _utc_now_iso(),
                 "status": "in_progress",
                 "findings": 0,
                 "risk_score": 0.0,
@@ -287,7 +297,7 @@ class MetricsTracker:
 
             metrics["skills"][skill_name].update(
                 {
-                    "end_time": datetime.utcnow().isoformat(),
+                    "end_time": _utc_now_iso(),
                     "status": (
                         "partial"
                         if partial_results
@@ -324,7 +334,7 @@ class MetricsTracker:
                 {
                     "attempt": attempt_number,
                     "reason": reason,
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": _utc_now_iso(),
                 }
             )
 
@@ -391,7 +401,9 @@ class MetricsTracker:
             if not isinstance(start_raw, str) or not start_raw:
                 return None
             start = datetime.fromisoformat(start_raw)
-            elapsed = datetime.utcnow() - start
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=timezone.utc)
+            elapsed = _utc_now() - start
             minutes = int(elapsed.total_seconds() / 60)
             seconds = int(elapsed.total_seconds() % 60)
             return f"{minutes}m {seconds}s"
