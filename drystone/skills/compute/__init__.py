@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import base64
 import re
-from datetime import datetime
-from typing import Any, Dict, List, Tuple
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple
 
 from botocore.exceptions import ClientError
 
@@ -29,6 +29,16 @@ logger = get_logger(__name__)
 
 
 class ComputeSkill(BaseSkill):
+    def _skill_specific_traceability(
+        self,
+        check_id: str,
+        result: Any,
+        evidence: Dict[str, Any],
+    ) -> Optional["tuple[List[str], Optional[Dict[str, Any]]]"]:
+        from drystone.skills.compute.traceability import build_traceability
+
+        return build_traceability(check_id, result, evidence)
+
     @property
     def name(self) -> str:
         return "compute"
@@ -46,7 +56,7 @@ class ComputeSkill(BaseSkill):
         events = session_obj.client("events", region_name=region)
 
         metadata = {
-            "_collected_at": datetime.utcnow().isoformat() + "Z",
+            "_collected_at": datetime.now(timezone.utc).isoformat(),
             "_region": region,
             "_skill": self.name,
         }

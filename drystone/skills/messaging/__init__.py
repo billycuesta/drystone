@@ -9,8 +9,8 @@ Focus: persistence and data-plane abuse paths (HackTricks Cloud AWS).
 from __future__ import annotations
 
 import json
-from datetime import datetime
-from typing import Any, Dict, List, Tuple
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple
 
 from botocore.exceptions import ClientError
 
@@ -23,6 +23,16 @@ logger = get_logger(__name__)
 
 
 class MessagingSkill(BaseSkill):
+    def _skill_specific_traceability(
+        self,
+        check_id: str,
+        result: Any,
+        evidence: Dict[str, Any],
+    ) -> Optional["tuple[List[str], Optional[Dict[str, Any]]]"]:
+        from drystone.skills.messaging.traceability import build_traceability
+
+        return build_traceability(check_id, result, evidence)
+
     @property
     def name(self) -> str:
         return "messaging"
@@ -39,7 +49,7 @@ class MessagingSkill(BaseSkill):
         sns = session_obj.client("sns", region_name=region)
 
         metadata = {
-            "_collected_at": datetime.utcnow().isoformat() + "Z",
+            "_collected_at": datetime.now(timezone.utc).isoformat(),
             "_region": region,
             "_skill": self.name,
         }

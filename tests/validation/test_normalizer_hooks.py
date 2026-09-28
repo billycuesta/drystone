@@ -35,6 +35,17 @@ def test_lazy_registry_falls_back_for_skill_without_normalizer_module():
     assert hook.validate_against_evidence("GEN-001", _finding()) is None
 
 
+def test_skl_r_explicit_noop_normalizers_preserve_default_behavior():
+    for skill_name in ("recon", "sistemas_explotables_red", "cloudtrail_events"):
+        context = NormalizerContext(skill_name=skill_name, checklist_map={}, evidence={})
+        hook = get_normalizer_hook(skill_name, context)
+
+        assert isinstance(hook, DefaultNormalizerHook)
+        assert hook.remap_id("GEN-001", _finding()) == "GEN-001"
+        assert hook.normalize_evidence_refs(["raw-ref"]) == ["raw-ref"]
+        assert hook.validate_against_evidence("GEN-001", _finding()) is None
+
+
 def test_exposure_hook_remaps_non_public_cross_account_bucket_policy():
     normalizer = FindingsNormalizer(
         checklist={
