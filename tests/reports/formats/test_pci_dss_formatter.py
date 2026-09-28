@@ -7,6 +7,58 @@ from drystone.storage.session import AuditSession
 
 
 class TestPCIDSSFormatter:
+    def test_header_uses_report_context_metadata_without_utcnow_warning(self, tmp_path):
+        session = Mock(spec=AuditSession)
+        session.base_path = tmp_path
+        session.account_id = "123456789012"
+        session.client_name = "TestClient"
+        session.get_reports_path.return_value = tmp_path / "reports"
+        (tmp_path / "reports").mkdir(parents=True)
+
+        config = Mock()
+        config.skills = ["iam"]
+        config.report_type = "pci-dss"
+
+        findings = {
+            "skill": "iam",
+            "findings": [],
+            "summary": {"total_findings": 0},
+            "analyzed_at": "2026-09-28T00:00:00+00:00",
+        }
+
+        formatter = PCIDSSFormatter(findings, session, config)
+        header = formatter._header()
+
+        assert "**AWS Account:** 123456789012" in header
+        assert "**Skills Audited:** IAM" in header
+        assert "**Date:** 2026-09-28T00:00:00+00:00" in header
+
+    def test_generate_filename_uses_report_metadata_skill(self, tmp_path):
+        session = Mock(spec=AuditSession)
+        session.base_path = tmp_path
+        session.account_id = "123456789012"
+        session.client_name = "TestClient"
+        session.get_reports_path.return_value = tmp_path / "reports"
+        (tmp_path / "reports").mkdir(parents=True)
+
+        config = Mock()
+        config.skills = ["iam"]
+        config.report_type = "pci-dss"
+
+        findings = {
+            "skill": "aggregated",
+            "report_metadata": {"report_skill": "iam"},
+            "findings": [],
+            "summary": {"total_findings": 0},
+            "analyzed_at": "2026-09-28T00:00:00+00:00",
+        }
+
+        formatter = PCIDSSFormatter(findings, session, config)
+        path = formatter.generate()
+
+        assert path.name == "pci-dss-compliance-report-iam.md"
+        assert path.exists()
+
     def test_ok_rows_use_no_mapped_findings_language(self, tmp_path):
         session = Mock(spec=AuditSession)
         session.base_path = tmp_path
