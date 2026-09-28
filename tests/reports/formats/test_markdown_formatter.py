@@ -40,6 +40,71 @@ def _make_formatter(tmp_path, findings=None, report_language="en", report_type="
     return MarkdownFormatter(findings, session, config)
 
 
+# ── ReportContext redaction integration ───────────────────────────────────────
+
+
+class TestReportContextRedaction:
+    def test_full_markdown_redacts_secret_material_outside_evidence_snippet(self, tmp_path):
+        access_key = "AKIA1234567890ABCDEF"
+        secret_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+        formatter = _make_formatter(
+            tmp_path,
+            findings={
+                "skill": "iam",
+                "analyzed_at": "2026-09-28T00:00:00+00:00",
+                "checklist_version": "9.9",
+                "summary": {
+                    "total_findings": 1,
+                    "critical": 1,
+                    "high": 0,
+                    "medium": 0,
+                    "low": 0,
+                    "overall_risk_score": 9.4,
+                },
+                "findings": [
+                    {
+                        "id": "IAM-SECRET",
+                        "title": f"Exposed key {access_key}",
+                        "severity": "Critical",
+                        "risk_score": 9.4,
+                        "description": f"Secret was present: {secret_key}",
+                        "remediation": f"Rotate {access_key} immediately",
+                        "affected_resources": [f"arn:aws:iam::123456789012:user/{access_key}"],
+                        "evidence_snippet": {"SecretAccessKey": secret_key},
+                    }
+                ],
+            },
+        )
+
+        report = formatter._build_markdown()
+
+        assert access_key not in report
+        assert secret_key not in report
+        assert "AKIA****************" in report
+        assert "[REDACTED_SECRET]" in report
+
+    def test_header_uses_report_context_metadata(self, tmp_path):
+        formatter = _make_formatter(
+            tmp_path,
+            findings={
+                "skill": "iam",
+                "analyzed_at": "2026-09-28T00:00:00+00:00",
+                "checklist_version": "2.7",
+                "report_metadata": {"integrity_manifest_sha256": "abc123"},
+                "findings": [],
+                "summary": {"total_findings": 0},
+            },
+        )
+
+        header = formatter._header()
+
+        assert "**Client:** TestClient" in header
+        assert "**AWS Account:** 123456789012" in header
+        assert "**Generated:** 2026-09-28T00:00:00+00:00" in header
+        assert "**Version:** 2.7" in header
+        assert "**Evidence Integrity (SHA-256):** `abc123`" in header
+
+
 # ── _is_english_report ────────────────────────────────────────────────────────
 
 
