@@ -53,10 +53,13 @@ from drystone.validation.pre_checks import (
     check_ecr_004,
     check_ecr_005,
     check_ecr_006,
+    check_ecr_007,
+    check_evidence_or_warn,
     check_exp_002,
     check_exp_003,
     check_exp_004,
     check_exp_007,
+    check_exp_011,
     check_exp_013,
     check_exp_014,
     check_exp_015,
@@ -66,13 +69,17 @@ from drystone.validation.pre_checks import (
     check_hrd_001,
     check_hrd_002,
     check_hrd_003,
+    check_hrd_005,
     check_hrd_007,
     check_hrd_008,
+    check_hrd_009,
     check_hrd_010,
     check_hrd_011,
+    check_hrd_012,
     check_hrd_013,
     check_hrd_014,
     check_hrd_015,
+    check_hrd_016,
     check_iam_001,
     check_iam_007,
     check_iam_008,
@@ -359,6 +366,15 @@ class TestIAM001:
         r = check_iam_001(evidence)
         assert r.status == "PASS"
 
+    def test_no_pass_masking_when_evidence_missing(self):
+        """Validation-WARN audit (PLAN_VALIDATION_WARN.md) flagged IAM-001 as
+        a category-C candidate. Verified: with both `account-summary` and
+        `credential-report` missing, `_truthy(None)` is False for both
+        sources, so this already fails closed (FAIL) rather than PASS. No
+        fix applied; kept as a regression guard."""
+        r = check_iam_001({})
+        assert r.status == "FAIL"
+
 
 class TestIAM009:
     def test_pass_when_no_root_keys(self):
@@ -385,6 +401,15 @@ class TestIAM009:
         }
         r = check_iam_009(evidence)
         assert r.status == "PASS"
+
+    def test_no_pass_masking_when_evidence_missing(self):
+        """Validation-WARN audit (PLAN_VALIDATION_WARN.md) flagged IAM-009 as
+        a category-C candidate. Verified: with both `account-summary` and
+        `credential-report` missing, `_falsy(None)` is False for both
+        sources, so this already fails closed (FAIL) rather than PASS. No
+        fix applied; kept as a regression guard."""
+        r = check_iam_009({})
+        assert r.status == "FAIL"
 
 
 class TestIAM008:
@@ -1671,6 +1696,15 @@ class TestHRD001:
         r = check_hrd_001({"config-recorders": {"ConfigurationRecorders": []}})
         assert r.status == "FAIL"
 
+    def test_no_pass_masking_when_evidence_missing(self):
+        """Validation-WARN audit (PLAN_VALIDATION_WARN.md) flagged HRD-001 as
+        a category-C candidate. Verified: `config-recorders` defaults to an
+        empty recorder list on missing/failed evidence, so this already
+        fails closed (FAIL) rather than PASS. No fix applied; kept as a
+        regression guard."""
+        r = check_hrd_001({})
+        assert r.status == "FAIL"
+
 
 class TestHRD002:
     def test_pass_when_hub_enabled(self):
@@ -1681,6 +1715,14 @@ class TestHRD002:
 
     def test_fail_when_no_hub(self):
         r = check_hrd_002({"security-hub-status": {}})
+        assert r.status == "FAIL"
+
+    def test_no_pass_masking_when_evidence_missing(self):
+        """Validation-WARN audit (PLAN_VALIDATION_WARN.md) flagged HRD-002 as
+        a category-C candidate. Verified: missing `security-hub-status`
+        yields an empty HubArn, so this already fails closed (FAIL) rather
+        than PASS. No fix applied; kept as a regression guard."""
+        r = check_hrd_002({})
         assert r.status == "FAIL"
 
 
@@ -1951,6 +1993,216 @@ class TestHRD014:
     def test_fail_when_no_detectors(self):
         r = check_hrd_014({"guardduty-detectors": []})
         assert r.status == "FAIL"
+
+    def test_no_pass_masking_when_evidence_missing(self):
+        """Validation-WARN audit (PLAN_VALIDATION_WARN.md) flagged HRD-014 as
+        a category-C candidate (PASS reachable via missing evidence).
+        Verified: `guardduty-detectors` defaults to `[]` on missing/failed
+        evidence, so this already fails closed (FAIL) rather than PASS.
+        No fix applied; kept as a regression guard."""
+        r = check_hrd_014({})
+        assert r.status == "FAIL"
+
+
+class TestHRD005:
+    def test_pass_when_zero_critical(self):
+        r = check_hrd_005(
+            {
+                "security-hub-findings-summary": {
+                    "severity_counts": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+                }
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_fail_when_critical_present(self):
+        r = check_hrd_005(
+            {
+                "security-hub-findings-summary": {
+                    "severity_counts": {"CRITICAL": 2, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+                }
+            }
+        )
+        assert r.status == "FAIL"
+
+    def test_warn_when_evidence_missing(self):
+        r = check_hrd_005({})
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "missing_evidence"
+
+    def test_warn_when_findings_collection_failed(self):
+        r = check_hrd_005(
+            {
+                "security-hub-status": {"HubArn": "arn:aws:securityhub:us-east-1:123:hub/default"},
+                "security-hub-findings-summary": {
+                    "severity_counts": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+                },
+                "hardening-collection-status": {
+                    "ok": False,
+                    "errors": {"securityhub_findings": {"error": "AccessDenied"}},
+                },
+            }
+        )
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "collection_failed"
+
+    def test_pass_when_hub_not_enabled_despite_findings_error(self):
+        """Security Hub genuinely disabled: findings retrieval legitimately
+        fails, but zero findings is the real state, not a coverage gap."""
+        r = check_hrd_005(
+            {
+                "security-hub-status": {"enabled": False, "reason": "not_enabled"},
+                "security-hub-findings-summary": {
+                    "severity_counts": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+                },
+                "hardening-collection-status": {
+                    "ok": False,
+                    "errors": {"securityhub_findings": {"error": "InvalidAccessException"}},
+                },
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_pass_when_no_collection_status_file(self):
+        """Legacy sessions predating hardening-collection-status.json keep
+        today's behavior when the summary evidence itself is well-formed."""
+        r = check_hrd_005(
+            {
+                "security-hub-findings-summary": {
+                    "severity_counts": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+                }
+            }
+        )
+        assert r.status == "PASS"
+
+
+class TestHRD009:
+    def test_pass_when_within_threshold(self):
+        r = check_hrd_009(
+            {
+                "security-hub-findings-summary": {
+                    "severity_counts": {"CRITICAL": 0, "HIGH": 5, "MEDIUM": 0, "LOW": 0}
+                }
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_fail_when_over_threshold(self):
+        r = check_hrd_009(
+            {
+                "security-hub-findings-summary": {
+                    "severity_counts": {"CRITICAL": 0, "HIGH": 11, "MEDIUM": 0, "LOW": 0}
+                }
+            }
+        )
+        assert r.status == "FAIL"
+
+    def test_warn_when_evidence_missing(self):
+        r = check_hrd_009({})
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "missing_evidence"
+
+    def test_warn_when_findings_collection_failed(self):
+        r = check_hrd_009(
+            {
+                "security-hub-status": {"HubArn": "arn:aws:securityhub:us-east-1:123:hub/default"},
+                "security-hub-findings-summary": {
+                    "severity_counts": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+                },
+                "hardening-collection-status": {
+                    "ok": False,
+                    "errors": {"securityhub_findings": {"error": "AccessDenied"}},
+                },
+            }
+        )
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "collection_failed"
+
+
+class TestHRD012:
+    def test_pass_when_within_threshold(self):
+        r = check_hrd_012(
+            {
+                "security-hub-findings-summary": {
+                    "severity_counts": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 5, "LOW": 0}
+                }
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_fail_when_over_threshold(self):
+        r = check_hrd_012(
+            {
+                "security-hub-findings-summary": {
+                    "severity_counts": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 21, "LOW": 0}
+                }
+            }
+        )
+        assert r.status == "FAIL"
+
+    def test_warn_when_evidence_missing(self):
+        r = check_hrd_012({})
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "missing_evidence"
+
+    def test_warn_when_findings_collection_failed(self):
+        r = check_hrd_012(
+            {
+                "security-hub-status": {"HubArn": "arn:aws:securityhub:us-east-1:123:hub/default"},
+                "security-hub-findings-summary": {
+                    "severity_counts": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+                },
+                "hardening-collection-status": {
+                    "ok": False,
+                    "errors": {"securityhub_findings": {"error": "AccessDenied"}},
+                },
+            }
+        )
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "collection_failed"
+
+
+class TestHRD016:
+    def test_pass_when_zero_low(self):
+        r = check_hrd_016(
+            {
+                "security-hub-findings-summary": {
+                    "severity_counts": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+                }
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_fail_when_low_present(self):
+        r = check_hrd_016(
+            {
+                "security-hub-findings-summary": {
+                    "severity_counts": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 3}
+                }
+            }
+        )
+        assert r.status == "FAIL"
+
+    def test_warn_when_evidence_missing(self):
+        r = check_hrd_016({})
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "missing_evidence"
+
+    def test_warn_when_findings_collection_failed(self):
+        r = check_hrd_016(
+            {
+                "security-hub-status": {"HubArn": "arn:aws:securityhub:us-east-1:123:hub/default"},
+                "security-hub-findings-summary": {
+                    "severity_counts": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+                },
+                "hardening-collection-status": {
+                    "ok": False,
+                    "errors": {"securityhub_findings": {"error": "AccessDenied"}},
+                },
+            }
+        )
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "collection_failed"
 
 
 # ============================================================================
@@ -3206,6 +3458,64 @@ class TestEXP003:
         }
         r = check_exp_003(evidence)
         assert r.status == "FAIL"
+
+
+class TestEXP011:
+    def test_pass_no_public_listbucket(self):
+        r = check_exp_011(
+            {
+                "s3-buckets": {
+                    "items": [
+                        {
+                            "Name": "private-bucket",
+                            "BucketPolicy": {
+                                "Statement": [
+                                    {
+                                        "Effect": "Allow",
+                                        "Principal": {"AWS": "arn:aws:iam::123:root"},
+                                        "Action": "s3:GetObject",
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                }
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_fail_public_listbucket(self):
+        r = check_exp_011(
+            {
+                "s3-buckets": {
+                    "items": [
+                        {
+                            "Name": "public-bucket",
+                            "BucketPolicy": {
+                                "Statement": [
+                                    {
+                                        "Effect": "Allow",
+                                        "Principal": "*",
+                                        "Action": "s3:ListBucket",
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                }
+            }
+        )
+        assert r.status == "FAIL"
+
+    def test_warn_when_evidence_missing(self):
+        r = check_exp_011({})
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "missing_evidence"
+
+    def test_warn_when_evidence_malformed(self):
+        r = check_exp_011({"s3-buckets": ["not", "a", "dict"]})
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "evidence_parse_failed"
 
 
 class TestEXP020:
@@ -4481,6 +4791,24 @@ class TestSM001:
         )
         assert r.status == "FAIL"
 
+    def test_warn_when_evidence_missing(self):
+        r = check_sm_001({})
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "missing_evidence"
+
+    def test_warn_when_secret_retrieval_failed(self):
+        r = check_sm_001(
+            {
+                "secrets": {
+                    "secrets": [
+                        {"Name": "secret1", "Error": "Failed to retrieve details: AccessDenied"}
+                    ]
+                }
+            }
+        )
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "collection_failed"
+
 
 class TestSM003:
     def test_pass_rotation_within_90(self):
@@ -4515,6 +4843,24 @@ class TestSM003:
             }
         )
         assert r.status == "FAIL"
+
+    def test_warn_when_evidence_missing(self):
+        r = check_sm_003({})
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "missing_evidence"
+
+    def test_warn_when_secret_retrieval_failed(self):
+        r = check_sm_003(
+            {
+                "secrets": {
+                    "secrets": [
+                        {"Name": "s1", "Error": "Failed to retrieve details: AccessDenied"}
+                    ]
+                }
+            }
+        )
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "collection_failed"
 
 
 class TestSM013:
@@ -4566,6 +4912,24 @@ class TestSM013:
         )
         assert r.status == "FAIL"
 
+    def test_warn_when_evidence_missing(self):
+        r = check_sm_013({})
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "missing_evidence"
+
+    def test_warn_when_secret_retrieval_failed(self):
+        r = check_sm_013(
+            {
+                "secrets": {
+                    "secrets": [
+                        {"Name": "app", "Error": "Failed to retrieve details: AccessDenied"}
+                    ]
+                }
+            }
+        )
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "collection_failed"
+
 
 class TestSM014:
     def test_pass_rotation_lambda_present(self):
@@ -4599,6 +4963,24 @@ class TestSM014:
         )
         assert r.status == "FAIL"
 
+    def test_warn_when_evidence_missing(self):
+        r = check_sm_014({})
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "missing_evidence"
+
+    def test_warn_when_secret_retrieval_failed(self):
+        r = check_sm_014(
+            {
+                "secrets": {
+                    "secrets": [
+                        {"Name": "app", "Error": "Failed to retrieve details: AccessDenied"}
+                    ]
+                }
+            }
+        )
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "collection_failed"
+
 
 class TestSM015:
     def test_pass_same_account_kms_key(self):
@@ -4630,6 +5012,24 @@ class TestSM015:
             }
         )
         assert r.status == "FAIL"
+
+    def test_warn_when_evidence_missing(self):
+        r = check_sm_015({})
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "missing_evidence"
+
+    def test_warn_when_secret_retrieval_failed(self):
+        r = check_sm_015(
+            {
+                "secrets": {
+                    "secrets": [
+                        {"Name": "app", "Error": "Failed to retrieve details: AccessDenied"}
+                    ]
+                }
+            }
+        )
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "collection_failed"
 
 
 class TestSM012:
@@ -4708,6 +5108,24 @@ class TestSM017:
         )
         assert r.status == "FAIL"
 
+    def test_warn_when_evidence_missing(self):
+        r = check_sm_017({})
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "missing_evidence"
+
+    def test_warn_when_secret_retrieval_failed(self):
+        r = check_sm_017(
+            {
+                "secrets": {
+                    "secrets": [
+                        {"Name": "app", "Error": "Failed to retrieve details: AccessDenied"}
+                    ]
+                }
+            }
+        )
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "collection_failed"
+
 
 # ============================================================================
 # ECR CHECKS
@@ -4752,6 +5170,104 @@ class TestECR001:
             }
         )
         assert r.status == "FAIL"
+
+    def test_warn_when_evidence_missing(self):
+        r = check_ecr_001({})
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "missing_evidence"
+
+    def test_warn_when_describe_repositories_failed(self):
+        r = check_ecr_001(
+            {
+                "repositories": {"repositories": []},
+                "ecr-collection-status": {
+                    "ok": False,
+                    "errors": {"describe_repositories": "AccessDenied"},
+                },
+            }
+        )
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "collection_failed"
+
+    def test_pass_unaffected_when_unrelated_collection_error(self):
+        r = check_ecr_001(
+            {
+                "repositories": {
+                    "repositories": [{"repositoryName": "app", "Policy": None}]
+                },
+                "ecr-collection-status": {
+                    "ok": False,
+                    "errors": {"describe_registry": "AccessDenied"},
+                },
+            }
+        )
+        assert r.status == "PASS"
+
+
+class TestECR007:
+    def test_pass_no_cross_account(self):
+        r = check_ecr_007(
+            {
+                "repositories": {
+                    "repositories": [
+                        {
+                            "repositoryName": "app",
+                            "RepositoryArn": "arn:aws:ecr:us-east-1:111111111111:repository/app",
+                            "Policy": {
+                                "Statement": [
+                                    {
+                                        "Effect": "Allow",
+                                        "Principal": {"AWS": "111111111111"},
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                }
+            }
+        )
+        assert r.status == "PASS"
+
+    def test_fail_cross_account_principal(self):
+        r = check_ecr_007(
+            {
+                "repositories": {
+                    "repositories": [
+                        {
+                            "repositoryName": "app",
+                            "RepositoryArn": "arn:aws:ecr:us-east-1:111111111111:repository/app",
+                            "Policy": {
+                                "Statement": [
+                                    {
+                                        "Effect": "Allow",
+                                        "Principal": {"AWS": "222222222222"},
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                }
+            }
+        )
+        assert r.status == "FAIL"
+
+    def test_warn_when_evidence_missing(self):
+        r = check_ecr_007({})
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "missing_evidence"
+
+    def test_warn_when_describe_repositories_failed(self):
+        r = check_ecr_007(
+            {
+                "repositories": {"repositories": []},
+                "ecr-collection-status": {
+                    "ok": False,
+                    "errors": {"describe_repositories": "AccessDenied"},
+                },
+            }
+        )
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "collection_failed"
 
 
 class TestECR004:
@@ -5099,6 +5615,16 @@ class TestWAF013:
         r = check_waf_013({"waf-collection-status": {"cloudfront": {"ok": False}}})
         assert r.status == "FAIL"
 
+    def test_warn_when_evidence_missing(self):
+        r = check_waf_013({})
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "missing_evidence"
+
+    def test_warn_when_evidence_malformed(self):
+        r = check_waf_013({"waf-collection-status": "not-a-dict"})
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "evidence_parse_failed"
+
 
 # ============================================================================
 # MESSAGING CHECKS
@@ -5260,6 +5786,23 @@ class TestCICD001:
     def test_pass_no_credentials(self):
         r = check_cicd_001({"codebuild-source-credentials": {"items": []}})
         assert r.status == "PASS"
+
+    def test_warn_when_evidence_missing(self):
+        r = check_cicd_001({})
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "missing_evidence"
+
+    def test_warn_when_collection_failed(self):
+        r = check_cicd_001(
+            {
+                "codebuild-source-credentials": {
+                    "items": [],
+                    "errors": {"list_source_credentials": "AccessDenied"},
+                }
+            }
+        )
+        assert r.status == "WARN"
+        assert r.metadata["reason_code"] == "collection_failed"
 
     def test_fail_credentials_exist(self):
         r = check_cicd_001({"codebuild-source-credentials": {"items": [{"arn": "arn:..."}]}})
@@ -5496,6 +6039,66 @@ class TestCompLMB002:
             }
         )
         assert r.status == "FAIL"
+
+
+# ============================================================================
+# SHARED WARN HELPER (check_evidence_or_warn)
+# ============================================================================
+
+
+class TestCheckEvidenceOrWarn:
+    def test_none_when_keys_present_and_well_formed(self):
+        result = check_evidence_or_warn(
+            "TEST-001", {"widgets": {"items": []}}, ["widgets"], expected_type=dict
+        )
+        assert result is None
+
+    def test_warn_missing_evidence(self):
+        result = check_evidence_or_warn("TEST-001", {}, ["widgets"], expected_type=dict)
+        assert result is not None
+        assert result.status == "WARN"
+        assert result.metadata["reason_code"] == "missing_evidence"
+        assert result.metadata["evidence_key"] == "widgets"
+
+    def test_warn_evidence_parse_failed(self):
+        result = check_evidence_or_warn(
+            "TEST-001", {"widgets": ["not", "a", "dict"]}, ["widgets"], expected_type=dict
+        )
+        assert result is not None
+        assert result.status == "WARN"
+        assert result.metadata["reason_code"] == "evidence_parse_failed"
+
+    def test_extra_failure_check_triggers_collection_failed(self):
+        result = check_evidence_or_warn(
+            "TEST-001",
+            {"widgets": {"items": []}},
+            ["widgets"],
+            expected_type=dict,
+            extra_failure_check=lambda ev: "widgets collection reported an error",
+        )
+        assert result is not None
+        assert result.status == "WARN"
+        assert result.metadata["reason_code"] == "collection_failed"
+
+    def test_extra_failure_check_returning_none_keeps_backward_compat(self):
+        result = check_evidence_or_warn(
+            "TEST-001",
+            {"widgets": {"items": []}},
+            ["widgets"],
+            expected_type=dict,
+            extra_failure_check=lambda ev: None,
+        )
+        assert result is None
+
+    def test_first_missing_key_wins_when_multiple_keys(self):
+        result = check_evidence_or_warn(
+            "TEST-001",
+            {"widgets": {"items": []}},
+            ["widgets", "gadgets"],
+            expected_type=dict,
+        )
+        assert result is not None
+        assert result.metadata["evidence_key"] == "gadgets"
 
 
 # ============================================================================
