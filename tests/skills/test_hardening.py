@@ -334,6 +334,27 @@ class TestCollectHappyPath:
         assert written_stems == set(skill._collection_component_sources(status))
         assert written_stems == set(status["components"])
 
+    def test_unmapped_written_stem_records_unsupported_component_instead_of_raising(
+        self, skill, aws_client, mock_session
+    ):
+        evidence_dir = mock_session.get_evidence_path.return_value
+        original_sources = skill._collection_component_sources
+
+        def _missing_acm_source(status):
+            sources = dict(original_sources(status))
+            sources.pop("acm-certificates")
+            return sources
+
+        with patch("boto3.client", side_effect=_boto3_factory()):
+            with patch.object(skill, "_collection_component_sources", side_effect=_missing_acm_source):
+                skill.collect(aws_client, mock_session)
+
+        status = json.loads((evidence_dir / "hardening-collection-status.json").read_text())
+        component = status["components"]["acm-certificates"]
+        assert component["ok"] is False
+        assert component["reason_code"] == "not_supported_by_collector"
+        assert component["error"] == "no collection status mapping for this evidence file"
+
     def test_acm_list_failure_records_failed_component_without_file(
         self, skill, aws_client, mock_session
     ):

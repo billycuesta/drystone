@@ -259,6 +259,53 @@ class TestWAFSkill:
         assert written_stems == set(skill._collection_component_sources(status))
         assert written_stems == set(status["components"])
 
+    def test_unmapped_written_stem_records_unsupported_component_instead_of_raising(
+        self, skill, mock_aws_client, mock_session
+    ):
+        original_sources = skill._collection_component_sources
+
+        def _missing_waf_classic_source(status):
+            sources = dict(original_sources(status))
+            sources.pop("waf-classic")
+            return sources
+
+        with patch.object(skill, "_collect_cloudfront_distributions", return_value=([], None)):
+            with patch.object(skill, "_collect_wafv2_web_acls_for_scope", return_value=([], None)):
+                with patch.object(skill, "_collect_wafv2_ip_sets", return_value=([], None)):
+                    with patch.object(skill, "_collect_wafv2_rule_groups", return_value=([], None)):
+                        with patch.object(
+                            skill, "_collect_wafv2_regex_pattern_sets", return_value=([], None)
+                        ):
+                            with patch.object(
+                                skill, "_collect_wafv2_managed_rule_groups", return_value={}
+                            ):
+                                with patch.object(
+                                    skill, "_collect_alb_waf_associations", return_value=([], {})
+                                ):
+                                    with patch.object(
+                                        skill,
+                                        "_collect_api_entrypoints_waf_associations",
+                                        return_value=([], {}),
+                                    ):
+                                        with patch.object(
+                                            skill,
+                                            "_collect_waf_classic_inventory",
+                                            return_value=([], None),
+                                        ):
+                                            with patch.object(
+                                                skill,
+                                                "_collection_component_sources",
+                                                side_effect=_missing_waf_classic_source,
+                                            ):
+                                                skill.collect(mock_aws_client, mock_session)
+
+        evidence_dir = mock_session.get_evidence_path.return_value
+        status = json.loads((evidence_dir / "waf-collection-status.json").read_text())
+        component = status["components"]["waf-classic"]
+        assert component["ok"] is False
+        assert component["reason_code"] == "not_supported_by_collector"
+        assert component["error"] == "no collection status mapping for this evidence file"
+
     def test_collection_status_components_preserve_legacy_api_entrypoint_errors(
         self, skill, mock_aws_client, mock_session
     ):

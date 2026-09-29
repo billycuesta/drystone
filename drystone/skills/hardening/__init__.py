@@ -763,15 +763,21 @@ class HardeningSkill(BaseSkill):
         }
         missing_sources = written_stems - set(component_sources)
         if missing_sources:
-            raise RuntimeError(
-                f"Hardening collection status missing component mapping for: {sorted(missing_sources)}"
+            logger.error(
+                "Hardening collection status missing component mapping for: %s",
+                sorted(missing_sources),
             )
+        unsupported_source = {
+            "ok": False,
+            "reason_code": "not_supported_by_collector",
+            "error": "no collection status mapping for this evidence file",
+        }
         components: Dict[str, Dict[str, Any]] = {}
         failed_unwritten_stems = {
             stem for stem, source in component_sources.items() if source.get("ok") is False
         } - written_stems
         for stem in sorted(written_stems | failed_unwritten_stems):
-            source = component_sources[stem]
+            source = component_sources.get(stem, unsupported_source)
             ok = source.get("ok") is not False
             error = source.get("error")
             self._record_component_status(
