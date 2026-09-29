@@ -43,13 +43,7 @@ def _ecr_repositories_failure(evidence: Dict[str, Any]) -> Optional[str]:
 @_register("ecr")
 def check_ecr_001(evidence: Dict[str, Any]) -> PreCheckResult:
     """Public wildcard principals in ECR repository policies."""
-    if warning := check_evidence_or_warn(
-        "ECR-001",
-        evidence,
-        ["repositories"],
-        expected_type=dict,
-        extra_failure_check=_ecr_repositories_failure,
-    ):
+    if warning := check_evidence_or_warn("ECR-001", evidence, ["repositories"], expected_type=dict):
         return warning
     repos_doc = evidence.get("repositories", {})
     repos_list = repos_doc.get("repositories", []) if isinstance(repos_doc, dict) else []
@@ -71,7 +65,13 @@ def check_ecr_001(evidence: Dict[str, Any]) -> PreCheckResult:
                     [r.get("RepositoryArn", r.get("repositoryName", "unknown"))],
                 )
 
-    return PreCheckResult("ECR-001", "PASS", "no wildcard principals in ECR", [])
+    return pass_or_warn(
+        PreCheckResult("ECR-001", "PASS", "no wildcard principals in ECR", []),
+        evidence,
+        "ECR-001",
+        "repositories",
+        _ecr_repositories_failure,
+    )
 
 
 @_register("ecr")
@@ -181,13 +181,7 @@ def check_ecr_004(evidence: Dict[str, Any]) -> PreCheckResult:
 @_register("ecr")
 def check_ecr_007(evidence: Dict[str, Any]) -> PreCheckResult:
     """Cross-account repository access review."""
-    if warning := check_evidence_or_warn(
-        "ECR-007",
-        evidence,
-        ["repositories"],
-        expected_type=dict,
-        extra_failure_check=_ecr_repositories_failure,
-    ):
+    if warning := check_evidence_or_warn("ECR-007", evidence, ["repositories"], expected_type=dict):
         return warning
     repos_doc = evidence.get("repositories", {})
     repos_list = repos_doc.get("repositories", []) if isinstance(repos_doc, dict) else []
@@ -252,7 +246,13 @@ def check_ecr_007(evidence: Dict[str, Any]) -> PreCheckResult:
                                 [r.get("RepositoryArn", "unknown")],
                             )
 
-    return PreCheckResult("ECR-007", "PASS", "no cross-account ECR access", [])
+    return pass_or_warn(
+        PreCheckResult("ECR-007", "PASS", "no cross-account ECR access", []),
+        evidence,
+        "ECR-007",
+        "repositories",
+        _ecr_repositories_failure,
+    )
 
 
 # ============================================================================
