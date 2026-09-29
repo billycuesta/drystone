@@ -18,9 +18,26 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 
+def _cicd_source_credentials_failure(evidence: Dict[str, Any]) -> Optional[str]:
+    """Return a reason when CodeBuild source-credentials collection failed."""
+    doc = evidence.get("codebuild-source-credentials")
+    errors = doc.get("errors") if isinstance(doc, dict) else None
+    if errors:
+        return f"codebuild-source-credentials collection reported errors: {errors}"
+    return None
+
+
 @_register("cicd")
 def check_cicd_001(evidence: Dict[str, Any]) -> PreCheckResult:
     """CodeBuild source credentials exist."""
+    if warning := check_evidence_or_warn(
+        "CICD-001",
+        evidence,
+        ["codebuild-source-credentials"],
+        expected_type=dict,
+        extra_failure_check=_cicd_source_credentials_failure,
+    ):
+        return warning
     sc_doc = evidence.get("codebuild-source-credentials")
     items = sc_doc.get("items") if isinstance(sc_doc, dict) else None
     if not isinstance(items, list) or len(items) == 0:
