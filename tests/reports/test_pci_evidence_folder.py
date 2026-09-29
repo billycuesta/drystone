@@ -10,8 +10,10 @@ from drystone.models import WizardConfig
 from drystone.reports.pci_evidence_folder import (
     _EvidenceEntry,
     _filename,
+    _short_description,
     generate_pci_evidence_folder,
 )
+from drystone.validation.pre_checks import PreCheckResult
 from drystone.storage.session import AuditSession
 
 FIXTURES = Path(__file__).parent / "fixtures" / "pci_cli" / "iam"
@@ -143,6 +145,25 @@ def test_d2_consulted_stems_let_iam_002_render_credential_report_table(tmp_path)
     assert "user" in text and "password_enabled" in text and "access_key_2_active" in text
     assert "alice" in text and "true              true        false                false" in text
     assert "IAM users MFA" in out.joinpath("AEA2026_8.4.2_IAM users MFA.md").name
+
+
+def test_warn_precheck_renders_inconclusive_with_collection_gap_reason():
+    warn = PreCheckResult(
+        "IAM-999",
+        "WARN",
+        "users evidence missing",
+        metadata={"reason_code": "missing_evidence"},
+    )
+    evidence_entry = entry()
+    evidence_entry.status = "INCONCLUSIVE"
+    evidence_entry.pre_check = warn
+
+    description = _short_description(evidence_entry, "2026-01-01T00:00:00Z", None)
+
+    assert "is inconclusive" in description
+    assert "collection gap" in description
+    assert "missing_evidence" in description
+    assert "insufficient" in description
 
 
 def test_d5_placeholder_is_written_for_unmapped_non_iam_skill_check(tmp_path, monkeypatch):

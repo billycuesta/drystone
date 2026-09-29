@@ -6,6 +6,10 @@ from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+PRE_CHECK_STATUS_PASS = "PASS"
+PRE_CHECK_STATUS_FAIL = "FAIL"
+PRE_CHECK_STATUS_SKIP = "SKIP"
+PRE_CHECK_STATUS_WARN = "WARN"
 
 
 @dataclass
@@ -13,7 +17,7 @@ class PreCheckResult:
     """Result of a single deterministic pre-check."""
 
     check_id: str  # e.g. "IAM-001"
-    status: str  # "PASS" | "FAIL" | "SKIP"
+    status: str  # "PASS" | "FAIL" | "SKIP" | "WARN"
     evidence_summary: str  # e.g. "AccountMFAEnabled=0"
     affected_resources: List[str] = field(default_factory=list)
     confidence: float = 1.0
@@ -54,7 +58,9 @@ def run_pre_checks(
         checklist: Checklist dict with 'items' array
 
     Returns:
-        List of PreCheckResult for each check that could be evaluated
+        List of PreCheckResult for each check. Checks that raise are recorded
+        as WARN so deterministic coverage gaps remain visible to the LLM and
+        downstream reports.
     """
     checks = PRE_CHECK_REGISTRY.get(skill_name.lower(), [])
     if not checks:
@@ -66,9 +72,19 @@ def run_pre_checks(
             result = check_fn(evidence)
             results.append(result)
         except Exception as e:
-            # Pre-check failure → SKIP (let AI handle it), but make the lost
-            # deterministic coverage visible instead of disappearing at DEBUG.
             logger.warning("Pre-check %s failed: %s", check_fn.__name__, e, exc_info=True)
+            results.append(
+                PreCheckResult(
+                    getattr(check_fn, "__name__", "unknown_pre_check"),
+                    PRE_CHECK_STATUS_WARN,
+                    f"Pre-check raised {type(e).__name__}: {e}",
+                    metadata={
+                        "reason_code": "collection_failed",
+                        "exception_type": type(e).__name__,
+                    },
+                    confidence=0.0,
+                )
+            )
     return results
 
 
@@ -102,6 +118,8 @@ def format_pre_checks_for_prompt(
         "    - For PASS items: DO NOT generate a finding (the check passed).",
         "    - For FAIL items: Generate a finding with professional description and remediation.",
         "    - For SKIP items: DO NOT generate a finding (the check is not applicable to this environment).",
+        "    - For WARN items: Treat as a coverage gap; deterministic evaluation could not complete.",
+        "      Analyze from available evidence if possible; never treat as compliant.",
         "    - For items NOT listed: Analyze evidence yourself.",
         "  </instructions>",
         "",
@@ -128,6 +146,10 @@ def format_pre_checks_for_prompt(
 __all__ = [
     "PreCheckResult",
     "PreCheckFn",
+    "PRE_CHECK_STATUS_PASS",
+    "PRE_CHECK_STATUS_FAIL",
+    "PRE_CHECK_STATUS_SKIP",
+    "PRE_CHECK_STATUS_WARN",
     "PRE_CHECK_REGISTRY",
     "_register",
     "run_pre_checks",

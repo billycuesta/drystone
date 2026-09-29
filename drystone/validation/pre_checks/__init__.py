@@ -8,6 +8,10 @@ core/metadata/helpers and per-skill modules.
 
 from .core import (
     PRE_CHECK_REGISTRY,
+    PRE_CHECK_STATUS_FAIL,
+    PRE_CHECK_STATUS_PASS,
+    PRE_CHECK_STATUS_SKIP,
+    PRE_CHECK_STATUS_WARN,
     PreCheckFn,
     PreCheckResult,
     _register,

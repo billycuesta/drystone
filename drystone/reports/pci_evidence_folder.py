@@ -18,8 +18,8 @@ collapsed ok/ko status (which cannot distinguish SKIP from PASS):
 - FAIL: a finding exists for the item (LLM-originated or pre-check-injected),
   or the deterministic pre-check failed.
 - PASS: the deterministic pre-check passed and no finding exists.
-- INCONCLUSIVE: the pre-check was skipped, or no pre-check exists and the AI
-  analysis raised no finding -- never silently treated as compliant.
+- INCONCLUSIVE: the pre-check was skipped or warned, or no pre-check exists
+  and the AI analysis raised no finding -- never silently treated as compliant.
 """
 
 from __future__ import annotations
@@ -408,6 +408,16 @@ def _render_output(entry: _EvidenceEntry, outputs: Tuple[Any, ...]) -> str:
     return "(no tabular output available from collected evidence)"
 
 
+def _warn_gap_note(pre_check: Optional[PreCheckResult]) -> Optional[str]:
+    if pre_check is None or pre_check.status != "WARN":
+        return None
+    reason_code = str(pre_check.metadata.get("reason_code") or "unspecified")
+    return (
+        "Automated pre-check reported a collection gap "
+        f"({reason_code}); do not treat this control as compliant without manual review."
+    )
+
+
 def _short_description(entry: _EvidenceEntry, generated_at: str, derived_note: Optional[str]) -> str:
     item_id = entry.item.get("id", "")
     title = entry.item.get("title", item_id)
@@ -416,6 +426,9 @@ def _short_description(entry: _EvidenceEntry, generated_at: str, derived_note: O
     ]
     if derived_note:
         pieces.append(derived_note)
+    warn_gap_note = _warn_gap_note(entry.pre_check)
+    if warn_gap_note:
+        pieces.append(warn_gap_note)
     if entry.reason:
         pieces.append(entry.reason.strip())
     if entry.status == STATUS_PASS:

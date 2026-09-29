@@ -303,11 +303,21 @@ class BaseSkill(ABC):
         pass_ids = {r.check_id for r in pre_check_results if r.status == "PASS"}
         fail_ids = {r.check_id for r in pre_check_results if r.status == "FAIL"}
         skip_ids = {r.check_id for r in pre_check_results if r.status == "SKIP"}
+        warn_ids = {r.check_id for r in pre_check_results if r.status == "WARN"}
+        warn_reasons = [
+            {
+                "check_id": r.check_id,
+                "reason_code": str(r.metadata.get("reason_code") or ""),
+                "evidence_summary": r.evidence_summary,
+            }
+            for r in pre_check_results
+            if r.status == "WARN"
+        ]
         total_items = len(checklist.get("items", []))
-        pending = total_items - len(pass_ids) - len(fail_ids) - len(skip_ids)
+        pending = total_items - len(pass_ids) - len(fail_ids) - len(skip_ids) - len(warn_ids)
         print(
             f"  🔍 Pre-checks: {len(pass_ids)} PASS, {len(fail_ids)} FAIL, "
-            f"{len(skip_ids)} SKIP, {pending} pending AI"
+            f"{len(skip_ids)} SKIP, {len(warn_ids)} WARN, {pending} pending AI"
         )
 
         # P0 Router: exclude deterministic PASS/FAIL checks from LLM prompt
@@ -572,6 +582,8 @@ class BaseSkill(ABC):
             "deterministic_checks": route_stats["deterministic_resolved"],
             "total_checks": route_stats["total_checks"],
             "evidence_load_errors": evidence_load_errors,
+            "pre_check_warn_ids": sorted(warn_ids),
+            "pre_check_warn_reasons": warn_reasons,
         }
         if coverage_check_error:
             findings_payload["analysis_metadata"]["coverage_check_error"] = coverage_check_error

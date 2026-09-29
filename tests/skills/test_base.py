@@ -1345,6 +1345,52 @@ class TestAnalyzePipelineMetadata:
         assert errors[0]["file"] == "corrupt.json"
         assert errors[0]["error_type"] == "JSONDecodeError"
 
+    def test_analyze_records_warn_pre_checks_in_metadata_without_pre_evaluating(self, tmp_path):
+        from drystone.validation.pre_checks import PreCheckResult
+
+        session, evidence_path, findings_path = self._session(tmp_path)
+        (evidence_path / "users.json").write_text('{"items": []}')
+        agent = self._agent()
+        pre_checks = [
+            PreCheckResult(
+                "IAM-WARN",
+                "WARN",
+                "users evidence could not be loaded",
+                metadata={"reason_code": "missing_evidence", "source": "users"},
+            )
+        ]
+        captured = {}
+
+        def fake_coverage(checklist, findings, pre_evaluated_checks):
+            captured["pre_evaluated_checks"] = set(pre_evaluated_checks)
+            return {
+                "coverage_valid": True,
+                "coverage_percentage": 0,
+                "evaluated_checks": 0,
+                "total_checks": len(checklist.get("items", [])),
+                "details": [],
+            }
+
+        with patch("drystone.validation.pre_checks.run_pre_checks", return_value=pre_checks), patch(
+            "drystone.analysis.router.route_checklist_for_llm",
+            return_value=(
+                {"items": [{"id": "IAM-WARN", "severity": "Medium"}]},
+                {"llm_checks": 1, "deterministic_resolved": 0, "total_checks": 1},
+            ),
+        ), patch("drystone.validation.checklist_coverage.validate_checklist_coverage", side_effect=fake_coverage):
+            output = SKILL.analyze(session, agent)
+
+        data = json.loads(output.read_text())
+        assert captured["pre_evaluated_checks"] == set()
+        assert data["analysis_metadata"]["pre_check_warn_ids"] == ["IAM-WARN"]
+        assert data["analysis_metadata"]["pre_check_warn_reasons"] == [
+            {
+                "check_id": "IAM-WARN",
+                "reason_code": "missing_evidence",
+                "evidence_summary": "users evidence could not be loaded",
+            }
+        ]
+
     def test_analyze_records_coverage_check_errors_in_metadata(self, tmp_path):
         session, evidence_path, findings_path = self._session(tmp_path)
         (evidence_path / "users.json").write_text('{"items": []}')
