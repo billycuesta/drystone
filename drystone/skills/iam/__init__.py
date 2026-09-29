@@ -68,9 +68,9 @@ class IAMSkill(BaseSkill):
 
         evidence_path = session.get_evidence_path(self.name)
 
-        # Per-component collection outcome (PLAN_VALIDATION_WARN.md slice 4):
-        # lets future pre-checks tell "collection failed" apart from
-        # "resource genuinely absent after a successful collection".
+        # Per-component collection outcome so pre-checks can distinguish a
+        # failed collection from a resource that is genuinely absent after
+        # a successful collection.
         components: Dict[str, Dict[str, Any]] = {}
 
         # === ACCOUNT INFORMATION ===

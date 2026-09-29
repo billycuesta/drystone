@@ -35,7 +35,7 @@ def _collect_resource_based_policies(
     Returns (items, failed_service_count): failed_service_count is the number
     of the 5 sub-collectors above whose top-level listing call itself failed
     (per-item "no policy attached" cases are a legitimate absence and are not
-    counted) -- see PLAN_VALIDATION_WARN.md slice 4.
+    counted).
     """
     out: List[Dict[str, Any]] = []
     failures = 0
@@ -328,9 +328,9 @@ class ExposureSkill(BaseSkill):
             self._save_json(filepath, data)
             audit_metadata["evidence_files"].append(filepath.name)
 
-        # Per-component collection outcome (PLAN_VALIDATION_WARN.md slice 4):
-        # lets future pre-checks tell "collection failed" apart from
-        # "resource genuinely absent after a successful collection".
+        # Per-component collection outcome so pre-checks can distinguish a
+        # failed collection from a resource that is genuinely absent after
+        # a successful collection.
         components: Dict[str, Dict[str, Any]] = {}
 
         # Sub-call error codes that mean "this bucket genuinely has none of

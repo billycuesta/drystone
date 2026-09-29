@@ -295,9 +295,9 @@ def check_evidence_or_warn(
     PASS/FAIL/SKIP logic unchanged.
 
     This is the up-front half of the shared "cannot evaluate
-    deterministically" guard for Validation-WARN category-C checks (see
-    `PLAN_VALIDATION_WARN.md`, "Recommended design"). It only covers the
-    case where a check literally cannot run at all — there is no FAIL to
+    deterministically" guard for checks whose PASS/FAIL result would
+    otherwise be computed on missing or malformed evidence. It only covers
+    the case where a check literally cannot run at all — there is no FAIL to
     compute without the data, so it is always safe to short-circuit here:
 
       1. Each key in `keys` must be present in `evidence` — a missing key

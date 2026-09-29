@@ -124,8 +124,7 @@ class BaseSkill(ABC):
         """Record a per-component collection outcome for a `components` dict.
 
         Shared recorder for the standardized per-component collection-status
-        shape (see PLAN_VALIDATION_WARN.md, "Recommended design" / slicing
-        step 4): `{"ok": bool, "reason_code": "collection_failed" |
+        shape: `{"ok": bool, "reason_code": "collection_failed" |
         "partial_collection" (only when not ok), "error_code": ..., "error": ...}`.
 
         Intended to be paired with `_save_collection_status(evidence_path,
