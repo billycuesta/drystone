@@ -7,7 +7,7 @@ Focus: key policy exposure, grant abuse, and privesc/persistence potential.
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from botocore.exceptions import ClientError
@@ -51,7 +51,7 @@ class KMSSkill(BaseSkill):
         kms = session_obj.client("kms", region_name=region)
 
         metadata = {
-            "_collected_at": datetime.utcnow().isoformat() + "Z",
+            "_collected_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
             "_region": region,
             "_skill": self.name,
         }
