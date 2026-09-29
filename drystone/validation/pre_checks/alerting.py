@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 @_register("alerting")
 def check_alr_003(evidence: Dict[str, Any]) -> PreCheckResult:
-    """CloudTrail should have CloudWatch Logs integration."""
+    """ALRT-001: CloudTrail should have CloudWatch Logs integration."""
     trails = evidence.get("cloudtrail-trails", [])
     if not isinstance(trails, list) or len(trails) == 0:
         return PreCheckResult("ALRT-001", "SKIP", "no trails (ALR-001 applies)", [])
@@ -81,7 +81,7 @@ def _principal_is_wildcard(principal: Any) -> bool:
 
 @_register("alerting")
 def check_alr_022(evidence: Dict[str, Any]) -> PreCheckResult:
-    """Critical alert topics should not allow broad publish access."""
+    """ALRT-022: Critical alert topics should not allow broad publish access."""
     topics = evidence.get("sns-topics")
     if not isinstance(topics, list) or not topics:
         return PreCheckResult("ALRT-022", "SKIP", "no sns-topics evidence", [])
@@ -121,7 +121,7 @@ def check_alr_022(evidence: Dict[str, Any]) -> PreCheckResult:
 
 @_register("alerting")
 def check_alr_023(evidence: Dict[str, Any]) -> PreCheckResult:
-    """Critical alert topics should not allow broad subscribe access."""
+    """ALRT-023: Critical alert topics should not allow broad subscribe access."""
     topics = evidence.get("sns-topics")
     if not isinstance(topics, list) or not topics:
         return PreCheckResult("ALRT-023", "SKIP", "no sns-topics evidence", [])
@@ -161,7 +161,7 @@ def check_alr_023(evidence: Dict[str, Any]) -> PreCheckResult:
 
 @_register("alerting")
 def check_alr_024(evidence: Dict[str, Any]) -> PreCheckResult:
-    """Critical alert topics should avoid risky HTTP/HTTPS subscriptions."""
+    """ALRT-024: Critical alert topics should avoid risky HTTP/HTTPS subscriptions."""
     topics = evidence.get("sns-topics")
     if not isinstance(topics, list) or not topics:
         return PreCheckResult("ALRT-024", "SKIP", "no sns-topics evidence", [])
@@ -197,7 +197,7 @@ def check_alr_024(evidence: Dict[str, Any]) -> PreCheckResult:
 
 @_register("alerting")
 def check_alr_025(evidence: Dict[str, Any]) -> PreCheckResult:
-    """Critical EventBridge rules should forward to SNS alerting topics."""
+    """ALRT-025: Critical EventBridge rules should forward to SNS alerting topics."""
     rules = evidence.get("eventbridge-rules")
     if not isinstance(rules, list) or not rules:
         return PreCheckResult("ALRT-025", "SKIP", "no eventbridge-rules evidence", [])

@@ -1,6 +1,7 @@
 """Core deterministic pre-check types, registry, and runners."""
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
@@ -35,6 +36,22 @@ PreCheckFn = Callable[[Dict[str, Any]], PreCheckResult]
 # Registry: maps skill name → list of (check_id, check_function) pairs
 # ---------------------------------------------------------------------------
 PRE_CHECK_REGISTRY: Dict[str, List[PreCheckFn]] = {}
+
+
+_CHECK_ID_PREFIX_RE = re.compile(r"^\s*([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-\d{3})\s*:")
+
+
+def resolve_pre_check_id(check_fn: PreCheckFn) -> str:
+    """Resolve the checklist ID associated with a registered pre-check function."""
+    doc = getattr(check_fn, "__doc__", None) or ""
+    first_line = doc.strip().splitlines()[0] if doc.strip() else ""
+    if match := _CHECK_ID_PREFIX_RE.match(first_line):
+        return match.group(1)
+
+    name = getattr(check_fn, "__name__", "unknown_pre_check")
+    if name.startswith("check_"):
+        return name[len("check_") :].upper().replace("_", "-")
+    return name.upper().replace("_", "-")
 
 
 def _register(skill: str):
@@ -75,12 +92,13 @@ def run_pre_checks(
             logger.warning("Pre-check %s failed: %s", check_fn.__name__, e, exc_info=True)
             results.append(
                 PreCheckResult(
-                    getattr(check_fn, "__name__", "unknown_pre_check"),
+                    resolve_pre_check_id(check_fn),
                     PRE_CHECK_STATUS_WARN,
                     f"Pre-check raised {type(e).__name__}: {e}",
                     metadata={
-                        "reason_code": "collection_failed",
+                        "reason_code": "precheck_error",
                         "exception_type": type(e).__name__,
+                        "check_fn": getattr(check_fn, "__name__", "unknown_pre_check"),
                     },
                     confidence=0.0,
                 )
@@ -152,6 +170,7 @@ __all__ = [
     "PRE_CHECK_STATUS_WARN",
     "PRE_CHECK_REGISTRY",
     "_register",
+    "resolve_pre_check_id",
     "run_pre_checks",
     "format_pre_checks_for_prompt",
 ]

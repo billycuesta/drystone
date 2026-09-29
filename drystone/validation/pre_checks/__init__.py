@@ -16,6 +16,7 @@ from .core import (
     PreCheckResult,
     _register,
     format_pre_checks_for_prompt,
+    resolve_pre_check_id,
     run_pre_checks,
 )
 from .metadata import (
