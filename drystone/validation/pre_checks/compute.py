@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 @_register("compute")
+@requires_components("compute", "eks-inventory")
 def check_comp_eks_001(evidence: Dict[str, Any]) -> PreCheckResult:
     """EKS public endpoint access."""
     eks_doc = evidence.get("eks-inventory")
@@ -42,6 +43,7 @@ def check_comp_eks_001(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("compute")
+@requires_components("compute", "eks-inventory")
 def check_comp_eks_002(evidence: Dict[str, Any]) -> PreCheckResult:
     """EKS control plane logging should be fully enabled."""
     eks_doc = evidence.get("eks-inventory")
@@ -89,6 +91,7 @@ def check_comp_eks_002(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("compute")
+@requires_components("compute", "eventbridge-rules")
 def check_comp_ecs_001(evidence: Dict[str, Any]) -> PreCheckResult:
     """Scheduled EventBridge rules targeting ECS RunTask."""
     ev_doc = evidence.get("eventbridge-rules")
@@ -125,6 +128,7 @@ def check_comp_ecs_001(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("compute")
+@requires_components("compute", "ecs-inventory")
 def check_comp_ecs_002(evidence: Dict[str, Any]) -> PreCheckResult:
     """ECS task definitions with suspicious image patterns."""
     ecs_doc = evidence.get("ecs-inventory")
@@ -177,6 +181,7 @@ def check_comp_ecs_002(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("compute")
+@requires_components("compute", "ecs-inventory")
 def check_comp_ecs_003(evidence: Dict[str, Any]) -> PreCheckResult:
     """ECS workloads should have centralized logging (awslogs)."""
     ecs_doc = evidence.get("ecs-inventory")
@@ -213,6 +218,7 @@ def check_comp_ecs_003(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("compute")
+@requires_components("compute", "ecs-inventory")
 def check_comp_ecs_004(evidence: Dict[str, Any]) -> PreCheckResult:
     """ECS task definitions without a scoped task role (no taskRoleArn)."""
     ecs_doc = evidence.get("ecs-inventory")
@@ -245,6 +251,7 @@ def check_comp_ecs_004(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("compute")
+@requires_components("compute", "ecs-inventory")
 def check_comp_ecs_005(evidence: Dict[str, Any]) -> PreCheckResult:
     """ECS task definitions must not embed plaintext credentials in environment variables."""
     import re as _re
@@ -299,6 +306,7 @@ def check_comp_ecs_005(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("compute")
+@requires_components("compute", "ec2-inventory")
 def check_comp_ec2_001(evidence: Dict[str, Any]) -> PreCheckResult:
     """EC2 instances with IMDSv1/optional tokens and instance profile attached."""
     ec2_doc = evidence.get("ec2-inventory")
@@ -330,6 +338,7 @@ def check_comp_ec2_001(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("compute")
+@requires_components("compute", "ec2-inventory")
 def check_comp_ec2_002(evidence: Dict[str, Any]) -> PreCheckResult:
     """EC2 user-data contains secrets or remote bootstrap risk patterns."""
     ec2_doc = evidence.get("ec2-inventory")
@@ -359,6 +368,7 @@ def check_comp_ec2_002(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("compute")
+@requires_components("compute", "lambda-inventory")
 def check_comp_lmb_001(evidence: Dict[str, Any]) -> PreCheckResult:
     """Lambda function URLs should not be unauthenticated."""
     lmb_doc = evidence.get("lambda-inventory")
@@ -384,6 +394,7 @@ def check_comp_lmb_001(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("compute")
+@requires_components("compute", "lambda-inventory")
 def check_comp_lmb_002(evidence: Dict[str, Any]) -> PreCheckResult:
     """Lambda execution roles should avoid obviously over-privileged managed policies."""
     lmb_doc = evidence.get("lambda-inventory")

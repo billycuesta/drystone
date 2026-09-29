@@ -972,6 +972,136 @@ def test_all_registered_exposure_checks_resolve_to_known_checklist_ids():
         assert resolve_pre_check_id(fn) in checklist_ids
 
 
+# ============================================================================
+# COMPUTE: warn on incomplete evidence status (B checks)
+# ============================================================================
+
+
+# Every compute check reads exactly one evidence document, and compute's own
+# collector (`drystone/skills/compute/__init__.py`) records a matching
+# component for each of them via `_record_errors_component_status`:
+# "ecs-inventory", "eventbridge-rules", "eks-inventory", "ec2-inventory",
+# "lambda-inventory". No derived files, no cross-skill sourcing.
+COMPUTE_STATUS_STEMS_BY_CHECK = {
+    "COMP-EKS-001": ("eks-inventory",),
+    "COMP-EKS-002": ("eks-inventory",),
+    "COMP-ECS-001": ("eventbridge-rules",),
+    "COMP-ECS-002": ("ecs-inventory",),
+    "COMP-ECS-003": ("ecs-inventory",),
+    "COMP-ECS-004": ("ecs-inventory",),
+    "COMP-ECS-005": ("ecs-inventory",),
+    "COMP-EC2-001": ("ec2-inventory",),
+    "COMP-EC2-002": ("ec2-inventory",),
+    "COMP-LMB-001": ("lambda-inventory",),
+    "COMP-LMB-002": ("lambda-inventory",),
+}
+
+_COMPUTE_EMPTY_DOC_BY_STEM = {
+    "eks-inventory": {"clusters": []},
+    "eventbridge-rules": {"rules": []},
+    "ecs-inventory": {"task_definitions": []},
+    "ec2-inventory": {"instances": []},
+    "lambda-inventory": {"functions": []},
+}
+
+
+def _compute_check_fn(check_id):
+    return _registered_check_fn("compute", check_id)
+
+
+def _compute_empty_evidence_with_status(stems):
+    evidence = _status_doc("compute", stems, ok=True)
+    for stem in stems:
+        evidence[stem] = _COMPUTE_EMPTY_DOC_BY_STEM[stem]
+    return evidence
+
+
+@pytest.mark.parametrize("check_id,stems", COMPUTE_STATUS_STEMS_BY_CHECK.items())
+def test_compute_b_checks_warn_on_collection_failed_status(check_id, stems):
+    result = _compute_check_fn(check_id)(
+        _status_doc("compute", stems, ok=False, reason_code="collection_failed")
+    )
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "collection_failed"
+    assert result.metadata["evidence_key"] in stems
+
+
+@pytest.mark.parametrize("check_id,stems", COMPUTE_STATUS_STEMS_BY_CHECK.items())
+def test_compute_b_checks_warn_on_partial_collection_when_no_violation_found(check_id, stems):
+    result = _compute_check_fn(check_id)(
+        _status_doc("compute", stems, ok=False, reason_code="partial_collection")
+    )
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "partial_collection"
+
+
+@pytest.mark.parametrize("check_id,stems", COMPUTE_STATUS_STEMS_BY_CHECK.items())
+def test_compute_b_checks_keep_legacy_empty_evidence_without_status(check_id, stems):
+    result = _compute_check_fn(check_id)({})
+
+    assert result.check_id == check_id
+    assert result.status != "WARN"
+
+
+@pytest.mark.parametrize("check_id,stems", COMPUTE_STATUS_STEMS_BY_CHECK.items())
+def test_compute_b_checks_keep_ok_empty_evidence_behavior(check_id, stems):
+    result = _compute_check_fn(check_id)(_compute_empty_evidence_with_status(stems))
+
+    assert result.check_id == check_id
+    assert result.status != "WARN"
+
+
+@pytest.mark.parametrize("check_id,stems", COMPUTE_STATUS_STEMS_BY_CHECK.items())
+def test_compute_b_checks_warn_when_status_exists_but_required_evidence_key_missing(check_id, stems):
+    result = _compute_check_fn(check_id)({"compute-collection-status": {"components": {}}})
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "missing_evidence"
+    assert result.metadata["evidence_key"] in stems
+
+
+def test_compute_b_partial_collection_never_masks_real_failures():
+    evidence = _status_doc("compute", ("eks-inventory",), ok=False, reason_code="partial_collection")
+    evidence["eks-inventory"] = {
+        "clusters": [
+            {
+                "name": "prod-cluster",
+                "arn": "arn:aws:eks:us-east-1:123456789012:cluster/prod-cluster",
+                "resourcesVpcConfig": {"endpointPublicAccess": True},
+            }
+        ]
+    }
+
+    result = _compute_check_fn("COMP-EKS-001")(evidence)
+
+    assert result.status == "FAIL"
+    assert "public endpoint" in result.evidence_summary
+
+
+def test_compute_checks_declare_required_components_matching_status_stems():
+    """Guard: every compute B check declares a `requires_components` tuple
+    whose stems exactly match the expected mapping.
+    """
+    registered_by_id = {resolve_pre_check_id(fn): fn for fn in PRE_CHECK_REGISTRY["compute"]}
+
+    for check_id, stems in COMPUTE_STATUS_STEMS_BY_CHECK.items():
+        fn = registered_by_id[check_id]
+        assert fn.required_components == ("compute", stems), check_id
+
+
+def test_all_registered_compute_checks_resolve_to_known_checklist_ids():
+    checklist_path = Path(__file__).resolve().parents[2] / "drystone" / "skills" / "compute" / "checklist.json"
+    checklist_ids = {item["id"] for item in json.loads(checklist_path.read_text())["items"]}
+
+    for fn in PRE_CHECK_REGISTRY["compute"]:
+        assert resolve_pre_check_id(fn) in checklist_ids
+
+
 class TestIAMDeterministicFindingText:
     def test_injected_iam_findings_have_specific_impact_text(self):
         for check_id in ("IAM-007", "IAM-015", "IAM-016", "IAM-026"):
