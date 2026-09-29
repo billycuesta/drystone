@@ -17,6 +17,13 @@ from drystone.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
+def _error_code(exc: Exception) -> Optional[str]:
+    """Best-effort AWS error code extraction (ClientError or generic Exception)."""
+    if isinstance(exc, ClientError):
+        return exc.response.get("Error", {}).get("Code")
+    return None
+
+
 class IAMSkill(BaseSkill):
     """IAM security audit skill for CIS AWS Foundations compliance."""
 
@@ -61,37 +68,75 @@ class IAMSkill(BaseSkill):
 
         evidence_path = session.get_evidence_path(self.name)
 
+        # Per-component collection outcome (PLAN_VALIDATION_WARN.md slice 4):
+        # lets future pre-checks tell "collection failed" apart from
+        # "resource genuinely absent after a successful collection".
+        components: Dict[str, Dict[str, Any]] = {}
+
         # === ACCOUNT INFORMATION ===
         print("  Collecting account information...")
         try:
             account_summary = iam_client.get_account_summary()
             self._save_json(evidence_path / "account-summary.json", account_summary)
+            self._record_component_status(components, "account-summary", ok=True)
         except Exception as e:
             logger.warning(f"Could not get account summary: {e}")
+            self._record_component_status(
+                components,
+                "account-summary",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         try:
             account_aliases = iam_client.list_account_aliases()
             self._save_json(evidence_path / "account-aliases.json", account_aliases)
+            self._record_component_status(components, "account-aliases", ok=True)
         except Exception as e:
             logger.warning(f"Could not get account aliases: {e}")
+            self._record_component_status(
+                components,
+                "account-aliases",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === PASSWORD POLICY ===
         print("  Collecting password policy...")
         try:
             password_policy = iam_client.get_account_password_policy()
             self._save_json(evidence_path / "password-policy.json", password_policy)
+            self._record_component_status(components, "password-policy", ok=True)
         except iam_client.exceptions.NoSuchEntityException:
             logger.info("No password policy set for the account.")
             self._save_json(
                 evidence_path / "password-policy.json",
                 {"error": "No password policy configured"},
             )
+            # Legitimate absence (the account genuinely has no password
+            # policy configured), not a collection failure.
+            self._record_component_status(components, "password-policy", ok=True)
         except Exception as e:
             logger.warning(f"Could not get password policy: {e}")
+            self._record_component_status(
+                components,
+                "password-policy",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === USERS (detailed) ===
         print("  Collecting IAM users...")
         users_detailed = []
+        users_list_failed = False
+        users_sub_call_failures = 0
+        users_list_error: Optional[Exception] = None
         try:
             users_basic = []
             for page in iam_client.get_paginator("list_users").paginate():
@@ -127,6 +172,7 @@ class IAMSkill(BaseSkill):
                 except Exception as e:
                     logger.warning(f"Could not list access keys for user {username}: {e}")
                     user_detail["AccessKeys"] = []
+                    users_sub_call_failures += 1
 
                 # MFA devices
                 try:
@@ -135,6 +181,7 @@ class IAMSkill(BaseSkill):
                 except Exception as e:
                     logger.warning(f"Could not list MFA devices for user {username}: {e}")
                     user_detail["MFADevices"] = []
+                    users_sub_call_failures += 1
 
                 # Inline policies
                 try:
@@ -143,6 +190,7 @@ class IAMSkill(BaseSkill):
                 except Exception as e:
                     logger.warning(f"Could not list inline policies for user {username}: {e}")
                     user_detail["InlinePolicies"] = []
+                    users_sub_call_failures += 1
 
                 # Tags
                 try:
@@ -155,6 +203,7 @@ class IAMSkill(BaseSkill):
                 except Exception as e:
                     logger.warning(f"Could not list tags for user {username}: {e}")
                     user_detail["Tags"] = []
+                    users_sub_call_failures += 1
 
                 # Attached managed policies
                 try:
@@ -163,6 +212,7 @@ class IAMSkill(BaseSkill):
                 except Exception as e:
                     logger.warning(f"Could not list attached policies for user {username}: {e}")
                     user_detail["AttachedPolicies"] = []
+                    users_sub_call_failures += 1
 
                 # Groups
                 try:
@@ -171,16 +221,41 @@ class IAMSkill(BaseSkill):
                 except Exception as e:
                     logger.warning(f"Could not list groups for user {username}: {e}")
                     user_detail["Groups"] = []
+                    users_sub_call_failures += 1
 
                 users_detailed.append(user_detail)
         except Exception as e:
             logger.error(f"Could not list IAM users: {e}")
+            users_list_failed = True
+            users_list_error = e
 
         self._save_json(evidence_path / "users.json", users_detailed)
+        if users_list_failed:
+            self._record_component_status(
+                components,
+                "users",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(users_list_error) if users_list_error else None,
+                error=str(users_list_error) if users_list_error else None,
+            )
+        elif users_sub_call_failures:
+            self._record_component_status(
+                components,
+                "users",
+                ok=False,
+                reason_code="partial_collection",
+                error=f"{users_sub_call_failures} per-user sub-call lookups failed",
+            )
+        else:
+            self._record_component_status(components, "users", ok=True)
 
         # === GROUPS (detailed) ===
         print("  Collecting IAM groups...")
         groups_detailed = []
+        groups_list_failed = False
+        groups_sub_call_failures = 0
+        groups_list_error: Optional[Exception] = None
         try:
             groups_basic = []
             for page in iam_client.get_paginator("list_groups").paginate():
@@ -203,6 +278,7 @@ class IAMSkill(BaseSkill):
                 except Exception as e:
                     logger.warning(f"Could not get users for group {group_name}: {e}")
                     group_detail["Users"] = []
+                    groups_sub_call_failures += 1
 
                 # Attached policies
                 try:
@@ -211,6 +287,7 @@ class IAMSkill(BaseSkill):
                 except Exception as e:
                     logger.warning(f"Could not list attached policies for group {group_name}: {e}")
                     group_detail["AttachedPolicies"] = []
+                    groups_sub_call_failures += 1
 
                 # Inline policies
                 try:
@@ -219,16 +296,41 @@ class IAMSkill(BaseSkill):
                 except Exception as e:
                     logger.warning(f"Could not list inline policies for group {group_name}: {e}")
                     group_detail["InlinePolicies"] = []
+                    groups_sub_call_failures += 1
 
                 groups_detailed.append(group_detail)
         except Exception as e:
             logger.error(f"Could not list IAM groups: {e}")
+            groups_list_failed = True
+            groups_list_error = e
 
         self._save_json(evidence_path / "groups.json", groups_detailed)
+        if groups_list_failed:
+            self._record_component_status(
+                components,
+                "groups",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(groups_list_error) if groups_list_error else None,
+                error=str(groups_list_error) if groups_list_error else None,
+            )
+        elif groups_sub_call_failures:
+            self._record_component_status(
+                components,
+                "groups",
+                ok=False,
+                reason_code="partial_collection",
+                error=f"{groups_sub_call_failures} per-group sub-call lookups failed",
+            )
+        else:
+            self._record_component_status(components, "groups", ok=True)
 
         # === ROLES (detailed) ===
         print("  Collecting IAM roles...")
         roles_detailed = []
+        roles_list_failed = False
+        roles_sub_call_failures = 0
+        roles_list_error: Optional[Exception] = None
         try:
             roles_basic = []
             for page in iam_client.get_paginator("list_roles").paginate():
@@ -251,6 +353,7 @@ class IAMSkill(BaseSkill):
                     role_detail["Role"] = role_info.get("Role", {})
                 except Exception as e:
                     logger.warning(f"Could not get role details for {role_name}: {e}")
+                    roles_sub_call_failures += 1
 
                 # Attached policies
                 try:
@@ -259,6 +362,7 @@ class IAMSkill(BaseSkill):
                 except Exception as e:
                     logger.warning(f"Could not list attached policies for role {role_name}: {e}")
                     role_detail["AttachedPolicies"] = []
+                    roles_sub_call_failures += 1
 
                 # Inline policies
                 try:
@@ -267,6 +371,7 @@ class IAMSkill(BaseSkill):
                 except Exception as e:
                     logger.warning(f"Could not list inline policies for role {role_name}: {e}")
                     role_detail["InlinePolicies"] = []
+                    roles_sub_call_failures += 1
 
                 # Classify role type (ServiceLinkedRole, SSO_Managed, or CustomerCreated)
                 role_detail["RoleType"] = self._classify_role_type(role_detail)
@@ -274,6 +379,8 @@ class IAMSkill(BaseSkill):
                 roles_detailed.append(role_detail)
         except Exception as e:
             logger.error(f"Could not list IAM roles: {e}")
+            roles_list_failed = True
+            roles_list_error = e
 
         # Enrich privileged roles with Access Advisor data (30s timeout)
         print("  Enriching roles with Access Advisor data...")
@@ -284,10 +391,32 @@ class IAMSkill(BaseSkill):
                 role["AccessAdvisorDaysAgo"] = advisor_data[arn]
 
         self._save_json(evidence_path / "roles.json", roles_detailed)
+        if roles_list_failed:
+            self._record_component_status(
+                components,
+                "roles",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(roles_list_error) if roles_list_error else None,
+                error=str(roles_list_error) if roles_list_error else None,
+            )
+        elif roles_sub_call_failures:
+            self._record_component_status(
+                components,
+                "roles",
+                ok=False,
+                reason_code="partial_collection",
+                error=f"{roles_sub_call_failures} per-role sub-call lookups failed",
+            )
+        else:
+            self._record_component_status(components, "roles", ok=True)
 
         # === POLICIES (customer-managed with versions) ===
         print("  Collecting IAM policies...")
         policies_detailed = []
+        policies_list_failed = False
+        policies_sub_call_failures = 0
+        policies_list_error: Optional[Exception] = None
         try:
             policies_basic = []
             for page in iam_client.get_paginator("list_policies").paginate(Scope="Local"):
@@ -320,15 +449,39 @@ class IAMSkill(BaseSkill):
                         )
                 except Exception as e:
                     logger.warning(f"Could not get details for policy {policy_arn}: {e}")
+                    policies_sub_call_failures += 1
 
                 policies_detailed.append(policy_detail)
         except Exception as e:
             logger.error(f"Could not list IAM policies: {e}")
+            policies_list_failed = True
+            policies_list_error = e
 
         self._save_json(evidence_path / "policies.json", policies_detailed)
+        if policies_list_failed:
+            self._record_component_status(
+                components,
+                "policies",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(policies_list_error) if policies_list_error else None,
+                error=str(policies_list_error) if policies_list_error else None,
+            )
+        elif policies_sub_call_failures:
+            self._record_component_status(
+                components,
+                "policies",
+                ok=False,
+                reason_code="partial_collection",
+                error=f"{policies_sub_call_failures} per-policy detail lookups failed",
+            )
+        else:
+            self._record_component_status(components, "policies", ok=True)
 
         # === CREDENTIAL REPORT ===
         print("  Generating credential report...")
+        credential_report_saved = False
+        credential_report_error: Optional[Exception] = None
         try:
             # Generate report (may take a few seconds)
             iam_client.generate_credential_report()
@@ -365,12 +518,27 @@ class IAMSkill(BaseSkill):
                         with open(evidence_path / "credential-report.csv", "w") as f:
                             f.write(report_csv)
                         print("    Credential report saved")
+                        credential_report_saved = True
                         break
                 except Exception as e:
                     logger.info(f"Credential report not ready yet (attempt {i + 1}/5): {e}")
+                    credential_report_error = e
                     continue
         except Exception as e:
             logger.error(f"Could not generate credential report: {e}")
+            credential_report_error = e
+
+        if credential_report_saved:
+            self._record_component_status(components, "credential-report", ok=True)
+        else:
+            self._record_component_status(
+                components,
+                "credential-report",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(credential_report_error) if credential_report_error else None,
+                error=str(credential_report_error) if credential_report_error else None,
+            )
 
         # === ASSUME ROLE CHAINS ===
         print("  Collecting AssumeRole trust chains...")
@@ -382,6 +550,16 @@ class IAMSkill(BaseSkill):
                 "error": chains_error,
             },
         )
+        if chains_error:
+            self._record_component_status(
+                components,
+                "assumeRole-chains",
+                ok=False,
+                reason_code="collection_failed",
+                error=chains_error,
+            )
+        else:
+            self._record_component_status(components, "assumeRole-chains", ok=True)
 
         # === RESOURCE-BASED POLICIES ===
         print("  Collecting resource-based policies (S3/Lambda/SQS/SNS)...")
@@ -393,6 +571,19 @@ class IAMSkill(BaseSkill):
                 "error": policies_error,
             },
         )
+        if policies_error:
+            # Collected independently per resource type (s3/lambda/sqs/sns);
+            # a failure in one type doesn't stop the others, so this is a
+            # coverage gap rather than a total collection failure.
+            self._record_component_status(
+                components,
+                "resource-based-policies",
+                ok=False,
+                reason_code="partial_collection",
+                error=policies_error,
+            )
+        else:
+            self._record_component_status(components, "resource-based-policies", ok=True)
 
         # === INSTANCE PROFILES ===
         print("  Collecting instance profiles and attached role permissions...")
@@ -404,6 +595,16 @@ class IAMSkill(BaseSkill):
                 "error": profiles_error,
             },
         )
+        if profiles_error:
+            self._record_component_status(
+                components,
+                "instance-profiles",
+                ok=False,
+                reason_code="collection_failed",
+                error=profiles_error,
+            )
+        else:
+            self._record_component_status(components, "instance-profiles", ok=True)
 
         # === SCP / ORGANIZATIONS ===
         print("  Collecting Organizations SCPs (best-effort)...")
@@ -415,6 +616,18 @@ class IAMSkill(BaseSkill):
                 "error": scps_error,
             },
         )
+        if scps_error:
+            self._record_component_status(
+                components,
+                "effective-scps",
+                ok=False,
+                reason_code="collection_failed",
+                error=scps_error,
+            )
+        else:
+            self._record_component_status(components, "effective-scps", ok=True)
+
+        self._save_collection_status(evidence_path, {"components": components})
 
         # === SUMMARY ===
         print("\n✅ IAM collection complete:")

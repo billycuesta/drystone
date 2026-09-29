@@ -737,5 +737,162 @@ class TestPagination:
         assert {p["PolicyName"] for p in data} == {"policy-a", "policy-b"}
 
 
+# ── Collection status (PLAN_VALIDATION_WARN.md slice 4, batch A) ─────────────
+
+
+class TestCollectionStatus:
+    """iam-collection-status.json records a per-component ok/reason_code
+    signal so future pre-checks can tell "collection failed" apart from
+    "resource genuinely absent" (see PLAN_VALIDATION_WARN.md)."""
+
+    def _load_status(self, evidence_path):
+        return json.loads((evidence_path / "iam-collection-status.json").read_text())
+
+    def test_all_components_ok_on_happy_path(self, skill, aws_client, tmp_path):
+        session, evidence_path = _make_session(tmp_path)
+        with patch("boto3.client", side_effect=_boto3_factory()):
+            skill.collect(aws_client, session)
+
+        status = self._load_status(evidence_path)
+        assert status["_schema"] == "drystone.collection_status.v1"
+        assert status["_skill"] == "iam"
+        assert status["ok"] is True
+        components = status["components"]
+        for name in (
+            "account-summary",
+            "account-aliases",
+            "password-policy",
+            "users",
+            "groups",
+            "roles",
+            "policies",
+            "credential-report",
+            "assumeRole-chains",
+            "resource-based-policies",
+            "instance-profiles",
+            "effective-scps",
+        ):
+            assert components[name] == {"ok": True}, f"{name}: {components.get(name)}"
+
+    def test_list_users_failure_is_collection_failed(self, skill, aws_client, tmp_path):
+        session, evidence_path = _make_session(tmp_path)
+        iam = _make_iam_client()
+        _fail_one_paginator(iam, "list_users", Exception("AccessDenied"))
+
+        with patch("boto3.client", side_effect=_boto3_factory(iam=iam)):
+            skill.collect(aws_client, session)
+
+        status = self._load_status(evidence_path)
+        assert status["ok"] is False
+        component = status["components"]["users"]
+        assert component["ok"] is False
+        assert component["reason_code"] == "collection_failed"
+        assert "AccessDenied" in component["error"]
+
+    def test_list_access_keys_failure_is_partial_collection(self, skill, aws_client, tmp_path):
+        """list_users succeeds but the per-user list_access_keys call fails:
+        the list call succeeded, so this is a coverage gap, not a total failure."""
+        session, evidence_path = _make_session(tmp_path)
+        iam = _make_iam_client()
+        iam.list_access_keys.side_effect = Exception("AccessDenied")
+
+        with patch("boto3.client", side_effect=_boto3_factory(iam=iam)):
+            skill.collect(aws_client, session)
+
+        status = self._load_status(evidence_path)
+        component = status["components"]["users"]
+        assert component["ok"] is False
+        assert component["reason_code"] == "partial_collection"
+        data = json.loads((evidence_path / "users.json").read_text())
+        assert len(data) == 1
+
+    def test_get_policy_failure_is_partial_collection(self, skill, aws_client, tmp_path):
+        session, evidence_path = _make_session(tmp_path)
+        iam = _make_iam_client()
+        iam.get_policy.side_effect = Exception("AccessDenied")
+
+        with patch("boto3.client", side_effect=_boto3_factory(iam=iam)):
+            skill.collect(aws_client, session)
+
+        status = self._load_status(evidence_path)
+        component = status["components"]["policies"]
+        assert component["ok"] is False
+        assert component["reason_code"] == "partial_collection"
+
+    def test_password_policy_not_configured_is_not_a_failure(self, skill, aws_client, tmp_path):
+        """NoSuchEntityException means the account genuinely has no password
+        policy configured — a legitimate state, not a collection failure."""
+        session, evidence_path = _make_session(tmp_path)
+        iam = _make_iam_client(with_password_policy=False)
+
+        with patch("boto3.client", side_effect=_boto3_factory(iam=iam)):
+            skill.collect(aws_client, session)
+
+        status = self._load_status(evidence_path)
+        assert status["components"]["password-policy"] == {"ok": True}
+
+    def test_credential_report_never_ready_is_collection_failed(self, skill, aws_client, tmp_path):
+        session, evidence_path = _make_session(tmp_path)
+        iam = _make_iam_client()
+        iam.get_credential_report.side_effect = Exception("ReportInProgress")
+
+        with patch("boto3.client", side_effect=_boto3_factory(iam=iam)):
+            skill.collect(aws_client, session)
+
+        status = self._load_status(evidence_path)
+        component = status["components"]["credential-report"]
+        assert component["ok"] is False
+        assert component["reason_code"] == "collection_failed"
+
+    def test_organizations_failure_is_collection_failed(self, skill, aws_client, tmp_path):
+        session, evidence_path = _make_session(tmp_path)
+
+        def _factory(service, **kwargs):
+            if service == "organizations":
+                raise Exception("organizations unavailable")
+            return _boto3_factory()(service, **kwargs)
+
+        with patch("boto3.client", side_effect=_factory):
+            skill.collect(aws_client, session)
+
+        status = self._load_status(evidence_path)
+        component = status["components"]["effective-scps"]
+        assert component["ok"] is False
+        assert component["reason_code"] == "collection_failed"
+
+    def test_s3_resource_policy_failure_is_partial_collection(self, skill, aws_client, tmp_path):
+        session, evidence_path = _make_session(tmp_path)
+
+        def _factory(service, **kwargs):
+            if service == "s3":
+                raise ClientError(
+                    {"Error": {"Code": "ServiceUnavailable", "Message": "s3 unavailable"}},
+                    "CreateClient",
+                )
+            return _boto3_factory()(service, **kwargs)
+
+        with patch("boto3.client", side_effect=_factory):
+            skill.collect(aws_client, session)
+
+        status = self._load_status(evidence_path)
+        component = status["components"]["resource-based-policies"]
+        assert component["ok"] is False
+        assert component["reason_code"] == "partial_collection"
+
+    def test_evidence_key_is_iam_collection_status_stem(self, skill, aws_client, tmp_path):
+        """Confirms the evidence dict key pre-checks will see once loaded by
+        BaseSkill.analyze() (json_file.stem, per drystone/skills/base.py)."""
+        session, evidence_path = _make_session(tmp_path)
+        with patch("boto3.client", side_effect=_boto3_factory()):
+            skill.collect(aws_client, session)
+
+        evidence: dict = {}
+        for json_file in evidence_path.glob("*.json"):
+            evidence[json_file.stem] = json.loads(json_file.read_text())
+
+        assert "iam-collection-status" in evidence
+        assert evidence["iam-collection-status"]["_skill"] == "iam"
+
+
 def test_skill_name():
     assert IAMSkill().name == "iam"
