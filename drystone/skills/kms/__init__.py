@@ -57,25 +57,41 @@ class KMSSkill(BaseSkill):
         }
         self._save_json(evidence_path / "_audit_metadata.json", metadata)
 
+        components: Dict[str, Dict[str, Any]] = {}
+
         keys, key_errors = self._collect_keys(kms)
         self._save_json(evidence_path / "kms-keys.json", {"items": keys, "errors": key_errors})
+        self._record_errors_component_status(
+            components,
+            "kms-keys",
+            key_errors,
+            collection_failure_keys={"list_keys"},
+        )
 
         policies, policy_errors = self._collect_key_policies(kms, keys)
         self._save_json(
             evidence_path / "kms-key-policies.json",
             {"items": policies, "errors": policy_errors},
         )
+        self._record_errors_component_status(components, "kms-key-policies", policy_errors)
 
         grants, grant_errors = self._collect_grants(kms, keys)
         self._save_json(
             evidence_path / "kms-grants.json",
             {"items": grants, "errors": grant_errors},
         )
+        self._record_errors_component_status(components, "kms-grants", grant_errors)
 
         aliases, alias_errors = self._collect_aliases(kms)
         self._save_json(
             evidence_path / "kms-aliases.json",
             {"items": aliases, "errors": alias_errors},
+        )
+        self._record_errors_component_status(
+            components,
+            "kms-aliases",
+            alias_errors,
+            collection_failure_keys={"list_aliases"},
         )
 
         custom_stores, custom_store_errors = self._collect_custom_key_stores(kms)
@@ -83,6 +99,14 @@ class KMSSkill(BaseSkill):
             evidence_path / "kms-custom-key-stores.json",
             {"items": custom_stores, "errors": custom_store_errors},
         )
+        self._record_errors_component_status(
+            components,
+            "kms-custom-key-stores",
+            custom_store_errors,
+            collection_failure_keys={"describe_custom_key_stores"},
+        )
+
+        self._save_collection_status(evidence_path, {"components": components})
 
         ok = not (
             key_errors or policy_errors or grant_errors or alias_errors or custom_store_errors
@@ -98,6 +122,33 @@ class KMSSkill(BaseSkill):
                 "custom_key_stores": len(custom_stores),
                 "ok": ok,
             },
+        )
+
+    def _record_errors_component_status(
+        self,
+        components: Dict[str, Dict[str, Any]],
+        component: str,
+        errors: Dict[str, str],
+        *,
+        collection_failure_keys: Optional[set[str]] = None,
+    ) -> None:
+        if not errors:
+            self._record_component_status(components, component, ok=True)
+            return
+        collection_failure_keys = collection_failure_keys or set()
+        reason_code = (
+            "collection_failed"
+            if any(key in collection_failure_keys for key in errors)
+            else "partial_collection"
+        )
+        first_error_code = next(iter(errors.values()), None)
+        self._record_component_status(
+            components,
+            component,
+            ok=False,
+            reason_code=reason_code,
+            error_code=str(first_error_code) if first_error_code else None,
+            error="; ".join(f"{key}: {value}" for key, value in sorted(errors.items())),
         )
 
     def _collect_keys(self, kms) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
