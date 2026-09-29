@@ -55,6 +55,15 @@ class ECRSkill(BaseSkill):
             "errors": {},
         }
 
+        # Per-component collection outcome so pre-checks can distinguish a
+        # failed collection from a resource that is genuinely absent after a
+        # successful collection. Kept alongside the legacy `errors` dict
+        # above, which category-C checks (ECR-001/007) still read verbatim.
+        components: Dict[str, Dict[str, Any]] = {}
+        registry_collection_failed = False
+        registry_partial_error_code: Optional[str] = None
+        registry_partial_error: Optional[str] = None
+
         # === Registry-level configuration ===
         registry: Dict[str, Any] = {
             "region": region,
@@ -69,6 +78,7 @@ class ECRSkill(BaseSkill):
             collection_status["ok"] = False
             collection_status["errors"]["describe_registry"] = str(e)
             registry["registry"] = {"error": str(e)}
+            registry_collection_failed = True
 
         try:
             rp = ecr.get_registry_policy()
@@ -83,10 +93,20 @@ class ECRSkill(BaseSkill):
                 collection_status["ok"] = False
             collection_status["errors"]["get_registry_policy"] = code
             registry["registry_policy"] = {"error": code}
+            # RegistryPolicyNotFoundException is a legit absence, not a
+            # collection failure. Every other code (including
+            # AccessDeniedException, which the legacy `ok` field above
+            # deliberately ignores) leaves this sub-call's outcome unknown.
+            if code != "RegistryPolicyNotFoundException" and registry_partial_error_code is None:
+                registry_partial_error_code = code
+                registry_partial_error = code
         except Exception as e:
             collection_status["ok"] = False
             collection_status["errors"]["get_registry_policy"] = str(e)
             registry["registry_policy"] = {"error": str(e)}
+            if registry_partial_error_code is None:
+                registry_partial_error_code = self._status_error_code(str(e))
+                registry_partial_error = str(e)
 
         try:
             # boto3/botocore expose this as either:
@@ -100,17 +120,52 @@ class ECRSkill(BaseSkill):
                 code = "UnsupportedOperationInSDK"
                 collection_status["errors"]["registry_scanning_configuration"] = code
                 registry["registry_scanning"] = {"error": code}
+                if registry_partial_error_code is None:
+                    registry_partial_error_code = code
+                    registry_partial_error = code
         except ClientError as e:
             code = e.response.get("Error", {}).get("Code", "Unknown")
             collection_status["errors"]["registry_scanning_configuration"] = code
             registry["registry_scanning"] = {"error": code}
+            if registry_partial_error_code is None:
+                registry_partial_error_code = code
+                registry_partial_error = code
         except AttributeError:
             code = "UnsupportedOperationInSDK"
             collection_status["errors"]["registry_scanning_configuration"] = code
             registry["registry_scanning"] = {"error": code}
+            if registry_partial_error_code is None:
+                registry_partial_error_code = code
+                registry_partial_error = code
         except Exception as e:
             collection_status["errors"]["registry_scanning_configuration"] = str(e)
             registry["registry_scanning"] = {"error": str(e)}
+            if registry_partial_error_code is None:
+                registry_partial_error_code = self._status_error_code(str(e))
+                registry_partial_error = str(e)
+
+        if registry_collection_failed:
+            self._record_component_status(
+                components,
+                "registry",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=self._status_error_code(
+                    str(collection_status["errors"].get("describe_registry"))
+                ),
+                error=collection_status["errors"].get("describe_registry"),
+            )
+        elif registry_partial_error is not None:
+            self._record_component_status(
+                components,
+                "registry",
+                ok=False,
+                reason_code="partial_collection",
+                error_code=registry_partial_error_code,
+                error=registry_partial_error,
+            )
+        else:
+            self._record_component_status(components, "registry", ok=True)
 
         # === Repository-level evidence ===
         repositories: List[Dict[str, Any]] = []
@@ -195,9 +250,43 @@ class ECRSkill(BaseSkill):
             code = e.response.get("Error", {}).get("Code", "Unknown")
             collection_status["ok"] = False
             collection_status["errors"]["describe_repositories"] = code
+            self._record_component_status(
+                components,
+                "repositories",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=code,
+                error=code,
+            )
         except Exception as e:
             collection_status["ok"] = False
             collection_status["errors"]["describe_repositories"] = str(e)
+            self._record_component_status(
+                components,
+                "repositories",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=self._status_error_code(str(e)),
+                error=str(e),
+            )
+        else:
+            # describe_repositories succeeded; per-repository policy/lifecycle
+            # sub-call failures are swallowed into `errors` above without
+            # flipping the legacy top-level `ok` (existing behavior), but
+            # they still leave a per-item coverage gap for the component.
+            repo_policy_errors = collection_status["errors"].get("repo_policy_errors")
+            lifecycle_policy_errors = collection_status["errors"].get("lifecycle_policy_errors")
+            if repo_policy_errors or lifecycle_policy_errors:
+                issue_count = len(repo_policy_errors or []) + len(lifecycle_policy_errors or [])
+                self._record_component_status(
+                    components,
+                    "repositories",
+                    ok=False,
+                    reason_code="partial_collection",
+                    error=f"{issue_count} per-repository policy/lifecycle lookup(s) failed",
+                )
+            else:
+                self._record_component_status(components, "repositories", ok=True)
 
         # === AUDIT METADATA ===
         audit_metadata = {
@@ -210,6 +299,7 @@ class ECRSkill(BaseSkill):
         self._save_json(evidence_path / "_audit_metadata.json", audit_metadata)
         self._save_json(evidence_path / "registry.json", registry)
         self._save_json(evidence_path / "repositories.json", {"repositories": repositories})
+        collection_status["components"] = components
         self._save_collection_status(evidence_path, collection_status)
 
         print(f"  ✅ Found {len(repositories)} repositories")
