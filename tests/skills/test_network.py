@@ -623,5 +623,129 @@ class TestSubCallResilience:
         assert (evidence_path / "_audit_metadata.json").exists()
 
 
+# ── Collection status (PLAN_VALIDATION_WARN.md slice 4, batch A) ─────────────
+
+
+class TestCollectionStatus:
+    """network-collection-status.json records a per-component ok/reason_code
+    signal so future pre-checks can tell "collection failed" apart from
+    "resource genuinely absent" (see PLAN_VALIDATION_WARN.md)."""
+
+    def _load_status(self, evidence_path):
+        return json.loads((evidence_path / "network-collection-status.json").read_text())
+
+    def test_all_components_ok_on_happy_path(self, skill, aws_client, tmp_path):
+        session, evidence_path = _make_session(tmp_path)
+        with patch("boto3.client", side_effect=_boto3_factory()):
+            skill.collect(aws_client, session)
+
+        status = self._load_status(evidence_path)
+        assert status["_schema"] == "drystone.collection_status.v1"
+        assert status["_skill"] == "network"
+        assert status["ok"] is True
+        components = status["components"]
+        for name in (
+            "vpcs",
+            "security-groups",
+            "network-acls",
+            "route-tables",
+            "subnets",
+            "ec2-instances",
+            "network-interfaces",
+            "rds-instances",
+            "lambda-functions",
+            "vpc-endpoints",
+            "vpn-connections",
+            "internet-gateways",
+            "transit-gateway-topology",
+            "nat-gateway-routes",
+        ):
+            assert components[name] == {"ok": True}, f"{name}: {components.get(name)}"
+
+    def test_describe_vpcs_failure_is_collection_failed(self, skill, tmp_path):
+        aws_client = _make_aws_client()
+        session, evidence_path = _make_session(tmp_path)
+        ec2 = _make_ec2_client()
+        ec2.describe_vpcs.side_effect = ClientError(
+            {"Error": {"Code": "AccessDenied", "Message": "not authorized"}}, "DescribeVpcs"
+        )
+
+        with patch("boto3.client", side_effect=_boto3_factory(ec2=ec2)):
+            skill.collect(aws_client, session)
+
+        status = self._load_status(evidence_path)
+        assert status["ok"] is False
+        component = status["components"]["vpcs"]
+        assert component["ok"] is False
+        assert component["reason_code"] == "collection_failed"
+        assert component["error_code"] == "AccessDenied"
+        assert "not authorized" in component["error"]
+
+    def test_rds_client_creation_failure_is_collection_failed(self, skill, tmp_path):
+        aws_client = _make_aws_client()
+        session, evidence_path = _make_session(tmp_path)
+
+        def _factory(service, **kwargs):
+            if service == "rds":
+                raise Exception("rds unavailable")
+            return _boto3_factory()(service, **kwargs)
+
+        with patch("boto3.client", side_effect=_factory):
+            skill.collect(aws_client, session)
+
+        status = self._load_status(evidence_path)
+        component = status["components"]["rds-instances"]
+        assert component["ok"] is False
+        assert component["reason_code"] == "collection_failed"
+        assert "rds unavailable" in component["error"]
+
+    def test_flow_logs_failure_is_partial_collection(self, skill, aws_client, tmp_path):
+        """describe_vpcs succeeds but the per-VPC describe_flow_logs call
+        fails: the list call succeeded, so this is a coverage gap."""
+        session, evidence_path = _make_session(tmp_path)
+        ec2 = _make_ec2_client()
+        ec2.describe_flow_logs.side_effect = Exception("AccessDenied")
+
+        with patch("boto3.client", side_effect=_boto3_factory(ec2=ec2)):
+            skill.collect(aws_client, session)
+
+        status = self._load_status(evidence_path)
+        component = status["components"]["vpcs"]
+        assert component["ok"] is False
+        assert component["reason_code"] == "partial_collection"
+        data = json.loads((evidence_path / "vpcs.json").read_text())
+        assert len(data["items"]) == 1
+
+    def test_tgw_route_tables_client_error_is_partial_collection(self, skill, aws_client, tmp_path):
+        session, evidence_path = _make_session(tmp_path)
+        ec2 = _make_ec2_client()
+        ec2.describe_transit_gateway_route_tables.side_effect = ClientError(
+            {"Error": {"Code": "AccessDenied", "Message": "denied"}},
+            "DescribeTransitGatewayRouteTables",
+        )
+
+        with patch("boto3.client", side_effect=_boto3_factory(ec2=ec2)):
+            skill.collect(aws_client, session)
+
+        status = self._load_status(evidence_path)
+        component = status["components"]["transit-gateway-topology"]
+        assert component["ok"] is False
+        assert component["reason_code"] == "partial_collection"
+
+    def test_evidence_key_is_network_collection_status_stem(self, skill, aws_client, tmp_path):
+        """Confirms the evidence dict key pre-checks will see once loaded by
+        BaseSkill.analyze() (json_file.stem, per drystone/skills/base.py)."""
+        session, evidence_path = _make_session(tmp_path)
+        with patch("boto3.client", side_effect=_boto3_factory()):
+            skill.collect(aws_client, session)
+
+        evidence: dict = {}
+        for json_file in evidence_path.glob("*.json"):
+            evidence[json_file.stem] = json.loads(json_file.read_text())
+
+        assert "network-collection-status" in evidence
+        assert evidence["network-collection-status"]["_skill"] == "network"
+
+
 def test_skill_name():
     assert NetworkSkill().name == "network"

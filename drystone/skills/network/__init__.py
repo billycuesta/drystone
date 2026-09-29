@@ -12,6 +12,13 @@ from drystone.skills.base import BaseSkill
 from drystone.storage.session import AuditSession
 
 
+def _error_code(exc: Exception) -> Optional[str]:
+    """Best-effort AWS error code extraction (ClientError or generic Exception)."""
+    if isinstance(exc, ClientError):
+        return exc.response.get("Error", {}).get("Code")
+    return None
+
+
 class NetworkSkill(BaseSkill):
     """Network security audit skill - analyzes VPCs, security groups, and network policies."""
 
@@ -70,11 +77,17 @@ class NetworkSkill(BaseSkill):
             self._save_json(filepath, data)
             audit_metadata["evidence_files"].append(filepath.name)
 
+        # Per-component collection outcome (PLAN_VALIDATION_WARN.md slice 4):
+        # lets future pre-checks tell "collection failed" apart from
+        # "resource genuinely absent after a successful collection".
+        components: Dict[str, Dict[str, Any]] = {}
+
         # === VPCs ===
         print("  Collecting VPC configurations...")
         try:
             vpcs = ec2_client.describe_vpcs()
             vpcs_list = []
+            flow_log_failures = 0
 
             for vpc in vpcs.get("Vpcs", []):
                 vpc_id = vpc.get("VpcId")
@@ -93,12 +106,31 @@ class NetworkSkill(BaseSkill):
                     vpc_detail["FlowLogs"] = flow_logs.get("FlowLogs", [])
                 except Exception:
                     vpc_detail["FlowLogs"] = []
+                    flow_log_failures += 1
 
                 vpcs_list.append(vpc_detail)
 
             _save(evidence_path / "vpcs.json", self._wrap_indexed(vpcs_list, by_key="VpcId", region=region))
+            if flow_log_failures:
+                self._record_component_status(
+                    components,
+                    "vpcs",
+                    ok=False,
+                    reason_code="partial_collection",
+                    error=f"{flow_log_failures} flow log lookups failed",
+                )
+            else:
+                self._record_component_status(components, "vpcs", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect VPC data: {e}")
+            self._record_component_status(
+                components,
+                "vpcs",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === SECURITY GROUPS (detailed) ===
         print("  Collecting security group rules...")
@@ -122,8 +154,17 @@ class NetworkSkill(BaseSkill):
                 evidence_path / "security-groups.json",
                 self._wrap_indexed(sgs_list, by_key="GroupId", region=region),
             )
+            self._record_component_status(components, "security-groups", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect security group data: {e}")
+            self._record_component_status(
+                components,
+                "security-groups",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === NETWORK ACLs ===
         print("  Collecting Network ACL rules...")
@@ -146,8 +187,17 @@ class NetworkSkill(BaseSkill):
                 evidence_path / "network-acls.json",
                 self._wrap_indexed(nacls_list, by_key="NetworkAclId", region=region),
             )
+            self._record_component_status(components, "network-acls", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect NACL data: {e}")
+            self._record_component_status(
+                components,
+                "network-acls",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === ROUTE TABLES ===
         print("  Collecting route tables...")
@@ -169,8 +219,17 @@ class NetworkSkill(BaseSkill):
                 evidence_path / "route-tables.json",
                 self._wrap_indexed(rts_list, by_key="RouteTableId", region=region),
             )
+            self._record_component_status(components, "route-tables", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect route table data: {e}")
+            self._record_component_status(
+                components,
+                "route-tables",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === SUBNETS ===
         print("  Collecting subnets...")
@@ -195,8 +254,17 @@ class NetworkSkill(BaseSkill):
                 evidence_path / "subnets.json",
                 self._wrap_indexed(subnets_list, by_key="SubnetId", region=region),
             )
+            self._record_component_status(components, "subnets", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect subnet data: {e}")
+            self._record_component_status(
+                components,
+                "subnets",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === EC2 INSTANCES (for topology labels) ===
         print("  Collecting EC2 instances (labels)...")
@@ -236,8 +304,17 @@ class NetworkSkill(BaseSkill):
                 evidence_path / "ec2-instances.json",
                 self._wrap_indexed(instances_list, by_key="InstanceId", region=region),
             )
+            self._record_component_status(components, "ec2-instances", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect EC2 instances: {e}")
+            self._record_component_status(
+                components,
+                "ec2-instances",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === NETWORK INTERFACES (for ENI-level exposure and attachment context) ===
         print("  Collecting network interfaces...")
@@ -274,8 +351,17 @@ class NetworkSkill(BaseSkill):
                     interfaces_list, by_key="NetworkInterfaceId", region=region
                 ),
             )
+            self._record_component_status(components, "network-interfaces", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect network interfaces: {e}")
+            self._record_component_status(
+                components,
+                "network-interfaces",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === RDS INSTANCES (for topology labels) ===
         print("  Collecting RDS instances (labels)...")
@@ -315,8 +401,17 @@ class NetworkSkill(BaseSkill):
                 evidence_path / "rds-instances.json",
                 self._wrap_indexed(rds_list, by_key="DBInstanceIdentifier", region=region),
             )
+            self._record_component_status(components, "rds-instances", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect RDS instances: {e}")
+            self._record_component_status(
+                components,
+                "rds-instances",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === LAMBDA FUNCTIONS (for topology labels) ===
         print("  Collecting Lambda functions (labels)...")
@@ -354,8 +449,17 @@ class NetworkSkill(BaseSkill):
                     "items": functions_list,
                 },
             )
+            self._record_component_status(components, "lambda-functions", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect Lambda functions: {e}")
+            self._record_component_status(
+                components,
+                "lambda-functions",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === VPC ENDPOINTS ===
         print("  Collecting VPC endpoints...")
@@ -382,8 +486,17 @@ class NetworkSkill(BaseSkill):
                 evidence_path / "vpc-endpoints.json",
                 self._wrap_indexed(endpoints_list, by_key="VpcEndpointId", region=region),
             )
+            self._record_component_status(components, "vpc-endpoints", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect VPC endpoint data: {e}")
+            self._record_component_status(
+                components,
+                "vpc-endpoints",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === VPN CONNECTIONS ===
         print("  Collecting VPN connections...")
@@ -408,8 +521,17 @@ class NetworkSkill(BaseSkill):
                 evidence_path / "vpn-connections.json",
                 self._wrap_indexed(vpn_list, by_key="VpnConnectionId", region=region),
             )
+            self._record_component_status(components, "vpn-connections", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect VPN data: {e}")
+            self._record_component_status(
+                components,
+                "vpn-connections",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === INTERNET GATEWAYS ===
         print("  Collecting internet gateways...")
@@ -429,8 +551,17 @@ class NetworkSkill(BaseSkill):
                 evidence_path / "internet-gateways.json",
                 self._wrap_indexed(igws_list, by_key="InternetGatewayId", region=region),
             )
+            self._record_component_status(components, "internet-gateways", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect IGW data: {e}")
+            self._record_component_status(
+                components,
+                "internet-gateways",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === TRANSIT GATEWAY TOPOLOGY ===
         print("  Collecting Transit Gateway topology...")
@@ -443,6 +574,7 @@ class NetworkSkill(BaseSkill):
             )
             tgw_topology["attachments"] = attachments
 
+            tgw_route_table_failures = 0
             for tgw in tgws:
                 tgw_id = tgw.get("TransitGatewayId")
                 if not tgw_id:
@@ -453,11 +585,30 @@ class NetworkSkill(BaseSkill):
                     ).get("TransitGatewayRouteTables", [])
                     tgw_topology["route_tables"].extend(route_tables)
                 except ClientError:
+                    tgw_route_table_failures += 1
                     continue
 
             _save(evidence_path / "transit-gateway-topology.json", tgw_topology)
+            if tgw_route_table_failures:
+                self._record_component_status(
+                    components,
+                    "transit-gateway-topology",
+                    ok=False,
+                    reason_code="partial_collection",
+                    error=f"{tgw_route_table_failures} transit gateway route table lookups failed",
+                )
+            else:
+                self._record_component_status(components, "transit-gateway-topology", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect Transit Gateway topology: {e}")
+            self._record_component_status(
+                components,
+                "transit-gateway-topology",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === NAT GATEWAY ROUTING ===
         print("  Collecting NAT Gateway routes...")
@@ -495,8 +646,19 @@ class NetworkSkill(BaseSkill):
                 )
 
             _save(evidence_path / "nat-gateway-routes.json", {"items": nat_routes})
+            self._record_component_status(components, "nat-gateway-routes", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect NAT Gateway routes: {e}")
+            self._record_component_status(
+                components,
+                "nat-gateway-routes",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
+
+        self._save_collection_status(evidence_path, {"components": components})
 
         # Persist audit metadata last so it includes all files.
         _save(evidence_path / "_audit_metadata.json", audit_metadata)
