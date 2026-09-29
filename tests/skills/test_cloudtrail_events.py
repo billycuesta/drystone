@@ -483,6 +483,41 @@ class TestCloudTrailPreChecks:
         result = _run_check("CTEF-002", {"console-login-events": failed})
         assert result.status == "PASS"
 
+    def test_ctef_002_warn_when_below_threshold_but_collection_failed(self):
+        failed = [_make_event("ConsoleLogin", "eve", error_code="Failed")]
+        result = _run_check(
+            "CTEF-002",
+            {
+                "console-login-events": failed,
+                "cloudtrail_events-collection-status": {
+                    "categories": {
+                        "console-login-events": {
+                            "ok": False,
+                            "reason_code": "collection_failed",
+                            "error": "AccessDeniedException: denied",
+                        }
+                    }
+                },
+            },
+        )
+
+        assert result.status == "WARN"
+        assert result.metadata["reason_code"] == "collection_failed"
+
+    def test_ctef_002_pass_when_below_threshold_and_collection_ok(self):
+        failed = [_make_event("ConsoleLogin", "eve", error_code="Failed")]
+        result = _run_check(
+            "CTEF-002",
+            {
+                "console-login-events": failed,
+                "cloudtrail_events-collection-status": {
+                    "categories": {"console-login-events": {"ok": True, "event_count": 1}}
+                },
+            },
+        )
+
+        assert result.status == "PASS"
+
     # CTEF-003
     def test_ctef_003_fail_when_stop_logging(self):
         trail_arn = "arn:aws:cloudtrail:eu-west-1:123456789012:trail/audit"

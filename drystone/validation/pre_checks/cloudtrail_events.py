@@ -59,9 +59,6 @@ def _ctef_availability_warning(
                 key,
             )
 
-    if any(_load_ctef_events(evidence, key) for key in keys):
-        return None
-
     status_doc = evidence.get("cloudtrail_events-collection-status") or {}
     categories = status_doc.get("categories") if isinstance(status_doc, dict) else None
     if not isinstance(categories, dict):
