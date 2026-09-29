@@ -18,6 +18,7 @@ from drystone.validation.pre_checks import (
     PRE_CHECK_REGISTRY,
     PRE_CHECK_REMEDIATIONS,
     PreCheckResult,
+    resolve_pre_check_id,
     check_alr_003,
     check_alr_022,
     check_alr_023,
@@ -319,6 +320,28 @@ def test_iam040_status_warning_keeps_existing_error_reason_text():
     assert result.status == "WARN"
     assert result.metadata["reason_code"] == "partial_collection"
     assert "Account not in Organization or no org permissions" in result.evidence_summary
+
+
+def test_iam_checks_declare_required_components_matching_status_stems():
+    """Guard: every check that must warn on incomplete evidence status is
+    registered with a `requires_components` declaration whose stems exactly
+    match the expected mapping, so the warn-on-incomplete-evidence behavior
+    stays wired through the explicit decorator on `iam.py` instead of
+    depending on an out-of-band registry rewrite.
+    """
+    registered_by_id = {resolve_pre_check_id(fn): fn for fn in PRE_CHECK_REGISTRY["iam"]}
+
+    for check_id, stems in IAM_STATUS_STEMS_BY_CHECK.items():
+        fn = registered_by_id[check_id]
+        assert fn.required_components == ("iam", stems), check_id
+
+
+def test_all_registered_iam_checks_resolve_to_known_checklist_ids():
+    checklist_path = Path(__file__).resolve().parents[2] / "drystone" / "skills" / "iam" / "checklist.json"
+    checklist_ids = {item["id"] for item in json.loads(checklist_path.read_text())["items"]}
+
+    for fn in PRE_CHECK_REGISTRY["iam"]:
+        assert resolve_pre_check_id(fn) in checklist_ids
 
 
 class TestIAMDeterministicFindingText:

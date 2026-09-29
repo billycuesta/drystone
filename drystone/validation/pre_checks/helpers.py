@@ -1,12 +1,19 @@
 # ruff: noqa
 """Shared helpers for deterministic pre-check modules."""
 
+import functools
 import json
 import re
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
-from .core import PRE_CHECK_STATUS_FAIL, PRE_CHECK_STATUS_PASS, PRE_CHECK_STATUS_WARN, PreCheckResult
+from .core import (
+    PRE_CHECK_STATUS_FAIL,
+    PRE_CHECK_STATUS_PASS,
+    PRE_CHECK_STATUS_WARN,
+    PreCheckFn,
+    PreCheckResult,
+)
 
 
 # HELPER FUNCTIONS
@@ -433,6 +440,32 @@ def warn_from_component_status(
             )
 
     return result
+
+
+def requires_components(skill: str, *stems: str) -> Callable[[PreCheckFn], PreCheckFn]:
+    """Decorator declaring the evidence components a check needs to be trustworthy.
+
+    Wraps a check function so its result is passed through
+    `warn_from_component_status` for the given `skill` and component `stems`
+    before being returned. This makes a check's evidence-completeness
+    dependency an explicit, per-function declaration instead of an
+    out-of-band mapping applied via registry rewriting.
+
+    The decorated function's `required_components` attribute carries
+    `(skill, stems)` for introspection (e.g. tests asserting the declared
+    dependency matches an expected checklist).
+    """
+
+    def decorator(check_fn: PreCheckFn) -> PreCheckFn:
+        @functools.wraps(check_fn)
+        def wrapper(evidence: Dict[str, Any]) -> PreCheckResult:
+            result = check_fn(evidence)
+            return warn_from_component_status(result, evidence, skill=skill, stems=list(stems))
+
+        wrapper.required_components = (skill, stems)
+        return wrapper
+
+    return decorator
 
 
 # ============================================================================

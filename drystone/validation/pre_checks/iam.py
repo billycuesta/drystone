@@ -7,7 +7,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from .core import PRE_CHECK_REGISTRY, PreCheckResult, _register
+from .core import PreCheckResult, _register
 from .helpers import *
 from .metadata import *
 
@@ -38,6 +38,7 @@ def check_iam_001(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "users", "credential-report")
 def check_iam_002(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM-002: IAM users with console access must have MFA enabled."""
     users = evidence.get("users")
@@ -92,6 +93,7 @@ def check_iam_002(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "users")
 def check_iam_010(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM-010: Administrative users must have MFA enabled."""
     users = evidence.get("users")
@@ -128,6 +130,7 @@ def check_iam_010(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "users", "roles")
 def check_iam_028(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM-028: Tags should be consistently applied to IAM resources."""
     roles = evidence.get("roles")
@@ -185,6 +188,7 @@ def check_iam_028(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "users")
 def check_iam_004(evidence: Dict[str, Any]) -> PreCheckResult:
     """Access keys should be rotated every 90 days."""
     users = evidence.get("users")
@@ -240,6 +244,7 @@ def check_iam_004(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "policies")
 def check_iam_008(evidence: Dict[str, Any]) -> PreCheckResult:
     """No policy should have full administrative permissions (*:*)."""
     pols = evidence.get("policies")
@@ -301,6 +306,7 @@ def check_iam_009(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "roles")
 def check_iam_011(evidence: Dict[str, Any]) -> PreCheckResult:
     """Role trust policies should not allow public access (*)."""
     roles = evidence.get("roles")
@@ -331,6 +337,7 @@ def check_iam_011(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "users", "credential-report")
 def check_iam_012(evidence: Dict[str, Any]) -> PreCheckResult:
     """Inactive users (>90 days no activity) should be reviewed.
 
@@ -412,6 +419,7 @@ def check_iam_012(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "users", "credential-report")
 def check_iam_014(evidence: Dict[str, Any]) -> PreCheckResult:
     """Users should not have multiple active access keys."""
     users = evidence.get("users")
@@ -496,6 +504,7 @@ def check_iam_014(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "users")
 def check_iam_020(evidence: Dict[str, Any]) -> PreCheckResult:
     """Users should belong to at least one group."""
     users = evidence.get("users")
@@ -523,6 +532,7 @@ def check_iam_020(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "roles")
 def check_iam_022(evidence: Dict[str, Any]) -> PreCheckResult:
     """Inactive IAM roles (>90 days since last use or creation) should be reviewed."""
     roles = evidence.get("roles")
@@ -578,6 +588,7 @@ def check_iam_022(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "roles")
 def check_iam_029(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM-029: Detect privilege escalation via cross-role AssumeRole chains.
 
@@ -646,6 +657,7 @@ def check_iam_029(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "instance-profiles")
 def check_iam_031(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM-031: Instance profiles should avoid over-privileged role permissions."""
     profiles_doc = evidence.get("instance-profiles")
@@ -697,6 +709,7 @@ def check_iam_031(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "roles")
 def check_iam_032(evidence: Dict[str, Any]) -> PreCheckResult:
     """OIDC trust policies for GitHub Actions should be tightly scoped."""
     roles = evidence.get("roles")
@@ -868,6 +881,7 @@ def _iam_033_affected_role_arns(roles: List[Any]) -> List[str]:
 
 
 @_register("iam")
+@requires_components("iam", "roles")
 def check_iam_017(evidence: Dict[str, Any]) -> PreCheckResult:
     """CIS 1.21: Cross-account role trust should require sts:ExternalId."""
     roles = evidence.get("roles")
@@ -888,6 +902,7 @@ def check_iam_017(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "roles")
 def check_iam_033(evidence: Dict[str, Any]) -> PreCheckResult:
     """Cross-account role trust should require sts:ExternalId."""
     roles = evidence.get("roles")
@@ -908,6 +923,7 @@ def check_iam_033(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "roles")
 def check_iam_043(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM-043: Confused Deputy — service trust policies without aws:SourceAccount or aws:SourceArn.
 
@@ -1013,6 +1029,7 @@ def check_iam_043(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "policies")
 def check_iam_034(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM policies should not allow IdP takeover actions broadly."""
     pols = evidence.get("policies")
@@ -1059,6 +1076,7 @@ def check_iam_034(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "policies")
 def check_iam_035(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM policies should not allow policy-version backdoor actions broadly."""
     pols = evidence.get("policies")
@@ -1101,6 +1119,7 @@ def check_iam_035(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "policies")
 def check_iam_036(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM policies should not allow broad service-specific credential takeover."""
     pols = evidence.get("policies")
@@ -1144,6 +1163,7 @@ def check_iam_036(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "policies")
 def check_iam_037(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM policies should not allow broad MFA device manipulation."""
     pols = evidence.get("policies")
@@ -1187,6 +1207,7 @@ def check_iam_037(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "policies")
 def check_iam_038(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM wildcard delete permissions should be prohibited."""
     pols = evidence.get("policies")
@@ -1221,6 +1242,7 @@ def check_iam_038(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "policies")
 def check_iam_039(evidence: Dict[str, Any]) -> PreCheckResult:
     """Broad policy detachment/deletion actions should be restricted."""
     pols = evidence.get("policies")
@@ -1268,6 +1290,7 @@ def check_iam_039(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "password-policy")
 def check_iam_005(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM-005: Password policy minimum length should be 14+ characters."""
     pp_doc = evidence.get("password-policy")
@@ -1293,6 +1316,7 @@ def check_iam_005(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "users", "policies")
 def check_iam_015(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM-015: IAM users should not have direct policy attachments — use groups instead."""
     users = evidence.get("users")
@@ -1370,6 +1394,7 @@ def check_iam_015(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "users", "credential-report")
 def check_iam_016(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM-016: Programmatic-only IAM users should use roles or temporary credentials."""
     users = evidence.get("users")
@@ -1434,6 +1459,7 @@ def check_iam_016(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "effective-scps")
 def check_iam_040(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM-040: Organization SCPs should impose Deny restrictions on all accounts."""
     scps_doc = evidence.get("effective-scps")
@@ -1492,6 +1518,7 @@ def check_iam_040(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "roles")
 def check_iam_041(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM-041: Roles with AdministratorAccess or PowerUserAccess.
 
@@ -1632,6 +1659,7 @@ def _has_mfa_condition_in_policy(policy: Dict[str, Any]) -> bool:
 
 
 @_register("iam")
+@requires_components("iam", "policies")
 def check_iam_042(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM-042: Privilege escalation paths via dangerous IAM permissions without MFA condition.
 
@@ -1743,6 +1771,7 @@ def check_iam_042(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "roles")
 def check_iam_007(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM-007: Inline policies must not be used on IAM roles — use managed policies instead."""
     roles = evidence.get("roles")
@@ -1780,6 +1809,7 @@ def check_iam_007(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "password-policy")
 def check_iam_018(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM-018: IAM password policy should enforce maximum password age (90 days or less)."""
     pp_doc = evidence.get("password-policy")
@@ -1827,6 +1857,7 @@ def check_iam_018(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "password-policy")
 def check_iam_019(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM-019: IAM password policy should require symbol characters."""
     pp_doc = evidence.get("password-policy")
@@ -1982,6 +2013,7 @@ def _role_iam_admin_evidence(
 
 
 @_register("iam")
+@requires_components("iam", "resource-based-policies", "users", "roles")
 def check_iam_030(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM-030: Resource-based policies with cross-account access — whitelist known AWS service accounts.
 
@@ -2074,6 +2106,7 @@ def check_iam_030(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "roles", "policies")
 def check_iam_026(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM-026: IAM roles should use PermissionsBoundary to limit maximum privilege.
 
@@ -2153,6 +2186,7 @@ def check_iam_026(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "account-aliases")
 def check_iam_027(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM-027: IAM account alias should be configured for console access."""
     aliases_doc = evidence.get("account-aliases")
@@ -2175,6 +2209,7 @@ def check_iam_027(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("iam")
+@requires_components("iam", "roles")
 def check_iam_044(evidence: Dict[str, Any]) -> PreCheckResult:
     """IAM-044: Privileged roles should not have MaxSessionDuration greater than 3600 seconds (1 hour).
 
@@ -2229,64 +2264,5 @@ def check_iam_044(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 # ============================================================================
-
-_IAM_COMPONENT_STEMS_BY_CHECK = {
-    "IAM-002": ("users", "credential-report"),
-    "IAM-004": ("users",),
-    "IAM-005": ("password-policy",),
-    "IAM-007": ("roles",),
-    "IAM-008": ("policies",),
-    "IAM-010": ("users",),
-    "IAM-011": ("roles",),
-    "IAM-012": ("users", "credential-report"),
-    "IAM-014": ("users", "credential-report"),
-    "IAM-015": ("users", "policies"),
-    "IAM-016": ("users", "credential-report"),
-    "IAM-017": ("roles",),
-    "IAM-018": ("password-policy",),
-    "IAM-019": ("password-policy",),
-    "IAM-020": ("users",),
-    "IAM-022": ("roles",),
-    "IAM-026": ("roles", "policies"),
-    "IAM-027": ("account-aliases",),
-    "IAM-028": ("users", "roles"),
-    "IAM-029": ("roles",),
-    "IAM-030": ("resource-based-policies", "users", "roles"),
-    "IAM-031": ("instance-profiles",),
-    "IAM-032": ("roles",),
-    "IAM-033": ("roles",),
-    "IAM-034": ("policies",),
-    "IAM-035": ("policies",),
-    "IAM-036": ("policies",),
-    "IAM-037": ("policies",),
-    "IAM-038": ("policies",),
-    "IAM-039": ("policies",),
-    "IAM-040": ("effective-scps",),
-    "IAM-041": ("roles",),
-    "IAM-042": ("policies",),
-    "IAM-043": ("roles",),
-    "IAM-044": ("roles",),
-}
-
-
-def _wrap_iam_component_status(check_fn, stems):
-    def _wrapped(evidence: Dict[str, Any]) -> PreCheckResult:
-        result = check_fn(evidence)
-        return warn_from_component_status(result, evidence, skill="iam", stems=list(stems))
-
-    _wrapped.__name__ = check_fn.__name__
-    _wrapped.__doc__ = check_fn.__doc__
-    return _wrapped
-
-
-for _idx, _check_fn in enumerate(list(PRE_CHECK_REGISTRY.get("iam", []))):
-    _check_id = _check_fn.__name__.removeprefix("check_").upper().replace("_", "-")
-    _stems = _IAM_COMPONENT_STEMS_BY_CHECK.get(_check_id)
-    if not _stems:
-        continue
-    _wrapped = _wrap_iam_component_status(_check_fn, _stems)
-    PRE_CHECK_REGISTRY["iam"][_idx] = _wrapped
-    globals()[_check_fn.__name__] = _wrapped
-
 
 __all__ = [name for name in globals() if name.startswith("check_")]
