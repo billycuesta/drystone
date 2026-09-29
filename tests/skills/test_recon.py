@@ -1,7 +1,10 @@
 """Tests for the ReconSkill collector and recon pre-checks."""
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
+
+from botocore.exceptions import ClientError
 
 from drystone.skills.recon import ReconSkill
 from drystone.validation.pre_checks import run_pre_checks
@@ -9,6 +12,10 @@ from drystone.validation.pre_checks import run_pre_checks
 # ============================================================================
 # Collector tests
 # ============================================================================
+
+
+def _client_error(code="AccessDeniedException"):
+    return ClientError({"Error": {"Code": code, "Message": code}}, "Recon")
 
 
 class _DummyPaginator:
@@ -258,6 +265,58 @@ def test_recon_collect_writes_all_evidence_files(tmp_path: Path):
         "attack-surface-score.json",
     }
     assert expected.issubset(set(saved)), f"Missing files: {expected - set(saved)}"
+
+
+def _run_recon_collect(tmp_path: Path, boto_factory=_make_boto_client):
+    aws_client = Mock()
+    aws_client.region_name = "us-east-1"
+    aws_client.client_kwargs.return_value = {
+        "aws_access_key_id": "AKIA0000000000000000",
+        "aws_secret_access_key": "x" * 40,
+        "region_name": "us-east-1",
+    }
+    session = Mock()
+    session.get_evidence_path.return_value = tmp_path
+    session.account_id = "123456789012"
+    with patch("boto3.client", side_effect=boto_factory):
+        ReconSkill().collect(aws_client, session)
+    return json.loads((tmp_path / "recon-collection-status.json").read_text())
+
+
+def test_recon_collection_status_happy_path(tmp_path: Path):
+    status = _run_recon_collect(tmp_path)
+
+    assert status["ok"] is True
+    for component in (
+        "route53-zones",
+        "api-gateway-stages",
+        "lambda-urls",
+        "load-balancer-dns",
+        "public-endpoints",
+        "cloudfront-origins",
+        "attack-surface-score",
+    ):
+        assert status["components"][component] == {"ok": True}
+
+
+def test_recon_route53_list_failure_is_collection_failed(tmp_path: Path):
+    class _FailR53Client(_DummyR53Client):
+        def get_paginator(self, op):
+            if op == "list_hosted_zones":
+                raise _client_error("AccessDeniedException")
+            return super().get_paginator(op)
+
+    def factory(service_name, **kwargs):
+        if service_name == "route53":
+            return _FailR53Client()
+        return _make_boto_client(service_name, **kwargs)
+
+    status = _run_recon_collect(tmp_path, factory)
+
+    component = status["components"]["route53-zones"]
+    assert component["ok"] is False
+    assert component["reason_code"] == "collection_failed"
+    assert component["error_code"] == "AccessDeniedException"
 
 
 def test_recon_skill_name():

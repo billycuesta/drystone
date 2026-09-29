@@ -55,47 +55,77 @@ class ReconSkill(BaseSkill):
 
         evidence_path = session.get_evidence_path(self.name)
 
+        components: Dict[str, Dict[str, Any]] = {}
+        self._collection_component_errors: Dict[str, Dict[str, str]] = {}
+
         # === ROUTE 53 ===
         print("  Collecting Route53 hosted zones and records...")
         route53_data = self._collect_route53(client_kwargs)
         self._save_json(evidence_path / "route53-zones.json", route53_data)
+        self._record_recon_component_status(components, "route53-zones", route53_data)
 
         # === API GATEWAY (REST + HTTP v2) ===
         print("  Collecting API Gateway stages...")
         apigw_data = self._collect_api_gateway(client_kwargs)
         self._save_json(evidence_path / "api-gateway-stages.json", apigw_data)
+        self._record_recon_component_status(components, "api-gateway-stages", apigw_data)
 
         # === LAMBDA FUNCTION URLS ===
         print("  Collecting Lambda Function URLs...")
         lambda_urls = self._collect_lambda_urls(client_kwargs)
         self._save_json(evidence_path / "lambda-urls.json", lambda_urls)
+        self._record_recon_component_status(components, "lambda-urls", lambda_urls)
 
         # === LOAD BALANCERS ===
         print("  Collecting Load Balancer DNS names...")
         lb_data = self._collect_load_balancers(client_kwargs)
         self._save_json(evidence_path / "load-balancer-dns.json", lb_data)
+        self._record_recon_component_status(components, "load-balancer-dns", lb_data)
 
         # === PUBLIC ENDPOINTS (Elastic IPs + NAT GW) ===
         print("  Collecting public endpoints (Elastic IPs, NAT Gateways)...")
         public_eps = self._collect_public_endpoints(client_kwargs)
         self._save_json(evidence_path / "public-endpoints.json", public_eps)
+        self._record_recon_component_status(components, "public-endpoints", public_eps)
 
         # === CLOUDFRONT DISTRIBUTIONS ===
         print("  Collecting CloudFront distributions...")
         cf_data = self._collect_cloudfront(client_kwargs)
         self._save_json(evidence_path / "cloudfront-origins.json", cf_data)
+        self._record_recon_component_status(components, "cloudfront-origins", cf_data)
 
         # === ATTACK SURFACE SCORE ===
         score = self._compute_attack_surface_score(
             route53_data, apigw_data, lambda_urls, lb_data, public_eps, cf_data
         )
         self._save_json(evidence_path / "attack-surface-score.json", score)
+        self._record_component_status(components, "attack-surface-score", ok=True)
+        self._save_collection_status(evidence_path, {"components": components})
 
         print(
             f"\n✅ Recon collection complete — "
             f"attack surface score: {score.get('score', 0.0):.1f}/10 "
             f"({score.get('rating', 'UNKNOWN')})"
         )
+
+    def _record_recon_component_status(
+        self,
+        components: Dict[str, Dict[str, Any]],
+        component: str,
+        data: Dict[str, Any],
+    ) -> None:
+        error = getattr(self, "_collection_component_errors", {}).get(component)
+        if isinstance(error, dict):
+            self._record_component_status(
+                components,
+                component,
+                ok=False,
+                reason_code=str(error.get("reason_code") or "collection_failed"),
+                error_code=str(error.get("error_code") or ""),
+                error=str(error.get("error") or ""),
+            )
+        else:
+            self._record_component_status(components, component, ok=True)
 
     # -------------------------------------------------------------------------
     # ROUTE 53
@@ -107,6 +137,7 @@ class ReconSkill(BaseSkill):
             "route53", **{k: v for k, v in client_kwargs.items() if k != "region_name"}
         )
         zones: List[Dict[str, Any]] = []
+        collection_error: Optional[Dict[str, str]] = None
         try:
             paginator = r53.get_paginator("list_hosted_zones")
             for page in paginator.paginate():
@@ -148,7 +179,14 @@ class ReconSkill(BaseSkill):
                             logger.warning(f"Could not list records for zone {zone_id}: {e}")
                     zones.append(zone_entry)
         except ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "Unknown")
             logger.error(f"Could not list hosted zones: {e}")
+            collection_error = {
+                "reason_code": "collection_failed",
+                "error_code": code,
+                "error": str(e),
+            }
+            self._collection_component_errors["route53-zones"] = collection_error
 
         # Enrich zones with semantic analysis
         for zone in zones:
@@ -163,13 +201,14 @@ class ReconSkill(BaseSkill):
             for r in z.get("Records", [])
             if str(r.get("Name", "")).startswith("*")
         ]
-        return {
+        result = {
             "total_zones": len(zones),
             "public_zones": len(public_zones),
             "private_zones": len(zones) - len(public_zones),
             "wildcard_record_count": len(wildcard_records),
             "zones": zones,
         }
+        return result
 
     # -------------------------------------------------------------------------
     # API GATEWAY
