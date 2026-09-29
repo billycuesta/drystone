@@ -3,7 +3,7 @@
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import boto3
 from botocore.exceptions import ClientError
@@ -16,14 +16,29 @@ if TYPE_CHECKING:
     from drystone.agent.client import AgentClient
 
 
-def _collect_resource_based_policies(client_kwargs: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _error_code(exc: Exception) -> Optional[str]:
+    """Best-effort AWS error code extraction (ClientError or generic Exception)."""
+    if isinstance(exc, ClientError):
+        return exc.response.get("Error", {}).get("Code")
+    return None
+
+
+def _collect_resource_based_policies(
+    client_kwargs: Dict[str, Any],
+) -> Tuple[List[Dict[str, Any]], int]:
     """Collect resource-based policies from multiple AWS services.
 
     Checks: SQS queues, SNS topics, Secrets Manager secrets, ECR repositories, OpenSearch domains.
     Saves resource ARN, service type, raw policy document, and Principal:* analysis for EXP-023.
     Gracefully skips services that are inaccessible (AccessDenied) or not deployed.
+
+    Returns (items, failed_service_count): failed_service_count is the number
+    of the 5 sub-collectors above whose top-level listing call itself failed
+    (per-item "no policy attached" cases are a legitimate absence and are not
+    counted) -- see PLAN_VALIDATION_WARN.md slice 4.
     """
     out: List[Dict[str, Any]] = []
+    failures = 0
 
     # --- SQS ---
     try:
@@ -49,7 +64,7 @@ def _collect_resource_based_policies(client_kwargs: Dict[str, Any]) -> List[Dict
             except Exception:
                 continue
     except Exception:
-        pass
+        failures += 1
 
     # --- SNS ---
     try:
@@ -74,7 +89,7 @@ def _collect_resource_based_policies(client_kwargs: Dict[str, Any]) -> List[Dict
                 except Exception:
                     continue
     except Exception:
-        pass
+        failures += 1
 
     # --- Secrets Manager ---
     try:
@@ -102,7 +117,7 @@ def _collect_resource_based_policies(client_kwargs: Dict[str, Any]) -> List[Dict
                 except Exception:
                     continue
     except Exception:
-        pass
+        failures += 1
 
     # --- ECR ---
     try:
@@ -130,7 +145,7 @@ def _collect_resource_based_policies(client_kwargs: Dict[str, Any]) -> List[Dict
                 except Exception:
                     continue
     except Exception:
-        pass
+        failures += 1
 
     # --- OpenSearch (resource-based policy via AccessPolicies) ---
     try:
@@ -155,9 +170,9 @@ def _collect_resource_based_policies(client_kwargs: Dict[str, Any]) -> List[Dict
             except Exception:
                 continue
     except Exception:
-        pass
+        failures += 1
 
-    return out
+    return out, failures
 
 
 def _analyze_resource_policy(
@@ -313,12 +328,33 @@ class ExposureSkill(BaseSkill):
             self._save_json(filepath, data)
             audit_metadata["evidence_files"].append(filepath.name)
 
+        # Per-component collection outcome (PLAN_VALIDATION_WARN.md slice 4):
+        # lets future pre-checks tell "collection failed" apart from
+        # "resource genuinely absent after a successful collection".
+        components: Dict[str, Dict[str, Any]] = {}
+
+        # Sub-call error codes that mean "this bucket genuinely has none of
+        # this configuration" rather than a real collection failure.
+        _s3_expected_absence_codes = {
+            "get_public_access_block": {"NoSuchPublicAccessBlockConfiguration"},
+            "get_bucket_policy": {"NoSuchBucketPolicy"},
+            "get_bucket_encryption": {"ServerSideEncryptionConfigurationNotFoundError"},
+        }
+
+        def _s3_sub_call_is_real_failure(method: str, exc: Exception) -> bool:
+            expected = _s3_expected_absence_codes.get(method)
+            if not expected:
+                return True
+            code = _error_code(exc)
+            return code not in expected
+
         # === S3 BUCKETS ===
         print("  Collecting S3 bucket configurations...")
         try:
             s3_client = boto3.client("s3", **client_kwargs)
             buckets_response = s3_client.list_buckets()
             buckets_list: List[Dict[str, Any]] = []
+            s3_sub_call_failures = 0
 
             for bucket in buckets_response.get("Buckets", []):
                 bucket_name = bucket["Name"]
@@ -330,28 +366,36 @@ class ExposureSkill(BaseSkill):
                 try:
                     acl = s3_client.get_bucket_acl(Bucket=bucket_name)
                     bucket_detail["ACL"] = acl.get("Grants", [])
-                except Exception:
+                except Exception as e:
                     bucket_detail["ACL"] = []
+                    if _s3_sub_call_is_real_failure("get_bucket_acl", e):
+                        s3_sub_call_failures += 1
 
                 try:
                     pab = s3_client.get_public_access_block(Bucket=bucket_name)
                     bucket_detail["PublicAccessBlock"] = pab.get(
                         "PublicAccessBlockConfiguration", {}
                     )
-                except Exception:
+                except Exception as e:
                     bucket_detail["PublicAccessBlock"] = None
+                    if _s3_sub_call_is_real_failure("get_public_access_block", e):
+                        s3_sub_call_failures += 1
 
                 try:
                     policy = s3_client.get_bucket_policy(Bucket=bucket_name)
                     bucket_detail["BucketPolicy"] = json.loads(policy.get("Policy", "{}"))
-                except Exception:
+                except Exception as e:
                     bucket_detail["BucketPolicy"] = None
+                    if _s3_sub_call_is_real_failure("get_bucket_policy", e):
+                        s3_sub_call_failures += 1
 
                 try:
                     versioning = s3_client.get_bucket_versioning(Bucket=bucket_name)
                     bucket_detail["Versioning"] = versioning.get("Status")
-                except Exception:
+                except Exception as e:
                     bucket_detail["Versioning"] = None
+                    if _s3_sub_call_is_real_failure("get_bucket_versioning", e):
+                        s3_sub_call_failures += 1
 
                 try:
                     enc = s3_client.get_bucket_encryption(Bucket=bucket_name)
@@ -363,10 +407,12 @@ class ExposureSkill(BaseSkill):
                     else:
                         bucket_detail["EncryptionAlgorithm"] = None
                         bucket_detail["KMSMasterKeyID"] = None
-                except Exception:
+                except Exception as e:
                     # Bucket may have no encryption configuration (pre-2023 default)
                     bucket_detail["EncryptionAlgorithm"] = None
                     bucket_detail["KMSMasterKeyID"] = None
+                    if _s3_sub_call_is_real_failure("get_bucket_encryption", e):
+                        s3_sub_call_failures += 1
 
                 buckets_list.append(bucket_detail)
 
@@ -378,8 +424,26 @@ class ExposureSkill(BaseSkill):
                 region=region,
             )
             _save(evidence_path / "s3-buckets.json", s3_doc)
+            if s3_sub_call_failures:
+                self._record_component_status(
+                    components,
+                    "s3-buckets",
+                    ok=False,
+                    reason_code="partial_collection",
+                    error=f"{s3_sub_call_failures} bucket sub-call lookups failed",
+                )
+            else:
+                self._record_component_status(components, "s3-buckets", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect S3 data: {e}")
+            self._record_component_status(
+                components,
+                "s3-buckets",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         rds_client = None
 
@@ -405,8 +469,17 @@ class ExposureSkill(BaseSkill):
                 evidence_path / "rds-instances.json",
                 self._wrap_indexed(rds_list, by_key="DBInstanceIdentifier", region=region),
             )
+            self._record_component_status(components, "rds-instances", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect RDS data: {e}")
+            self._record_component_status(
+                components,
+                "rds-instances",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         ec2_client = None
 
@@ -416,6 +489,7 @@ class ExposureSkill(BaseSkill):
             ec2_client = boto3.client("ec2", **client_kwargs)
             images = ec2_client.describe_images(Owners=["self"])
             images_list: List[Dict[str, Any]] = []
+            image_attribute_failures = 0
 
             for image in images.get("Images", []):
                 image_detail = {
@@ -432,6 +506,7 @@ class ExposureSkill(BaseSkill):
                     image_detail["LaunchPermissions"] = launch_perms.get("LaunchPermissions", [])
                 except Exception:
                     image_detail["LaunchPermissions"] = []
+                    image_attribute_failures += 1
 
                 images_list.append(image_detail)
 
@@ -439,8 +514,26 @@ class ExposureSkill(BaseSkill):
                 evidence_path / "ami-images.json",
                 self._wrap_indexed(images_list, by_key="ImageId", region=region),
             )
+            if image_attribute_failures:
+                self._record_component_status(
+                    components,
+                    "ami-images",
+                    ok=False,
+                    reason_code="partial_collection",
+                    error=f"{image_attribute_failures} launch permission lookups failed",
+                )
+            else:
+                self._record_component_status(components, "ami-images", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect AMI data: {e}")
+            self._record_component_status(
+                components,
+                "ami-images",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === SECURITY GROUPS ===
         print("  Collecting security group rules...")
@@ -464,8 +557,17 @@ class ExposureSkill(BaseSkill):
                 evidence_path / "security-groups.json",
                 self._wrap_indexed(sgs_list, by_key="GroupId", region=region),
             )
+            self._record_component_status(components, "security-groups", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect security group data: {e}")
+            self._record_component_status(
+                components,
+                "security-groups",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === CLOUDFRONT DISTRIBUTIONS ===
         print("  Collecting CloudFront distributions...")
@@ -488,8 +590,17 @@ class ExposureSkill(BaseSkill):
                 evidence_path / "cloudfront-distributions.json",
                 self._wrap_indexed(dists_list, by_key="Id", region=region),
             )
+            self._record_component_status(components, "cloudfront-distributions", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect CloudFront data: {e}")
+            self._record_component_status(
+                components,
+                "cloudfront-distributions",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === LOAD BALANCERS + LISTENERS (ELBv2) ===
         print("  Collecting load balancers and listeners...")
@@ -525,6 +636,7 @@ class ExposureSkill(BaseSkill):
             )
 
             listeners: List[Dict[str, Any]] = []
+            listener_lookup_failures = 0
             for lb in lbs:
                 lb_arn = lb.get("LoadBalancerArn")
                 if not lb_arn:
@@ -532,6 +644,7 @@ class ExposureSkill(BaseSkill):
                 try:
                     l_resp = elbv2.describe_listeners(LoadBalancerArn=lb_arn)
                 except ClientError:
+                    listener_lookup_failures += 1
                     continue
                 for li in l_resp.get("Listeners", []) or []:
                     listeners.append(
@@ -553,9 +666,27 @@ class ExposureSkill(BaseSkill):
                     "items": listeners,
                 },
             )
+            if listener_lookup_failures:
+                self._record_component_status(
+                    components,
+                    "load-balancers",
+                    ok=False,
+                    reason_code="partial_collection",
+                    error=f"{listener_lookup_failures} listener lookups failed",
+                )
+            else:
+                self._record_component_status(components, "load-balancers", ok=True)
 
         except Exception as e:
             print(f"    Warning: Could not collect ELBv2 data: {e}")
+            self._record_component_status(
+                components,
+                "load-balancers",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === WAFv2 (WebACLs + ALB associations) ===
         print("  Collecting WAFv2 WebACL associations...")
@@ -585,6 +716,7 @@ class ExposureSkill(BaseSkill):
                     if not marker:
                         break
 
+            web_acl_association_failures = 0
             for wa in web_acls:
                 arn = wa.get("ARN")
                 if not arn:
@@ -598,6 +730,7 @@ class ExposureSkill(BaseSkill):
                     for alb_arn in resources:
                         alb_associations.setdefault(alb_arn, []).append(arn)
                 except ClientError:
+                    web_acl_association_failures += 1
                     continue
 
             _save(
@@ -608,8 +741,26 @@ class ExposureSkill(BaseSkill):
                 evidence_path / "wafv2-web-acl-alb-associations.json",
                 {"_meta": {"_region": region}, "by_alb_arn": alb_associations},
             )
+            if web_acl_association_failures:
+                self._record_component_status(
+                    components,
+                    "wafv2-web-acls",
+                    ok=False,
+                    reason_code="partial_collection",
+                    error=f"{web_acl_association_failures} ALB association lookups failed",
+                )
+            else:
+                self._record_component_status(components, "wafv2-web-acls", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect WAFv2 data: {e}")
+            self._record_component_status(
+                components,
+                "wafv2-web-acls",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === LAMBDA FUNCTION URLS ===
         print("  Collecting Lambda function URLs...")
@@ -637,14 +788,24 @@ class ExposureSkill(BaseSkill):
                         }
                     )
             _save(evidence_path / "lambda-function-urls.json", {"items": fn_urls})
+            self._record_component_status(components, "lambda-function-urls", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect Lambda function URLs: {e}")
+            self._record_component_status(
+                components,
+                "lambda-function-urls",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === API GATEWAY STAGES ===
         print("  Collecting API Gateway stages...")
         try:
             api_stages: List[Dict[str, Any]] = []
             api_routes: List[Dict[str, Any]] = []
+            api_gateway_sub_call_failures = 0
             apigw = boto3.client("apigateway", **client_kwargs)
             apis = apigw.get_rest_apis().get("items", [])
             for api in apis or []:
@@ -654,6 +815,7 @@ class ExposureSkill(BaseSkill):
                 try:
                     stages = apigw.get_stages(restApiId=api_id).get("item", [])
                 except ClientError:
+                    api_gateway_sub_call_failures += 1
                     continue
                 for stage in stages or []:
                     stage_name = stage.get("stageName")
@@ -673,6 +835,7 @@ class ExposureSkill(BaseSkill):
                     resources = apigw.get_resources(restApiId=api_id).get("items", [])
                 except ClientError:
                     resources = []
+                    api_gateway_sub_call_failures += 1
                 for res in resources or []:
                     if not isinstance(res, dict):
                         continue
@@ -687,6 +850,7 @@ class ExposureSkill(BaseSkill):
                                 httpMethod=http_method,
                             )
                         except ClientError:
+                            api_gateway_sub_call_failures += 1
                             continue
                         api_routes.append(
                             {
@@ -711,6 +875,7 @@ class ExposureSkill(BaseSkill):
                     try:
                         stages2 = apigw2.get_stages(ApiId=api_id).get("Items", [])
                     except ClientError:
+                        api_gateway_sub_call_failures += 1
                         continue
                     for stage in stages2 or []:
                         stage_name = stage.get("StageName")
@@ -730,6 +895,7 @@ class ExposureSkill(BaseSkill):
                         routes = apigw2.get_routes(ApiId=api_id).get("Items", [])
                     except ClientError:
                         routes = []
+                        api_gateway_sub_call_failures += 1
                     for r in routes or []:
                         if not isinstance(r, dict):
                             continue
@@ -753,8 +919,26 @@ class ExposureSkill(BaseSkill):
 
             _save(evidence_path / "api-gateway-stages.json", {"items": api_stages})
             _save(evidence_path / "api-gateway-routes.json", {"items": api_routes})
+            if api_gateway_sub_call_failures:
+                self._record_component_status(
+                    components,
+                    "api-gateway-stages",
+                    ok=False,
+                    reason_code="partial_collection",
+                    error=f"{api_gateway_sub_call_failures} per-API sub-call lookups failed",
+                )
+            else:
+                self._record_component_status(components, "api-gateway-stages", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect API Gateway stages: {e}")
+            self._record_component_status(
+                components,
+                "api-gateway-stages",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === ECS/EKS INGRESS ===
         print("  Collecting ECS/EKS ingress exposure...")
@@ -788,10 +972,12 @@ class ExposureSkill(BaseSkill):
 
             # EKS public endpoint exposure
             cluster_names = eks.list_clusters().get("clusters", []) or []
+            eks_describe_failures = 0
             for cname in cluster_names:
                 try:
                     cluster = eks.describe_cluster(name=cname).get("cluster", {})
                 except ClientError:
+                    eks_describe_failures += 1
                     continue
                 vpc_cfg = cluster.get("resourcesVpcConfig", {}) if isinstance(cluster, dict) else {}
                 ingress_items.append(
@@ -805,8 +991,26 @@ class ExposureSkill(BaseSkill):
                 )
 
             _save(evidence_path / "ecs-eks-ingress.json", {"items": ingress_items})
+            if eks_describe_failures:
+                self._record_component_status(
+                    components,
+                    "ecs-eks-ingress",
+                    ok=False,
+                    reason_code="partial_collection",
+                    error=f"{eks_describe_failures} EKS cluster describe lookups failed",
+                )
+            else:
+                self._record_component_status(components, "ecs-eks-ingress", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect ECS/EKS ingress: {e}")
+            self._record_component_status(
+                components,
+                "ecs-eks-ingress",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === ELASTICSEARCH / OPENSEARCH DOMAINS ===
         print("  Collecting Elasticsearch/OpenSearch domains...")
@@ -875,18 +1079,47 @@ class ExposureSkill(BaseSkill):
                 pass
 
             _save(evidence_path / "elasticsearch-domains.json", {"items": domains_out})
+            self._record_component_status(components, "elasticsearch-domains", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect Elasticsearch/OpenSearch domains: {e}")
+            self._record_component_status(
+                components,
+                "elasticsearch-domains",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === RESOURCE-BASED POLICIES ===
         print(
             "  Collecting resource-based policies (SQS, SNS, OpenSearch, ECR, Secrets Manager)..."
         )
         try:
-            rbp_items = _collect_resource_based_policies(client_kwargs)
+            rbp_items, rbp_failures = _collect_resource_based_policies(client_kwargs)
             _save(evidence_path / "resource-based-policies.json", {"items": rbp_items})
+            if rbp_failures:
+                self._record_component_status(
+                    components,
+                    "resource-based-policies",
+                    ok=False,
+                    reason_code="partial_collection",
+                    error=f"{rbp_failures} of 5 resource-type sub-collectors failed",
+                )
+            else:
+                self._record_component_status(components, "resource-based-policies", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect resource-based policies: {e}")
+            self._record_component_status(
+                components,
+                "resource-based-policies",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
+
+        self._save_collection_status(evidence_path, {"components": components})
 
         # Persist audit metadata last so it includes all files.
         _save(evidence_path / "_audit_metadata.json", audit_metadata)
