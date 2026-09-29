@@ -434,6 +434,10 @@ def check_waf_011(evidence: Dict[str, Any]) -> PreCheckResult:
 @_register("waf")
 def check_waf_013(evidence: Dict[str, Any]) -> PreCheckResult:
     """WAF collection status indicates failures or unverifiable associations."""
+    if warning := check_evidence_or_warn(
+        "WAF-013", evidence, ["waf-collection-status"], expected_type=dict
+    ):
+        return warning
     if _waf_collection_has_failures(evidence):
         return PreCheckResult("WAF-013", "FAIL", "WAF collection has failures", [])
     # Detect HTTP API entries where GetWebACLForResource returned WAFInvalidParameterException.
