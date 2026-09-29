@@ -44,13 +44,7 @@ def _secrets_collection_failure(evidence: Dict[str, Any]) -> Optional[str]:
 @_register("secretsmanager")
 def check_sm_001(evidence: Dict[str, Any]) -> PreCheckResult:
     """Public wildcard resource policy on secrets."""
-    if warning := check_evidence_or_warn(
-        "SM-001",
-        evidence,
-        ["secrets"],
-        expected_type=dict,
-        extra_failure_check=_secrets_collection_failure,
-    ):
+    if warning := check_evidence_or_warn("SM-001", evidence, ["secrets"], expected_type=dict):
         return warning
     secrets_doc = evidence.get("secrets", {})
     secrets_list = secrets_doc.get("secrets", []) if isinstance(secrets_doc, dict) else []
@@ -73,19 +67,19 @@ def check_sm_001(evidence: Dict[str, Any]) -> PreCheckResult:
                     [s.get("ARN", s.get("Name", "unknown"))],
                 )
 
-    return PreCheckResult("SM-001", "PASS", "no wildcard principals in secrets", [])
+    return pass_or_warn(
+        PreCheckResult("SM-001", "PASS", "no wildcard principals in secrets", []),
+        evidence,
+        "SM-001",
+        "secrets",
+        _secrets_collection_failure,
+    )
 
 
 @_register("secretsmanager")
 def check_sm_003(evidence: Dict[str, Any]) -> PreCheckResult:
     """Rotation interval > 90 days."""
-    if warning := check_evidence_or_warn(
-        "SM-003",
-        evidence,
-        ["secrets"],
-        expected_type=dict,
-        extra_failure_check=_secrets_collection_failure,
-    ):
+    if warning := check_evidence_or_warn("SM-003", evidence, ["secrets"], expected_type=dict):
         return warning
     secrets_doc = evidence.get("secrets", {})
     secrets_list = secrets_doc.get("secrets", []) if isinstance(secrets_doc, dict) else []
@@ -110,19 +104,19 @@ def check_sm_003(evidence: Dict[str, Any]) -> PreCheckResult:
         except (ValueError, TypeError):
             continue
 
-    return PreCheckResult("SM-003", "PASS", "no secrets with rotation >90 days", [])
+    return pass_or_warn(
+        PreCheckResult("SM-003", "PASS", "no secrets with rotation >90 days", []),
+        evidence,
+        "SM-003",
+        "secrets",
+        _secrets_collection_failure,
+    )
 
 
 @_register("secretsmanager")
 def check_sm_013(evidence: Dict[str, Any]) -> PreCheckResult:
     """Secrets resource policy grants external account access."""
-    if warning := check_evidence_or_warn(
-        "SM-013",
-        evidence,
-        ["secrets"],
-        expected_type=dict,
-        extra_failure_check=_secrets_collection_failure,
-    ):
+    if warning := check_evidence_or_warn("SM-013", evidence, ["secrets"], expected_type=dict):
         return warning
     secrets_doc = evidence.get("secrets", {})
     secrets_list = secrets_doc.get("secrets", []) if isinstance(secrets_doc, dict) else []
@@ -172,21 +166,21 @@ def check_sm_013(evidence: Dict[str, Any]) -> PreCheckResult:
                             [secret_arn or s.get("Name", "unknown")],
                         )
 
-    return PreCheckResult(
-        "SM-013", "PASS", "no external account principals in resource policies", []
+    return pass_or_warn(
+        PreCheckResult(
+            "SM-013", "PASS", "no external account principals in resource policies", []
+        ),
+        evidence,
+        "SM-013",
+        "secrets",
+        _secrets_collection_failure,
     )
 
 
 @_register("secretsmanager")
 def check_sm_014(evidence: Dict[str, Any]) -> PreCheckResult:
     """Rotation enabled but Lambda rotation config missing/inconsistent."""
-    if warning := check_evidence_or_warn(
-        "SM-014",
-        evidence,
-        ["secrets"],
-        expected_type=dict,
-        extra_failure_check=_secrets_collection_failure,
-    ):
+    if warning := check_evidence_or_warn("SM-014", evidence, ["secrets"], expected_type=dict):
         return warning
     secrets_doc = evidence.get("secrets", {})
     secrets_list = secrets_doc.get("secrets", []) if isinstance(secrets_doc, dict) else []
@@ -212,19 +206,21 @@ def check_sm_014(evidence: Dict[str, Any]) -> PreCheckResult:
                 [s.get("ARN", s.get("Name", "unknown"))],
             )
 
-    return PreCheckResult("SM-014", "PASS", "rotation lambda configuration appears consistent", [])
+    return pass_or_warn(
+        PreCheckResult(
+            "SM-014", "PASS", "rotation lambda configuration appears consistent", []
+        ),
+        evidence,
+        "SM-014",
+        "secrets",
+        _secrets_collection_failure,
+    )
 
 
 @_register("secretsmanager")
 def check_sm_015(evidence: Dict[str, Any]) -> PreCheckResult:
     """Secrets encrypted with KMS keys from different account."""
-    if warning := check_evidence_or_warn(
-        "SM-015",
-        evidence,
-        ["secrets"],
-        expected_type=dict,
-        extra_failure_check=_secrets_collection_failure,
-    ):
+    if warning := check_evidence_or_warn("SM-015", evidence, ["secrets"], expected_type=dict):
         return warning
     secrets_doc = evidence.get("secrets", {})
     secrets_list = secrets_doc.get("secrets", []) if isinstance(secrets_doc, dict) else []
@@ -250,19 +246,19 @@ def check_sm_015(evidence: Dict[str, Any]) -> PreCheckResult:
                 [secret_arn or s.get("Name", "unknown")],
             )
 
-    return PreCheckResult("SM-015", "PASS", "no cross-account KMS key usage in secrets", [])
+    return pass_or_warn(
+        PreCheckResult("SM-015", "PASS", "no cross-account KMS key usage in secrets", []),
+        evidence,
+        "SM-015",
+        "secrets",
+        _secrets_collection_failure,
+    )
 
 
 @_register("secretsmanager")
 def check_sm_017(evidence: Dict[str, Any]) -> PreCheckResult:
     """Replication + permissive/external resource policy increases backdoor risk."""
-    if warning := check_evidence_or_warn(
-        "SM-017",
-        evidence,
-        ["secrets"],
-        expected_type=dict,
-        extra_failure_check=_secrets_collection_failure,
-    ):
+    if warning := check_evidence_or_warn("SM-017", evidence, ["secrets"], expected_type=dict):
         return warning
     secrets_doc = evidence.get("secrets", {})
     secrets_list = secrets_doc.get("secrets", []) if isinstance(secrets_doc, dict) else []
@@ -320,8 +316,14 @@ def check_sm_017(evidence: Dict[str, Any]) -> PreCheckResult:
                             [secret_arn or s.get("Name", "unknown")],
                         )
 
-    return PreCheckResult(
-        "SM-017", "PASS", "no risky replication + permissive policy combination", []
+    return pass_or_warn(
+        PreCheckResult(
+            "SM-017", "PASS", "no risky replication + permissive policy combination", []
+        ),
+        evidence,
+        "SM-017",
+        "secrets",
+        _secrets_collection_failure,
     )
 
 
