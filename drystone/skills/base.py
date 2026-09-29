@@ -111,6 +111,36 @@ class BaseSkill(ABC):
         self._save_json(evidence_path / output_name, normalized)
         return normalized
 
+    def _record_component_status(
+        self,
+        components: Dict[str, Dict[str, Any]],
+        component: str,
+        *,
+        ok: bool,
+        reason_code: Optional[str] = None,
+        error_code: Optional[str] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        """Record a per-component collection outcome for a `components` dict.
+
+        Shared recorder for the standardized per-component collection-status
+        shape (see PLAN_VALIDATION_WARN.md, "Recommended design" / slicing
+        step 4): `{"ok": bool, "reason_code": "collection_failed" |
+        "partial_collection" (only when not ok), "error_code": ..., "error": ...}`.
+
+        Intended to be paired with `_save_collection_status(evidence_path,
+        {"components": components, ...})` so pre-checks can later distinguish
+        "collection failed" from "resource absent after successful collection".
+        """
+        entry: Dict[str, Any] = {"ok": ok}
+        if not ok and reason_code:
+            entry["reason_code"] = reason_code
+        if error_code:
+            entry["error_code"] = error_code
+        if error:
+            entry["error"] = str(error)
+        components[component] = entry
+
     def _collection_status_ok(self, value: Any) -> bool:
         """Derive aggregate collection status from nested legacy status dicts."""
         if isinstance(value, dict):
