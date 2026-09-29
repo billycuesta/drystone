@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 @_register("exposure")
+@requires_components("exposure", "s3-buckets")
 def check_exp_001(evidence: Dict[str, Any]) -> PreCheckResult:
     """Public S3 bucket exposure."""
     s3_doc = evidence.get("s3-buckets")
@@ -109,6 +110,7 @@ def check_exp_001(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("exposure")
+@requires_components("exposure", "rds-instances", "security-groups")
 def check_exp_002(evidence: Dict[str, Any]) -> PreCheckResult:
     """RDS instances publicly accessible from internet."""
     rds_doc = evidence.get("rds-instances")
@@ -199,6 +201,7 @@ def check_exp_002(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("exposure")
+@requires_components("exposure", "security-groups")
 def check_exp_003(evidence: Dict[str, Any]) -> PreCheckResult:
     """SSH/RDP open to 0.0.0.0/0."""
     sg_doc = evidence.get("security-groups")
@@ -253,6 +256,7 @@ def check_exp_003(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("exposure")
+@requires_components("exposure", "load-balancers")
 def check_exp_007(evidence: Dict[str, Any]) -> PreCheckResult:
     """Internet-facing ALB/NLB without WAF association."""
     lbs_doc = evidence.get("load-balancers")
@@ -305,6 +309,7 @@ def check_exp_007(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("exposure")
+@requires_components("exposure", "load-balancers")
 def check_exp_010(evidence: Dict[str, Any]) -> PreCheckResult:
     """Obsolete TLS policies on internet-facing ALB."""
     lbs_doc = evidence.get("load-balancers")
@@ -340,6 +345,7 @@ def check_exp_010(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("exposure")
+@requires_components("exposure", "s3-buckets")
 def check_exp_011(evidence: Dict[str, Any]) -> PreCheckResult:
     """Public object listing on S3."""
     if warning := check_evidence_or_warn("EXP-011", evidence, ["s3-buckets"], expected_type=dict):
@@ -584,6 +590,7 @@ def check_exp_015(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("exposure")
+@requires_components("exposure", "lambda-function-urls")
 def check_exp_016(evidence: Dict[str, Any]) -> PreCheckResult:
     """Lambda function URLs without authentication (AuthType=NONE)."""
     urls_doc = evidence.get("lambda-function-urls")
@@ -607,6 +614,7 @@ def check_exp_016(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("exposure")
+@requires_components("exposure", "security-groups")
 def check_exp_004(evidence: Dict[str, Any]) -> PreCheckResult:
     """EC2 management/database ports (22, 3389, 3306, 5432) open to internet via SG."""
     ec2_doc = (
@@ -692,6 +700,7 @@ def check_exp_004(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("exposure")
+@requires_components("exposure", "cloudfront-distributions")
 def check_exp_020(evidence: Dict[str, Any]) -> PreCheckResult:
     """CloudFront S3 origins should enforce OAI/OAC-style origin access controls."""
     cf_doc = evidence.get("cloudfront-distributions")
@@ -803,6 +812,7 @@ def check_exp_022(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("exposure")
+@requires_components("exposure", "resource-based-policies")
 def check_exp_023(evidence: Dict[str, Any]) -> PreCheckResult:
     """EXP-023: Resource-based policies with Principal:* without effective conditions.
 
@@ -1076,6 +1086,7 @@ def _generate_replacement_policy(
 
 
 @_register("exposure")
+@requires_components("exposure", "s3-buckets")
 def check_exp_024(evidence: Dict[str, Any]) -> PreCheckResult:
     """EXP-024: S3 buckets used for audit/logging without KMS encryption.
 
@@ -1157,6 +1168,7 @@ def check_exp_024(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("exposure")
+@requires_components("exposure", "lambda-function-urls")
 def check_exp_005(evidence: Dict[str, Any]) -> PreCheckResult:
     """EXP-005: Lambda function URLs without authentication (AuthType=NONE)."""
     urls_doc = evidence.get("lambda-function-urls")

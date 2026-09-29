@@ -776,6 +776,202 @@ def test_all_registered_recon_checks_resolve_to_known_checklist_ids():
         assert resolve_pre_check_id(fn) in checklist_ids
 
 
+# ============================================================================
+# EXPOSURE: warn on incomplete evidence status (B checks)
+# ============================================================================
+
+
+# Only stems that are BOTH (a) an evidence key the check literally reads via
+# evidence.get(...) AND (b) a component name the exposure collector actually
+# records via _record_component_status are declared here. EXP-004 also reads
+# ec2/instances evidence collected by the *network* skill (cross-skill,
+# untracked by exposure-collection-status), so only its own-skill
+# "security-groups" dependency is declared. EXP-006/021/022 read only
+# "api-gateway-routes.json", a file written by the same collector pass as
+# api-gateway-stages.json but never itself recorded as a component (the
+# shared sub-call failure counter is recorded under "api-gateway-stages"
+# instead) — see the dedicated guard test below for why they stay
+# undecorated. EXP-007/010 similarly read a second "derived" file
+# ("wafv2-web-acl-alb-associations.json" / "load-balancer-listeners.json")
+# that shares its parent's component but has no matching component name of
+# its own, so only the matching stem is declared.
+EXPOSURE_STATUS_STEMS_BY_CHECK = {
+    "EXP-001": ("s3-buckets",),
+    "EXP-002": ("rds-instances", "security-groups"),
+    "EXP-003": ("security-groups",),
+    "EXP-004": ("security-groups",),
+    "EXP-005": ("lambda-function-urls",),
+    "EXP-007": ("load-balancers",),
+    "EXP-010": ("load-balancers",),
+    "EXP-016": ("lambda-function-urls",),
+    "EXP-020": ("cloudfront-distributions",),
+    "EXP-023": ("resource-based-policies",),
+    "EXP-024": ("s3-buckets",),
+}
+
+# Checks in this session's 14 B-check scope that read only a derived file
+# with no exactly-matching recorded component. Declaring a stem here would
+# either always false-WARN (a stem that never appears in any real
+# collection-status doc) or tie WARN behavior to a component the check never
+# reads. Left undecorated and reported instead of forcing a mismatched stem.
+EXPOSURE_UNDECORATED_DERIVED_FILE_CHECKS = {
+    "EXP-006": "api-gateway-routes",
+    "EXP-021": "api-gateway-routes",
+    "EXP-022": "api-gateway-routes",
+}
+
+_EXPOSURE_EMPTY_DOC_BY_STEM = {
+    "s3-buckets": {"items": []},
+    "rds-instances": {"items": []},
+    "security-groups": {"items": [], "by_id": {}},
+    "lambda-function-urls": {"items": []},
+    "load-balancers": {"items": []},
+    "cloudfront-distributions": {"items": []},
+    "resource-based-policies": {"items": []},
+}
+
+
+def _exposure_check_fn(check_id):
+    return _registered_check_fn("exposure", check_id)
+
+
+def _exposure_empty_evidence_with_status(stems):
+    evidence = _status_doc("exposure", stems, ok=True)
+    for stem in stems:
+        evidence[stem] = _EXPOSURE_EMPTY_DOC_BY_STEM[stem]
+    return evidence
+
+
+@pytest.mark.parametrize("check_id,stems", EXPOSURE_STATUS_STEMS_BY_CHECK.items())
+def test_exposure_b_checks_warn_on_collection_failed_status(check_id, stems):
+    result = _exposure_check_fn(check_id)(
+        _status_doc("exposure", stems, ok=False, reason_code="collection_failed")
+    )
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "collection_failed"
+    assert result.metadata["evidence_key"] in stems
+
+
+@pytest.mark.parametrize("check_id,stems", EXPOSURE_STATUS_STEMS_BY_CHECK.items())
+def test_exposure_b_checks_warn_on_partial_collection_when_no_violation_found(check_id, stems):
+    result = _exposure_check_fn(check_id)(
+        _status_doc("exposure", stems, ok=False, reason_code="partial_collection")
+    )
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "partial_collection"
+
+
+@pytest.mark.parametrize("check_id,stems", EXPOSURE_STATUS_STEMS_BY_CHECK.items())
+def test_exposure_b_checks_keep_legacy_empty_evidence_without_status(check_id, stems):
+    result = _exposure_check_fn(check_id)({})
+
+    assert result.check_id == check_id
+    assert result.status != "WARN"
+
+
+@pytest.mark.parametrize("check_id,stems", EXPOSURE_STATUS_STEMS_BY_CHECK.items())
+def test_exposure_b_checks_keep_ok_empty_evidence_behavior(check_id, stems):
+    result = _exposure_check_fn(check_id)(_exposure_empty_evidence_with_status(stems))
+
+    assert result.check_id == check_id
+    assert result.status != "WARN"
+
+
+@pytest.mark.parametrize("check_id,stems", EXPOSURE_STATUS_STEMS_BY_CHECK.items())
+def test_exposure_b_checks_warn_when_status_exists_but_required_evidence_key_missing(check_id, stems):
+    result = _exposure_check_fn(check_id)({"exposure-collection-status": {"components": {}}})
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "missing_evidence"
+    assert result.metadata["evidence_key"] in stems
+
+
+def test_exposure_b_partial_collection_never_masks_real_failures():
+    evidence = _status_doc("exposure", ("security-groups",), ok=False, reason_code="partial_collection")
+    evidence["security-groups"] = {
+        "items": [
+            {
+                "GroupId": "sg-123",
+                "GroupName": "test-sg",
+                "IngressRules": [
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": 22,
+                        "ToPort": 22,
+                        "IpRanges": [{"CidrIp": "0.0.0.0/0"}],
+                    }
+                ],
+            }
+        ]
+    }
+
+    result = _exposure_check_fn("EXP-003")(evidence)
+
+    assert result.status == "FAIL"
+    assert result.evidence_summary == "1 SGs with SSH/RDP open"
+
+
+def test_exp_011_warns_on_partial_collection_not_caught_by_check_evidence_or_warn():
+    """EXP-011 already guards literally-missing/malformed s3-buckets evidence
+    via `check_evidence_or_warn` (category C), but that guard only checks
+    presence/type — it deliberately does not consult the collection-status
+    signal (see its docstring). A `partial_collection` s3-buckets status
+    (e.g. some bucket policy sub-calls failed) would previously reach the
+    normal PASS/FAIL logic on an incomplete bucket list and could report a
+    false PASS. `requires_components` closes that gap without touching the
+    existing category-C guard.
+    """
+    evidence = _status_doc("exposure", ("s3-buckets",), ok=False, reason_code="partial_collection")
+    evidence["s3-buckets"] = {"items": []}
+
+    result = _exposure_check_fn("EXP-011")(evidence)
+
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "partial_collection"
+
+
+def test_exp_011_declares_required_components():
+    fn = _exposure_check_fn("EXP-011")
+    assert fn.required_components == ("exposure", ("s3-buckets",))
+
+
+def test_exposure_checks_declare_required_components_matching_status_stems():
+    """Guard: every decorated exposure B check declares a `requires_components`
+    tuple whose stems exactly match the expected mapping.
+    """
+    registered_by_id = {resolve_pre_check_id(fn): fn for fn in PRE_CHECK_REGISTRY["exposure"]}
+
+    for check_id, stems in EXPOSURE_STATUS_STEMS_BY_CHECK.items():
+        fn = registered_by_id[check_id]
+        assert fn.required_components == ("exposure", stems), check_id
+
+
+def test_exposure_checks_reading_only_derived_files_are_not_decorated():
+    """EXP-006/021/022 read only api-gateway-routes.json, which is written by
+    the same collector pass as api-gateway-stages.json but is never itself
+    recorded as a component name in exposure-collection-status. See the
+    module-level comment above `EXPOSURE_UNDECORATED_DERIVED_FILE_CHECKS`.
+    """
+    registered_by_id = {resolve_pre_check_id(fn): fn for fn in PRE_CHECK_REGISTRY["exposure"]}
+
+    for check_id in EXPOSURE_UNDECORATED_DERIVED_FILE_CHECKS:
+        fn = registered_by_id[check_id]
+        assert not hasattr(fn, "required_components"), check_id
+
+
+def test_all_registered_exposure_checks_resolve_to_known_checklist_ids():
+    checklist_path = Path(__file__).resolve().parents[2] / "drystone" / "skills" / "exposure" / "checklist.json"
+    checklist_ids = {item["id"] for item in json.loads(checklist_path.read_text())["items"]}
+
+    for fn in PRE_CHECK_REGISTRY["exposure"]:
+        assert resolve_pre_check_id(fn) in checklist_ids
+
+
 class TestIAMDeterministicFindingText:
     def test_injected_iam_findings_have_specific_impact_text(self):
         for check_id in ("IAM-007", "IAM-015", "IAM-016", "IAM-026"):
