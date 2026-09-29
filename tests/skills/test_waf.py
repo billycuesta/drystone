@@ -179,6 +179,85 @@ class TestWAFSkill:
                                             assert status["errors"] == {}
                                             assert "wafv2" in status
 
+    def test_collection_status_components_match_written_evidence_stems(
+        self, skill, mock_aws_client, mock_session
+    ):
+        with patch.object(skill, "_collect_cloudfront_distributions", return_value=([], None)):
+            with patch.object(skill, "_collect_wafv2_web_acls_for_scope", return_value=([], None)):
+                with patch.object(skill, "_collect_wafv2_ip_sets", return_value=([], None)):
+                    with patch.object(skill, "_collect_wafv2_rule_groups", return_value=([], None)):
+                        with patch.object(
+                            skill, "_collect_wafv2_regex_pattern_sets", return_value=([], None)
+                        ):
+                            with patch.object(
+                                skill, "_collect_wafv2_managed_rule_groups", return_value={}
+                            ):
+                                with patch.object(
+                                    skill, "_collect_alb_waf_associations", return_value=([], {})
+                                ):
+                                    with patch.object(
+                                        skill,
+                                        "_collect_api_entrypoints_waf_associations",
+                                        return_value=([], {}),
+                                    ):
+                                        with patch.object(
+                                            skill,
+                                            "_collect_waf_classic_inventory",
+                                            return_value=([], None),
+                                        ):
+                                            skill.collect(mock_aws_client, mock_session)
+
+        evidence_dir = mock_session.get_evidence_path.return_value
+        status = json.loads((evidence_dir / "waf-collection-status.json").read_text())
+        evidence_stems = {
+            path.stem
+            for path in evidence_dir.glob("*.json")
+            if not path.name.endswith("-collection-status.json") and path.name != "_audit_metadata.json"
+        }
+
+        assert set(status["components"]) == evidence_stems
+        assert status["components"]["api-entrypoints-waf-associations"] == {"ok": True}
+        assert status["components"]["wafv2-web-acls"] == {"ok": True}
+        assert status["components"]["waf-classic"] == {"ok": True}
+
+    def test_collection_status_components_preserve_legacy_api_entrypoint_errors(
+        self, skill, mock_aws_client, mock_session
+    ):
+        with patch.object(skill, "_collect_cloudfront_distributions", return_value=([], None)):
+            with patch.object(skill, "_collect_wafv2_web_acls_for_scope", return_value=([], None)):
+                with patch.object(skill, "_collect_wafv2_ip_sets", return_value=([], None)):
+                    with patch.object(skill, "_collect_wafv2_rule_groups", return_value=([], None)):
+                        with patch.object(
+                            skill, "_collect_wafv2_regex_pattern_sets", return_value=([], None)
+                        ):
+                            with patch.object(
+                                skill, "_collect_wafv2_managed_rule_groups", return_value={}
+                            ):
+                                with patch.object(
+                                    skill, "_collect_alb_waf_associations", return_value=([], {})
+                                ):
+                                    with patch.object(
+                                        skill,
+                                        "_collect_api_entrypoints_waf_associations",
+                                        return_value=(
+                                            [],
+                                            {"apigateway_rest": {"ok": False, "error": "AccessDenied"}},
+                                        ),
+                                    ):
+                                        with patch.object(
+                                            skill,
+                                            "_collect_waf_classic_inventory",
+                                            return_value=([], None),
+                                        ):
+                                            skill.collect(mock_aws_client, mock_session)
+
+        evidence_dir = mock_session.get_evidence_path.return_value
+        status = json.loads((evidence_dir / "waf-collection-status.json").read_text())
+        assert status["api_entrypoints"]["apigateway_rest"]["ok"] is False
+        component = status["components"]["api-entrypoints-waf-associations"]
+        assert component["ok"] is False
+        assert component["reason_code"] == "collection_failed"
+
     def test_collect_saves_cloudfront_distributions(self, skill, mock_aws_client, mock_session):
         """Test collect() saves CloudFront distributions evidence."""
         cf_data = [

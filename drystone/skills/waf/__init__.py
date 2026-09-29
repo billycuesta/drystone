@@ -4,6 +4,7 @@ Collects AWS WAF (WAFv2 + legacy WAF Classic) configuration and associations to
 support security and compliance analysis (e.g., PCI DSS 6.4.2).
 """
 
+import json
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -242,6 +243,42 @@ class WAFSkill(BaseSkill):
         self._save_json(evidence_path / "waf-classic.json", waf_classic)
 
         # Persist collection quality metadata (used to gate analysis and avoid false positives).
+        def _source_status(source: Dict[str, Any]) -> Dict[str, Any]:
+            errors = self._collection_status_errors(source)
+            error = json.dumps(errors, sort_keys=True) if errors else None
+            return {"ok": self._collection_status_ok(source), "error": error}
+
+        component_sources = {
+            "cloudfront-distributions": _source_status(collection_status["cloudfront"]),
+            "cloudfront-wafv2-associations": _source_status(collection_status["cloudfront"]),
+            "cloudfront-classic-associations": _source_status(collection_status["cloudfront"]),
+            "wafv2-web-acls": _source_status(collection_status["wafv2"]),
+            "wafv2-ip-sets": _source_status(collection_status["wafv2"]),
+            "wafv2-rule-groups": _source_status(collection_status["wafv2"]),
+            "wafv2-regex-pattern-sets": _source_status(collection_status["wafv2"]),
+            "wafv2-managed-rule-groups": _source_status(collection_status["wafv2"]),
+            "alb-waf-associations": _source_status(collection_status["alb"]),
+            "api-entrypoints-waf-associations": _source_status(
+                collection_status["api_entrypoints"]
+            ),
+            "waf-classic": _source_status(collection_status["waf_classic"]),
+        }
+        components: Dict[str, Dict[str, Any]] = {}
+        for path in sorted(evidence_path.glob("*.json")):
+            if path.name.endswith("-collection-status.json") or path.name == "_audit_metadata.json":
+                continue
+            source = component_sources.get(path.stem, {"ok": True, "error": None})
+            ok = source.get("ok") is not False
+            error = source.get("error")
+            self._record_component_status(
+                components,
+                path.stem,
+                ok=ok,
+                reason_code=None if ok else "collection_failed",
+                error_code=self._status_error_code(error or ""),
+                error=error,
+            )
+        collection_status["components"] = components
         self._save_collection_status(evidence_path, collection_status)
 
         # === AUDIT METADATA ===
