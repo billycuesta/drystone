@@ -126,25 +126,27 @@ def _hardening_findings_failure(evidence: Dict[str, Any]) -> Optional[str]:
 def check_hrd_005(evidence: Dict[str, Any]) -> PreCheckResult:
     """Critical Security Hub findings should be zero."""
     if warning := check_evidence_or_warn(
-        "HRD-005",
-        evidence,
-        ["security-hub-findings-summary"],
-        expected_type=dict,
-        extra_failure_check=_hardening_findings_failure,
+        "HRD-005", evidence, ["security-hub-findings-summary"], expected_type=dict
     ):
         return warning
     sev_counts, _ = _get_hardening_counts(evidence)
     critical = sev_counts.get("CRITICAL", 0)
-    if critical <= 0:
-        return PreCheckResult("HRD-005", "PASS", f"CRITICAL count={critical}", [])
-    samples = _hardening_finding_samples(evidence, "CRITICAL")
-    affected = _hardening_sample_resource_ids(samples)
-    return PreCheckResult(
+    if critical > 0:
+        samples = _hardening_finding_samples(evidence, "CRITICAL")
+        affected = _hardening_sample_resource_ids(samples)
+        return PreCheckResult(
+            "HRD-005",
+            "FAIL",
+            f"{critical} CRITICAL Security Hub finding(s)",
+            affected,
+            metadata={"count": critical, "severity": "CRITICAL", "sample_findings": samples},
+        )
+    return pass_or_warn(
+        PreCheckResult("HRD-005", "PASS", f"CRITICAL count={critical}", []),
+        evidence,
         "HRD-005",
-        "FAIL",
-        f"{critical} CRITICAL Security Hub finding(s)",
-        affected,
-        metadata={"count": critical, "severity": "CRITICAL", "sample_findings": samples},
+        "security-hub-findings-summary",
+        _hardening_findings_failure,
     )
 
 
@@ -195,25 +197,27 @@ def check_hrd_006(evidence: Dict[str, Any]) -> PreCheckResult:
 def check_hrd_009(evidence: Dict[str, Any]) -> PreCheckResult:
     """High severity Security Hub findings should be <= 10."""
     if warning := check_evidence_or_warn(
-        "HRD-009",
-        evidence,
-        ["security-hub-findings-summary"],
-        expected_type=dict,
-        extra_failure_check=_hardening_findings_failure,
+        "HRD-009", evidence, ["security-hub-findings-summary"], expected_type=dict
     ):
         return warning
     sev_counts, _ = _get_hardening_counts(evidence)
     high = sev_counts.get("HIGH", 0)
-    if high <= 10:
-        return PreCheckResult("HRD-009", "PASS", f"HIGH count={high} (<=10)", [])
-    samples = _hardening_finding_samples(evidence, "HIGH")
-    affected = _hardening_sample_resource_ids(samples)
-    return PreCheckResult(
+    if high > 10:
+        samples = _hardening_finding_samples(evidence, "HIGH")
+        affected = _hardening_sample_resource_ids(samples)
+        return PreCheckResult(
+            "HRD-009",
+            "FAIL",
+            f"{high} HIGH Security Hub finding(s) (>10)",
+            affected,
+            metadata={"count": high, "severity": "HIGH", "sample_findings": samples},
+        )
+    return pass_or_warn(
+        PreCheckResult("HRD-009", "PASS", f"HIGH count={high} (<=10)", []),
+        evidence,
         "HRD-009",
-        "FAIL",
-        f"{high} HIGH Security Hub finding(s) (>10)",
-        affected,
-        metadata={"count": high, "severity": "HIGH", "sample_findings": samples},
+        "security-hub-findings-summary",
+        _hardening_findings_failure,
     )
 
 
@@ -221,25 +225,27 @@ def check_hrd_009(evidence: Dict[str, Any]) -> PreCheckResult:
 def check_hrd_012(evidence: Dict[str, Any]) -> PreCheckResult:
     """Medium severity Security Hub findings should be <= 20."""
     if warning := check_evidence_or_warn(
-        "HRD-012",
-        evidence,
-        ["security-hub-findings-summary"],
-        expected_type=dict,
-        extra_failure_check=_hardening_findings_failure,
+        "HRD-012", evidence, ["security-hub-findings-summary"], expected_type=dict
     ):
         return warning
     sev_counts, _ = _get_hardening_counts(evidence)
     medium = sev_counts.get("MEDIUM", 0)
-    if medium <= 20:
-        return PreCheckResult("HRD-012", "PASS", f"MEDIUM count={medium} (<=20)", [])
-    samples = _hardening_finding_samples(evidence, "MEDIUM")
-    affected = _hardening_sample_resource_ids(samples)
-    return PreCheckResult(
+    if medium > 20:
+        samples = _hardening_finding_samples(evidence, "MEDIUM")
+        affected = _hardening_sample_resource_ids(samples)
+        return PreCheckResult(
+            "HRD-012",
+            "FAIL",
+            f"{medium} MEDIUM Security Hub finding(s) (>20)",
+            affected,
+            metadata={"count": medium, "severity": "MEDIUM", "sample_findings": samples},
+        )
+    return pass_or_warn(
+        PreCheckResult("HRD-012", "PASS", f"MEDIUM count={medium} (<=20)", []),
+        evidence,
         "HRD-012",
-        "FAIL",
-        f"{medium} MEDIUM Security Hub finding(s) (>20)",
-        affected,
-        metadata={"count": medium, "severity": "MEDIUM", "sample_findings": samples},
+        "security-hub-findings-summary",
+        _hardening_findings_failure,
     )
 
 
@@ -292,18 +298,20 @@ def check_hrd_014(evidence: Dict[str, Any]) -> PreCheckResult:
 def check_hrd_016(evidence: Dict[str, Any]) -> PreCheckResult:
     """Low severity Security Hub findings should be zero."""
     if warning := check_evidence_or_warn(
-        "HRD-016",
-        evidence,
-        ["security-hub-findings-summary"],
-        expected_type=dict,
-        extra_failure_check=_hardening_findings_failure,
+        "HRD-016", evidence, ["security-hub-findings-summary"], expected_type=dict
     ):
         return warning
     sev_counts, _ = _get_hardening_counts(evidence)
     low = sev_counts.get("LOW", 0)
-    if low <= 0:
-        return PreCheckResult("HRD-016", "PASS", f"LOW count={low}", [])
-    return PreCheckResult("HRD-016", "FAIL", f"LOW count={low} (>0)", [])
+    if low > 0:
+        return PreCheckResult("HRD-016", "FAIL", f"LOW count={low} (>0)", [])
+    return pass_or_warn(
+        PreCheckResult("HRD-016", "PASS", f"LOW count={low}", []),
+        evidence,
+        "HRD-016",
+        "security-hub-findings-summary",
+        _hardening_findings_failure,
+    )
 
 
 @_register("hardening")
