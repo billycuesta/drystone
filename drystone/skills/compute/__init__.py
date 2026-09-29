@@ -62,21 +62,47 @@ class ComputeSkill(BaseSkill):
         }
         self._save_json(evidence_path / "_audit_metadata.json", metadata)
 
+        components: Dict[str, Dict[str, Any]] = {}
+
         ecs_out, ecs_errors = self._collect_ecs(ecs)
         self._save_json(evidence_path / "ecs-inventory.json", ecs_out)
         self._save_json(evidence_path / "ecs-errors.json", ecs_errors)
+        self._record_errors_component_status(
+            components,
+            "ecs-inventory",
+            ecs_errors,
+            collection_failure_keys={"list_clusters", "list_task_definitions"},
+        )
 
         ev_out, ev_errors = self._collect_eventbridge(events)
         self._save_json(evidence_path / "eventbridge-rules.json", ev_out)
         self._save_json(evidence_path / "eventbridge-errors.json", ev_errors)
+        self._record_errors_component_status(
+            components,
+            "eventbridge-rules",
+            ev_errors,
+            collection_failure_keys={"list_rules"},
+        )
 
         eks_out, eks_errors = self._collect_eks(eks)
         self._save_json(evidence_path / "eks-inventory.json", eks_out)
         self._save_json(evidence_path / "eks-errors.json", eks_errors)
+        self._record_errors_component_status(
+            components,
+            "eks-inventory",
+            eks_errors,
+            collection_failure_keys={"list_clusters"},
+        )
 
         ec2_out, ec2_errors = self._collect_ec2(session_obj.client("ec2", region_name=region))
         self._save_json(evidence_path / "ec2-inventory.json", ec2_out)
         self._save_json(evidence_path / "ec2-errors.json", ec2_errors)
+        self._record_errors_component_status(
+            components,
+            "ec2-inventory",
+            ec2_errors,
+            collection_failure_keys={"describe_instances"},
+        )
 
         lambda_out, lambda_errors = self._collect_lambda(
             session_obj.client("lambda", region_name=region),
@@ -84,6 +110,14 @@ class ComputeSkill(BaseSkill):
         )
         self._save_json(evidence_path / "lambda-inventory.json", lambda_out)
         self._save_json(evidence_path / "lambda-errors.json", lambda_errors)
+        self._record_errors_component_status(
+            components,
+            "lambda-inventory",
+            lambda_errors,
+            collection_failure_keys={"list_functions"},
+        )
+
+        self._save_collection_status(evidence_path, {"components": components})
 
         ok = not (ecs_errors or ev_errors or eks_errors or ec2_errors or lambda_errors)
         logger.info(
@@ -96,6 +130,32 @@ class ComputeSkill(BaseSkill):
                 "lambda_functions": len(lambda_out.get("functions", [])),
                 "ok": ok,
             },
+        )
+
+    def _record_errors_component_status(
+        self,
+        components: Dict[str, Dict[str, Any]],
+        component: str,
+        errors: Dict[str, str],
+        *,
+        collection_failure_keys: set[str],
+    ) -> None:
+        if not errors:
+            self._record_component_status(components, component, ok=True)
+            return
+        reason_code = (
+            "collection_failed"
+            if any(key in collection_failure_keys for key in errors)
+            else "partial_collection"
+        )
+        first_error_code = next(iter(errors.values()), None)
+        self._record_component_status(
+            components,
+            component,
+            ok=False,
+            reason_code=reason_code,
+            error_code=str(first_error_code) if first_error_code else None,
+            error="; ".join(f"{key}: {value}" for key, value in sorted(errors.items())),
         )
 
     def _scan_for_secrets(self, text: str) -> Dict[str, bool]:

@@ -1,9 +1,16 @@
 """Tests for Compute (ECS/EKS) skill evidence collection."""
 
+import json
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from botocore.exceptions import ClientError
+
 from drystone.skills.compute import ComputeSkill
+
+
+def _client_error(code="AccessDeniedException"):
+    return ClientError({"Error": {"Code": code, "Message": code}}, "Compute")
 
 
 class _DummyPaginator:
@@ -40,10 +47,10 @@ class _DummyECSClient:
     def describe_tasks(self, cluster, tasks):
         return {"tasks": [{"clusterArn": cluster, "taskArn": tasks[0], "taskDefinitionArn": "td"}]}
 
-    def describe_task_definition(self, task_definition):
+    def describe_task_definition(self, taskDefinition):  # noqa: N803
         return {
             "taskDefinition": {
-                "taskDefinitionArn": task_definition,
+                "taskDefinitionArn": taskDefinition,
                 "containerDefinitions": [],
             }
         }
@@ -56,8 +63,8 @@ class _DummyEventsClient:
             [{"Rules": [{"Name": "r1", "ScheduleExpression": "rate(5 minutes)"}]}]
         )
 
-    def list_targets_by_rule(self, rule: str):
-        assert rule
+    def list_targets_by_rule(self, Rule: str):  # noqa: N803
+        assert Rule
         return {"Targets": [{"Arn": "arn:aws:ecs:us-east-1:1:cluster/c1"}]}
 
 
@@ -78,11 +85,11 @@ class _DummyEKSClient:
             }
         }
 
-    def describe_nodegroup(self, cluster_name: str, nodegroup_name: str):
+    def describe_nodegroup(self, clusterName: str, nodegroupName: str):  # noqa: N803
         return {
             "nodegroup": {
-                "clusterName": cluster_name,
-                "nodegroupName": nodegroup_name,
+                "clusterName": clusterName,
+                "nodegroupName": nodegroupName,
             }
         }
 
@@ -186,3 +193,66 @@ def test_compute_collect_writes_expected_files(tmp_path: Path):
     assert (tmp_path / "eks-inventory.json").exists()
     assert (tmp_path / "ec2-inventory.json").exists()
     assert (tmp_path / "lambda-inventory.json").exists()
+
+
+def _run_compute_collect(tmp_path: Path, session_obj):
+    aws_client = Mock()
+    aws_client.region_name = "us-east-1"
+    aws_client.boto3_session.return_value = session_obj
+    session = Mock()
+    session.get_evidence_path.return_value = tmp_path
+    ComputeSkill().collect(aws_client, session)
+    return json.loads((tmp_path / "compute-collection-status.json").read_text())
+
+
+def test_compute_collection_status_happy_path(tmp_path: Path):
+    status = _run_compute_collect(tmp_path, _DummySession())
+
+    assert status["ok"] is True
+    for component in (
+        "ecs-inventory",
+        "eventbridge-rules",
+        "eks-inventory",
+        "ec2-inventory",
+        "lambda-inventory",
+    ):
+        assert status["components"][component] == {"ok": True}
+
+
+def test_compute_ecs_list_failure_is_collection_failed(tmp_path: Path):
+    class _FailECSClient(_DummyECSClient):
+        def get_paginator(self, op_name: str):
+            if op_name == "list_clusters":
+                raise _client_error("AccessDeniedException")
+            return super().get_paginator(op_name)
+
+    class _Session(_DummySession):
+        def client(self, service_name: str, region_name: str):
+            if service_name == "ecs":
+                return _FailECSClient()
+            return super().client(service_name, region_name)
+
+    status = _run_compute_collect(tmp_path, _Session())
+
+    component = status["components"]["ecs-inventory"]
+    assert component["ok"] is False
+    assert component["reason_code"] == "collection_failed"
+    assert component["error_code"] == "AccessDeniedException"
+
+
+def test_compute_ec2_user_data_failure_is_partial_collection(tmp_path: Path):
+    class _PartialEC2Client(_DummyEC2Client):
+        def describe_instance_attribute(self, InstanceId: str, Attribute: str):  # noqa: N803
+            raise _client_error("AccessDeniedException")
+
+    class _Session(_DummySession):
+        def client(self, service_name: str, region_name: str):
+            if service_name == "ec2":
+                return _PartialEC2Client()
+            return super().client(service_name, region_name)
+
+    status = _run_compute_collect(tmp_path, _Session())
+
+    component = status["components"]["ec2-inventory"]
+    assert component["ok"] is False
+    assert component["reason_code"] == "partial_collection"
