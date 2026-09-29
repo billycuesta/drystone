@@ -19,9 +19,38 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 
+def _ecr_repositories_failure(evidence: Dict[str, Any]) -> Optional[str]:
+    """Return a reason when ECR repository collection is not trustworthy.
+
+    Covers both a fully failed `describe_repositories` call (empty
+    repository list) and per-repository policy retrieval failures (a
+    repository whose `Policy` could not be read looks identical to one
+    without a policy, masking a possible wildcard principal).
+    """
+    status = evidence.get("ecr-collection-status")
+    if not isinstance(status, dict):
+        return None
+    errors = status.get("errors")
+    if not isinstance(errors, dict):
+        return None
+    for component in ("describe_repositories", "repo_policy_errors"):
+        detail = errors.get(component)
+        if detail:
+            return f"ecr-collection-status reports a failure for {component}: {detail}"
+    return None
+
+
 @_register("ecr")
 def check_ecr_001(evidence: Dict[str, Any]) -> PreCheckResult:
     """Public wildcard principals in ECR repository policies."""
+    if warning := check_evidence_or_warn(
+        "ECR-001",
+        evidence,
+        ["repositories"],
+        expected_type=dict,
+        extra_failure_check=_ecr_repositories_failure,
+    ):
+        return warning
     repos_doc = evidence.get("repositories", {})
     repos_list = repos_doc.get("repositories", []) if isinstance(repos_doc, dict) else []
 
@@ -152,6 +181,14 @@ def check_ecr_004(evidence: Dict[str, Any]) -> PreCheckResult:
 @_register("ecr")
 def check_ecr_007(evidence: Dict[str, Any]) -> PreCheckResult:
     """Cross-account repository access review."""
+    if warning := check_evidence_or_warn(
+        "ECR-007",
+        evidence,
+        ["repositories"],
+        expected_type=dict,
+        extra_failure_check=_ecr_repositories_failure,
+    ):
+        return warning
     repos_doc = evidence.get("repositories", {})
     repos_list = repos_doc.get("repositories", []) if isinstance(repos_doc, dict) else []
 
