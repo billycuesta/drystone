@@ -80,6 +80,7 @@ def _principal_is_wildcard(principal: Any) -> bool:
 
 
 @_register("alerting")
+@requires_components("alerting", "sns-topics", "cloudwatch-alarms", "eventbridge-rules")
 def check_alr_022(evidence: Dict[str, Any]) -> PreCheckResult:
     """ALRT-022: Critical alert topics should not allow broad publish access."""
     topics = evidence.get("sns-topics")
@@ -120,6 +121,7 @@ def check_alr_022(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("alerting")
+@requires_components("alerting", "sns-topics", "cloudwatch-alarms", "eventbridge-rules")
 def check_alr_023(evidence: Dict[str, Any]) -> PreCheckResult:
     """ALRT-023: Critical alert topics should not allow broad subscribe access."""
     topics = evidence.get("sns-topics")
@@ -160,6 +162,7 @@ def check_alr_023(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("alerting")
+@requires_components("alerting", "sns-topics", "cloudwatch-alarms", "eventbridge-rules")
 def check_alr_024(evidence: Dict[str, Any]) -> PreCheckResult:
     """ALRT-024: Critical alert topics should avoid risky HTTP/HTTPS subscriptions."""
     topics = evidence.get("sns-topics")
@@ -196,6 +199,7 @@ def check_alr_024(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("alerting")
+@requires_components("alerting", "eventbridge-rules")
 def check_alr_025(evidence: Dict[str, Any]) -> PreCheckResult:
     """ALRT-025: Critical EventBridge rules should forward to SNS alerting topics."""
     rules = evidence.get("eventbridge-rules")
@@ -234,6 +238,7 @@ def check_alr_025(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("alerting")
+@requires_components("alerting", "sns-topics", "cloudwatch-alarms", "eventbridge-rules")
 def check_alrt_005(evidence: Dict[str, Any]) -> PreCheckResult:
     """ALRT-005: Critical alert SNS topics should have confirmed subscriptions."""
     topics = evidence.get("sns-topics")
@@ -299,6 +304,7 @@ def check_alrt_005(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("alerting")
+@requires_components("alerting", "sns-topics", "cloudwatch-alarms", "eventbridge-rules")
 def check_alrt_006(evidence: Dict[str, Any]) -> PreCheckResult:
     """ALRT-006: Critical alert SNS topics should not have pending subscriptions."""
     topics = evidence.get("sns-topics")
@@ -329,6 +335,7 @@ def check_alrt_006(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("alerting")
+@requires_components("alerting", "cloudtrail-trails")
 def check_alrt_008(evidence: Dict[str, Any]) -> PreCheckResult:
     """ALRT-008: At least one CloudTrail trail should be multi-region."""
     trails = evidence.get("cloudtrail-trails", [])
@@ -349,6 +356,7 @@ def check_alrt_008(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("alerting")
+@requires_components("alerting", "cloudtrail-trails")
 def check_alrt_013(evidence: Dict[str, Any]) -> PreCheckResult:
     """ALRT-013: CloudTrail trails should have log file validation enabled."""
     trails = evidence.get("cloudtrail-trails", [])
@@ -381,6 +389,7 @@ def check_alrt_013(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("alerting")
+@requires_components("alerting", "cloudtrail-trails")
 def check_alrt_014(evidence: Dict[str, Any]) -> PreCheckResult:
     """ALRT-014: CloudTrail trails should encrypt logs with KMS."""
     trails = evidence.get("cloudtrail-trails", [])
@@ -412,6 +421,7 @@ def check_alrt_014(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("alerting")
+@requires_components("alerting", "eventbridge-rules")
 def check_alrt_002(evidence: Dict[str, Any]) -> PreCheckResult:
     """ALRT-002: CloudTrail should be integrated with EventBridge (active security rules).
 
@@ -509,6 +519,7 @@ def check_alrt_002(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("alerting")
+@requires_components("alerting", "cloudwatch-metric-filters")
 def check_alrt_003(evidence: Dict[str, Any]) -> PreCheckResult:
     """ALRT-003: Metric filters should have associated CloudWatch alarms."""
     metric_filters = evidence.get("cloudwatch-metric-filters")
@@ -559,6 +570,7 @@ def check_alrt_003(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("alerting")
+@requires_components("alerting", "eventbridge-rules")
 def check_alrt_004(evidence: Dict[str, Any]) -> PreCheckResult:
     """ALRT-004: Security EventBridge rules should have SNS notification targets."""
     rules = evidence.get("eventbridge-rules")
@@ -602,6 +614,7 @@ def check_alrt_004(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("alerting")
+@requires_components("alerting", "cloudwatch-metric-filters")
 def check_alrt_007(evidence: Dict[str, Any]) -> PreCheckResult:
     """ALRT-007: Critical security events should be covered by metric filters."""
     metric_filters = evidence.get("cloudwatch-metric-filters")
@@ -650,6 +663,7 @@ def check_alrt_007(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("alerting")
+@requires_components("alerting", "cloudtrail-trails", "cloudwatch-metric-filters")
 def check_alrt_009(evidence: Dict[str, Any]) -> PreCheckResult:
     """ALRT-009: CloudTrail log group should have metric filters for security events."""
     trails = evidence.get("cloudtrail-trails", [])
@@ -703,6 +717,7 @@ def check_alrt_009(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("alerting")
+@requires_components("alerting", "cloudwatch-log-groups")
 def check_alrt_017(evidence: Dict[str, Any]) -> PreCheckResult:
     """ALRT-017: CloudWatch log groups should have adequate retention (>=90 days)."""
     log_groups = evidence.get("cloudwatch-log-groups")
@@ -742,6 +757,7 @@ def check_alrt_017(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("alerting")
+@requires_components("alerting", "cloudwatch-alarms")
 def check_alrt_010(evidence: Dict[str, Any]) -> PreCheckResult:
     """ALRT-010: CloudWatch alarms should not be in INSUFFICIENT_DATA state."""
     alarms = evidence.get("cloudwatch-alarms")
@@ -796,6 +812,7 @@ def check_alrt_010(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("alerting")
+@requires_components("alerting", "sns-topics", "cloudwatch-alarms", "eventbridge-rules")
 def check_alrt_011(evidence: Dict[str, Any]) -> PreCheckResult:
     """ALRT-011: Alert SNS topics should restrict Publish to authorized principals."""
     topics = evidence.get("sns-topics")
@@ -871,6 +888,7 @@ def check_alrt_011(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("alerting")
+@requires_components("alerting", "cloudwatch-metric-filters")
 def check_alrt_015(evidence: Dict[str, Any]) -> PreCheckResult:
     """ALRT-015: A metric filter should cover IAM change events."""
     metric_filters = evidence.get("cloudwatch-metric-filters")
@@ -905,6 +923,7 @@ def check_alrt_015(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("alerting")
+@requires_components("alerting", "cloudwatch-metric-filters")
 def check_alrt_016(evidence: Dict[str, Any]) -> PreCheckResult:
     """ALRT-016: A metric filter should cover Security Group change events."""
     metric_filters = evidence.get("cloudwatch-metric-filters")
@@ -939,6 +958,7 @@ def check_alrt_016(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("alerting")
+@requires_components("alerting", "cloudwatch-metric-filters", "eventbridge-rules")
 def check_alrt_012(evidence: Dict[str, Any]) -> PreCheckResult:
     """ALRT-012: Critical security events (ConsoleLogin, CreateUser, StopLogging) should be alerted via metric filter or EventBridge rule."""
     metric_filters = evidence.get("cloudwatch-metric-filters")
@@ -992,6 +1012,7 @@ def check_alrt_012(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("alerting")
+@requires_components("alerting", "cloudtrail-s3-notifications")
 def check_alrt_026(evidence: Dict[str, Any]) -> PreCheckResult:
     """ALRT-026: CloudTrail S3 bucket exposes downstream attack surface via event notifications."""
     notifications = evidence.get("cloudtrail-s3-notifications")
@@ -1039,6 +1060,7 @@ def check_alrt_026(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("alerting")
+@requires_components("alerting", "cloudtrail-log-subscriptions")
 def check_alrt_027(evidence: Dict[str, Any]) -> PreCheckResult:
     """ALRT-027: CloudTrail CloudWatch log group has downstream subscription filter consumers."""
     subscriptions = evidence.get("cloudtrail-log-subscriptions")

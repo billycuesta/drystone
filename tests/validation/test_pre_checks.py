@@ -507,6 +507,130 @@ def test_all_registered_network_checks_resolve_to_known_checklist_ids():
         assert resolve_pre_check_id(fn) in checklist_ids
 
 
+# ============================================================================
+# ALERTING: warn on incomplete evidence status (B checks)
+# ============================================================================
+
+
+ALERTING_STATUS_STEMS_BY_CHECK = {
+    "ALRT-002": ("eventbridge-rules",),
+    "ALRT-003": ("cloudwatch-metric-filters",),
+    "ALRT-004": ("eventbridge-rules",),
+    "ALRT-005": ("sns-topics", "cloudwatch-alarms", "eventbridge-rules"),
+    "ALRT-006": ("sns-topics", "cloudwatch-alarms", "eventbridge-rules"),
+    "ALRT-007": ("cloudwatch-metric-filters",),
+    "ALRT-008": ("cloudtrail-trails",),
+    "ALRT-009": ("cloudtrail-trails", "cloudwatch-metric-filters"),
+    "ALRT-010": ("cloudwatch-alarms",),
+    "ALRT-011": ("sns-topics", "cloudwatch-alarms", "eventbridge-rules"),
+    "ALRT-012": ("cloudwatch-metric-filters", "eventbridge-rules"),
+    "ALRT-013": ("cloudtrail-trails",),
+    "ALRT-014": ("cloudtrail-trails",),
+    "ALRT-015": ("cloudwatch-metric-filters",),
+    "ALRT-016": ("cloudwatch-metric-filters",),
+    "ALRT-017": ("cloudwatch-log-groups",),
+    "ALRT-022": ("sns-topics", "cloudwatch-alarms", "eventbridge-rules"),
+    "ALRT-023": ("sns-topics", "cloudwatch-alarms", "eventbridge-rules"),
+    "ALRT-024": ("sns-topics", "cloudwatch-alarms", "eventbridge-rules"),
+    "ALRT-025": ("eventbridge-rules",),
+    "ALRT-026": ("cloudtrail-s3-notifications",),
+    "ALRT-027": ("cloudtrail-log-subscriptions",),
+}
+
+
+def _alerting_check_fn(check_id):
+    return _registered_check_fn("alerting", check_id)
+
+
+def _empty_doc_for_alerting_stem(stem):
+    return []
+
+
+def _alerting_empty_evidence_with_status(stems):
+    evidence = _status_doc("alerting", stems, ok=True)
+    for stem in stems:
+        evidence[stem] = _empty_doc_for_alerting_stem(stem)
+    return evidence
+
+
+@pytest.mark.parametrize("check_id,stems", ALERTING_STATUS_STEMS_BY_CHECK.items())
+def test_alerting_b_checks_warn_on_collection_failed_status(check_id, stems):
+    result = _alerting_check_fn(check_id)(
+        _status_doc("alerting", stems, ok=False, reason_code="collection_failed")
+    )
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "collection_failed"
+    assert result.metadata["evidence_key"] in stems
+
+
+@pytest.mark.parametrize("check_id,stems", ALERTING_STATUS_STEMS_BY_CHECK.items())
+def test_alerting_b_checks_warn_on_partial_collection_when_no_violation_found(check_id, stems):
+    result = _alerting_check_fn(check_id)(
+        _status_doc("alerting", stems, ok=False, reason_code="partial_collection")
+    )
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "partial_collection"
+
+
+@pytest.mark.parametrize("check_id,stems", ALERTING_STATUS_STEMS_BY_CHECK.items())
+def test_alerting_b_checks_keep_legacy_empty_evidence_without_status(check_id, stems):
+    result = _alerting_check_fn(check_id)({})
+
+    assert result.check_id == check_id
+    assert result.status != "WARN"
+
+
+@pytest.mark.parametrize("check_id,stems", ALERTING_STATUS_STEMS_BY_CHECK.items())
+def test_alerting_b_checks_keep_ok_empty_evidence_behavior(check_id, stems):
+    result = _alerting_check_fn(check_id)(_alerting_empty_evidence_with_status(stems))
+
+    assert result.check_id == check_id
+    assert result.status != "WARN"
+
+
+@pytest.mark.parametrize("check_id,stems", ALERTING_STATUS_STEMS_BY_CHECK.items())
+def test_alerting_b_checks_warn_when_status_exists_but_required_evidence_key_missing(check_id, stems):
+    result = _alerting_check_fn(check_id)({"alerting-collection-status": {"components": {}}})
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "missing_evidence"
+    assert result.metadata["evidence_key"] in stems
+
+
+def test_alerting_b_partial_collection_never_masks_real_failures():
+    evidence = _status_doc("alerting", ("cloudtrail-trails",), ok=False, reason_code="partial_collection")
+    evidence["cloudtrail-trails"] = [{"Name": "trail-1", "IsMultiRegionTrail": False}]
+
+    result = check_alrt_008(evidence)
+
+    assert result.status == "FAIL"
+    assert result.evidence_summary == "no multi-region trail configured"
+
+
+def test_alerting_checks_declare_required_components_matching_status_stems():
+    """Guard: every alerting B check is registered with a `requires_components`
+    declaration whose stems exactly match the expected mapping.
+    """
+    registered_by_id = {resolve_pre_check_id(fn): fn for fn in PRE_CHECK_REGISTRY["alerting"]}
+
+    for check_id, stems in ALERTING_STATUS_STEMS_BY_CHECK.items():
+        fn = registered_by_id[check_id]
+        assert fn.required_components == ("alerting", stems), check_id
+
+
+def test_all_registered_alerting_checks_resolve_to_known_checklist_ids():
+    checklist_path = Path(__file__).resolve().parents[2] / "drystone" / "skills" / "alerting" / "checklist.json"
+    checklist_ids = {item["id"] for item in json.loads(checklist_path.read_text())["items"]}
+
+    for fn in PRE_CHECK_REGISTRY["alerting"]:
+        assert resolve_pre_check_id(fn) in checklist_ids
+
+
 class TestIAMDeterministicFindingText:
     def test_injected_iam_findings_have_specific_impact_text(self):
         for check_id in ("IAM-007", "IAM-015", "IAM-016", "IAM-026"):
