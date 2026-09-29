@@ -498,12 +498,7 @@
       "severity": "High",
       "description": "GuardDuty is not enabled, reducing the account's ability to detect suspicious activity, compromised credentials, and threat indicators.",
       "remediation": "Enable GuardDuty in all relevant regions and integrate findings with the alerting and incident-response workflow.",
-      "pci_dss": [
-        {
-          "control": "10.4.1",
-          "reason": "Security monitoring mechanisms must detect suspicious events; GuardDuty provides managed threat detection for AWS accounts."
-        }
-      ],
+      "pci_dss": [],
       "qsa_visibility": "standard"
     },
     {
@@ -512,12 +507,7 @@
       "severity": "Medium",
       "description": "GuardDuty suppression or auto-archive rules can hide active threat findings if they are too broad or lack documented review.",
       "remediation": "Review suppression and auto-archive rules, document approved exceptions, and ensure security-relevant findings remain visible to responders.",
-      "pci_dss": [
-        {
-          "control": "10.4.2",
-          "reason": "Security events must be reviewed and addressed; broad suppression can prevent detection and response."
-        }
-      ],
+      "pci_dss": [],
       "qsa_visibility": "standard"
     }
   ],

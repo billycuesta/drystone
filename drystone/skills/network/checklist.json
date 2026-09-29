@@ -515,12 +515,7 @@
       "severity": "Medium",
       "description": "Security groups allowing all outbound traffic to 0.0.0.0/0 or ::/0 can enable unrestricted data exfiltration and command-and-control callbacks from compromised workloads.",
       "remediation": "Restrict outbound security group rules to the destinations and protocols required by the workload, using VPC endpoints, prefix lists, or proxy controls where appropriate.",
-      "pci_dss": [
-        {
-          "control": "1.4.2",
-          "reason": "Outbound traffic from trusted networks to untrusted networks must be restricted to what is necessary for business operations."
-        }
-      ],
+      "pci_dss": [],
       "qsa_visibility": "standard"
     }
   ],
