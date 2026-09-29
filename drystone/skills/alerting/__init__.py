@@ -3,10 +3,18 @@
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import boto3
+from botocore.exceptions import ClientError
 
 from drystone.cloud.aws.client import AWSClient
 from drystone.skills.base import BaseSkill
 from drystone.storage.session import AuditSession
+
+
+def _error_code(exc: Exception) -> Optional[str]:
+    """Best-effort AWS error code extraction (ClientError or generic Exception)."""
+    if isinstance(exc, ClientError):
+        return exc.response.get("Error", {}).get("Code")
+    return None
 
 if TYPE_CHECKING:
     pass
@@ -54,12 +62,18 @@ class AlertingSkill(BaseSkill):
 
         evidence_path = session.get_evidence_path(self.name)
 
+        # Per-component collection outcome (PLAN_VALIDATION_WARN.md slice 4):
+        # lets future pre-checks tell "collection failed" apart from
+        # "resource genuinely absent after a successful collection".
+        components: Dict[str, Dict[str, Any]] = {}
+
         # === CLOUDTRAIL ===
         print("  Collecting CloudTrail configuration...")
         try:
             ct_client = boto3.client("cloudtrail", **client_kwargs)
             trails = ct_client.describe_trails()
             trails_list = []
+            trail_sub_call_failures = 0
 
             for trail in trails.get("trailList", []):
                 trail_name = trail.get("Name")
@@ -88,6 +102,7 @@ class AlertingSkill(BaseSkill):
                     }
                 except Exception:
                     trail_detail["Status"] = {}
+                    trail_sub_call_failures += 1
 
                 # Get event selectors
                 try:
@@ -95,10 +110,21 @@ class AlertingSkill(BaseSkill):
                     trail_detail["EventSelectors"] = selectors.get("EventSelectors", [])
                 except Exception:
                     trail_detail["EventSelectors"] = []
+                    trail_sub_call_failures += 1
 
                 trails_list.append(trail_detail)
 
             self._save_json(evidence_path / "cloudtrail-trails.json", trails_list)
+            if trail_sub_call_failures:
+                self._record_component_status(
+                    components,
+                    "cloudtrail-trails",
+                    ok=False,
+                    reason_code="partial_collection",
+                    error=f"{trail_sub_call_failures} trail status/event-selector lookups failed",
+                )
+            else:
+                self._record_component_status(components, "cloudtrail-trails", ok=True)
 
             # === CLOUDTRAIL S3 BUCKET NOTIFICATIONS ===
             print("  Collecting CloudTrail S3 bucket notifications...")
@@ -140,8 +166,29 @@ class AlertingSkill(BaseSkill):
                 self._save_json(
                     evidence_path / "cloudtrail-s3-notifications.json", s3_notifications
                 )
+                failed_notifications = sum(1 for n in s3_notifications if "error" in n)
+                if failed_notifications:
+                    self._record_component_status(
+                        components,
+                        "cloudtrail-s3-notifications",
+                        ok=False,
+                        reason_code="partial_collection",
+                        error=f"{failed_notifications} bucket notification lookups failed",
+                    )
+                else:
+                    self._record_component_status(
+                        components, "cloudtrail-s3-notifications", ok=True
+                    )
             except Exception as e:
                 print(f"    Warning: Could not collect S3 bucket notifications: {e}")
+                self._record_component_status(
+                    components,
+                    "cloudtrail-s3-notifications",
+                    ok=False,
+                    reason_code="collection_failed",
+                    error_code=_error_code(e),
+                    error=str(e),
+                )
 
             # === CLOUDTRAIL CLOUDWATCH LOG SUBSCRIPTION FILTERS ===
             print("  Collecting CloudTrail log group subscription filters...")
@@ -184,17 +231,47 @@ class AlertingSkill(BaseSkill):
                     evidence_path / "cloudtrail-log-subscriptions.json",
                     log_subscriptions,
                 )
+                failed_subscriptions = sum(1 for s in log_subscriptions if "error" in s)
+                if failed_subscriptions:
+                    self._record_component_status(
+                        components,
+                        "cloudtrail-log-subscriptions",
+                        ok=False,
+                        reason_code="partial_collection",
+                        error=f"{failed_subscriptions} log group subscription lookups failed",
+                    )
+                else:
+                    self._record_component_status(
+                        components, "cloudtrail-log-subscriptions", ok=True
+                    )
             except Exception as e:
                 print(f"    Warning: Could not collect CloudWatch log subscriptions: {e}")
+                self._record_component_status(
+                    components,
+                    "cloudtrail-log-subscriptions",
+                    ok=False,
+                    reason_code="collection_failed",
+                    error_code=_error_code(e),
+                    error=str(e),
+                )
 
         except Exception as e:
             print(f"    Warning: Could not collect CloudTrail data: {e}")
+            self._record_component_status(
+                components,
+                "cloudtrail-trails",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === CLOUDWATCH LOG GROUPS ===
         print("  Collecting CloudWatch log groups...")
         try:
             logs_client = boto3.client("logs", **client_kwargs)
             log_groups_list = []
+            resource_policy_failures = 0
 
             paginator = logs_client.get_paginator("describe_log_groups")
             for page in paginator.paginate():
@@ -213,12 +290,31 @@ class AlertingSkill(BaseSkill):
                         lg_detail["ResourcePolicies"] = policy.get("resourcePolicies", [])
                     except Exception:
                         lg_detail["ResourcePolicies"] = []
+                        resource_policy_failures += 1
 
                     log_groups_list.append(lg_detail)
 
             self._save_json(evidence_path / "cloudwatch-log-groups.json", log_groups_list)
+            if resource_policy_failures:
+                self._record_component_status(
+                    components,
+                    "cloudwatch-log-groups",
+                    ok=False,
+                    reason_code="partial_collection",
+                    error=f"{resource_policy_failures} resource-policy lookups failed",
+                )
+            else:
+                self._record_component_status(components, "cloudwatch-log-groups", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect CloudWatch log groups: {e}")
+            self._record_component_status(
+                components,
+                "cloudwatch-log-groups",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === CLOUDWATCH METRIC FILTERS ===
         print("  Collecting CloudWatch metric filters...")
@@ -239,8 +335,17 @@ class AlertingSkill(BaseSkill):
                     metric_filters_list.append(mf_detail)
 
             self._save_json(evidence_path / "cloudwatch-metric-filters.json", metric_filters_list)
+            self._record_component_status(components, "cloudwatch-metric-filters", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect CloudWatch metric filters: {e}")
+            self._record_component_status(
+                components,
+                "cloudwatch-metric-filters",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === CLOUDWATCH ALARMS ===
         print("  Collecting CloudWatch alarms...")
@@ -268,14 +373,24 @@ class AlertingSkill(BaseSkill):
                     alarms_list.append(alarm_detail)
 
             self._save_json(evidence_path / "cloudwatch-alarms.json", alarms_list)
+            self._record_component_status(components, "cloudwatch-alarms", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect CloudWatch alarms: {e}")
+            self._record_component_status(
+                components,
+                "cloudwatch-alarms",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === EVENTBRIDGE RULES ===
         print("  Collecting EventBridge rules...")
         try:
             events_client = boto3.client("events", **client_kwargs)
             rules_list = []
+            target_lookup_failures = 0
 
             # List all rules
             paginator = events_client.get_paginator("list_rules")
@@ -297,18 +412,38 @@ class AlertingSkill(BaseSkill):
                         rule_detail["Targets"] = targets.get("Targets", [])
                     except Exception:
                         rule_detail["Targets"] = []
+                        target_lookup_failures += 1
 
                     rules_list.append(rule_detail)
 
             self._save_json(evidence_path / "eventbridge-rules.json", rules_list)
+            if target_lookup_failures:
+                self._record_component_status(
+                    components,
+                    "eventbridge-rules",
+                    ok=False,
+                    reason_code="partial_collection",
+                    error=f"{target_lookup_failures} target lookups failed",
+                )
+            else:
+                self._record_component_status(components, "eventbridge-rules", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect EventBridge rules: {e}")
+            self._record_component_status(
+                components,
+                "eventbridge-rules",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === SNS TOPICS ===
         print("  Collecting SNS topics...")
         try:
             sns_client = boto3.client("sns", **client_kwargs)
             topics_list = []
+            topic_sub_call_failures = 0
 
             paginator = sns_client.get_paginator("list_topics")
             for page in paginator.paginate():
@@ -324,6 +459,7 @@ class AlertingSkill(BaseSkill):
                         topic_detail["Attributes"] = attrs.get("Attributes", {})
                     except Exception:
                         topic_detail["Attributes"] = {}
+                        topic_sub_call_failures += 1
 
                     # List subscriptions
                     try:
@@ -331,12 +467,31 @@ class AlertingSkill(BaseSkill):
                         topic_detail["Subscriptions"] = subs.get("Subscriptions", [])
                     except Exception:
                         topic_detail["Subscriptions"] = []
+                        topic_sub_call_failures += 1
 
                     topics_list.append(topic_detail)
 
             self._save_json(evidence_path / "sns-topics.json", topics_list)
+            if topic_sub_call_failures:
+                self._record_component_status(
+                    components,
+                    "sns-topics",
+                    ok=False,
+                    reason_code="partial_collection",
+                    error=f"{topic_sub_call_failures} topic attribute/subscription lookups failed",
+                )
+            else:
+                self._record_component_status(components, "sns-topics", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect SNS topics: {e}")
+            self._record_component_status(
+                components,
+                "sns-topics",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === VPC FLOW LOGS ===
         print("  Collecting VPC Flow Logs...")
@@ -360,14 +515,24 @@ class AlertingSkill(BaseSkill):
                 flow_logs_list.append(flow_detail)
 
             self._save_json(evidence_path / "vpc-flow-logs.json", flow_logs_list)
+            self._record_component_status(components, "vpc-flow-logs", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect VPC Flow Logs: {e}")
+            self._record_component_status(
+                components,
+                "vpc-flow-logs",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
 
         # === AWS CONFIG RULES ===
         print("  Collecting AWS Config rules...")
         try:
             config_client = boto3.client("config", **client_kwargs)
             config_rules_list = []
+            compliance_lookup_failures = 0
 
             rules = config_client.describe_config_rules()
             for rule in rules.get("ConfigRules", []):
@@ -389,12 +554,33 @@ class AlertingSkill(BaseSkill):
                     ].get("Compliance", {})
                 except Exception:
                     rule_detail["Compliance"] = {}
+                    compliance_lookup_failures += 1
 
                 config_rules_list.append(rule_detail)
 
             self._save_json(evidence_path / "config-rules.json", config_rules_list)
+            if compliance_lookup_failures:
+                self._record_component_status(
+                    components,
+                    "config-rules",
+                    ok=False,
+                    reason_code="partial_collection",
+                    error=f"{compliance_lookup_failures} compliance lookups failed",
+                )
+            else:
+                self._record_component_status(components, "config-rules", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect Config rules: {e}")
+            self._record_component_status(
+                components,
+                "config-rules",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=_error_code(e),
+                error=str(e),
+            )
+
+        self._save_collection_status(evidence_path, {"components": components})
 
         print("\n✅ Alerting collection complete")
 
