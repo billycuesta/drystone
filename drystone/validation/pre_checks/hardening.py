@@ -45,6 +45,7 @@ def check_hrd_002(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("hardening")
+@requires_components("hardening", "security-hub-status", "security-hub-enabled-standards")
 def check_hrd_003(evidence: Dict[str, Any]) -> PreCheckResult:
     """Security Hub should have standards enabled."""
     hub_status = evidence.get("security-hub-status", {})
@@ -250,6 +251,7 @@ def check_hrd_012(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("hardening")
+@requires_components("hardening", "security-hub-enabled-standards")
 def check_hrd_013(evidence: Dict[str, Any]) -> PreCheckResult:
     """Outdated Security Hub standards should be updated."""
     # SKIP when evidence key is entirely missing (cannot evaluate)
@@ -315,6 +317,7 @@ def check_hrd_016(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("hardening")
+@requires_components("hardening", "security-hub-status", "security-hub-enabled-standards")
 def check_hrd_007(evidence: Dict[str, Any]) -> PreCheckResult:
     """Security Hub PCI DSS standard should be enabled."""
     hub_status = evidence.get("security-hub-status", {})
@@ -356,6 +359,7 @@ def check_hrd_008(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("hardening")
+@requires_components("hardening", "config-conformance-packs")
 def check_hrd_010(evidence: Dict[str, Any]) -> PreCheckResult:
     """No conformance packs configured."""
     packs = evidence.get("config-conformance-packs", None)

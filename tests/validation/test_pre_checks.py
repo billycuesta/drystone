@@ -782,42 +782,26 @@ def test_all_registered_recon_checks_resolve_to_known_checklist_ids():
 
 
 # Only stems that are BOTH (a) an evidence key the check literally reads via
-# evidence.get(...) AND (b) a component name the exposure collector actually
-# records via _record_component_status are declared here. EXP-004 also reads
-# ec2/instances evidence collected by the *network* skill (cross-skill,
-# untracked by exposure-collection-status), so only its own-skill
-# "security-groups" dependency is declared. EXP-006/021/022 read only
-# "api-gateway-routes.json", a file written by the same collector pass as
-# api-gateway-stages.json but never itself recorded as a component (the
-# shared sub-call failure counter is recorded under "api-gateway-stages"
-# instead) — see the dedicated guard test below for why they stay
-# undecorated. EXP-007/010 similarly read a second "derived" file
-# ("wafv2-web-acl-alb-associations.json" / "load-balancer-listeners.json")
-# that shares its parent's component but has no matching component name of
-# its own, so only the matching stem is declared.
+# evidence.get(...) AND (b) a component name the exposure collector records via
+# _record_component_status are declared here. EXP-004 also reads ec2/instances
+# evidence collected by the *network* skill (cross-skill, untracked by
+# exposure-collection-status), so only its own-skill "security-groups"
+# dependency is declared.
 EXPOSURE_STATUS_STEMS_BY_CHECK = {
     "EXP-001": ("s3-buckets",),
     "EXP-002": ("rds-instances", "security-groups"),
     "EXP-003": ("security-groups",),
     "EXP-004": ("security-groups",),
     "EXP-005": ("lambda-function-urls",),
-    "EXP-007": ("load-balancers",),
-    "EXP-010": ("load-balancers",),
+    "EXP-006": ("api-gateway-routes",),
+    "EXP-007": ("load-balancers", "wafv2-web-acl-alb-associations"),
+    "EXP-010": ("load-balancers", "load-balancer-listeners"),
     "EXP-016": ("lambda-function-urls",),
     "EXP-020": ("cloudfront-distributions",),
+    "EXP-021": ("api-gateway-routes",),
+    "EXP-022": ("api-gateway-routes",),
     "EXP-023": ("resource-based-policies",),
     "EXP-024": ("s3-buckets",),
-}
-
-# Checks in this session's 14 B-check scope that read only a derived file
-# with no exactly-matching recorded component. Declaring a stem here would
-# either always false-WARN (a stem that never appears in any real
-# collection-status doc) or tie WARN behavior to a component the check never
-# reads. Left undecorated and reported instead of forcing a mismatched stem.
-EXPOSURE_UNDECORATED_DERIVED_FILE_CHECKS = {
-    "EXP-006": "api-gateway-routes",
-    "EXP-021": "api-gateway-routes",
-    "EXP-022": "api-gateway-routes",
 }
 
 _EXPOSURE_EMPTY_DOC_BY_STEM = {
@@ -825,7 +809,10 @@ _EXPOSURE_EMPTY_DOC_BY_STEM = {
     "rds-instances": {"items": []},
     "security-groups": {"items": [], "by_id": {}},
     "lambda-function-urls": {"items": []},
+    "api-gateway-routes": {"items": []},
     "load-balancers": {"items": []},
+    "load-balancer-listeners": {"items": []},
+    "wafv2-web-acl-alb-associations": {"by_alb_arn": {}},
     "cloudfront-distributions": {"items": []},
     "resource-based-policies": {"items": []},
 }
@@ -951,25 +938,76 @@ def test_exposure_checks_declare_required_components_matching_status_stems():
         assert fn.required_components == ("exposure", stems), check_id
 
 
-def test_exposure_checks_reading_only_derived_files_are_not_decorated():
-    """EXP-006/021/022 read only api-gateway-routes.json, which is written by
-    the same collector pass as api-gateway-stages.json but is never itself
-    recorded as a component name in exposure-collection-status. See the
-    module-level comment above `EXPOSURE_UNDECORATED_DERIVED_FILE_CHECKS`.
-    """
-    registered_by_id = {resolve_pre_check_id(fn): fn for fn in PRE_CHECK_REGISTRY["exposure"]}
-
-    for check_id in EXPOSURE_UNDECORATED_DERIVED_FILE_CHECKS:
-        fn = registered_by_id[check_id]
-        assert not hasattr(fn, "required_components"), check_id
-
-
 def test_all_registered_exposure_checks_resolve_to_known_checklist_ids():
     checklist_path = Path(__file__).resolve().parents[2] / "drystone" / "skills" / "exposure" / "checklist.json"
     checklist_ids = {item["id"] for item in json.loads(checklist_path.read_text())["items"]}
 
     for fn in PRE_CHECK_REGISTRY["exposure"]:
         assert resolve_pre_check_id(fn) in checklist_ids
+
+
+# ============================================================================
+# LEGACY PRODUCER CONSUMERS: warn on incomplete evidence status (B checks)
+# ============================================================================
+
+
+ECR_STATUS_STEMS_BY_CHECK = {
+    "ECR-002": ("repositories",),
+    "ECR-004": ("registry",),
+    "ECR-005": ("repositories",),
+    "ECR-006": ("repositories",),
+}
+
+HARDENING_STATUS_STEMS_BY_CHECK = {
+    "HRD-003": ("security-hub-status", "security-hub-enabled-standards"),
+    "HRD-007": ("security-hub-status", "security-hub-enabled-standards"),
+    "HRD-010": ("config-conformance-packs",),
+    "HRD-013": ("security-hub-enabled-standards",),
+}
+
+WAF_STATUS_STEMS_BY_CHECK = {
+    "WAF-014": ("api-entrypoints-waf-associations",),
+    "WAF-015": ("api-entrypoints-waf-associations",),
+    "WAF-016": ("api-entrypoints-waf-associations",),
+}
+
+
+@pytest.mark.parametrize(
+    "skill,expected",
+    [
+        ("ecr", ECR_STATUS_STEMS_BY_CHECK),
+        ("hardening", HARDENING_STATUS_STEMS_BY_CHECK),
+        ("waf", WAF_STATUS_STEMS_BY_CHECK),
+    ],
+)
+def test_legacy_consumer_checks_declare_required_components_matching_status_stems(skill, expected):
+    registered_by_id = {resolve_pre_check_id(fn): fn for fn in PRE_CHECK_REGISTRY[skill]}
+
+    for check_id, stems in expected.items():
+        fn = registered_by_id[check_id]
+        assert fn.required_components == (skill, stems), check_id
+
+
+@pytest.mark.parametrize(
+    "skill,check_id,stems",
+    [
+        *[("ecr", check_id, stems) for check_id, stems in ECR_STATUS_STEMS_BY_CHECK.items()],
+        *[
+            ("hardening", check_id, stems)
+            for check_id, stems in HARDENING_STATUS_STEMS_BY_CHECK.items()
+        ],
+        *[("waf", check_id, stems) for check_id, stems in WAF_STATUS_STEMS_BY_CHECK.items()],
+    ],
+)
+def test_legacy_consumer_checks_warn_on_collection_failed_status(skill, check_id, stems):
+    result = _registered_check_fn(skill, check_id)(
+        _status_doc(skill, stems, ok=False, reason_code="collection_failed")
+    )
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "collection_failed"
+    assert result.metadata["evidence_key"] in stems
 
 
 # ============================================================================

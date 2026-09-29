@@ -256,7 +256,7 @@ def check_exp_003(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("exposure")
-@requires_components("exposure", "load-balancers")
+@requires_components("exposure", "load-balancers", "wafv2-web-acl-alb-associations")
 def check_exp_007(evidence: Dict[str, Any]) -> PreCheckResult:
     """Internet-facing ALB/NLB without WAF association."""
     lbs_doc = evidence.get("load-balancers")
@@ -309,7 +309,7 @@ def check_exp_007(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("exposure")
-@requires_components("exposure", "load-balancers")
+@requires_components("exposure", "load-balancers", "load-balancer-listeners")
 def check_exp_010(evidence: Dict[str, Any]) -> PreCheckResult:
     """Obsolete TLS policies on internet-facing ALB."""
     lbs_doc = evidence.get("load-balancers")
@@ -750,6 +750,7 @@ def check_exp_020(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("exposure")
+@requires_components("exposure", "api-gateway-routes")
 def check_exp_021(evidence: Dict[str, Any]) -> PreCheckResult:
     """API routes with mutating methods should not be unauthenticated."""
     routes_doc = evidence.get("api-gateway-routes")
@@ -782,6 +783,7 @@ def check_exp_021(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("exposure")
+@requires_components("exposure", "api-gateway-routes")
 def check_exp_022(evidence: Dict[str, Any]) -> PreCheckResult:
     """Wildcard proxy routes (ANY/{proxy+}) should not be unauthenticated."""
     routes_doc = evidence.get("api-gateway-routes")
@@ -1200,6 +1202,7 @@ def check_exp_005(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("exposure")
+@requires_components("exposure", "api-gateway-routes")
 def check_exp_006(evidence: Dict[str, Any]) -> PreCheckResult:
     """EXP-006: API Gateway routes without authentication or rate limiting."""
     routes_doc = evidence.get("api-gateway-routes")

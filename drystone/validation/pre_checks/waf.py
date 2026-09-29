@@ -465,6 +465,7 @@ def check_waf_013(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("waf")
+@requires_components("waf", "api-entrypoints-waf-associations")
 def check_waf_014(evidence: Dict[str, Any]) -> PreCheckResult:
     """API Gateway REST stages should be protected by AWS WAF."""
     if _waf_collection_has_failures(evidence):
@@ -494,6 +495,7 @@ def check_waf_014(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("waf")
+@requires_components("waf", "api-entrypoints-waf-associations")
 def check_waf_015(evidence: Dict[str, Any]) -> PreCheckResult:
     """AppSync GraphQL APIs should be protected by AWS WAF."""
     if _waf_collection_has_failures(evidence):
@@ -520,6 +522,7 @@ def check_waf_015(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("waf")
+@requires_components("waf", "api-entrypoints-waf-associations")
 def check_waf_016(evidence: Dict[str, Any]) -> PreCheckResult:
     """Cognito User Pools should be protected by AWS WAF when publicly exposed."""
     if _waf_collection_has_failures(evidence):

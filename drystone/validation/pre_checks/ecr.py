@@ -75,6 +75,7 @@ def check_ecr_001(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("ecr")
+@requires_components("ecr", "repositories")
 def check_ecr_002(evidence: Dict[str, Any]) -> PreCheckResult:
     """Image tags should be immutable."""
     repos_doc = evidence.get("repositories", {})
@@ -97,6 +98,7 @@ def check_ecr_002(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("ecr")
+@requires_components("ecr", "repositories")
 def check_ecr_005(evidence: Dict[str, Any]) -> PreCheckResult:
     """Repositories should use KMS customer-managed keys when required."""
     repos_doc = evidence.get("repositories", {})
@@ -121,6 +123,7 @@ def check_ecr_005(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("ecr")
+@requires_components("ecr", "repositories")
 def check_ecr_006(evidence: Dict[str, Any]) -> PreCheckResult:
     """Lifecycle policies should be configured to expire unused images."""
     repos_doc = evidence.get("repositories", {})
@@ -160,6 +163,7 @@ def check_ecr_003(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("ecr")
+@requires_components("ecr", "registry")
 def check_ecr_004(evidence: Dict[str, Any]) -> PreCheckResult:
     """Registry scanning configuration should be defined."""
     reg_doc = evidence.get("registry")
