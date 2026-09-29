@@ -220,6 +220,45 @@ class TestWAFSkill:
         assert status["components"]["wafv2-web-acls"] == {"ok": True}
         assert status["components"]["waf-classic"] == {"ok": True}
 
+    def test_collection_status_components_have_no_unmapped_written_stems(
+        self, skill, mock_aws_client, mock_session
+    ):
+        with patch.object(skill, "_collect_cloudfront_distributions", return_value=([], None)):
+            with patch.object(skill, "_collect_wafv2_web_acls_for_scope", return_value=([], None)):
+                with patch.object(skill, "_collect_wafv2_ip_sets", return_value=([], None)):
+                    with patch.object(skill, "_collect_wafv2_rule_groups", return_value=([], None)):
+                        with patch.object(
+                            skill, "_collect_wafv2_regex_pattern_sets", return_value=([], None)
+                        ):
+                            with patch.object(
+                                skill, "_collect_wafv2_managed_rule_groups", return_value={}
+                            ):
+                                with patch.object(
+                                    skill, "_collect_alb_waf_associations", return_value=([], {})
+                                ):
+                                    with patch.object(
+                                        skill,
+                                        "_collect_api_entrypoints_waf_associations",
+                                        return_value=([], {}),
+                                    ):
+                                        with patch.object(
+                                            skill,
+                                            "_collect_waf_classic_inventory",
+                                            return_value=([], None),
+                                        ):
+                                            skill.collect(mock_aws_client, mock_session)
+
+        evidence_dir = mock_session.get_evidence_path.return_value
+        status = json.loads((evidence_dir / "waf-collection-status.json").read_text())
+        written_stems = {
+            path.stem
+            for path in evidence_dir.glob("*.json")
+            if not path.name.endswith("-collection-status.json") and path.name != "_audit_metadata.json"
+        }
+
+        assert written_stems == set(skill._collection_component_sources(status))
+        assert written_stems == set(status["components"])
+
     def test_collection_status_components_preserve_legacy_api_entrypoint_errors(
         self, skill, mock_aws_client, mock_session
     ):

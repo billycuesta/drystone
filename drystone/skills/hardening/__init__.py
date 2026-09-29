@@ -42,6 +42,34 @@ class HardeningSkill(BaseSkill):
         """Skill identifier."""
         return "hardening"
 
+    def _collection_component_sources(
+        self, collection_status: Dict[str, Any]
+    ) -> Dict[str, Dict[str, Any]]:
+        """Map each hardening evidence stem to its collection status source."""
+        return {
+            "security-hub-status": collection_status["securityhub"],
+            "security-hub-findings": collection_status["securityhub_findings"],
+            "security-hub-findings-summary": collection_status["securityhub_findings"],
+            "security-hub-enabled-standards": collection_status["securityhub_standards"],
+            "config-recorders": collection_status["config"],
+            "config-delivery-channels": collection_status["config"],
+            "config-recorder-status": collection_status["config"],
+            "config-compliance": collection_status["config"],
+            "config-compliance-summary": collection_status["config"],
+            "config-conformance-packs": collection_status["config"],
+            "config-conformance-pack-compliance": collection_status["config"],
+            "acm-certificates": collection_status["acm"],
+            "guardduty-detectors": collection_status["guardduty"],
+            "macie-session": collection_status["macie"],
+            "macie-findings": collection_status["macie"],
+            "backup-vaults": collection_status["backup"],
+            "backup-plans": collection_status["backup"],
+            "backup-plans-detailed": collection_status["backup"],
+            "account-summary": collection_status["iam_account"],
+            "account-aliases": collection_status["iam_account"],
+            "password-policy": collection_status["iam_account"],
+        }
+
     def collect(self, aws_client: AWSClient, session: AuditSession):
         """Collect account hardening and compliance data from AWS account.
 
@@ -69,6 +97,7 @@ class HardeningSkill(BaseSkill):
             "securityhub_findings": {"ok": True, "error": None, "count": 0},
             "securityhub_standards": {"ok": True, "error": None, "enabled_count": 0},
             "config": {"ok": True, "error": None},
+            "acm": {"ok": True, "error": None},
             "guardduty": {"ok": True, "error": None},
             "macie": {"ok": True, "error": None},
             "backup": {"ok": True, "error": None},
@@ -436,6 +465,7 @@ class HardeningSkill(BaseSkill):
             acm_client = boto3.client("acm", **client_kwargs)
             certs_list = []
 
+            cert_describe_failures = 0
             paginator = acm_client.get_paginator("list_certificates")
             for page in paginator.paginate():
                 for cert_summary in page.get("CertificateSummaryList", []):
@@ -459,10 +489,22 @@ class HardeningSkill(BaseSkill):
                         certs_list.append(cert_info)
                     except Exception as e:
                         logger.warning(f"Could not describe ACM certificate {cert_arn}: {e}")
+                        cert_describe_failures += 1
 
             self._save_json(evidence_path / "acm-certificates.json", certs_list)
+            if cert_describe_failures:
+                collection_status["acm"].update(
+                    {
+                        "ok": False,
+                        "reason_code": "partial_collection",
+                        "error": f"{cert_describe_failures} certificate describe lookups failed",
+                    }
+                )
         except Exception as e:
             logger.error(f"Could not collect ACM data: {e}")
+            collection_status["acm"].update(
+                {"ok": False, "reason_code": "collection_failed", "error": str(e)}
+            )
 
         # === GUARDDUTY ===
         print("  Collecting GuardDuty status...")
@@ -713,39 +755,30 @@ class HardeningSkill(BaseSkill):
         self._save_json(evidence_path / "_audit_metadata.json", audit_metadata)
 
         # === COLLECTION STATUS ===
-        component_sources = {
-            "security-hub-status": collection_status["securityhub"],
-            "security-hub-findings": collection_status["securityhub_findings"],
-            "security-hub-findings-summary": collection_status["securityhub_findings"],
-            "security-hub-enabled-standards": collection_status["securityhub_standards"],
-            "config-recorders": collection_status["config"],
-            "config-delivery-channels": collection_status["config"],
-            "config-recorder-status": collection_status["config"],
-            "config-compliance": collection_status["config"],
-            "config-conformance-packs": collection_status["config"],
-            "acm-certificates": {"ok": True, "error": None},
-            "guardduty-detectors": collection_status["guardduty"],
-            "macie-session": collection_status["macie"],
-            "macie-findings": collection_status["macie"],
-            "backup-vaults": collection_status["backup"],
-            "backup-plans": collection_status["backup"],
-            "backup-plans-detailed": collection_status["backup"],
-            "account-summary": collection_status["iam_account"],
-            "account-aliases": collection_status["iam_account"],
-            "password-policy": collection_status["iam_account"],
+        component_sources = self._collection_component_sources(collection_status)
+        written_stems = {
+            path.stem
+            for path in sorted(evidence_path.glob("*.json"))
+            if not path.name.endswith("-collection-status.json") and path.name != "_audit_metadata.json"
         }
+        missing_sources = written_stems - set(component_sources)
+        if missing_sources:
+            raise RuntimeError(
+                f"Hardening collection status missing component mapping for: {sorted(missing_sources)}"
+            )
         components: Dict[str, Dict[str, Any]] = {}
-        for path in sorted(evidence_path.glob("*.json")):
-            if path.name.endswith("-collection-status.json") or path.name == "_audit_metadata.json":
-                continue
-            source = component_sources.get(path.stem, {"ok": True, "error": None})
+        failed_unwritten_stems = {
+            stem for stem, source in component_sources.items() if source.get("ok") is False
+        } - written_stems
+        for stem in sorted(written_stems | failed_unwritten_stems):
+            source = component_sources[stem]
             ok = source.get("ok") is not False
             error = source.get("error")
             self._record_component_status(
                 components,
-                path.stem,
+                stem,
                 ok=ok,
-                reason_code=None if ok else "collection_failed",
+                reason_code=None if ok else source.get("reason_code") or "collection_failed",
                 error_code=self._status_error_code(error or ""),
                 error=error,
             )

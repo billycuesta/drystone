@@ -39,6 +39,32 @@ class WAFSkill(BaseSkill):
     def name(self) -> str:
         return "waf"
 
+    def _collection_component_sources(
+        self, collection_status: Dict[str, Any]
+    ) -> Dict[str, Dict[str, Any]]:
+        """Map each WAF evidence stem to its collection status source."""
+
+        def _source_status(source: Dict[str, Any]) -> Dict[str, Any]:
+            errors = self._collection_status_errors(source)
+            error = json.dumps(errors, sort_keys=True) if errors else None
+            return {"ok": self._collection_status_ok(source), "error": error}
+
+        return {
+            "cloudfront-distributions": _source_status(collection_status["cloudfront"]),
+            "cloudfront-wafv2-associations": _source_status(collection_status["cloudfront"]),
+            "cloudfront-classic-associations": _source_status(collection_status["cloudfront"]),
+            "wafv2-web-acls": _source_status(collection_status["wafv2"]),
+            "wafv2-ip-sets": _source_status(collection_status["wafv2"]),
+            "wafv2-rule-groups": _source_status(collection_status["wafv2"]),
+            "wafv2-regex-pattern-sets": _source_status(collection_status["wafv2"]),
+            "wafv2-managed-rule-groups": _source_status(collection_status["wafv2"]),
+            "alb-waf-associations": _source_status(collection_status["alb"]),
+            "api-entrypoints-waf-associations": _source_status(
+                collection_status["api_entrypoints"]
+            ),
+            "waf-classic": _source_status(collection_status["waf_classic"]),
+        }
+
     def collect(self, aws_client: AWSClient, session: AuditSession):
         """Collect AWS WAF evidence.
 
@@ -243,38 +269,27 @@ class WAFSkill(BaseSkill):
         self._save_json(evidence_path / "waf-classic.json", waf_classic)
 
         # Persist collection quality metadata (used to gate analysis and avoid false positives).
-        def _source_status(source: Dict[str, Any]) -> Dict[str, Any]:
-            errors = self._collection_status_errors(source)
-            error = json.dumps(errors, sort_keys=True) if errors else None
-            return {"ok": self._collection_status_ok(source), "error": error}
-
-        component_sources = {
-            "cloudfront-distributions": _source_status(collection_status["cloudfront"]),
-            "cloudfront-wafv2-associations": _source_status(collection_status["cloudfront"]),
-            "cloudfront-classic-associations": _source_status(collection_status["cloudfront"]),
-            "wafv2-web-acls": _source_status(collection_status["wafv2"]),
-            "wafv2-ip-sets": _source_status(collection_status["wafv2"]),
-            "wafv2-rule-groups": _source_status(collection_status["wafv2"]),
-            "wafv2-regex-pattern-sets": _source_status(collection_status["wafv2"]),
-            "wafv2-managed-rule-groups": _source_status(collection_status["wafv2"]),
-            "alb-waf-associations": _source_status(collection_status["alb"]),
-            "api-entrypoints-waf-associations": _source_status(
-                collection_status["api_entrypoints"]
-            ),
-            "waf-classic": _source_status(collection_status["waf_classic"]),
+        component_sources = self._collection_component_sources(collection_status)
+        written_stems = {
+            path.stem
+            for path in sorted(evidence_path.glob("*.json"))
+            if not path.name.endswith("-collection-status.json") and path.name != "_audit_metadata.json"
         }
+        missing_sources = written_stems - set(component_sources)
+        if missing_sources:
+            raise RuntimeError(
+                f"WAF collection status missing component mapping for: {sorted(missing_sources)}"
+            )
         components: Dict[str, Dict[str, Any]] = {}
-        for path in sorted(evidence_path.glob("*.json")):
-            if path.name.endswith("-collection-status.json") or path.name == "_audit_metadata.json":
-                continue
-            source = component_sources.get(path.stem, {"ok": True, "error": None})
+        for stem in sorted(written_stems):
+            source = component_sources[stem]
             ok = source.get("ok") is not False
             error = source.get("error")
             self._record_component_status(
                 components,
-                path.stem,
+                stem,
                 ok=ok,
-                reason_code=None if ok else "collection_failed",
+                reason_code=None if ok else source.get("reason_code") or "collection_failed",
                 error_code=self._status_error_code(error or ""),
                 error=error,
             )

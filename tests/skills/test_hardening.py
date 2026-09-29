@@ -99,11 +99,21 @@ def _make_config_client(recorders=None):
     return mock
 
 
-def _make_acm_client():
+def _make_acm_client(certificates=None):
     mock = MagicMock()
     pag = MagicMock()
-    pag.paginate.return_value = [{"CertificateSummaryList": []}]
+    pag.paginate.return_value = [
+        {"CertificateSummaryList": certificates if certificates is not None else []}
+    ]
     mock.get_paginator.return_value = pag
+    mock.describe_certificate.return_value = {
+        "Certificate": {
+            "DomainName": "example.com",
+            "SubjectAlternativeNames": ["example.com"],
+            "Status": "ISSUED",
+            "ValidationMethod": "DNS",
+        }
+    }
     return mock
 
 
@@ -306,6 +316,59 @@ class TestCollectHappyPath:
         assert status["config"]["ok"] is False
         assert status["components"]["config-recorder-status"]["ok"] is False
         assert status["components"]["config-recorder-status"]["reason_code"] == "collection_failed"
+
+    def test_collection_status_components_have_no_unmapped_written_stems(
+        self, skill, aws_client, mock_session
+    ):
+        evidence_dir = mock_session.get_evidence_path.return_value
+        with patch("boto3.client", side_effect=_boto3_factory()):
+            skill.collect(aws_client, mock_session)
+
+        status = json.loads((evidence_dir / "hardening-collection-status.json").read_text())
+        written_stems = {
+            path.stem
+            for path in evidence_dir.glob("*.json")
+            if not path.name.endswith("-collection-status.json") and path.name != "_audit_metadata.json"
+        }
+
+        assert written_stems == set(skill._collection_component_sources(status))
+        assert written_stems == set(status["components"])
+
+    def test_acm_list_failure_records_failed_component_without_file(
+        self, skill, aws_client, mock_session
+    ):
+        evidence_dir = mock_session.get_evidence_path.return_value
+        acm_mock = _make_acm_client()
+        acm_mock.get_paginator.side_effect = _GenericAWSError("AccessDenied")
+
+        with patch("boto3.client", side_effect=_boto3_factory(acm=acm_mock)):
+            skill.collect(aws_client, mock_session)
+
+        assert not (evidence_dir / "acm-certificates.json").exists()
+        status = json.loads((evidence_dir / "hardening-collection-status.json").read_text())
+        component = status["components"]["acm-certificates"]
+        assert component["ok"] is False
+        assert component["reason_code"] == "collection_failed"
+        assert component["error_code"] == "AccessDenied"
+
+    def test_acm_describe_failures_record_partial_collection(
+        self, skill, aws_client, mock_session
+    ):
+        evidence_dir = mock_session.get_evidence_path.return_value
+        acm_mock = _make_acm_client(
+            certificates=[{"CertificateArn": "arn:aws:acm:us-east-1:123:certificate/test"}]
+        )
+        acm_mock.describe_certificate.side_effect = _GenericAWSError("AccessDenied")
+
+        with patch("boto3.client", side_effect=_boto3_factory(acm=acm_mock)):
+            skill.collect(aws_client, mock_session)
+
+        assert (evidence_dir / "acm-certificates.json").exists()
+        status = json.loads((evidence_dir / "hardening-collection-status.json").read_text())
+        component = status["components"]["acm-certificates"]
+        assert component["ok"] is False
+        assert component["reason_code"] == "partial_collection"
+        assert "1" in component["error"]
 
     def test_audit_metadata_file_written(self, skill, aws_client, mock_session):
         evidence_dir = mock_session.get_evidence_path.return_value
