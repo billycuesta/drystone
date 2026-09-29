@@ -319,6 +319,122 @@ def test_recon_route53_list_failure_is_collection_failed(tmp_path: Path):
     assert component["error_code"] == "AccessDeniedException"
 
 
+def test_recon_records_swallowed_list_failures_as_collection_failed(tmp_path: Path):
+    class _FailRestClient(_DummyAPIGWClient):
+        def get_paginator(self, op):
+            if op == "get_rest_apis":
+                raise _client_error("AccessDeniedException")
+            return super().get_paginator(op)
+
+    class _FailLambdaClient(_DummyLambdaClient):
+        def get_paginator(self, op):
+            if op == "list_functions":
+                raise _client_error("AccessDeniedException")
+            return super().get_paginator(op)
+
+    class _FailELBClient(_DummyELBv2Client):
+        def get_paginator(self, op):
+            raise _client_error("AccessDeniedException")
+
+    class _FailEC2Client(_DummyEC2Client):
+        def describe_addresses(self):
+            raise _client_error("AccessDeniedException")
+
+        def get_paginator(self, op):
+            if op == "describe_nat_gateways":
+                raise _client_error("UnauthorizedOperation")
+            return super().get_paginator(op)
+
+    class _FailCFClient(_DummyCFClient):
+        def get_paginator(self, op):
+            raise _client_error("AccessDeniedException")
+
+    def factory(service_name, **kwargs):
+        if service_name == "apigateway":
+            return _FailRestClient()
+        if service_name == "lambda":
+            return _FailLambdaClient()
+        if service_name == "elbv2":
+            return _FailELBClient()
+        if service_name == "ec2":
+            return _FailEC2Client()
+        if service_name == "cloudfront":
+            return _FailCFClient()
+        return _make_boto_client(service_name, **kwargs)
+
+    status = _run_recon_collect(tmp_path, factory)
+
+    for component in (
+        "api-gateway-stages",
+        "lambda-urls",
+        "load-balancer-dns",
+        "public-endpoints",
+        "cloudfront-origins",
+    ):
+        assert status["components"][component]["ok"] is False, component
+        assert status["components"][component]["reason_code"] == "collection_failed"
+
+
+def test_recon_records_swallowed_per_item_failures_as_partial_collection(tmp_path: Path):
+    class _PartialR53Client(_DummyR53Client):
+        def get_paginator(self, op):
+            if op == "list_resource_record_sets":
+                raise _client_error("AccessDeniedException")
+            return super().get_paginator(op)
+
+    class _PartialRestClient(_DummyAPIGWClient):
+        def get_stages(self, **_kwargs):
+            raise _client_error("AccessDeniedException")
+
+        def get_resources(self, **_kwargs):
+            raise _client_error("AccessDeniedException")
+
+    class _PartialHTTPClient(_DummyAPIGW2Client):
+        def get_paginator(self, op):
+            return _DummyPaginator([{"Items": [{"ApiId": "http1", "Name": "h", "ProtocolType": "HTTP"}]}])
+
+        def get_stages(self, **_kwargs):
+            raise _client_error("AccessDeniedException")
+
+    class _PartialLambdaClient(_DummyLambdaClient):
+        def get_function_url_config(self, FunctionName=""):  # noqa: N803
+            raise _client_error("AccessDeniedException")
+
+    class _PartialELBClient(_DummyELBv2Client):
+        def describe_listeners(self, LoadBalancerArn=""):  # noqa: N803
+            raise _client_error("AccessDeniedException")
+
+    class _PartialWAFClient(_DummyWAFClient):
+        def get_web_acl_for_resource(self, ResourceArn=""):  # noqa: N803
+            raise _client_error("AccessDeniedException")
+
+    def factory(service_name, **kwargs):
+        if service_name == "route53":
+            return _PartialR53Client()
+        if service_name == "apigateway":
+            return _PartialRestClient()
+        if service_name == "apigatewayv2":
+            return _PartialHTTPClient()
+        if service_name == "lambda":
+            return _PartialLambdaClient()
+        if service_name == "elbv2":
+            return _PartialELBClient()
+        if service_name == "wafv2":
+            return _PartialWAFClient()
+        return _make_boto_client(service_name, **kwargs)
+
+    status = _run_recon_collect(tmp_path, factory)
+
+    for component in (
+        "route53-zones",
+        "api-gateway-stages",
+        "lambda-urls",
+        "load-balancer-dns",
+    ):
+        assert status["components"][component]["ok"] is False, component
+        assert status["components"][component]["reason_code"] == "partial_collection"
+
+
 def test_recon_skill_name():
     assert ReconSkill().name == "recon"
 

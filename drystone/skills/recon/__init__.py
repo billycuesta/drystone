@@ -121,11 +121,38 @@ class ReconSkill(BaseSkill):
                 component,
                 ok=False,
                 reason_code=str(error.get("reason_code") or "collection_failed"),
-                error_code=str(error.get("error_code") or ""),
+                error_code=error.get("error_code"),
                 error=str(error.get("error") or ""),
             )
         else:
             self._record_component_status(components, component, ok=True)
+
+    def _record_recon_error(
+        self,
+        component: str,
+        reason_code: str,
+        error: ClientError,
+        *,
+        context: str,
+    ) -> None:
+        """Record swallowed recon collector failures without changing evidence shape."""
+        code = error.response.get("Error", {}).get("Code", "Unknown")
+        details = f"{context}: {code}"
+        existing = getattr(self, "_collection_component_errors", {}).get(component)
+        if existing:
+            existing_reason = str(existing.get("reason_code") or "")
+            if existing_reason == "collection_failed" or reason_code != "collection_failed":
+                existing["error"] = "; ".join(
+                    part for part in [str(existing.get("error") or ""), details] if part
+                )
+                if not existing.get("error_code"):
+                    existing["error_code"] = code
+                return
+        self._collection_component_errors[component] = {
+            "reason_code": reason_code,
+            "error_code": code,
+            "error": details,
+        }
 
     # -------------------------------------------------------------------------
     # ROUTE 53
@@ -177,6 +204,12 @@ class ReconSkill(BaseSkill):
                                         zone_entry["Records"].append(entry)
                         except ClientError as e:
                             logger.warning(f"Could not list records for zone {zone_id}: {e}")
+                            self._record_recon_error(
+                                "route53-zones",
+                                "partial_collection",
+                                e,
+                                context=f"list_resource_record_sets:{zone_id}",
+                            )
                     zones.append(zone_entry)
         except ClientError as e:
             code = e.response.get("Error", {}).get("Code", "Unknown")
@@ -246,6 +279,12 @@ class ReconSkill(BaseSkill):
                             api_entry["Stages"].append(stage_entry)
                     except ClientError as e:
                         logger.warning(f"Could not get stages for REST API {api_id}: {e}")
+                        self._record_recon_error(
+                            "api-gateway-stages",
+                            "partial_collection",
+                            e,
+                            context=f"get_stages:{api_id}",
+                        )
                     # Collect REST API resource/method-level auth to detect unauth routes.
                     # OPTIONS methods are excluded (CORS preflight — not a real auth gap).
                     try:
@@ -267,9 +306,21 @@ class ReconSkill(BaseSkill):
                         api_entry["UnauthenticatedRoutes"] = unauth_rest_routes[:20]
                     except ClientError as e:
                         logger.warning(f"Could not get resources for REST API {api_id}: {e}")
+                        self._record_recon_error(
+                            "api-gateway-stages",
+                            "partial_collection",
+                            e,
+                            context=f"get_resources:{api_id}",
+                        )
                     apis.append(api_entry)
         except ClientError as e:
             logger.warning(f"Could not list REST APIs: {e}")
+            self._record_recon_error(
+                "api-gateway-stages",
+                "collection_failed",
+                e,
+                context="get_rest_apis",
+            )
 
         # HTTP APIs (v2)
         try:
@@ -317,14 +368,31 @@ class ReconSkill(BaseSkill):
                                 ]
                                 stage_entry["UnauthenticatedRouteCount"] = len(unauth_routes)
                                 stage_entry["TotalRouteCount"] = len(routes.get("Items", []))
-                            except ClientError:
-                                pass
+                            except ClientError as e:
+                                self._record_recon_error(
+                                    "api-gateway-stages",
+                                    "partial_collection",
+                                    e,
+                                    context=f"get_routes:{api_id}",
+                                )
                             api_entry["Stages"].append(stage_entry)
                     except ClientError as e:
                         logger.warning(f"Could not get stages for HTTP API {api_id}: {e}")
+                        self._record_recon_error(
+                            "api-gateway-stages",
+                            "partial_collection",
+                            e,
+                            context=f"get_stages:{api_id}",
+                        )
                     apis.append(api_entry)
         except ClientError as e:
             logger.warning(f"Could not list HTTP APIs: {e}")
+            self._record_recon_error(
+                "api-gateway-stages",
+                "collection_failed",
+                e,
+                context="get_apis",
+            )
 
         total_stages = sum(len(a.get("Stages", [])) for a in apis)
         # For HTTP APIs (v2): count stages where DefaultRouteAuthorizationType is NONE/null.
@@ -382,8 +450,20 @@ class ReconSkill(BaseSkill):
                         # ResourceNotFoundException → no URL configured, skip
                         if "ResourceNotFoundException" not in str(e):
                             logger.debug(f"Could not get URL config for {fn_name}: {e}")
+                            self._record_recon_error(
+                                "lambda-urls",
+                                "partial_collection",
+                                e,
+                                context=f"get_function_url_config:{fn_name}",
+                            )
         except ClientError as e:
             logger.error(f"Could not list Lambda functions: {e}")
+            self._record_recon_error(
+                "lambda-urls",
+                "collection_failed",
+                e,
+                context="list_functions",
+            )
 
         public_urls = [u for u in urls if u.get("IsPublic")]
         return {
@@ -428,6 +508,12 @@ class ReconSkill(BaseSkill):
                             )
                     except ClientError as e:
                         logger.warning(f"Could not get listeners for {arn}: {e}")
+                        self._record_recon_error(
+                            "load-balancer-dns",
+                            "partial_collection",
+                            e,
+                            context=f"describe_listeners:{arn}",
+                        )
                     # Check WAF association
                     try:
                         waf = boto3.client("wafv2", **client_kwargs)
@@ -435,11 +521,22 @@ class ReconSkill(BaseSkill):
                         lb_entry["WafWebAclArn"] = (
                             waf_acl.get("WebACL", {}).get("ARN") if waf_acl.get("WebACL") else None
                         )
-                    except ClientError:
-                        pass  # WAF not associated or no permission
+                    except ClientError as e:
+                        self._record_recon_error(
+                            "load-balancer-dns",
+                            "partial_collection",
+                            e,
+                            context=f"get_web_acl_for_resource:{arn}",
+                        )
                     lbs.append(lb_entry)
         except ClientError as e:
             logger.error(f"Could not list load balancers: {e}")
+            self._record_recon_error(
+                "load-balancer-dns",
+                "collection_failed",
+                e,
+                context="describe_load_balancers",
+            )
 
         public_lbs = [lb for lb in lbs if lb.get("IsPublic")]
         public_no_waf = [lb for lb in public_lbs if not lb.get("WafWebAclArn")]
@@ -476,6 +573,12 @@ class ReconSkill(BaseSkill):
                 )
         except ClientError as e:
             logger.error(f"Could not list Elastic IPs: {e}")
+            self._record_recon_error(
+                "public-endpoints",
+                "collection_failed",
+                e,
+                context="describe_addresses",
+            )
 
         # NAT Gateways
         try:
@@ -494,6 +597,12 @@ class ReconSkill(BaseSkill):
                             )
         except ClientError as e:
             logger.error(f"Could not list NAT Gateways: {e}")
+            self._record_recon_error(
+                "public-endpoints",
+                "collection_failed",
+                e,
+                context="describe_nat_gateways",
+            )
 
         # Enrich EIPs with instance names and permissive SG rules
         enriched_eips = []
@@ -646,6 +755,12 @@ class ReconSkill(BaseSkill):
                     )
         except ClientError as e:
             logger.warning(f"Could not list CloudFront distributions: {e}")
+            self._record_recon_error(
+                "cloudfront-origins",
+                "collection_failed",
+                e,
+                context="list_distributions",
+            )
 
         no_logging = [d for d in distributions if not d.get("LoggingEnabled")]
         return {
