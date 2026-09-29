@@ -53,10 +53,18 @@ class CICDSkill(BaseSkill):
         }
         self._save_json(evidence_path / "_audit_metadata.json", metadata)
 
+        components: Dict[str, Dict[str, Any]] = {}
+
         projects, proj_errors = self._collect_codebuild_projects(codebuild)
         self._save_json(
             evidence_path / "codebuild-projects.json",
             {"items": projects, "errors": proj_errors},
+        )
+        self._record_errors_component_status(
+            components,
+            "codebuild-projects",
+            proj_errors,
+            collection_failure_keys={"list_projects"},
         )
 
         creds, cred_errors = self._collect_source_credentials(codebuild)
@@ -64,6 +72,14 @@ class CICDSkill(BaseSkill):
             evidence_path / "codebuild-source-credentials.json",
             {"items": creds, "errors": cred_errors},
         )
+        self._record_errors_component_status(
+            components,
+            "codebuild-source-credentials",
+            cred_errors,
+            collection_failure_keys={"list_source_credentials"},
+        )
+
+        self._save_collection_status(evidence_path, {"components": components})
 
         ok = not (proj_errors or cred_errors)
         logger.info(
@@ -74,6 +90,32 @@ class CICDSkill(BaseSkill):
                 "source_credentials": len(creds),
                 "ok": ok,
             },
+        )
+
+    def _record_errors_component_status(
+        self,
+        components: Dict[str, Dict[str, Any]],
+        component: str,
+        errors: Dict[str, str],
+        *,
+        collection_failure_keys: set[str],
+    ) -> None:
+        if not errors:
+            self._record_component_status(components, component, ok=True)
+            return
+        reason_code = (
+            "collection_failed"
+            if any(key in collection_failure_keys for key in errors)
+            else "partial_collection"
+        )
+        first_error_code = next(iter(errors.values()), None)
+        self._record_component_status(
+            components,
+            component,
+            ok=False,
+            reason_code=reason_code,
+            error_code=str(first_error_code) if first_error_code else None,
+            error="; ".join(f"{key}: {value}" for key, value in sorted(errors.items())),
         )
 
     def _collect_codebuild_projects(self, codebuild) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
