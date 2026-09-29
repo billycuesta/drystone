@@ -26,6 +26,60 @@ def _load_ctef_events(evidence: dict, key: str) -> list:
     return val if isinstance(val, list) else []
 
 
+def _ctef_warn(check_id: str, reason_code: str, summary: str, key: str) -> PreCheckResult:
+    return PreCheckResult(
+        check_id,
+        "WARN",
+        summary,
+        [],
+        confidence=0.0,
+        metadata={"reason_code": reason_code, "evidence_key": key},
+    )
+
+
+def _ctef_availability_warning(
+    evidence: dict,
+    check_id: str,
+    keys: list[str],
+) -> Optional[PreCheckResult]:
+    """Return WARN when CloudTrail category evidence is not trustworthy.
+
+    Backward compatibility: old sessions have event-list files but no collection
+    status file. If a required key is present as a list and no status file exists,
+    keep legacy PASS behavior for empty lists. Missing keys are still WARN.
+    """
+    for key in keys:
+        if key not in evidence:
+            return _ctef_warn(check_id, "missing_evidence", f"Missing CloudTrail evidence: {key}", key)
+        if not isinstance(evidence.get(key), list):
+            return _ctef_warn(
+                check_id,
+                "evidence_parse_failed",
+                f"CloudTrail evidence is not a list: {key}",
+                key,
+            )
+
+    if any(_load_ctef_events(evidence, key) for key in keys):
+        return None
+
+    status_doc = evidence.get("cloudtrail_events-collection-status") or {}
+    categories = status_doc.get("categories") if isinstance(status_doc, dict) else None
+    if not isinstance(categories, dict):
+        return None
+
+    for key in keys:
+        category_status = categories.get(key)
+        if isinstance(category_status, dict) and category_status.get("ok") is False:
+            reason_code = str(category_status.get("reason_code") or "collection_failed")
+            return _ctef_warn(
+                check_id,
+                reason_code,
+                f"CloudTrail category {key} could not be fully evaluated ({reason_code})",
+                key,
+            )
+    return None
+
+
 @_register("cloudtrail_events")
 def check_ctef_001(evidence: dict) -> PreCheckResult:
     """CTEF-001: Root account activity detected in audit period."""
@@ -38,6 +92,8 @@ def check_ctef_001(evidence: dict) -> PreCheckResult:
             f"Root account used {len(root_events)} time(s); first event: {sample}",
             ["arn:aws:iam::*:root"],
         )
+    if warning := _ctef_availability_warning(evidence, "CTEF-001", ["root-events"]):
+        return warning
     return PreCheckResult("CTEF-001", "PASS", "No root account activity detected", [])
 
 
@@ -60,6 +116,8 @@ def check_ctef_002(evidence: dict) -> PreCheckResult:
             f"{len(failed)} failed login attempt(s) detected; affected users: {usernames}",
             [f"user:{u}" for u in usernames],
         )
+    if warning := _ctef_availability_warning(evidence, "CTEF-002", ["console-login-events"]):
+        return warning
     return PreCheckResult(
         "CTEF-002", "PASS", f"Failed logins below threshold ({len(failed)} < {threshold})", []
     )
@@ -98,6 +156,8 @@ def check_ctef_003(evidence: dict) -> PreCheckResult:
             affected_resources,
             confidence=1.0,
         )
+    if warning := _ctef_availability_warning(evidence, "CTEF-003", ["audit-tampering-events"]):
+        return warning
     return PreCheckResult("CTEF-003", "PASS", "No CloudTrail tampering events detected", [])
 
 
@@ -114,6 +174,8 @@ def check_ctef_004(evidence: dict) -> PreCheckResult:
             f"{len(priv_esc)} privilege escalation event(s): {event_names} by {actors}",
             [f"user:{a}" for a in actors],
         )
+    if warning := _ctef_availability_warning(evidence, "CTEF-004", ["privilege-escalation-events"]):
+        return warning
     return PreCheckResult("CTEF-004", "PASS", "No privilege escalation events detected", [])
 
 
@@ -130,6 +192,8 @@ def check_ctef_005(evidence: dict) -> PreCheckResult:
             f"{len(throttled)} throttling events detected; services: {sources}",
             [],
         )
+    if warning := _ctef_availability_warning(evidence, "CTEF-005", ["throttling-events"]):
+        return warning
     return PreCheckResult(
         "CTEF-005",
         "PASS",
@@ -151,6 +215,8 @@ def check_ctef_006(evidence: dict) -> PreCheckResult:
             f"{len(denied)} AccessDenied events detected; actors: {actors}",
             [f"user:{a}" for a in actors],
         )
+    if warning := _ctef_availability_warning(evidence, "CTEF-006", ["access-denied-events"]):
+        return warning
     return PreCheckResult(
         "CTEF-006", "PASS", f"AccessDenied events below threshold ({len(denied)} < {threshold})", []
     )
@@ -193,6 +259,8 @@ def check_ctef_007(evidence: dict) -> PreCheckResult:
             f"{len(off_hours)} off-hours console login(s) detected; users: {users}",
             [f"user:{u}" for u in users],
         )
+    if warning := _ctef_availability_warning(evidence, "CTEF-007", ["console-login-events"]):
+        return warning
     return PreCheckResult(
         "CTEF-007", "PASS", f"Off-hours logins below threshold ({len(off_hours)} < {threshold})", []
     )
@@ -212,6 +280,8 @@ def check_ctef_008(evidence: dict) -> PreCheckResult:
             f"{len(delete_events)} deletion event(s) detected: {event_names} by {actors}",
             [f"user:{a}" for a in actors],
         )
+    if warning := _ctef_availability_warning(evidence, "CTEF-008", ["delete-events"]):
+        return warning
     return PreCheckResult(
         "CTEF-008",
         "PASS",
@@ -234,6 +304,12 @@ def check_ctef_009(evidence: dict) -> PreCheckResult:
             f"Credential report accessed {len(all_events)} time(s) by: {actors}",
             [f"user:{a}" for a in actors],
         )
+    if warning := _ctef_availability_warning(
+        evidence,
+        "CTEF-009",
+        ["credential-report-events", "get-credential-report-events"],
+    ):
+        return warning
     return PreCheckResult("CTEF-009", "PASS", "No credential report access detected", [])
 
 
@@ -284,6 +360,8 @@ def check_ctef_010(evidence: dict) -> PreCheckResult:
             f"{len(cross_account)} cross-account AssumeRole event(s) from external account(s): {actors}",
             [f"principal:{a}" for a in actors],
         )
+    if warning := _ctef_availability_warning(evidence, "CTEF-010", ["assume-role-events"]):
+        return warning
     return PreCheckResult(
         "CTEF-010", "PASS", "No cross-account AssumeRole events from external accounts detected", []
     )
@@ -306,6 +384,12 @@ def check_ctef_011(evidence: dict) -> PreCheckResult:
             f"{len(disabled)} security monitoring service disabling event(s): {event_names} by {actors}",
             [f"actor:{a}" for a in actors],
         )
+    if warning := _ctef_availability_warning(
+        evidence,
+        "CTEF-011",
+        ["disable-security-hub-events", "delete-detector-events", "disable-alarm-actions-events"],
+    ):
+        return warning
     return PreCheckResult(
         "CTEF-011", "PASS", "No security monitoring service disabling events detected", []
     )
@@ -337,6 +421,12 @@ def check_ctef_012(evidence: dict) -> PreCheckResult:
             summary,
             [f"actor:{a}" for a in actors],
         )
+    if warning := _ctef_availability_warning(
+        evidence,
+        "CTEF-012",
+        ["get-secret-value-events", "get-parameter-events"],
+    ):
+        return warning
     return PreCheckResult("CTEF-012", "PASS", "No secret or parameter access events detected", [])
 
 
@@ -366,6 +456,12 @@ def check_ctef_013(evidence: dict) -> PreCheckResult:
             summary,
             [f"actor:{a}" for a in actors],
         )
+    if warning := _ctef_availability_warning(
+        evidence,
+        "CTEF-013",
+        ["update-assume-role-events", "put-role-policy-events"],
+    ):
+        return warning
     return PreCheckResult(
         "CTEF-013", "PASS", "No IAM trust or inline policy modification events detected", []
     )

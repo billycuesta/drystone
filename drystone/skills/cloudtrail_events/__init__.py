@@ -144,6 +144,26 @@ def _is_lookup_throttling_error(error: ClientError) -> bool:
     return _client_error_code(error) in _LOOKUP_RETRYABLE_ERROR_CODES
 
 
+def _record_category_status(
+    status_recorder: Optional[dict[str, dict[str, Any]]],
+    category: Optional[str],
+    *,
+    ok: bool,
+    reason_code: Optional[str] = None,
+    event_count: int = 0,
+    error: Optional[ClientError] = None,
+) -> None:
+    if status_recorder is None or category is None:
+        return
+    entry: dict[str, Any] = {"ok": ok, "event_count": event_count}
+    if reason_code:
+        entry["reason_code"] = reason_code
+    if error is not None:
+        entry["error_code"] = _client_error_code(error)
+        entry["error"] = str(error)
+    status_recorder[category] = entry
+
+
 def _paginate_lookup_events(
     ct_client: Any,
     lookup_attributes: list[dict[str, str]],
@@ -152,6 +172,8 @@ def _paginate_lookup_events(
     max_events: int,
     warning_context: str,
     sleep_fn: Callable[[float], None] = _sleep,
+    status_recorder: Optional[dict[str, dict[str, Any]]] = None,
+    category: Optional[str] = None,
 ) -> list[dict]:
     """Paginate CloudTrail lookup_events with bounded throttling retry/backoff."""
     last_events: list[dict] = []
@@ -170,12 +192,28 @@ def _paginate_lookup_events(
                 for event in page.get("Events", []):
                     events.append(_distill_event(event))
                     if len(events) >= max_events:
+                        _record_category_status(
+                            status_recorder,
+                            category,
+                            ok=False,
+                            reason_code="partial_collection",
+                            event_count=len(events),
+                        )
                         return events
+            _record_category_status(status_recorder, category, ok=True, event_count=len(events))
             return events
         except ClientError as e:
             last_events = events
             if not _is_lookup_throttling_error(e):
                 logger.warning("lookup_events failed for %s: %s", warning_context, e)
+                _record_category_status(
+                    status_recorder,
+                    category,
+                    ok=False,
+                    reason_code="collection_failed",
+                    event_count=len(last_events),
+                    error=e,
+                )
                 return last_events
 
             if attempt >= _LOOKUP_MAX_ATTEMPTS:
@@ -184,6 +222,14 @@ def _paginate_lookup_events(
                     warning_context,
                     attempt,
                     e,
+                )
+                _record_category_status(
+                    status_recorder,
+                    category,
+                    ok=False,
+                    reason_code="partial_collection",
+                    event_count=len(last_events),
+                    error=e,
                 )
                 return last_events
 
@@ -209,6 +255,8 @@ def _paginate_lookup(
     attribute_value: str,
     max_events: int = MAX_EVENTS_PER_CATEGORY,
     sleep_fn: Callable[[float], None] = _sleep,
+    status_recorder: Optional[dict[str, dict[str, Any]]] = None,
+    category: Optional[str] = None,
 ) -> list[dict]:
     """Paginate CloudTrail lookup_events for a single attribute filter."""
     return _paginate_lookup_events(
@@ -219,6 +267,8 @@ def _paginate_lookup(
         max_events=max_events,
         warning_context=f"{attribute_key}={attribute_value}",
         sleep_fn=sleep_fn,
+        status_recorder=status_recorder,
+        category=category,
     )
 
 
@@ -228,6 +278,8 @@ def _paginate_write_events(
     end_time: datetime,
     max_events: int = MAX_WRITE_EVENTS,
     sleep_fn: Callable[[float], None] = _sleep,
+    status_recorder: Optional[dict[str, dict[str, Any]]] = None,
+    category: str = "write-events",
 ) -> list[dict]:
     """Collect all write events (ReadOnly=false) for general analysis."""
     return _paginate_lookup_events(
@@ -238,6 +290,8 @@ def _paginate_write_events(
         max_events=max_events,
         warning_context="write events",
         sleep_fn=sleep_fn,
+        status_recorder=status_recorder,
+        category=category,
     )
 
 
@@ -261,6 +315,25 @@ class CloudTrailEventsSkill(BaseSkill):
     def name(self) -> str:
         """Skill identifier."""
         return "cloudtrail_events"
+
+    def _record_aggregate_category_status(
+        self,
+        category_status: dict[str, dict[str, Any]],
+        aggregate_name: str,
+        source_names: tuple[str, ...],
+        event_count: int,
+    ) -> None:
+        failed = [dict(category_status.get(name, {})) for name in source_names if not category_status.get(name, {}).get("ok", True)]
+        if not failed:
+            category_status[aggregate_name] = {"ok": True, "event_count": event_count}
+            return
+        reason_code = "partial_collection" if any(f.get("reason_code") == "partial_collection" for f in failed) else "collection_failed"
+        category_status[aggregate_name] = {
+            "ok": False,
+            "reason_code": reason_code,
+            "event_count": event_count,
+            "error": "; ".join(str(f.get("error") or f.get("error_code") or reason_code) for f in failed),
+        }
 
     def collect(self, aws_client: AWSClient, session: AuditSession) -> None:
         """Collect and categorize CloudTrail events from the audit period.
@@ -300,12 +373,19 @@ class CloudTrailEventsSkill(BaseSkill):
             "account_id": account_id,
             "categories_collected": {},
         }
+        category_status: dict[str, dict[str, Any]] = {}
 
         # === TARGETED LOOKUPS (one per EventName / Username) ===
         for filename, attr_key, attr_value in _TARGETED_EVENT_NAMES:
             print(f"    Collecting {filename}...")
             events = _paginate_lookup(
-                ct_client, start_time, end_time, attr_key, attr_value
+                ct_client,
+                start_time,
+                end_time,
+                attr_key,
+                attr_value,
+                status_recorder=category_status,
+                category=filename,
             )
             output_file = evidence_path / f"{filename}.json"
             output_file.write_text(json.dumps(events, indent=2, default=str))
@@ -314,7 +394,9 @@ class CloudTrailEventsSkill(BaseSkill):
 
         # === GENERAL WRITE EVENTS (for mass deletions + access denied) ===
         print("    Collecting write-events (mass deletions / access denied)...")
-        write_events = _paginate_write_events(ct_client, start_time, end_time)
+        write_events = _paginate_write_events(
+            ct_client, start_time, end_time, status_recorder=category_status
+        )
 
         # Derive sub-categories from write events
         access_denied = [
@@ -348,6 +430,15 @@ class CloudTrailEventsSkill(BaseSkill):
                 "delete-events": len(delete_events),
             }
         )
+        write_status = dict(category_status.get("write-events", {"ok": True}))
+        for derived_name, count in (
+            ("access-denied-events", len(access_denied)),
+            ("throttling-events", len(throttled)),
+            ("delete-events", len(delete_events)),
+        ):
+            derived_status = dict(write_status)
+            derived_status["event_count"] = count
+            category_status[derived_name] = derived_status
 
         # === AUDIT METADATA ===
         audit_tampering = []
@@ -359,6 +450,12 @@ class CloudTrailEventsSkill(BaseSkill):
             json.dumps(audit_tampering, indent=2, default=str)
         )
         summary["categories_collected"]["audit-tampering-events"] = len(audit_tampering)
+        self._record_aggregate_category_status(
+            category_status,
+            "audit-tampering-events",
+            ("stop-logging-events", "delete-trail-events", "update-trail-events"),
+            len(audit_tampering),
+        )
 
         # === PRIVILEGE ESCALATION (aggregate) ===
         priv_esc = []
@@ -375,9 +472,30 @@ class CloudTrailEventsSkill(BaseSkill):
             json.dumps(priv_esc, indent=2, default=str)
         )
         summary["categories_collected"]["privilege-escalation-events"] = len(priv_esc)
+        self._record_aggregate_category_status(
+            category_status,
+            "privilege-escalation-events",
+            (
+                "create-access-key-events",
+                "attach-user-policy-events",
+                "attach-role-policy-events",
+                "create-login-profile-events",
+            ),
+            len(priv_esc),
+        )
 
         # === SUMMARY ===
         (evidence_path / "_summary.json").write_text(json.dumps(summary, indent=2, default=str))
+        self._save_collection_status(
+            evidence_path,
+            {
+                "categories": category_status,
+                "scan_depth": scan_depth,
+                "days_back": days_back,
+                "start_time": start_time.isoformat(),
+                "end_time": end_time.isoformat(),
+            },
+        )
 
         total_events = sum(summary["categories_collected"].values())
         print(

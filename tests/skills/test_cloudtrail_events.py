@@ -291,6 +291,62 @@ class TestCloudTrailEventsPaginationRetry:
         assert paginator.paginate.call_count == 1
         assert sleeps == []
 
+    def test_lookup_records_non_throttling_failure_when_collector_provides_status(self):
+        """Lookup failures should be observable for collection-status output."""
+        from drystone.skills.cloudtrail_events import _paginate_lookup
+
+        start_time = datetime(2026, 3, 15, 9, 0, tzinfo=timezone.utc)
+        end_time = datetime(2026, 3, 15, 10, 0, tzinfo=timezone.utc)
+        paginator = MagicMock()
+        paginator.paginate.side_effect = _client_error("AccessDeniedException")
+        ct_client = MagicMock()
+        ct_client.get_paginator.return_value = paginator
+        status = {}
+
+        events = _paginate_lookup(
+            ct_client,
+            start_time,
+            end_time,
+            "EventName",
+            "ConsoleLogin",
+            sleep_fn=lambda _: None,
+            status_recorder=status,
+            category="console-login-events",
+        )
+
+        assert events == []
+        assert status["console-login-events"]["ok"] is False
+        assert status["console-login-events"]["reason_code"] == "collection_failed"
+        assert status["console-login-events"]["error_code"] == "AccessDeniedException"
+
+    def test_lookup_records_partial_collection_when_throttling_retries_exhaust(self):
+        """Exhausted throttling retries should be a partial collection gap."""
+        from drystone.skills.cloudtrail_events import _paginate_lookup
+
+        start_time = datetime(2026, 3, 15, 9, 0, tzinfo=timezone.utc)
+        end_time = datetime(2026, 3, 15, 10, 0, tzinfo=timezone.utc)
+        paginator = MagicMock()
+        paginator.paginate.side_effect = _client_error("ThrottlingException")
+        ct_client = MagicMock()
+        ct_client.get_paginator.return_value = paginator
+        status = {}
+
+        events = _paginate_lookup(
+            ct_client,
+            start_time,
+            end_time,
+            "EventName",
+            "ConsoleLogin",
+            sleep_fn=lambda _: None,
+            status_recorder=status,
+            category="console-login-events",
+        )
+
+        assert events == []
+        assert status["console-login-events"]["ok"] is False
+        assert status["console-login-events"]["reason_code"] == "partial_collection"
+        assert status["console-login-events"]["error_code"] == "ThrottlingException"
+
     def test_write_events_non_throttling_client_error_does_not_retry(self):
         """Non-throttling write-events ClientError should not retry."""
         from drystone.skills.cloudtrail_events import _paginate_write_events
@@ -309,6 +365,28 @@ class TestCloudTrailEventsPaginationRetry:
         assert paginator.paginate.call_count == 1
         assert sleeps == []
 
+    def test_collect_writes_cloudtrail_collection_status_for_failed_lookups(self, tmp_path):
+        """collect() should persist per-category lookup errors in SKL-S status shape."""
+        from drystone.skills.cloudtrail_events import CloudTrailEventsSkill
+
+        aws_client = _make_aws_client()
+        session, evidence_path = _make_session(tmp_path)
+        paginator = MagicMock()
+        paginator.paginate.side_effect = _client_error("AccessDeniedException")
+        mock_ct = MagicMock()
+        mock_ct.get_paginator.return_value = paginator
+
+        with patch("boto3.client", return_value=mock_ct):
+            CloudTrailEventsSkill().collect(aws_client, session)
+
+        status = json.loads((evidence_path / "cloudtrail_events-collection-status.json").read_text())
+        assert status["_schema"] == "drystone.collection_status.v1"
+        assert status["_skill"] == "cloudtrail_events"
+        assert status["ok"] is False
+        assert status["categories"]["root-events"]["ok"] is False
+        assert status["categories"]["root-events"]["reason_code"] == "collection_failed"
+        assert status["errors"]["categories"]["root-events"]["error"]
+
 
 # =============================================================================
 # PRE-CHECKS TESTS
@@ -326,6 +404,60 @@ class TestCloudTrailPreChecks:
         check_ids = {r.check_id for r in _run_all_checks({})}
         expected = {f"CTEF-{i:03d}" for i in range(1, 14)}
         assert expected == check_ids
+
+    def test_missing_event_evidence_returns_warn_missing_evidence(self):
+        """Missing event keys are coverage gaps, not clean PASS results."""
+        result = _run_check("CTEF-001", {})
+
+        assert result.status == "WARN"
+        assert result.metadata["reason_code"] == "missing_evidence"
+
+    def test_failed_category_status_returns_warn_collection_failed(self):
+        result = _run_check(
+            "CTEF-001",
+            {
+                "root-events": [],
+                "cloudtrail_events-collection-status": {
+                    "categories": {
+                        "root-events": {
+                            "ok": False,
+                            "reason_code": "collection_failed",
+                            "error": "AccessDeniedException: denied",
+                        }
+                    }
+                },
+            },
+        )
+
+        assert result.status == "WARN"
+        assert result.metadata["reason_code"] == "collection_failed"
+        assert "root-events" in result.evidence_summary
+
+    def test_partial_category_still_fails_when_events_are_present(self):
+        result = _run_check(
+            "CTEF-001",
+            {
+                "root-events": [_make_event("SomeAction", "root")],
+                "cloudtrail_events-collection-status": {
+                    "categories": {"root-events": {"ok": False, "reason_code": "partial_collection"}}
+                },
+            },
+        )
+
+        assert result.status == "FAIL"
+
+    def test_legacy_empty_event_list_without_status_file_still_passes(self):
+        """Old sessions with a present list and no status file retain legacy PASS semantics."""
+        result = _run_check("CTEF-001", {"root-events": []})
+
+        assert result.status == "PASS"
+
+    def test_all_ctef_checks_warn_when_required_evidence_is_absent(self):
+        results = _run_all_checks({})
+
+        assert {result.check_id for result in results} == {f"CTEF-{i:03d}" for i in range(1, 14)}
+        assert {result.status for result in results} == {"WARN"}
+        assert {result.metadata["reason_code"] for result in results} == {"missing_evidence"}
 
     # CTEF-001
     def test_ctef_001_fail_when_root_events(self):
