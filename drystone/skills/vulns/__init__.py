@@ -14,6 +14,24 @@ from drystone.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Evidence file stems written by collect(); used as collection-status component keys.
+VULNS_EVIDENCE_COMPONENTS = (
+    "inspector-org-config",
+    "inspector-findings",
+    "ec2-patch-status",
+    "patch-baselines",
+    "rds-patch-info",
+    "ecr-image-scans",
+    "ec2-user-data",
+    "lambda-environment-variables",
+    "imds-configuration",
+    "instance-profiles-permissions",
+    "ebs-snapshot-sharing",
+    "guardduty-status",
+    "ecs-task-env-secrets",
+    "terraform-state-scan",
+)
+
 
 class VulnsSkill(BaseSkill):
     """Vulnerability management audit skill - analyzes Inspector and patch status."""
@@ -56,6 +74,9 @@ class VulnsSkill(BaseSkill):
 
         evidence_path = session.get_evidence_path(self.name)
 
+        components: Dict[str, Dict[str, Any]] = {}
+        self._collection_component_errors: Dict[str, Dict[str, Any]] = {}
+
         # === INSPECTOR V2 ===
         print("  Collecting AWS Inspector v2 data...")
         try:
@@ -65,14 +86,22 @@ class VulnsSkill(BaseSkill):
             try:
                 delegated = inspector_client.describe_organization_configuration()
                 self._save_json(evidence_path / "inspector-org-config.json", delegated)
+                self._record_component_status(components, "inspector-org-config", ok=True)
             except Exception as e:
                 err = str(e)
                 if "AccessDeniedException" in err:
                     logger.info(
                         "Inspector organization config not accessible (expected for non-org/delegated accounts)"
                     )
+                    self._record_component_status(components, "inspector-org-config", ok=True)
                 else:
                     logger.warning(f"Could not describe Inspector organization config: {e}")
+                    self._record_vulns_error(
+                        "inspector-org-config",
+                        "collection_failed",
+                        e,
+                        context="describe_organization_configuration",
+                    )
 
             # List findings (filtered by severity: Critical, High, Medium)
             findings_list = []
@@ -114,11 +143,29 @@ class VulnsSkill(BaseSkill):
                     findings_list.extend(raw_findings)
             except Exception as e:
                 logger.warning(f"Could not list Inspector findings: {e}")
+                self._record_vulns_error(
+                    "inspector-findings",
+                    "collection_failed",
+                    e,
+                    context="list_findings",
+                )
                 findings_list = []
 
             self._save_json(evidence_path / "inspector-findings.json", findings_list)
         except Exception as e:
             logger.error(f"Could not collect Inspector data: {e}")
+            self._record_vulns_error(
+                "inspector-org-config",
+                "collection_failed",
+                e,
+                context="inspector2_client",
+            )
+            self._record_vulns_error(
+                "inspector-findings",
+                "collection_failed",
+                e,
+                context="inspector2_client",
+            )
 
         # === EC2 PATCH STATUS ===
         print("  Collecting EC2 patch compliance...")
@@ -172,6 +219,12 @@ class VulnsSkill(BaseSkill):
                         logger.warning(
                             f"Could not get patch compliance for instance {instance_id}: {e}"
                         )
+                        self._record_vulns_error(
+                            "ec2-patch-status",
+                            "partial_collection",
+                            e,
+                            context=f"describe_instance_information:{instance_id}",
+                        )
                         instance_detail["SSMStatus"] = []
                         instance_detail["PatchCompliance"] = []
 
@@ -180,6 +233,12 @@ class VulnsSkill(BaseSkill):
             self._save_json(evidence_path / "ec2-patch-status.json", patch_status_list)
         except Exception as e:
             logger.error(f"Could not collect patch status: {e}")
+            self._record_vulns_error(
+                "ec2-patch-status",
+                "collection_failed",
+                e,
+                context="describe_instances",
+            )
 
         # === SYSTEMS MANAGER PATCH BASELINES ===
         print("  Collecting patch baselines...")
@@ -211,6 +270,12 @@ class VulnsSkill(BaseSkill):
                         logger.warning(
                             f"Could not get details for patch baseline {baseline.get('BaselineId')}: {e}"
                         )
+                        self._record_vulns_error(
+                            "patch-baselines",
+                            "partial_collection",
+                            e,
+                            context=f"get_patch_baseline:{baseline.get('BaselineId')}",
+                        )
                         baseline_detail["Details"] = {}
 
                     baselines_list.append(baseline_detail)
@@ -218,6 +283,12 @@ class VulnsSkill(BaseSkill):
             self._save_json(evidence_path / "patch-baselines.json", baselines_list)
         except Exception as e:
             logger.error(f"Could not collect patch baselines: {e}")
+            self._record_vulns_error(
+                "patch-baselines",
+                "collection_failed",
+                e,
+                context="describe_patch_baselines",
+            )
 
         # === RDS PATCH INFORMATION ===
         print("  Collecting RDS patch information...")
@@ -262,6 +333,12 @@ class VulnsSkill(BaseSkill):
                     logger.warning(
                         f"Could not describe DB engine versions for {instance.get('DBInstanceIdentifier')}: {e}"
                     )
+                    self._record_vulns_error(
+                        "rds-patch-info",
+                        "partial_collection",
+                        e,
+                        context=f"describe_db_engine_versions:{instance.get('DBInstanceIdentifier')}",
+                    )
                     rds_detail["UpgradeAvailable"] = None
 
                 rds_patch_list.append(rds_detail)
@@ -269,6 +346,12 @@ class VulnsSkill(BaseSkill):
             self._save_json(evidence_path / "rds-patch-info.json", rds_patch_list)
         except Exception as e:
             logger.error(f"Could not collect RDS patch info: {e}")
+            self._record_vulns_error(
+                "rds-patch-info",
+                "collection_failed",
+                e,
+                context="describe_db_instances",
+            )
 
         # === ECR IMAGE SCANNING ===
         print("  Collecting ECR image scan results...")
@@ -302,6 +385,12 @@ class VulnsSkill(BaseSkill):
                                 logger.warning(
                                     f"Could not get scan findings for image {image.get('imageId')}: {e}"
                                 )
+                                self._record_vulns_error(
+                                    "ecr-image-scans",
+                                    "partial_collection",
+                                    e,
+                                    context=f"describe_image_scan_findings:{repo_name}",
+                                )
                                 image_detail["ScanFindings"] = {}
 
                         # Only keep records with actual scan data to avoid token bloat
@@ -315,15 +404,34 @@ class VulnsSkill(BaseSkill):
                             ecr_images_list.append(image_detail)
                 except Exception as e:
                     logger.warning(f"Could not describe images for repository {repo_name}: {e}")
+                    self._record_vulns_error(
+                        "ecr-image-scans",
+                        "partial_collection",
+                        e,
+                        context=f"describe_images:{repo_name}",
+                    )
 
             self._save_json(evidence_path / "ecr-image-scans.json", ecr_images_list)
         except Exception as e:
             logger.error(f"Could not collect ECR scan data: {e}")
+            self._record_vulns_error(
+                "ecr-image-scans",
+                "collection_failed",
+                e,
+                context="describe_repositories",
+            )
 
         # === EC2 USER-DATA ===
         print("  Collecting EC2 user-data scripts...")
         try:
             user_data, user_data_error = self._collect_ec2_user_data(client_kwargs)
+            if user_data_error:
+                self._record_vulns_error(
+                    "ec2-user-data",
+                    "collection_failed",
+                    user_data_error,
+                    context="describe_instances",
+                )
             self._save_json(
                 evidence_path / "ec2-user-data.json",
                 {
@@ -333,11 +441,24 @@ class VulnsSkill(BaseSkill):
             )
         except Exception as e:
             logger.error(f"Could not collect EC2 user-data: {e}")
+            self._record_vulns_error(
+                "ec2-user-data",
+                "collection_failed",
+                e,
+                context="collect_ec2_user_data",
+            )
 
         # === LAMBDA ENVIRONMENT VARIABLES ===
         print("  Collecting Lambda environment variables...")
         try:
             env_vars, env_error = self._collect_lambda_environment_variables(client_kwargs)
+            if env_error:
+                self._record_vulns_error(
+                    "lambda-environment-variables",
+                    "collection_failed",
+                    env_error,
+                    context="list_functions",
+                )
             self._save_json(
                 evidence_path / "lambda-environment-variables.json",
                 {
@@ -347,11 +468,24 @@ class VulnsSkill(BaseSkill):
             )
         except Exception as e:
             logger.error(f"Could not collect Lambda environment variables: {e}")
+            self._record_vulns_error(
+                "lambda-environment-variables",
+                "collection_failed",
+                e,
+                context="collect_lambda_environment_variables",
+            )
 
         # === IMDS CONFIGURATION ===
         print("  Collecting IMDS configuration...")
         try:
             imds, imds_error = self._collect_imds_configuration(client_kwargs)
+            if imds_error:
+                self._record_vulns_error(
+                    "imds-configuration",
+                    "collection_failed",
+                    imds_error,
+                    context="describe_instances",
+                )
             self._save_json(
                 evidence_path / "imds-configuration.json",
                 {
@@ -361,11 +495,24 @@ class VulnsSkill(BaseSkill):
             )
         except Exception as e:
             logger.error(f"Could not collect IMDS configuration: {e}")
+            self._record_vulns_error(
+                "imds-configuration",
+                "collection_failed",
+                e,
+                context="collect_imds_configuration",
+            )
 
         # === INSTANCE PROFILE PERMISSIONS ===
         print("  Collecting instance profile permissions...")
         try:
             profiles, profiles_error = self._collect_instance_profiles_permissions(client_kwargs)
+            if profiles_error:
+                self._record_vulns_error(
+                    "instance-profiles-permissions",
+                    "collection_failed",
+                    profiles_error,
+                    context="describe_instances",
+                )
             self._save_json(
                 evidence_path / "instance-profiles-permissions.json",
                 {
@@ -375,11 +522,24 @@ class VulnsSkill(BaseSkill):
             )
         except Exception as e:
             logger.error(f"Could not collect instance profile permissions: {e}")
+            self._record_vulns_error(
+                "instance-profiles-permissions",
+                "collection_failed",
+                e,
+                context="collect_instance_profiles_permissions",
+            )
 
         # === EBS SNAPSHOT SHARING ===
         print("  Collecting EBS snapshot sharing posture...")
         try:
             snapshots, snapshots_error = self._collect_ebs_snapshot_sharing(client_kwargs)
+            if snapshots_error:
+                self._record_vulns_error(
+                    "ebs-snapshot-sharing",
+                    "collection_failed",
+                    snapshots_error,
+                    context="describe_snapshots",
+                )
             self._save_json(
                 evidence_path / "ebs-snapshot-sharing.json",
                 {
@@ -389,6 +549,12 @@ class VulnsSkill(BaseSkill):
             )
         except Exception as e:
             logger.error(f"Could not collect EBS snapshot sharing posture: {e}")
+            self._record_vulns_error(
+                "ebs-snapshot-sharing",
+                "collection_failed",
+                e,
+                context="collect_ebs_snapshot_sharing",
+            )
 
         # === GUARDDUTY STATUS ===
         print("  Collecting GuardDuty configuration...")
@@ -397,17 +563,36 @@ class VulnsSkill(BaseSkill):
             self._save_json(evidence_path / "guardduty-status.json", gd_data)
         except Exception as e:
             logger.error(f"Could not collect GuardDuty status: {e}")
+            self._record_vulns_error(
+                "guardduty-status",
+                "collection_failed",
+                e,
+                context="collect_guardduty_status",
+            )
 
         # === ECS TASK DEFINITION SECRETS ===
         print("  Collecting ECS task definition environment variables...")
         try:
             ecs_data, ecs_error = self._collect_ecs_task_secrets(client_kwargs)
+            if ecs_error:
+                self._record_vulns_error(
+                    "ecs-task-env-secrets",
+                    "collection_failed",
+                    ecs_error,
+                    context="list_task_definitions",
+                )
             self._save_json(
                 evidence_path / "ecs-task-env-secrets.json",
                 {"items": ecs_data, "error": ecs_error},
             )
         except Exception as e:
             logger.error(f"Could not collect ECS task definition secrets: {e}")
+            self._record_vulns_error(
+                "ecs-task-env-secrets",
+                "collection_failed",
+                e,
+                context="collect_ecs_task_secrets",
+            )
 
         # === TERRAFORM STATE FILES IN S3 ===
         print("  Scanning S3 buckets for Terraform state files...")
@@ -431,14 +616,102 @@ class VulnsSkill(BaseSkill):
                     {"items": [], "error": None, "skipped": True, "reason": reason},
                 )
             else:
+                if tf_error:
+                    self._record_vulns_error(
+                        "terraform-state-scan",
+                        "collection_failed",
+                        tf_error,
+                        context="list_buckets",
+                    )
                 self._save_json(
                     evidence_path / "terraform-state-scan.json",
                     {"items": tf_data, "error": tf_error},
                 )
         except Exception as e:
             logger.error(f"Could not scan for Terraform state files: {e}")
+            self._record_vulns_error(
+                "terraform-state-scan",
+                "collection_failed",
+                e,
+                context="collect_terraform_state_secrets",
+            )
+
+        # Flush per-component outcomes and persist the shared collection status file.
+        for component in VULNS_EVIDENCE_COMPONENTS:
+            self._finalize_vulns_component(components, component)
+        self._save_collection_status(evidence_path, {"components": components})
 
         print("\n✅ Vulnerability collection complete")
+
+    def _vulns_error_code(self, error: Any) -> Optional[str]:
+        """Extract a short AWS-style error code without the full message."""
+        if isinstance(error, ClientError):
+            return error.response.get("Error", {}).get("Code") or None
+        text = str(error)
+        match = re.search(r"\(([^()]+)\) when calling", text)
+        if match:
+            return match.group(1)
+        return self._status_error_code(text)
+
+    def _record_vulns_error(
+        self,
+        component: str,
+        reason_code: str,
+        error: Any,
+        *,
+        context: str,
+    ) -> None:
+        """Record swallowed vulns collection failures without changing evidence shape.
+
+        Errors accumulate per component; `collection_failed` outranks
+        `partial_collection`. Only compact `"context: CODE"` details are kept so
+        the status file never carries full exception messages.
+        """
+        errors = getattr(self, "_collection_component_errors", None)
+        if errors is None:
+            errors = {}
+            self._collection_component_errors = errors
+        code = self._vulns_error_code(error)
+        details = f"{context}: {code}" if code else context
+        existing = errors.get(component)
+        if existing:
+            existing_reason = str(existing.get("reason_code") or "")
+            if existing_reason == "collection_failed" or reason_code != "collection_failed":
+                if len(str(existing.get("error") or "")) < 200:
+                    existing["error"] = "; ".join(
+                        part
+                        for part in [str(existing.get("error") or ""), details]
+                        if part
+                    )[:200]
+                if not existing.get("error_code"):
+                    existing["error_code"] = code
+                return
+        errors[component] = {
+            "reason_code": reason_code,
+            "error_code": code,
+            "error": details,
+        }
+
+    def _finalize_vulns_component(
+        self,
+        components: Dict[str, Dict[str, Any]],
+        component: str,
+    ) -> None:
+        """Flush accumulated errors for a component into the status dict."""
+        if component in components:
+            return
+        error = getattr(self, "_collection_component_errors", {}).get(component)
+        if isinstance(error, dict):
+            self._record_component_status(
+                components,
+                component,
+                ok=False,
+                reason_code=str(error.get("reason_code") or "collection_failed"),
+                error_code=error.get("error_code"),
+                error=str(error.get("error") or ""),
+            )
+        else:
+            self._record_component_status(components, component, ok=True)
 
     def _collect_guardduty_status(self, client_kwargs: Dict[str, Any]) -> Dict[str, Any]:
         """Collect GuardDuty detector status and configuration."""
@@ -492,12 +765,23 @@ class VulnsSkill(BaseSkill):
                                             "Description": f.get("Description", ""),
                                         }
                                     )
-                            except Exception:
-                                pass
+                            except Exception as filter_err:
+                                self._record_vulns_error(
+                                    "guardduty-status",
+                                    "partial_collection",
+                                    filter_err,
+                                    context=f"get_filter:{det_id}",
+                                )
                         detector_entry["AutoArchiveRuleCount"] = len(suppression_rules)
                         detector_entry["SuppressionRules"] = suppression_rules[:5]
                     except Exception as e:
                         logger.debug(f"Could not list GuardDuty filters for {det_id}: {e}")
+                        self._record_vulns_error(
+                            "guardduty-status",
+                            "partial_collection",
+                            e,
+                            context=f"list_filters:{det_id}",
+                        )
                         detector_entry["AutoArchiveRuleCount"] = None
 
                     out["detectors"].append(detector_entry)
@@ -506,6 +790,12 @@ class VulnsSkill(BaseSkill):
                         out["has_active_detector"] = True
                 except Exception as e:
                     logger.warning(f"Could not get GuardDuty detector {det_id}: {e}")
+                    self._record_vulns_error(
+                        "guardduty-status",
+                        "partial_collection",
+                        e,
+                        context=f"get_detector:{det_id}",
+                    )
         except Exception as e:
             err = str(e)
             if "AccessDeniedException" in err or "BadRequestException" in err:
@@ -514,6 +804,12 @@ class VulnsSkill(BaseSkill):
             else:
                 logger.warning(f"Could not list GuardDuty detectors: {e}")
                 out["list_error"] = str(e)
+                self._record_vulns_error(
+                    "guardduty-status",
+                    "collection_failed",
+                    e,
+                    context="list_detectors",
+                )
         return out
 
     def _scan_for_secrets(self, text: str) -> Dict[str, bool]:
@@ -546,7 +842,13 @@ class VulnsSkill(BaseSkill):
                                 InstanceId=instance_id,
                                 Attribute="userData",
                             )
-                        except Exception:
+                        except Exception as item_err:
+                            self._record_vulns_error(
+                                "ec2-user-data",
+                                "partial_collection",
+                                item_err,
+                                context=f"describe_instance_attribute:{instance_id}",
+                            )
                             continue
                         user_data = ((resp or {}).get("UserData") or {}).get("Value")
                         if not user_data:
@@ -582,7 +884,13 @@ class VulnsSkill(BaseSkill):
                         continue
                     try:
                         details = lam.get_function(FunctionName=fn_name)
-                    except Exception:
+                    except Exception as item_err:
+                        self._record_vulns_error(
+                            "lambda-environment-variables",
+                            "partial_collection",
+                            item_err,
+                            context=f"get_function:{fn_name}",
+                        )
                         continue
                     cfg = (details.get("Configuration") or {}) if isinstance(details, dict) else {}
                     env = (cfg.get("Environment") or {}).get("Variables") or {}
@@ -653,7 +961,13 @@ class VulnsSkill(BaseSkill):
                     prof = iam.get_instance_profile(InstanceProfileName=profile_name).get(
                         "InstanceProfile", {}
                     )
-                except Exception:
+                except Exception as item_err:
+                    self._record_vulns_error(
+                        "instance-profiles-permissions",
+                        "partial_collection",
+                        item_err,
+                        context=f"get_instance_profile:{profile_name}",
+                    )
                     continue
                 roles_out = []
                 for role in prof.get("Roles", []) or []:
@@ -665,14 +979,24 @@ class VulnsSkill(BaseSkill):
                             attached = iam.list_attached_role_policies(RoleName=role_name).get(
                                 "AttachedPolicies", []
                             )
-                        except Exception:
-                            pass
+                        except Exception as role_err:
+                            self._record_vulns_error(
+                                "instance-profiles-permissions",
+                                "partial_collection",
+                                role_err,
+                                context=f"list_attached_role_policies:{role_name}",
+                            )
                         try:
                             inline = iam.list_role_policies(RoleName=role_name).get(
                                 "PolicyNames", []
                             )
-                        except Exception:
-                            pass
+                        except Exception as role_err:
+                            self._record_vulns_error(
+                                "instance-profiles-permissions",
+                                "partial_collection",
+                                role_err,
+                                context=f"list_role_policies:{role_name}",
+                            )
                     roles_out.append(
                         {
                             "RoleName": role_name,
@@ -731,6 +1055,12 @@ class VulnsSkill(BaseSkill):
                         )
                     except Exception as e:
                         rec["AttributeError"] = str(e)
+                        self._record_vulns_error(
+                            "ebs-snapshot-sharing",
+                            "partial_collection",
+                            e,
+                            context=f"describe_snapshot_attribute:{snap_id}",
+                        )
 
                     out.append(rec)
             return out, None
@@ -825,6 +1155,12 @@ class VulnsSkill(BaseSkill):
                                 bucket_entry["MatchedPatterns"].extend(matched)
                         except Exception as read_err:
                             obj_entry["ReadError"] = str(read_err)[:100]
+                            self._record_vulns_error(
+                                "terraform-state-scan",
+                                "partial_collection",
+                                read_err,
+                                context="get_object",
+                            )
 
                         bucket_entry["TfstateObjects"].append(obj_entry)
 
@@ -834,8 +1170,20 @@ class VulnsSkill(BaseSkill):
                         bucket_entry["AccessError"] = f"AccessDenied listing {bucket_name}"
                     else:
                         bucket_entry["AccessError"] = str(ce)[:100]
+                    self._record_vulns_error(
+                        "terraform-state-scan",
+                        "partial_collection",
+                        ce,
+                        context=f"list_objects_v2:{bucket_name}",
+                    )
                 except Exception as e:
                     bucket_entry["AccessError"] = str(e)[:100]
+                    self._record_vulns_error(
+                        "terraform-state-scan",
+                        "partial_collection",
+                        e,
+                        context=f"list_objects_v2:{bucket_name}",
+                    )
 
                 out.append(bucket_entry)
 
@@ -905,6 +1253,12 @@ class VulnsSkill(BaseSkill):
                     )
                 except Exception as e:
                     logger.warning(f"Could not describe task definition {arn}: {e}")
+                    self._record_vulns_error(
+                        "ecs-task-env-secrets",
+                        "partial_collection",
+                        e,
+                        context="describe_task_definition",
+                    )
 
             return out, None
         except Exception as e:
