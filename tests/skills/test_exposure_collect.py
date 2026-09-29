@@ -114,9 +114,12 @@ COMPONENT_NAMES = (
     "security-groups",
     "cloudfront-distributions",
     "load-balancers",
+    "load-balancer-listeners",
     "wafv2-web-acls",
+    "wafv2-web-acl-alb-associations",
     "lambda-function-urls",
     "api-gateway-stages",
+    "api-gateway-routes",
     "ecs-eks-ingress",
     "elasticsearch-domains",
     "resource-based-policies",
@@ -334,6 +337,9 @@ def test_load_balancer_listeners_failure_is_partial_collection(tmp_path):
     component = status["components"]["load-balancers"]
     assert component["ok"] is False
     assert component["reason_code"] == "partial_collection"
+    listeners_component = status["components"]["load-balancer-listeners"]
+    assert listeners_component["ok"] is False
+    assert listeners_component["reason_code"] == "partial_collection"
     data = json.loads((evidence_path / "load-balancers.json").read_text())
     assert len(data["items"]) == 1
 

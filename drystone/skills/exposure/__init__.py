@@ -667,26 +667,29 @@ class ExposureSkill(BaseSkill):
                 },
             )
             if listener_lookup_failures:
-                self._record_component_status(
-                    components,
-                    "load-balancers",
-                    ok=False,
-                    reason_code="partial_collection",
-                    error=f"{listener_lookup_failures} listener lookups failed",
-                )
+                for component in ("load-balancers", "load-balancer-listeners"):
+                    self._record_component_status(
+                        components,
+                        component,
+                        ok=False,
+                        reason_code="partial_collection",
+                        error=f"{listener_lookup_failures} listener lookups failed",
+                    )
             else:
                 self._record_component_status(components, "load-balancers", ok=True)
+                self._record_component_status(components, "load-balancer-listeners", ok=True)
 
         except Exception as e:
             print(f"    Warning: Could not collect ELBv2 data: {e}")
-            self._record_component_status(
-                components,
-                "load-balancers",
-                ok=False,
-                reason_code="collection_failed",
-                error_code=_error_code(e),
-                error=str(e),
-            )
+            for component in ("load-balancers", "load-balancer-listeners"):
+                self._record_component_status(
+                    components,
+                    component,
+                    ok=False,
+                    reason_code="collection_failed",
+                    error_code=_error_code(e),
+                    error=str(e),
+                )
 
         # === WAFv2 (WebACLs + ALB associations) ===
         print("  Collecting WAFv2 WebACL associations...")
@@ -742,25 +745,30 @@ class ExposureSkill(BaseSkill):
                 {"_meta": {"_region": region}, "by_alb_arn": alb_associations},
             )
             if web_acl_association_failures:
-                self._record_component_status(
-                    components,
-                    "wafv2-web-acls",
-                    ok=False,
-                    reason_code="partial_collection",
-                    error=f"{web_acl_association_failures} ALB association lookups failed",
-                )
+                for component in ("wafv2-web-acls", "wafv2-web-acl-alb-associations"):
+                    self._record_component_status(
+                        components,
+                        component,
+                        ok=False,
+                        reason_code="partial_collection",
+                        error=f"{web_acl_association_failures} ALB association lookups failed",
+                    )
             else:
                 self._record_component_status(components, "wafv2-web-acls", ok=True)
+                self._record_component_status(
+                    components, "wafv2-web-acl-alb-associations", ok=True
+                )
         except Exception as e:
             print(f"    Warning: Could not collect WAFv2 data: {e}")
-            self._record_component_status(
-                components,
-                "wafv2-web-acls",
-                ok=False,
-                reason_code="collection_failed",
-                error_code=_error_code(e),
-                error=str(e),
-            )
+            for component in ("wafv2-web-acls", "wafv2-web-acl-alb-associations"):
+                self._record_component_status(
+                    components,
+                    component,
+                    ok=False,
+                    reason_code="collection_failed",
+                    error_code=_error_code(e),
+                    error=str(e),
+                )
 
         # === LAMBDA FUNCTION URLS ===
         print("  Collecting Lambda function URLs...")
@@ -920,25 +928,28 @@ class ExposureSkill(BaseSkill):
             _save(evidence_path / "api-gateway-stages.json", {"items": api_stages})
             _save(evidence_path / "api-gateway-routes.json", {"items": api_routes})
             if api_gateway_sub_call_failures:
-                self._record_component_status(
-                    components,
-                    "api-gateway-stages",
-                    ok=False,
-                    reason_code="partial_collection",
-                    error=f"{api_gateway_sub_call_failures} per-API sub-call lookups failed",
-                )
+                for component in ("api-gateway-stages", "api-gateway-routes"):
+                    self._record_component_status(
+                        components,
+                        component,
+                        ok=False,
+                        reason_code="partial_collection",
+                        error=f"{api_gateway_sub_call_failures} per-API sub-call lookups failed",
+                    )
             else:
                 self._record_component_status(components, "api-gateway-stages", ok=True)
+                self._record_component_status(components, "api-gateway-routes", ok=True)
         except Exception as e:
             print(f"    Warning: Could not collect API Gateway stages: {e}")
-            self._record_component_status(
-                components,
-                "api-gateway-stages",
-                ok=False,
-                reason_code="collection_failed",
-                error_code=_error_code(e),
-                error=str(e),
-            )
+            for component in ("api-gateway-stages", "api-gateway-routes"):
+                self._record_component_status(
+                    components,
+                    component,
+                    ok=False,
+                    reason_code="collection_failed",
+                    error_code=_error_code(e),
+                    error=str(e),
+                )
 
         # === ECS/EKS INGRESS ===
         print("  Collecting ECS/EKS ingress exposure...")
