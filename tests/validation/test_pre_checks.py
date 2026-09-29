@@ -1102,6 +1102,145 @@ def test_all_registered_compute_checks_resolve_to_known_checklist_ids():
         assert resolve_pre_check_id(fn) in checklist_ids
 
 
+# ============================================================================
+# KMS: warn on incomplete evidence status (B checks)
+# ============================================================================
+
+
+# Every KMS check reads one or two evidence documents, and kms's own
+# collector (`drystone/skills/kms/__init__.py`) records a matching component
+# for each via `_record_errors_component_status`: "kms-keys",
+# "kms-key-policies", "kms-grants". KMS-001/003/005 also resolve a KeyId ->
+# KeyArn map from "kms-keys" via `_kms_id_to_arn`, but that lookup only
+# affects the reported resource identifier (falling back to KeyId when the
+# map has no entry) — it never changes whether a violation is detected — so
+# "kms-keys" is not declared required for those three. KMS-006 is the one
+# check whose own control flow requires BOTH "kms-keys" AND
+# "kms-key-policies" to be present before it can evaluate at all (it SKIPs
+# on either being absent), so both are declared.
+KMS_STATUS_STEMS_BY_CHECK = {
+    "KMS-001": ("kms-key-policies",),
+    "KMS-002": ("kms-grants",),
+    "KMS-003": ("kms-key-policies",),
+    "KMS-004": ("kms-keys",),
+    "KMS-005": ("kms-key-policies",),
+    "KMS-006": ("kms-keys", "kms-key-policies"),
+    "KMS-007": ("kms-grants",),
+}
+
+_KMS_EMPTY_DOC_BY_STEM = {
+    "kms-key-policies": {"items": []},
+    "kms-grants": {"items": []},
+    "kms-keys": {"items": []},
+}
+
+
+def _kms_check_fn(check_id):
+    return _registered_check_fn("kms", check_id)
+
+
+def _kms_empty_evidence_with_status(stems):
+    evidence = _status_doc("kms", stems, ok=True)
+    for stem in stems:
+        evidence[stem] = _KMS_EMPTY_DOC_BY_STEM[stem]
+    return evidence
+
+
+@pytest.mark.parametrize("check_id,stems", KMS_STATUS_STEMS_BY_CHECK.items())
+def test_kms_b_checks_warn_on_collection_failed_status(check_id, stems):
+    result = _kms_check_fn(check_id)(
+        _status_doc("kms", stems, ok=False, reason_code="collection_failed")
+    )
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "collection_failed"
+    assert result.metadata["evidence_key"] in stems
+
+
+@pytest.mark.parametrize("check_id,stems", KMS_STATUS_STEMS_BY_CHECK.items())
+def test_kms_b_checks_warn_on_partial_collection_when_no_violation_found(check_id, stems):
+    result = _kms_check_fn(check_id)(
+        _status_doc("kms", stems, ok=False, reason_code="partial_collection")
+    )
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "partial_collection"
+
+
+@pytest.mark.parametrize("check_id,stems", KMS_STATUS_STEMS_BY_CHECK.items())
+def test_kms_b_checks_keep_legacy_empty_evidence_without_status(check_id, stems):
+    result = _kms_check_fn(check_id)({})
+
+    assert result.check_id == check_id
+    assert result.status != "WARN"
+
+
+@pytest.mark.parametrize("check_id,stems", KMS_STATUS_STEMS_BY_CHECK.items())
+def test_kms_b_checks_keep_ok_empty_evidence_behavior(check_id, stems):
+    result = _kms_check_fn(check_id)(_kms_empty_evidence_with_status(stems))
+
+    assert result.check_id == check_id
+    assert result.status != "WARN"
+
+
+@pytest.mark.parametrize("check_id,stems", KMS_STATUS_STEMS_BY_CHECK.items())
+def test_kms_b_checks_warn_when_status_exists_but_required_evidence_key_missing(check_id, stems):
+    result = _kms_check_fn(check_id)({"kms-collection-status": {"components": {}}})
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "missing_evidence"
+    assert result.metadata["evidence_key"] in stems
+
+
+def test_kms_b_partial_collection_never_masks_real_failures():
+    evidence = _status_doc("kms", ("kms-key-policies",), ok=False, reason_code="partial_collection")
+    evidence["kms-key-policies"] = {
+        "items": [
+            {
+                "KeyId": "1234abcd-12ab-34cd-56ef-1234567890ab",
+                "KeyArn": "arn:aws:kms:us-east-1:123456789012:key/1234abcd",
+                "Policy": {
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": "*",
+                            "Action": "kms:*",
+                        }
+                    ]
+                },
+            }
+        ]
+    }
+
+    result = _kms_check_fn("KMS-001")(evidence)
+
+    assert result.status == "FAIL"
+    assert "wildcard principal" in result.evidence_summary
+
+
+def test_kms_checks_declare_required_components_matching_status_stems():
+    """Guard: every KMS B check declares a `requires_components` tuple whose
+    stems exactly match the expected mapping.
+    """
+    registered_by_id = {resolve_pre_check_id(fn): fn for fn in PRE_CHECK_REGISTRY["kms"]}
+
+    for check_id, stems in KMS_STATUS_STEMS_BY_CHECK.items():
+        fn = registered_by_id[check_id]
+        assert fn.required_components == ("kms", stems), check_id
+
+
+def test_all_registered_kms_checks_resolve_to_known_checklist_ids():
+    checklist_path = Path(__file__).resolve().parents[2] / "drystone" / "skills" / "kms" / "checklist.json"
+    checklist_ids = {item["id"] for item in json.loads(checklist_path.read_text())["items"]}
+
+    for fn in PRE_CHECK_REGISTRY["kms"]:
+        assert resolve_pre_check_id(fn) in checklist_ids
+
+
+
 class TestIAMDeterministicFindingText:
     def test_injected_iam_findings_have_specific_impact_text(self):
         for check_id in ("IAM-007", "IAM-015", "IAM-016", "IAM-026"):

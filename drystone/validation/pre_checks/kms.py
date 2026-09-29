@@ -57,6 +57,7 @@ def _kms_stmt_has_binding_conditions(stmt: Dict[str, Any]) -> bool:
 
 
 @_register("kms")
+@requires_components("kms", "kms-key-policies")
 def check_kms_001(evidence: Dict[str, Any]) -> PreCheckResult:
     """Key policy with wildcard/broad principals not constrained to same account + service."""
     pol_doc = evidence.get("kms-key-policies")
@@ -104,6 +105,7 @@ def check_kms_001(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("kms")
+@requires_components("kms", "kms-grants")
 def check_kms_002(evidence: Dict[str, Any]) -> PreCheckResult:
     """Unexpected grants with Decrypt/GenerateDataKey operations.
 
@@ -189,6 +191,7 @@ def check_kms_002(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("kms")
+@requires_components("kms", "kms-key-policies")
 def check_kms_003(evidence: Dict[str, Any]) -> PreCheckResult:
     """Policy allows admin modification (PutKeyPolicy/CreateGrant)."""
     pol_doc = evidence.get("kms-key-policies")
@@ -229,6 +232,7 @@ def check_kms_003(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("kms")
+@requires_components("kms", "kms-keys")
 def check_kms_004(evidence: Dict[str, Any]) -> PreCheckResult:
     """Customer-managed key rotation should be enabled."""
     keys_doc = evidence.get("kms-keys")
@@ -253,6 +257,7 @@ def check_kms_004(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("kms")
+@requires_components("kms", "kms-key-policies")
 def check_kms_005(evidence: Dict[str, Any]) -> PreCheckResult:
     """Policies allowing destructive KMS actions to non-root, non-standard principals."""
     pol_doc = evidence.get("kms-key-policies")
@@ -314,6 +319,7 @@ def check_kms_005(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("kms")
+@requires_components("kms", "kms-keys", "kms-key-policies")
 def check_kms_006(evidence: Dict[str, Any]) -> PreCheckResult:
     """Imported key material can be deleted if policy allows it."""
     keys_doc = evidence.get("kms-keys")
@@ -366,6 +372,7 @@ def check_kms_006(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("kms")
+@requires_components("kms", "kms-grants")
 def check_kms_007(evidence: Dict[str, Any]) -> PreCheckResult:
     """Grants that delegate CreateGrant can allow persistence."""
     grants_doc = evidence.get("kms-grants")
