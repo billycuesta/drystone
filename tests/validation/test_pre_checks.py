@@ -55,6 +55,7 @@ from drystone.validation.pre_checks import (
     check_ecr_006,
     check_ecr_007,
     check_evidence_or_warn,
+    pass_or_warn,
     check_exp_002,
     check_exp_003,
     check_exp_004,
@@ -2045,6 +2046,25 @@ class TestHRD005:
         )
         assert r.status == "WARN"
         assert r.metadata["reason_code"] == "collection_failed"
+
+    def test_fail_not_masked_by_partial_findings_collection_failure(self):
+        """A genuine CRITICAL finding must FAIL even when
+        hardening-collection-status also reports a securityhub_findings
+        failure — the WARN guard only applies to the would-be-PASS path
+        (count already <= 0), never to an already-computed FAIL."""
+        r = check_hrd_005(
+            {
+                "security-hub-status": {"HubArn": "arn:aws:securityhub:us-east-1:123:hub/default"},
+                "security-hub-findings-summary": {
+                    "severity_counts": {"CRITICAL": 2, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+                },
+                "hardening-collection-status": {
+                    "ok": False,
+                    "errors": {"securityhub_findings": {"error": "AccessDenied"}},
+                },
+            }
+        )
+        assert r.status == "FAIL"
 
     def test_pass_when_hub_not_enabled_despite_findings_error(self):
         """Security Hub genuinely disabled: findings retrieval legitimately
@@ -4809,6 +4829,29 @@ class TestSM001:
         assert r.status == "WARN"
         assert r.metadata["reason_code"] == "collection_failed"
 
+    def test_fail_not_masked_by_unretrieved_sibling_secret(self):
+        """A real wildcard-principal violation on one secret must FAIL even
+        when another secret in the same list could not be retrieved — the
+        WARN guard only applies to the would-be-PASS path, mirroring the
+        shared `pass_or_warn` behavior used by SM-003/013/014/015/017 too."""
+        r = check_sm_001(
+            {
+                "secrets": {
+                    "secrets": [
+                        {"Name": "broken", "Error": "Failed to retrieve details: AccessDenied"},
+                        {
+                            "Name": "public",
+                            "ARN": "arn:aws:sm:...",
+                            "ResourcePolicy": {
+                                "Statement": [{"Effect": "Allow", "Principal": "*"}]
+                            },
+                        },
+                    ]
+                }
+            }
+        )
+        assert r.status == "FAIL"
+
 
 class TestSM003:
     def test_pass_rotation_within_90(self):
@@ -5203,6 +5246,31 @@ class TestECR001:
         )
         assert r.status == "PASS"
 
+    def test_fail_not_masked_by_repo_policy_errors_on_other_repo(self):
+        """A real wildcard-principal violation on one repo must FAIL even
+        when repo_policy_errors mentions another (unrelated) repository —
+        the WARN guard only applies to the would-be-PASS path."""
+        r = check_ecr_001(
+            {
+                "repositories": {
+                    "repositories": [
+                        {
+                            "repositoryName": "a",
+                            "RepositoryArn": "arn:aws:ecr:us-east-1:111111111111:repository/a",
+                            "Policy": {"Statement": [{"Effect": "Allow", "Principal": "*"}]},
+                        }
+                    ]
+                },
+                "ecr-collection-status": {
+                    "ok": False,
+                    "errors": {
+                        "repo_policy_errors": [{"repository": "b", "error": "AccessDenied"}]
+                    },
+                },
+            }
+        )
+        assert r.status == "FAIL"
+
 
 class TestECR007:
     def test_pass_no_cross_account(self):
@@ -5268,6 +5336,34 @@ class TestECR007:
         )
         assert r.status == "WARN"
         assert r.metadata["reason_code"] == "collection_failed"
+
+    def test_fail_not_masked_by_repo_policy_errors_on_other_repo(self):
+        """A real cross-account violation must FAIL even when
+        repo_policy_errors reports a failure for an unrelated repository."""
+        r = check_ecr_007(
+            {
+                "repositories": {
+                    "repositories": [
+                        {
+                            "repositoryName": "a",
+                            "RepositoryArn": "arn:aws:ecr:us-east-1:111111111111:repository/a",
+                            "Policy": {
+                                "Statement": [
+                                    {"Effect": "Allow", "Principal": {"AWS": "222222222222"}}
+                                ]
+                            },
+                        }
+                    ]
+                },
+                "ecr-collection-status": {
+                    "ok": False,
+                    "errors": {
+                        "repo_policy_errors": [{"repository": "b", "error": "AccessDenied"}]
+                    },
+                },
+            }
+        )
+        assert r.status == "FAIL"
 
 
 class TestECR004:
@@ -5808,6 +5904,20 @@ class TestCICD001:
         r = check_cicd_001({"codebuild-source-credentials": {"items": [{"arn": "arn:..."}]}})
         assert r.status == "FAIL"
 
+    def test_fail_not_masked_by_unrelated_collection_error(self):
+        """A real violation (credentials found) must FAIL even when the
+        collector also reported errors elsewhere — the WARN guard only
+        applies to the would-be-PASS path, never to a genuine FAIL."""
+        r = check_cicd_001(
+            {
+                "codebuild-source-credentials": {
+                    "items": [{"arn": "arn:..."}],
+                    "errors": {"list_source_credentials": "AccessDenied"},
+                }
+            }
+        )
+        assert r.status == "FAIL"
+
 
 class TestCICD002:
     def test_pass_no_insecure(self):
@@ -6068,28 +6178,6 @@ class TestCheckEvidenceOrWarn:
         assert result.status == "WARN"
         assert result.metadata["reason_code"] == "evidence_parse_failed"
 
-    def test_extra_failure_check_triggers_collection_failed(self):
-        result = check_evidence_or_warn(
-            "TEST-001",
-            {"widgets": {"items": []}},
-            ["widgets"],
-            expected_type=dict,
-            extra_failure_check=lambda ev: "widgets collection reported an error",
-        )
-        assert result is not None
-        assert result.status == "WARN"
-        assert result.metadata["reason_code"] == "collection_failed"
-
-    def test_extra_failure_check_returning_none_keeps_backward_compat(self):
-        result = check_evidence_or_warn(
-            "TEST-001",
-            {"widgets": {"items": []}},
-            ["widgets"],
-            expected_type=dict,
-            extra_failure_check=lambda ev: None,
-        )
-        assert result is None
-
     def test_first_missing_key_wins_when_multiple_keys(self):
         result = check_evidence_or_warn(
             "TEST-001",
@@ -6099,6 +6187,44 @@ class TestCheckEvidenceOrWarn:
         )
         assert result is not None
         assert result.metadata["evidence_key"] == "gadgets"
+
+
+class TestPassOrWarn:
+    def test_pass_downgraded_to_warn_when_extra_failure_check_reports_a_problem(self):
+        pass_result = PreCheckResult("TEST-001", "PASS", "no widgets found", [])
+        result = pass_or_warn(
+            pass_result,
+            {"widgets": {"items": []}},
+            "TEST-001",
+            "widgets",
+            extra_failure_check=lambda ev: "widgets collection reported an error",
+        )
+        assert result.status == "WARN"
+        assert result.metadata["reason_code"] == "collection_failed"
+
+    def test_pass_kept_when_extra_failure_check_finds_nothing(self):
+        pass_result = PreCheckResult("TEST-001", "PASS", "no widgets found", [])
+        result = pass_or_warn(
+            pass_result,
+            {"widgets": {"items": []}},
+            "TEST-001",
+            "widgets",
+            extra_failure_check=lambda ev: None,
+        )
+        assert result is pass_result
+
+    def test_fail_never_downgraded_even_when_extra_failure_check_reports_a_problem(self):
+        """A real violation must FAIL regardless of an unrelated collection
+        failure signal — pass_or_warn only intercepts a PASS result."""
+        fail_result = PreCheckResult("TEST-001", "FAIL", "widget has a wildcard principal", [])
+        result = pass_or_warn(
+            fail_result,
+            {"widgets": {"items": [{"bad": True}]}},
+            "TEST-001",
+            "widgets",
+            extra_failure_check=lambda ev: "widgets collection reported an error",
+        )
+        assert result is fail_result
 
 
 # ============================================================================
