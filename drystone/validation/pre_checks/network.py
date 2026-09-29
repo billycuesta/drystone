@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 @_register("network")
+@requires_components("network", "security-groups")
 def check_net_001(evidence: Dict[str, Any]) -> PreCheckResult:
     """Sensitive ports exposed to world."""
     sg_doc = evidence.get("security-groups")
@@ -74,6 +75,7 @@ def check_net_001(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("network")
+@requires_components("network", "security-groups")
 def check_net_011(evidence: Dict[str, Any]) -> PreCheckResult:
     """Missing descriptions on critical security group rules."""
     sg_doc = evidence.get("security-groups")
@@ -140,6 +142,7 @@ def check_net_011(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("network")
+@requires_components("network", "vpcs")
 def check_net_018(evidence: Dict[str, Any]) -> PreCheckResult:
     """VPC should have Flow Logs enabled."""
     vpc_doc = evidence.get("vpcs")
@@ -169,6 +172,7 @@ def check_net_018(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("network")
+@requires_components("network", "security-groups")
 def check_net_002(evidence: Dict[str, Any]) -> PreCheckResult:
     """NET-002: Security groups allowing ALL traffic (protocol -1) from 0.0.0.0/0."""
     sg_doc = evidence.get("security-groups")
@@ -204,6 +208,7 @@ def check_net_002(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("network")
+@requires_components("network", "network-acls")
 def check_net_003(evidence: Dict[str, Any]) -> PreCheckResult:
     """NET-003: NACLs with ALLOW ALL rules (protocol -1, allow, 0.0.0.0/0 inbound)."""
     nacl_doc = evidence.get("network-acls")
@@ -265,6 +270,7 @@ def check_net_003(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("network")
+@requires_components("network", "security-groups")
 def check_net_009(evidence: Dict[str, Any]) -> PreCheckResult:
     """NET-009: Security groups allowing overly broad CIDRs (prefix /16 or larger) to non-web ports."""
     sg_doc = evidence.get("security-groups")
@@ -340,6 +346,7 @@ def check_net_009(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("network")
+@requires_components("network", "network-acls")
 def check_net_016(evidence: Dict[str, Any]) -> PreCheckResult:
     """NET-016: Subnets using default VPC NACL instead of a dedicated custom NACL."""
     nacl_doc = evidence.get("network-acls")
@@ -379,6 +386,7 @@ def check_net_016(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("network")
+@requires_components("network", "security-groups")
 def check_net_027(evidence: Dict[str, Any]) -> PreCheckResult:
     """NET-027: Security groups missing tags."""
     sg_doc = evidence.get("security-groups")
@@ -421,6 +429,7 @@ def check_net_027(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("network")
+@requires_components("network", "route-tables", "subnets")
 def check_net_004(evidence: Dict[str, Any]) -> PreCheckResult:
     """NET-004: DB/private subnets have a default route to an Internet Gateway."""
     rt_doc = evidence.get("route-tables")
@@ -478,6 +487,7 @@ def check_net_004(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("network")
+@requires_components("network", "security-groups")
 def check_net_006(evidence: Dict[str, Any]) -> PreCheckResult:
     """NET-006: Security groups referencing Security Groups from other AWS accounts."""
     sg_doc = evidence.get("security-groups")
@@ -650,6 +660,7 @@ def check_net_008(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("network")
+@requires_components("network", "network-acls")
 def check_net_010(evidence: Dict[str, Any]) -> PreCheckResult:
     """NET-010: Default NACLs are overly permissive (protocol -1 ALLOW from 0.0.0.0/0)."""
     nacl_doc = evidence.get("network-acls")
@@ -714,6 +725,7 @@ def check_net_010(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("network")
+@requires_components("network", "transit-gateway-topology")
 def check_net_012(evidence: Dict[str, Any]) -> PreCheckResult:
     """NET-012: Transit Gateway attachments not inspected by Network Firewall."""
     tgw_doc = evidence.get("transit-gateway-topology")
@@ -731,6 +743,7 @@ def check_net_012(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("network")
+@requires_components("network", "route-tables")
 def check_net_014(evidence: Dict[str, Any]) -> PreCheckResult:
     """NET-014: Route tables with active blackhole routes."""
     rt_doc = evidence.get("route-tables")
@@ -761,6 +774,7 @@ def check_net_014(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("network")
+@requires_components("network", "route-tables", "subnets")
 def check_net_017(evidence: Dict[str, Any]) -> PreCheckResult:
     """NET-017: Private subnets (no 'public' in name) with a default route to an IGW."""
     rt_doc = evidence.get("route-tables")
@@ -816,6 +830,7 @@ def check_net_017(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("network")
+@requires_components("network", "security-groups")
 def check_net_019(evidence: Dict[str, Any]) -> PreCheckResult:
     """NET-019: Security groups with more than 50 rules (hard to audit)."""
     sg_doc = evidence.get("security-groups")
@@ -842,6 +857,7 @@ def check_net_019(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("network")
+@requires_components("network", "security-groups")
 def check_net_021(evidence: Dict[str, Any]) -> PreCheckResult:
     """NET-021: Orphaned security groups (no attached resources — requires ENI data)."""
     sg_doc = evidence.get("security-groups")
@@ -859,6 +875,7 @@ def check_net_021(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("network")
+@requires_components("network", "vpcs")
 def check_net_029(evidence: Dict[str, Any]) -> PreCheckResult:
     """NET-029: VPC CIDR blocks overlap across VPCs."""
     vpc_doc = evidence.get("vpcs")
@@ -891,6 +908,7 @@ def check_net_029(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("network")
+@requires_components("network", "route-tables")
 def check_net_005(evidence: Dict[str, Any]) -> PreCheckResult:
     """NET-005: VPC peering with broad bidirectional routing without filtering."""
     rt_doc = evidence.get("route-tables")
@@ -921,6 +939,15 @@ def check_net_005(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("network")
+@requires_components(
+    "network",
+    "route-tables",
+    "vpc-endpoints",
+    "subnets",
+    "ec2-instances",
+    "rds-instances",
+    "lambda-functions",
+)
 def check_net_007(evidence: Dict[str, Any]) -> PreCheckResult:
     """NET-007: Network Firewall not deployed for internet-facing VPCs."""
     rt_doc = evidence.get("route-tables")
@@ -1041,6 +1068,7 @@ def check_net_007(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("network")
+@requires_components("network", "route-tables", "nat-gateway-routes", "vpc-endpoints")
 def check_net_013(evidence: Dict[str, Any]) -> PreCheckResult:
     """NET-013: Private route tables rely on NAT for AWS service egress while VPC endpoints are absent."""
     rt_doc = evidence.get("route-tables")
@@ -1107,6 +1135,7 @@ def check_net_013(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("network")
+@requires_components("network", "security-groups")
 def check_net_015(evidence: Dict[str, Any]) -> PreCheckResult:
     """NET-015: Redundant SG references — SG ref and 0.0.0.0/0 in the same rule."""
     sg_doc = evidence.get("security-groups")
@@ -1142,6 +1171,7 @@ def check_net_015(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("network")
+@requires_components("network", "subnets")
 def check_net_025(evidence: Dict[str, Any]) -> PreCheckResult:
     """NET-025: Subnets missing classification tags (Tier/Layer/Classification)."""
     subnet_doc = evidence.get("subnets")
@@ -1185,6 +1215,7 @@ def check_net_025(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("network")
+@requires_components("network", "route-tables", "subnets")
 def check_net_022(evidence: Dict[str, Any]) -> PreCheckResult:
     """NET-022: Public subnets (0.0.0.0/0 to IGW) — verify no sensitive workloads deployed."""
     rt_doc = evidence.get("route-tables")
@@ -1255,6 +1286,7 @@ def check_net_022(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("network")
+@requires_components("network", "security-groups")
 def check_net_unrestricted_egress(evidence: Dict[str, Any]) -> PreCheckResult:
     """NET-EGR-001: Security groups with unrestricted egress (0.0.0.0/0 protocol -1)."""
     sg_doc = evidence.get("security-groups")

@@ -344,6 +344,169 @@ def test_all_registered_iam_checks_resolve_to_known_checklist_ids():
         assert resolve_pre_check_id(fn) in checklist_ids
 
 
+# ============================================================================
+# NETWORK: warn on incomplete evidence status (B checks)
+# ============================================================================
+
+
+NETWORK_STATUS_STEMS_BY_CHECK = {
+    "NET-001": ("security-groups",),
+    "NET-002": ("security-groups",),
+    "NET-003": ("network-acls",),
+    "NET-004": ("route-tables", "subnets"),
+    "NET-005": ("route-tables",),
+    "NET-006": ("security-groups",),
+    "NET-007": (
+        "route-tables",
+        "vpc-endpoints",
+        "subnets",
+        "ec2-instances",
+        "rds-instances",
+        "lambda-functions",
+    ),
+    "NET-009": ("security-groups",),
+    "NET-010": ("network-acls",),
+    "NET-011": ("security-groups",),
+    "NET-012": ("transit-gateway-topology",),
+    "NET-013": ("route-tables", "nat-gateway-routes", "vpc-endpoints"),
+    "NET-014": ("route-tables",),
+    "NET-015": ("security-groups",),
+    "NET-016": ("network-acls",),
+    "NET-017": ("route-tables", "subnets"),
+    "NET-018": ("vpcs",),
+    "NET-019": ("security-groups",),
+    "NET-021": ("security-groups",),
+    "NET-022": ("route-tables", "subnets"),
+    "NET-025": ("subnets",),
+    "NET-027": ("security-groups",),
+    "NET-029": ("vpcs",),
+    "NET-EGR-001": ("security-groups",),
+}
+
+
+def _registered_check_fn(skill, check_id):
+    registered_by_id = {resolve_pre_check_id(fn): fn for fn in PRE_CHECK_REGISTRY[skill]}
+    return registered_by_id[check_id]
+
+
+def _network_check_fn(check_id):
+    return _registered_check_fn("network", check_id)
+
+
+def _status_doc(skill, stems, *, ok=True, reason_code=None):
+    components = {}
+    for stem in stems:
+        entry = {"ok": ok}
+        if not ok:
+            entry["reason_code"] = reason_code
+            entry["error_code"] = "AccessDeniedException"
+            entry["error"] = f"{stem}: AccessDeniedException"
+        components[stem] = entry
+    return {f"{skill}-collection-status": {"components": components}}
+
+
+def _empty_doc_for_network_stem(stem):
+    if stem == "transit-gateway-topology":
+        return {"transit_gateways": []}
+    return []
+
+
+def _network_empty_evidence_with_status(stems):
+    evidence = _status_doc("network", stems, ok=True)
+    for stem in stems:
+        evidence[stem] = _empty_doc_for_network_stem(stem)
+    return evidence
+
+
+@pytest.mark.parametrize("check_id,stems", NETWORK_STATUS_STEMS_BY_CHECK.items())
+def test_network_b_checks_warn_on_collection_failed_status(check_id, stems):
+    result = _network_check_fn(check_id)(
+        _status_doc("network", stems, ok=False, reason_code="collection_failed")
+    )
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "collection_failed"
+    assert result.metadata["evidence_key"] in stems
+
+
+@pytest.mark.parametrize("check_id,stems", NETWORK_STATUS_STEMS_BY_CHECK.items())
+def test_network_b_checks_warn_on_partial_collection_when_no_violation_found(check_id, stems):
+    result = _network_check_fn(check_id)(
+        _status_doc("network", stems, ok=False, reason_code="partial_collection")
+    )
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "partial_collection"
+
+
+@pytest.mark.parametrize("check_id,stems", NETWORK_STATUS_STEMS_BY_CHECK.items())
+def test_network_b_checks_keep_legacy_empty_evidence_without_status(check_id, stems):
+    result = _network_check_fn(check_id)({})
+
+    assert result.check_id == check_id
+    assert result.status != "WARN"
+
+
+@pytest.mark.parametrize("check_id,stems", NETWORK_STATUS_STEMS_BY_CHECK.items())
+def test_network_b_checks_keep_ok_empty_evidence_behavior(check_id, stems):
+    result = _network_check_fn(check_id)(_network_empty_evidence_with_status(stems))
+
+    assert result.check_id == check_id
+    assert result.status != "WARN"
+
+
+@pytest.mark.parametrize("check_id,stems", NETWORK_STATUS_STEMS_BY_CHECK.items())
+def test_network_b_checks_warn_when_status_exists_but_required_evidence_key_missing(check_id, stems):
+    result = _network_check_fn(check_id)({"network-collection-status": {"components": {}}})
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "missing_evidence"
+    assert result.metadata["evidence_key"] in stems
+
+
+def test_network_b_partial_collection_never_masks_real_failures():
+    evidence = _status_doc("network", ("security-groups",), ok=False, reason_code="partial_collection")
+    evidence["security-groups"] = [
+        {
+            "GroupId": "sg-123",
+            "GroupName": "test-sg",
+            "IngressRules": [
+                {
+                    "IpProtocol": "-1",
+                    "IpRanges": [{"CidrIp": "0.0.0.0/0"}],
+                }
+            ],
+        }
+    ]
+
+    result = check_net_002(evidence)
+
+    assert result.status == "FAIL"
+    assert result.evidence_summary == "1 SGs allow ALL traffic from 0.0.0.0/0"
+
+
+def test_network_checks_declare_required_components_matching_status_stems():
+    """Guard: every network B check is registered with a `requires_components`
+    declaration whose stems exactly match the expected mapping.
+    """
+    registered_by_id = {resolve_pre_check_id(fn): fn for fn in PRE_CHECK_REGISTRY["network"]}
+
+    for check_id, stems in NETWORK_STATUS_STEMS_BY_CHECK.items():
+        fn = registered_by_id[check_id]
+        assert fn.required_components == ("network", stems), check_id
+
+
+def test_all_registered_network_checks_resolve_to_known_checklist_ids():
+    checklist_path = Path(__file__).resolve().parents[2] / "drystone" / "skills" / "network" / "checklist.json"
+    checklist_ids = {item["id"] for item in json.loads(checklist_path.read_text())["items"]}
+
+    for fn in PRE_CHECK_REGISTRY["network"]:
+        assert resolve_pre_check_id(fn) in checklist_ids
+
+
 class TestIAMDeterministicFindingText:
     def test_injected_iam_findings_have_specific_impact_text(self):
         for check_id in ("IAM-007", "IAM-015", "IAM-016", "IAM-026"):
