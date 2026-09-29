@@ -99,9 +99,40 @@ def check_hrd_004(evidence: Dict[str, Any]) -> PreCheckResult:
     )
 
 
+def _hardening_findings_failure(evidence: Dict[str, Any]) -> Optional[str]:
+    """Return a reason when Security Hub findings collection is not
+    trustworthy, or None when either the data looks good or Security Hub is
+    genuinely not enabled (a legitimate zero-findings state, not a coverage
+    gap — see HRD-002/HRD-003, which already SKIP/FAIL on that condition).
+    """
+    status = evidence.get("hardening-collection-status")
+    if not isinstance(status, dict):
+        return None
+    errors = status.get("errors")
+    if not isinstance(errors, dict):
+        return None
+    detail = errors.get("securityhub_findings")
+    if not detail:
+        return None
+
+    hub_status = evidence.get("security-hub-status")
+    hub_enabled = isinstance(hub_status, dict) and bool(hub_status.get("HubArn"))
+    if not hub_enabled:
+        return None
+    return f"hardening-collection-status reports a Security Hub findings failure: {detail}"
+
+
 @_register("hardening")
 def check_hrd_005(evidence: Dict[str, Any]) -> PreCheckResult:
     """Critical Security Hub findings should be zero."""
+    if warning := check_evidence_or_warn(
+        "HRD-005",
+        evidence,
+        ["security-hub-findings-summary"],
+        expected_type=dict,
+        extra_failure_check=_hardening_findings_failure,
+    ):
+        return warning
     sev_counts, _ = _get_hardening_counts(evidence)
     critical = sev_counts.get("CRITICAL", 0)
     if critical <= 0:
@@ -163,6 +194,14 @@ def check_hrd_006(evidence: Dict[str, Any]) -> PreCheckResult:
 @_register("hardening")
 def check_hrd_009(evidence: Dict[str, Any]) -> PreCheckResult:
     """High severity Security Hub findings should be <= 10."""
+    if warning := check_evidence_or_warn(
+        "HRD-009",
+        evidence,
+        ["security-hub-findings-summary"],
+        expected_type=dict,
+        extra_failure_check=_hardening_findings_failure,
+    ):
+        return warning
     sev_counts, _ = _get_hardening_counts(evidence)
     high = sev_counts.get("HIGH", 0)
     if high <= 10:
@@ -181,6 +220,14 @@ def check_hrd_009(evidence: Dict[str, Any]) -> PreCheckResult:
 @_register("hardening")
 def check_hrd_012(evidence: Dict[str, Any]) -> PreCheckResult:
     """Medium severity Security Hub findings should be <= 20."""
+    if warning := check_evidence_or_warn(
+        "HRD-012",
+        evidence,
+        ["security-hub-findings-summary"],
+        expected_type=dict,
+        extra_failure_check=_hardening_findings_failure,
+    ):
+        return warning
     sev_counts, _ = _get_hardening_counts(evidence)
     medium = sev_counts.get("MEDIUM", 0)
     if medium <= 20:
@@ -244,6 +291,14 @@ def check_hrd_014(evidence: Dict[str, Any]) -> PreCheckResult:
 @_register("hardening")
 def check_hrd_016(evidence: Dict[str, Any]) -> PreCheckResult:
     """Low severity Security Hub findings should be zero."""
+    if warning := check_evidence_or_warn(
+        "HRD-016",
+        evidence,
+        ["security-hub-findings-summary"],
+        expected_type=dict,
+        extra_failure_check=_hardening_findings_failure,
+    ):
+        return warning
     sev_counts, _ = _get_hardening_counts(evidence)
     low = sev_counts.get("LOW", 0)
     if low <= 0:
