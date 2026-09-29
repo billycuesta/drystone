@@ -342,6 +342,8 @@ def check_exp_010(evidence: Dict[str, Any]) -> PreCheckResult:
 @_register("exposure")
 def check_exp_011(evidence: Dict[str, Any]) -> PreCheckResult:
     """Public object listing on S3."""
+    if warning := check_evidence_or_warn("EXP-011", evidence, ["s3-buckets"], expected_type=dict):
+        return warning
     s3_doc = evidence.get("s3-buckets")
     items = _items_from_doc(s3_doc)
     if isinstance(s3_doc, dict) and isinstance(s3_doc.get("by_name"), dict):
