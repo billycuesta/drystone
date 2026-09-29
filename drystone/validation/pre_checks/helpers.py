@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
-from .core import PRE_CHECK_STATUS_WARN, PreCheckResult
+from .core import PRE_CHECK_STATUS_PASS, PRE_CHECK_STATUS_WARN, PreCheckResult
 
 
 # HELPER FUNCTIONS
@@ -289,45 +289,32 @@ def check_evidence_or_warn(
     keys: List[str],
     *,
     expected_type: type = list,
-    extra_failure_check: Optional[Callable[[Dict[str, Any]], Optional[str]]] = None,
 ) -> Optional[PreCheckResult]:
-    """Return a WARN result when evidence required by `check_id` cannot be
-    trusted; otherwise return None so the caller runs its normal
+    """Return a WARN result when evidence required by `check_id` is missing
+    or malformed; otherwise return None so the caller runs its normal
     PASS/FAIL/SKIP logic unchanged.
 
-    This is the shared "cannot evaluate deterministically" guard for
-    Validation-WARN category-C checks (see `PLAN_VALIDATION_WARN.md`,
-    "Recommended design"): a PASS reached only because required evidence is
-    missing or a collection call failed must never read as compliant.
+    This is the up-front half of the shared "cannot evaluate
+    deterministically" guard for Validation-WARN category-C checks (see
+    `PLAN_VALIDATION_WARN.md`, "Recommended design"). It only covers the
+    case where a check literally cannot run at all — there is no FAIL to
+    compute without the data, so it is always safe to short-circuit here:
 
-    Signal order:
       1. Each key in `keys` must be present in `evidence` — a missing key
          returns WARN with `reason_code="missing_evidence"`.
       2. Each key's value must be an instance of `expected_type` — a wrong
          type returns WARN with `reason_code="evidence_parse_failed"`.
-      3. Once every key is present and well-formed, `extra_failure_check` (if
-         given) is called with the full evidence dict. It should inspect
-         whatever collection-failure signal is available for this check
-         (an inline `errors`/`error` field inside the evidence doc itself, a
-         `<skill>-collection-status` component reporting `ok: False`, or a
-         per-item error marker) and return a human-readable reason string
-         when one is found, or `None` when the evidence looks trustworthy.
-         A reason returns WARN with `reason_code="collection_failed"`.
-         This stays a callback (instead of a hardcoded shape) because
-         collection-status envelopes differ across skills: flat `errors`
-         dicts (ecr, waf), nested per-component dicts (hardening), or
-         per-item error markers (secretsmanager) — see
-         `drystone/skills/base.py: BaseSkill._save_collection_status()` and
-         each skill's own collector for the exact shape.
 
-    Backward compatibility (same rule as the CloudTrail Events pre-checks in
-    `cloudtrail_events.py`): when every key is present and well-formed and
-    `extra_failure_check` finds nothing wrong — including when it is `None`,
-    or when the relevant collection-status document does not exist at all
-    (legacy sessions predating it) — this returns `None` and the caller's
-    original logic runs unchanged. A present-but-empty container is NOT, by
-    itself, a coverage gap: only an explicit failure signal (missing key,
-    wrong type, or a positive `extra_failure_check` result) triggers WARN.
+    A *collection-failed* signal (an inline `errors`/`error` field, a
+    `<skill>-collection-status` component reporting `ok: False`, or a
+    per-item error marker) is deliberately NOT checked here, because once
+    the required keys are present, the check CAN run and may find a real
+    FAIL — and a genuine violation must never be masked as an unevaluated
+    coverage gap just because collection was also incomplete elsewhere. See
+    `pass_or_warn`, which applies that signal only at the would-be-PASS
+    return site, mirroring the CloudTrail Events pre-checks in
+    `cloudtrail_events.py` (FAIL branch computed first, warning only
+    consulted afterwards, PASS last).
     """
     for key in keys:
         if key not in evidence:
@@ -340,12 +327,49 @@ def check_evidence_or_warn(
                 check_id, "evidence_parse_failed", f"Evidence is not well-formed: {key}", key
             )
 
-    if extra_failure_check is not None:
-        reason = extra_failure_check(evidence)
-        if reason:
-            return _coverage_gap_warning(check_id, "collection_failed", reason, keys[0])
-
     return None
+
+
+def pass_or_warn(
+    result: PreCheckResult,
+    evidence: Dict[str, Any],
+    check_id: str,
+    key: str,
+    extra_failure_check: Callable[[Dict[str, Any]], Optional[str]],
+) -> PreCheckResult:
+    """Downgrade a PASS to WARN when `extra_failure_check` reports a
+    collection failure; return any other result (FAIL, SKIP, ...) unchanged.
+
+    Call this only at a check's would-be-PASS return site, after every FAIL
+    condition has already been evaluated — never up front. A check that
+    already found a genuine violation must FAIL exactly as it does today;
+    only a PASS reached because required evidence might be incomplete
+    should be downgraded to a coverage-gap WARN.
+
+    `extra_failure_check` receives the full evidence dict and should inspect
+    whatever collection-failure signal is available for this check (an
+    inline `errors`/`error` field inside the evidence doc itself, a
+    `<skill>-collection-status` component reporting `ok: False`, or a
+    per-item error marker), returning a human-readable reason string when
+    one is found, or `None` when the evidence looks trustworthy. It stays a
+    callback (instead of a hardcoded shape) because collection-status
+    envelopes differ across skills: flat `errors` dicts (ecr, waf), nested
+    per-component dicts (hardening), or per-item error markers
+    (secretsmanager) — see
+    `drystone/skills/base.py: BaseSkill._save_collection_status()` and each
+    skill's own collector for the exact shape.
+
+    Backward compatibility (same rule as the CloudTrail Events pre-checks):
+    when `extra_failure_check` finds nothing wrong — including when the
+    relevant collection-status document does not exist at all (legacy
+    sessions predating it) — `result` is returned unchanged.
+    """
+    if result.status != PRE_CHECK_STATUS_PASS:
+        return result
+    reason = extra_failure_check(evidence)
+    if reason:
+        return _coverage_gap_warning(check_id, "collection_failed", reason, key)
+    return result
 
 
 # ============================================================================
