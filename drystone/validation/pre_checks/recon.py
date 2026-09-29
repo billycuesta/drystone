@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 @_register("recon")
+@requires_components("recon", "route53-zones")
 def check_recon_001(evidence: Dict[str, Any]) -> PreCheckResult:
     """RECON-001: DNS wildcard records exposing internal services."""
     route53 = evidence.get("route53-zones")
@@ -50,6 +51,7 @@ def check_recon_001(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("recon")
+@requires_components("recon", "api-gateway-stages")
 def check_recon_002(evidence: Dict[str, Any]) -> PreCheckResult:
     """RECON-002: API Gateway stages without authentication in production."""
     apigw = evidence.get("api-gateway-stages")
@@ -120,6 +122,7 @@ def check_recon_002(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("recon")
+@requires_components("recon", "public-endpoints")
 def check_recon_003(evidence: Dict[str, Any]) -> PreCheckResult:
     """RECON-003: Elastic IPs assigned to instances (public IP inventory)."""
     public_eps = evidence.get("public-endpoints")
@@ -165,6 +168,7 @@ def check_recon_003(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("recon")
+@requires_components("recon", "lambda-urls")
 def check_recon_005(evidence: Dict[str, Any]) -> PreCheckResult:
     """RECON-005: Lambda Function URLs publicly accessible without authentication."""
     lambda_urls = evidence.get("lambda-urls")
@@ -196,6 +200,7 @@ def check_recon_005(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("recon")
+@requires_components("recon", "load-balancer-dns")
 def check_recon_007(evidence: Dict[str, Any]) -> PreCheckResult:
     """RECON-007: Internet-facing Load Balancers without WAF."""
     lb_data = evidence.get("load-balancer-dns")
@@ -231,6 +236,7 @@ def check_recon_007(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("recon")
+@requires_components("recon", "load-balancer-dns")
 def check_recon_011(evidence: Dict[str, Any]) -> PreCheckResult:
     """RECON-011: HTTP (non-HTTPS) listeners on public Load Balancers."""
     lb_data = evidence.get("load-balancer-dns")
@@ -274,6 +280,16 @@ def check_recon_011(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("recon")
+@requires_components(
+    "recon",
+    "attack-surface-score",
+    "route53-zones",
+    "api-gateway-stages",
+    "lambda-urls",
+    "load-balancer-dns",
+    "public-endpoints",
+    "cloudfront-origins",
+)
 def check_recon_015(evidence: Dict[str, Any]) -> PreCheckResult:
     """RECON-015: Attack surface score is HIGH or CRITICAL."""
     score_doc = evidence.get("attack-surface-score")
@@ -307,6 +323,7 @@ def check_recon_015(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("recon")
+@requires_components("recon", "cloudfront-origins")
 def check_recon_006(evidence: Dict[str, Any]) -> PreCheckResult:
     """RECON-006: CloudFront distributions without logging enabled."""
     cf = evidence.get("cloudfront-origins")
@@ -338,6 +355,16 @@ def check_recon_006(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("recon")
+@requires_components(
+    "recon",
+    "attack-surface-score",
+    "route53-zones",
+    "api-gateway-stages",
+    "lambda-urls",
+    "load-balancer-dns",
+    "public-endpoints",
+    "cloudfront-origins",
+)
 def check_recon_008(evidence: Dict[str, Any]) -> PreCheckResult:
     """RECON-008: Large external attack surface (many entry points)."""
     score_doc = evidence.get("attack-surface-score")
@@ -371,6 +398,7 @@ def check_recon_008(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("recon")
+@requires_components("recon", "api-gateway-stages")
 def check_recon_009(evidence: Dict[str, Any]) -> PreCheckResult:
     """RECON-009: REST API Gateway stages without access logging."""
     apigw = evidence.get("api-gateway-stages")
@@ -408,6 +436,7 @@ def check_recon_009(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("recon")
+@requires_components("recon", "public-endpoints")
 def check_recon_010(evidence: Dict[str, Any]) -> PreCheckResult:
     """RECON-010: NAT Gateway IPs add to public IP inventory."""
     public_eps = evidence.get("public-endpoints")
@@ -433,6 +462,7 @@ def check_recon_010(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("recon")
+@requires_components("recon", "cloudfront-origins")
 def check_recon_012(evidence: Dict[str, Any]) -> PreCheckResult:
     """RECON-012: CloudFront distributions without WAF."""
     cf = evidence.get("cloudfront-origins")
@@ -463,6 +493,7 @@ def check_recon_012(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("recon")
+@requires_components("recon", "route53-zones")
 def check_recon_013(evidence: Dict[str, Any]) -> PreCheckResult:
     """RECON-013: Public Route53 zone count exceeds threshold (broad DNS footprint)."""
     r53 = evidence.get("route53-zones")
@@ -491,6 +522,7 @@ def check_recon_013(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("recon")
+@requires_components("recon", "api-gateway-stages")
 def check_recon_014(evidence: Dict[str, Any]) -> PreCheckResult:
     """RECON-014: API Gateway has more than 5 unauthenticated endpoints."""
     apigw = evidence.get("api-gateway-stages")
@@ -514,6 +546,7 @@ def check_recon_014(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("recon")
+@requires_components("recon", "public-endpoints")
 def check_recon_016(evidence: Dict[str, Any]) -> PreCheckResult:
     """RECON-016: Unassociated Elastic IPs (not attached to any instance or NAT Gateway)."""
     public_eps = evidence.get("public-endpoints")
@@ -558,6 +591,7 @@ def check_recon_016(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("recon")
+@requires_components("recon", "load-balancer-dns")
 def check_recon_017(evidence: Dict[str, Any]) -> PreCheckResult:
     """RECON-017: Load Balancer exposes non-standard high-risk ports."""
     lb_data = evidence.get("load-balancer-dns")
@@ -596,6 +630,7 @@ def check_recon_017(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("recon")
+@requires_components("recon", "lambda-urls")
 def check_recon_018(evidence: Dict[str, Any]) -> PreCheckResult:
     """RECON-018: Lambda Function URLs with CORS allowing all origins."""
     lambda_urls = evidence.get("lambda-urls")
@@ -628,6 +663,7 @@ def check_recon_018(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("recon")
+@requires_components("recon", "route53-zones")
 def check_recon_004(evidence: Dict[str, Any]) -> PreCheckResult:
     """RECON-004: Route53 public zones with records revealing internal architecture."""
     r53 = evidence.get("route53-zones")
@@ -689,6 +725,7 @@ def check_recon_004(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("recon")
+@requires_components("recon", "route53-zones")
 def check_recon_019(evidence: Dict[str, Any]) -> PreCheckResult:
     """RECON-019: Public DNS zones with sensitive keywords expose architecture."""
     r53 = evidence.get("route53-zones")
@@ -728,6 +765,16 @@ def check_recon_019(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("recon")
+@requires_components(
+    "recon",
+    "attack-surface-score",
+    "route53-zones",
+    "api-gateway-stages",
+    "lambda-urls",
+    "load-balancer-dns",
+    "public-endpoints",
+    "cloudfront-origins",
+)
 def check_recon_020(evidence: Dict[str, Any]) -> PreCheckResult:
     """RECON-020: No public entry points detected (minimal attack surface)."""
     score_doc = evidence.get("attack-surface-score")

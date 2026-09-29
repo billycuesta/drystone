@@ -631,6 +631,151 @@ def test_all_registered_alerting_checks_resolve_to_known_checklist_ids():
         assert resolve_pre_check_id(fn) in checklist_ids
 
 
+# ============================================================================
+# RECON: warn on incomplete evidence status (B checks)
+# ============================================================================
+
+
+# RECON-008/015/020 read the derived "attack-surface-score" document, which
+# recon's own collector always records as ok=True (the score computation
+# itself never fails) even though its VALUE is computed from all 6 other
+# recon evidence sources. An incomplete upstream source (e.g. Route53 or
+# Lambda URL collection failing) can silently deflate the score, turning a
+# real HIGH/CRITICAL rating into a false LOW. All 6 source components are
+# therefore declared required too, mirroring the alerting "critical topic
+# filter" precedent (ALRT-005/006/011/022/023/024).
+_RECON_ATTACK_SURFACE_SOURCES = (
+    "route53-zones",
+    "api-gateway-stages",
+    "lambda-urls",
+    "load-balancer-dns",
+    "public-endpoints",
+    "cloudfront-origins",
+)
+
+RECON_STATUS_STEMS_BY_CHECK = {
+    "RECON-001": ("route53-zones",),
+    "RECON-002": ("api-gateway-stages",),
+    "RECON-003": ("public-endpoints",),
+    "RECON-004": ("route53-zones",),
+    "RECON-005": ("lambda-urls",),
+    "RECON-006": ("cloudfront-origins",),
+    "RECON-007": ("load-balancer-dns",),
+    "RECON-008": ("attack-surface-score",) + _RECON_ATTACK_SURFACE_SOURCES,
+    "RECON-009": ("api-gateway-stages",),
+    "RECON-010": ("public-endpoints",),
+    "RECON-011": ("load-balancer-dns",),
+    "RECON-012": ("cloudfront-origins",),
+    "RECON-013": ("route53-zones",),
+    "RECON-014": ("api-gateway-stages",),
+    "RECON-015": ("attack-surface-score",) + _RECON_ATTACK_SURFACE_SOURCES,
+    "RECON-016": ("public-endpoints",),
+    "RECON-017": ("load-balancer-dns",),
+    "RECON-018": ("lambda-urls",),
+    "RECON-019": ("route53-zones",),
+    "RECON-020": ("attack-surface-score",) + _RECON_ATTACK_SURFACE_SOURCES,
+}
+
+
+def _recon_check_fn(check_id):
+    return _registered_check_fn("recon", check_id)
+
+
+def _recon_empty_evidence_with_status(stems):
+    # Every recon evidence document is a dict; an empty dict is a valid
+    # "collected but nothing found" shape for all 7 recon components.
+    evidence = _status_doc("recon", stems, ok=True)
+    for stem in stems:
+        evidence[stem] = {}
+    return evidence
+
+
+@pytest.mark.parametrize("check_id,stems", RECON_STATUS_STEMS_BY_CHECK.items())
+def test_recon_b_checks_warn_on_collection_failed_status(check_id, stems):
+    result = _recon_check_fn(check_id)(
+        _status_doc("recon", stems, ok=False, reason_code="collection_failed")
+    )
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "collection_failed"
+    assert result.metadata["evidence_key"] in stems
+
+
+@pytest.mark.parametrize("check_id,stems", RECON_STATUS_STEMS_BY_CHECK.items())
+def test_recon_b_checks_warn_on_partial_collection_when_no_violation_found(check_id, stems):
+    result = _recon_check_fn(check_id)(
+        _status_doc("recon", stems, ok=False, reason_code="partial_collection")
+    )
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "partial_collection"
+
+
+@pytest.mark.parametrize("check_id,stems", RECON_STATUS_STEMS_BY_CHECK.items())
+def test_recon_b_checks_keep_legacy_empty_evidence_without_status(check_id, stems):
+    result = _recon_check_fn(check_id)({})
+
+    assert result.check_id == check_id
+    assert result.status != "WARN"
+
+
+@pytest.mark.parametrize("check_id,stems", RECON_STATUS_STEMS_BY_CHECK.items())
+def test_recon_b_checks_keep_ok_empty_evidence_behavior(check_id, stems):
+    result = _recon_check_fn(check_id)(_recon_empty_evidence_with_status(stems))
+
+    assert result.check_id == check_id
+    assert result.status != "WARN"
+
+
+@pytest.mark.parametrize("check_id,stems", RECON_STATUS_STEMS_BY_CHECK.items())
+def test_recon_b_checks_warn_when_status_exists_but_required_evidence_key_missing(check_id, stems):
+    result = _recon_check_fn(check_id)({"recon-collection-status": {"components": {}}})
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "missing_evidence"
+    assert result.metadata["evidence_key"] in stems
+
+
+def test_recon_b_partial_collection_never_masks_real_failures():
+    evidence = _status_doc("recon", ("route53-zones",), ok=False, reason_code="partial_collection")
+    evidence["route53-zones"] = {
+        "wildcard_record_count": 1,
+        "zones": [
+            {
+                "Name": "example.com",
+                "Records": [{"Name": "*.example.com", "Type": "A"}],
+            }
+        ],
+    }
+
+    result = _recon_check_fn("RECON-001")(evidence)
+
+    assert result.status == "FAIL"
+    assert result.evidence_summary == "1 DNS wildcard records expose internal service naming"
+
+
+def test_recon_checks_declare_required_components_matching_status_stems():
+    """Guard: every recon B check is registered with a `requires_components`
+    declaration whose stems exactly match the expected mapping.
+    """
+    registered_by_id = {resolve_pre_check_id(fn): fn for fn in PRE_CHECK_REGISTRY["recon"]}
+
+    for check_id, stems in RECON_STATUS_STEMS_BY_CHECK.items():
+        fn = registered_by_id[check_id]
+        assert fn.required_components == ("recon", stems), check_id
+
+
+def test_all_registered_recon_checks_resolve_to_known_checklist_ids():
+    checklist_path = Path(__file__).resolve().parents[2] / "drystone" / "skills" / "recon" / "checklist.json"
+    checklist_ids = {item["id"] for item in json.loads(checklist_path.read_text())["items"]}
+
+    for fn in PRE_CHECK_REGISTRY["recon"]:
+        assert resolve_pre_check_id(fn) in checklist_ids
+
+
 class TestIAMDeterministicFindingText:
     def test_injected_iam_findings_have_specific_impact_text(self):
         for check_id in ("IAM-007", "IAM-015", "IAM-016", "IAM-026"):
