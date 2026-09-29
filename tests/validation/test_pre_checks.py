@@ -1241,6 +1241,133 @@ def test_all_registered_kms_checks_resolve_to_known_checklist_ids():
 
 
 
+# ============================================================================
+# CICD: warn on incomplete evidence status (B check)
+# ============================================================================
+
+
+# CICD-002 reads "codebuild-projects", a component cicd's own collector
+# (`drystone/skills/cicd/__init__.py`) records via
+# `_record_errors_component_status`. CICD-001 already has a category-C guard
+# (`check_evidence_or_warn` + `pass_or_warn` against
+# "codebuild-source-credentials") and is intentionally left untouched here.
+CICD_STATUS_STEMS_BY_CHECK = {
+    "CICD-002": ("codebuild-projects",),
+}
+
+_CICD_EMPTY_DOC_BY_STEM = {
+    "codebuild-projects": {"items": []},
+}
+
+
+def _cicd_check_fn(check_id):
+    return _registered_check_fn("cicd", check_id)
+
+
+def _cicd_empty_evidence_with_status(stems):
+    evidence = _status_doc("cicd", stems, ok=True)
+    for stem in stems:
+        evidence[stem] = _CICD_EMPTY_DOC_BY_STEM[stem]
+    return evidence
+
+
+@pytest.mark.parametrize("check_id,stems", CICD_STATUS_STEMS_BY_CHECK.items())
+def test_cicd_b_checks_warn_on_collection_failed_status(check_id, stems):
+    result = _cicd_check_fn(check_id)(
+        _status_doc("cicd", stems, ok=False, reason_code="collection_failed")
+    )
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "collection_failed"
+    assert result.metadata["evidence_key"] in stems
+
+
+@pytest.mark.parametrize("check_id,stems", CICD_STATUS_STEMS_BY_CHECK.items())
+def test_cicd_b_checks_warn_on_partial_collection_when_no_violation_found(check_id, stems):
+    result = _cicd_check_fn(check_id)(
+        _status_doc("cicd", stems, ok=False, reason_code="partial_collection")
+    )
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "partial_collection"
+
+
+@pytest.mark.parametrize("check_id,stems", CICD_STATUS_STEMS_BY_CHECK.items())
+def test_cicd_b_checks_keep_legacy_empty_evidence_without_status(check_id, stems):
+    result = _cicd_check_fn(check_id)({})
+
+    assert result.check_id == check_id
+    assert result.status != "WARN"
+
+
+@pytest.mark.parametrize("check_id,stems", CICD_STATUS_STEMS_BY_CHECK.items())
+def test_cicd_b_checks_keep_ok_empty_evidence_behavior(check_id, stems):
+    result = _cicd_check_fn(check_id)(_cicd_empty_evidence_with_status(stems))
+
+    assert result.check_id == check_id
+    assert result.status != "WARN"
+
+
+@pytest.mark.parametrize("check_id,stems", CICD_STATUS_STEMS_BY_CHECK.items())
+def test_cicd_b_checks_warn_when_status_exists_but_required_evidence_key_missing(check_id, stems):
+    result = _cicd_check_fn(check_id)({"cicd-collection-status": {"components": {}}})
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "missing_evidence"
+    assert result.metadata["evidence_key"] in stems
+
+
+def test_cicd_b_partial_collection_never_masks_real_failures():
+    evidence = _status_doc("cicd", ("codebuild-projects",), ok=False, reason_code="partial_collection")
+    evidence["codebuild-projects"] = {
+        "items": [
+            {
+                "name": "build-project",
+                "arn": "arn:aws:codebuild:us-east-1:123456789012:project/build-project",
+                "source": {"insecureSsl": True},
+            }
+        ]
+    }
+
+    result = _cicd_check_fn("CICD-002")(evidence)
+
+    assert result.status == "FAIL"
+    assert "insecureSsl" in result.evidence_summary
+
+
+def test_cicd_checks_declare_required_components_matching_status_stems():
+    """Guard: CICD-002 declares a `requires_components` tuple whose stems
+    exactly match the expected mapping.
+    """
+    registered_by_id = {resolve_pre_check_id(fn): fn for fn in PRE_CHECK_REGISTRY["cicd"]}
+
+    for check_id, stems in CICD_STATUS_STEMS_BY_CHECK.items():
+        fn = registered_by_id[check_id]
+        assert fn.required_components == ("cicd", stems), check_id
+
+
+def test_cicd_001_is_not_decorated_it_already_has_a_category_c_guard():
+    """CICD-001 already guards missing/malformed "codebuild-source-credentials"
+    evidence via `check_evidence_or_warn` + `pass_or_warn` (category C); it is
+    intentionally left without a `requires_components` declaration here.
+    """
+    registered_by_id = {resolve_pre_check_id(fn): fn for fn in PRE_CHECK_REGISTRY["cicd"]}
+
+    assert not hasattr(registered_by_id["CICD-001"], "required_components")
+
+
+def test_all_registered_cicd_checks_resolve_to_known_checklist_ids():
+    checklist_path = Path(__file__).resolve().parents[2] / "drystone" / "skills" / "cicd" / "checklist.json"
+    checklist_ids = {item["id"] for item in json.loads(checklist_path.read_text())["items"]}
+
+    for fn in PRE_CHECK_REGISTRY["cicd"]:
+        assert resolve_pre_check_id(fn) in checklist_ids
+
+
+
 class TestIAMDeterministicFindingText:
     def test_injected_iam_findings_have_specific_impact_text(self):
         for check_id in ("IAM-007", "IAM-015", "IAM-016", "IAM-026"):

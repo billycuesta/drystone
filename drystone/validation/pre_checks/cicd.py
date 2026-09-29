@@ -48,6 +48,7 @@ def check_cicd_001(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("cicd")
+@requires_components("cicd", "codebuild-projects")
 def check_cicd_002(evidence: Dict[str, Any]) -> PreCheckResult:
     """Insecure SSL or proxy config in CodeBuild projects."""
     proj_doc = evidence.get("codebuild-projects")
