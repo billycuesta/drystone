@@ -256,6 +256,73 @@ class TestSecretsManagerSkill:
         assert (mock_session.get_evidence_path.return_value / "cloudwatch_alarms.json").exists()
         assert (mock_session.get_evidence_path.return_value / "eventbridge_rules.json").exists()
 
+    def test_collection_status_happy_path(self, skill, mock_aws_client, mock_session):
+        mock_ec2 = MagicMock()
+        mock_secrets = MagicMock()
+        mock_cw = MagicMock()
+        mock_events = MagicMock()
+        mock_ec2.describe_regions.return_value = {"Regions": [{"RegionName": "us-east-1"}]}
+        mock_secrets.get_paginator.return_value.paginate.return_value = [{"SecretList": []}]
+        mock_cw.get_paginator.return_value.paginate.return_value = [{"MetricAlarms": []}]
+        mock_events.get_paginator.return_value.paginate.return_value = [{"Rules": []}]
+
+        def _client(service, **kwargs):
+            return {
+                "ec2": mock_ec2,
+                "secretsmanager": mock_secrets,
+                "cloudwatch": mock_cw,
+                "events": mock_events,
+            }[service]
+
+        mock_aws_client.boto3_session.return_value.client.side_effect = _client
+        skill.collect(mock_aws_client, mock_session)
+
+        status = json.loads(
+            (mock_session.get_evidence_path.return_value / "secretsmanager-collection-status.json").read_text()
+        )
+        assert status["ok"] is True
+        assert status["components"]["regions"] == {"ok": True}
+        assert status["components"]["secrets"] == {"ok": True}
+        assert status["components"]["cloudwatch-alarms"] == {"ok": True}
+        assert status["components"]["eventbridge-rules"] == {"ok": True}
+
+    def test_secret_list_failure_is_collection_failed_without_secret_values(
+        self, skill, mock_aws_client, mock_session
+    ):
+        from botocore.exceptions import ClientError
+
+        mock_ec2 = MagicMock()
+        mock_secrets = MagicMock()
+        mock_cw = MagicMock()
+        mock_events = MagicMock()
+        mock_ec2.describe_regions.return_value = {"Regions": [{"RegionName": "us-east-1"}]}
+        mock_secrets.get_paginator.return_value.paginate.side_effect = ClientError(
+            {"Error": {"Code": "AccessDeniedException", "Message": "token SECRET_VALUE"}},
+            "ListSecrets",
+        )
+        mock_cw.get_paginator.return_value.paginate.return_value = [{"MetricAlarms": []}]
+        mock_events.get_paginator.return_value.paginate.return_value = [{"Rules": []}]
+
+        def _client(service, **kwargs):
+            return {
+                "ec2": mock_ec2,
+                "secretsmanager": mock_secrets,
+                "cloudwatch": mock_cw,
+                "events": mock_events,
+            }[service]
+
+        mock_aws_client.boto3_session.return_value.client.side_effect = _client
+        skill.collect(mock_aws_client, mock_session)
+
+        status = json.loads(
+            (mock_session.get_evidence_path.return_value / "secretsmanager-collection-status.json").read_text()
+        )
+        component = status["components"]["secrets"]
+        assert component["ok"] is False
+        assert component["reason_code"] == "collection_failed"
+        assert component["error_code"] == "AccessDeniedException"
+        assert "SECRET_VALUE" not in json.dumps(status)
+
     def test_get_resource_policy_no_policy(self, skill):
         """Test getting resource policy when none exists."""
         from botocore.exceptions import ClientError

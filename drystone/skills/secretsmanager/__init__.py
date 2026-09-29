@@ -47,16 +47,30 @@ class SecretsManagerSkill(BaseSkill):
         # Create boto3 session
         session_obj = aws_client.boto3_session()
 
+        components: Dict[str, Dict[str, Any]] = {}
+
         # Get all regions
         try:
             ec2_client = session_obj.client("ec2", region_name="us-east-1")
             regions = [r["RegionName"] for r in ec2_client.describe_regions()["Regions"]]
+            self._record_component_status(components, "regions", ok=True)
         except ClientError as e:
             print(f"  ⚠️  Could not retrieve regions: {e}")
+            code = e.response.get("Error", {}).get("Code", "Unknown")
+            self._record_component_status(
+                components,
+                "regions",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=code,
+                error=f"describe_regions: {code}",
+            )
             regions = ["us-east-1", "us-west-2", "eu-west-1"]  # Fallback
 
         all_secrets = []
         regions_scanned = 0
+        secret_list_failures: Dict[str, str] = {}
+        secret_detail_failures = 0
 
         # Scan each region
         for region in regions:
@@ -125,7 +139,8 @@ class SecretsManagerSkill(BaseSkill):
                             )
 
                         except ClientError as e:
-                            # Log individual secret errors but continue
+                            # Log individual secret errors but continue. Do not retrieve or store secret values.
+                            secret_detail_failures += 1
                             all_secrets.append(
                                 {
                                     "Region": region,
@@ -146,12 +161,35 @@ class SecretsManagerSkill(BaseSkill):
                     "AccessDeniedException",
                     "OptInRequired",
                 ]
-                if e.response["Error"]["Code"] in common_errors:
+                code = e.response["Error"].get("Code", "Unknown")
+                if code in common_errors:
+                    secret_list_failures[region] = code
                     continue
-            except Exception:
+            except Exception as e:
+                secret_list_failures[region] = type(e).__name__
                 continue
 
         print(f"  ✅ Found {len(all_secrets)} secrets across {regions_scanned} regions")
+
+        if secret_list_failures:
+            self._record_component_status(
+                components,
+                "secrets",
+                ok=False,
+                reason_code=("collection_failed" if regions_scanned == 0 else "partial_collection"),
+                error_code=next(iter(secret_list_failures.values())),
+                error="; ".join(f"{region}: {code}" for region, code in sorted(secret_list_failures.items())),
+            )
+        elif secret_detail_failures:
+            self._record_component_status(
+                components,
+                "secrets",
+                ok=False,
+                reason_code="partial_collection",
+                error=f"{secret_detail_failures} per-secret detail lookups failed",
+            )
+        else:
+            self._record_component_status(components, "secrets", ok=True)
 
         # Save evidence
         evidence_path = session.get_evidence_path(self.name)
@@ -163,11 +201,42 @@ class SecretsManagerSkill(BaseSkill):
 
         cw_data = self._collect_cloudwatch_alarms(session_obj, regions)
         self._save_json(evidence_path / "cloudwatch_alarms.json", cw_data)
+        self._record_regional_status_component(components, "cloudwatch-alarms", cw_data)
 
         eb_data = self._collect_eventbridge_rules(session_obj, regions)
         self._save_json(evidence_path / "eventbridge_rules.json", eb_data)
+        self._record_regional_status_component(components, "eventbridge-rules", eb_data)
+
+        self._save_collection_status(evidence_path, {"components": components})
 
         print("  ✅ Alerting evidence saved")
+
+    def _record_regional_status_component(
+        self,
+        components: Dict[str, Dict[str, Any]],
+        component: str,
+        data: Dict[str, Any],
+    ) -> None:
+        regions = data.get("regions") if isinstance(data, dict) else None
+        if not isinstance(regions, dict):
+            self._record_component_status(components, component, ok=True)
+            return
+        errors = {
+            region: str(value.get("error"))
+            for region, value in regions.items()
+            if isinstance(value, dict) and value.get("error")
+        }
+        if not errors:
+            self._record_component_status(components, component, ok=True)
+            return
+        self._record_component_status(
+            components,
+            component,
+            ok=False,
+            reason_code=("collection_failed" if len(errors) == len(regions) else "partial_collection"),
+            error_code=next(iter(errors.values())),
+            error="; ".join(f"{region}: {error}" for region, error in sorted(errors.items())),
+        )
 
     def _collect_cloudwatch_alarms(
         self, session_obj: boto3.Session, regions: List[str]
