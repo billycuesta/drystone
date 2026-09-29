@@ -283,8 +283,92 @@ class TestSecretsManagerSkill:
         assert status["ok"] is True
         assert status["components"]["regions"] == {"ok": True}
         assert status["components"]["secrets"] == {"ok": True}
-        assert status["components"]["cloudwatch-alarms"] == {"ok": True}
-        assert status["components"]["eventbridge-rules"] == {"ok": True}
+        assert status["components"]["cloudwatch_alarms"] == {"ok": True}
+        assert status["components"]["eventbridge_rules"] == {"ok": True}
+
+    def test_collection_status_component_keys_match_written_evidence_stems(
+        self, skill, mock_aws_client, mock_session
+    ):
+        """Components consumed by pre-checks must use evidence file stems."""
+        mock_ec2 = MagicMock()
+        mock_secrets = MagicMock()
+        mock_cw = MagicMock()
+        mock_events = MagicMock()
+        mock_ec2.describe_regions.return_value = {"Regions": [{"RegionName": "us-east-1"}]}
+        mock_secrets.get_paginator.return_value.paginate.return_value = [{"SecretList": []}]
+        mock_cw.get_paginator.return_value.paginate.return_value = [{"MetricAlarms": []}]
+        mock_events.get_paginator.return_value.paginate.return_value = [{"Rules": []}]
+
+        def _client(service, **kwargs):
+            return {
+                "ec2": mock_ec2,
+                "secretsmanager": mock_secrets,
+                "cloudwatch": mock_cw,
+                "events": mock_events,
+            }[service]
+
+        mock_aws_client.boto3_session.return_value.client.side_effect = _client
+        skill.collect(mock_aws_client, mock_session)
+
+        evidence_path = mock_session.get_evidence_path.return_value
+        status = json.loads((evidence_path / "secretsmanager-collection-status.json").read_text())
+        evidence_stems = {
+            path.stem
+            for path in evidence_path.glob("*.json")
+            if not path.name.endswith("-collection-status.json")
+        }
+        auxiliary_components = {"regions"}
+        for component in status["components"]:
+            assert component in evidence_stems | auxiliary_components
+
+    def test_regional_status_error_code_uses_code_not_message(self, skill):
+        components = {}
+        skill._record_regional_status_component(
+            components,
+            "cloudwatch_alarms",
+            {"regions": {"us-east-1": {"error": "AccessDeniedException: denied message"}}},
+        )
+
+        component = components["cloudwatch_alarms"]
+        assert component["error_code"] == "AccessDeniedException"
+        assert component["error"] == "us-east-1: AccessDeniedException: denied message"
+
+    def test_non_common_secret_list_client_error_is_recorded_without_secret_values(
+        self, skill, mock_aws_client, mock_session
+    ):
+        from botocore.exceptions import ClientError
+
+        mock_ec2 = MagicMock()
+        mock_secrets = MagicMock()
+        mock_cw = MagicMock()
+        mock_events = MagicMock()
+        mock_ec2.describe_regions.return_value = {"Regions": [{"RegionName": "us-east-1"}]}
+        mock_secrets.get_paginator.return_value.paginate.side_effect = ClientError(
+            {"Error": {"Code": "ThrottlingException", "Message": "token SECRET_VALUE"}},
+            "ListSecrets",
+        )
+        mock_cw.get_paginator.return_value.paginate.return_value = [{"MetricAlarms": []}]
+        mock_events.get_paginator.return_value.paginate.return_value = [{"Rules": []}]
+
+        def _client(service, **kwargs):
+            return {
+                "ec2": mock_ec2,
+                "secretsmanager": mock_secrets,
+                "cloudwatch": mock_cw,
+                "events": mock_events,
+            }[service]
+
+        mock_aws_client.boto3_session.return_value.client.side_effect = _client
+        skill.collect(mock_aws_client, mock_session)
+
+        status = json.loads(
+            (mock_session.get_evidence_path.return_value / "secretsmanager-collection-status.json").read_text()
+        )
+        component = status["components"]["secrets"]
+        assert component["ok"] is False
+        assert component["reason_code"] == "collection_failed"
+        assert component["error_code"] == "ThrottlingException"
+        assert "SECRET_VALUE" not in json.dumps(status)
 
     def test_secret_list_failure_is_collection_failed_without_secret_values(
         self, skill, mock_aws_client, mock_session

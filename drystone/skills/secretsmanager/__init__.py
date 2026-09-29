@@ -165,6 +165,8 @@ class SecretsManagerSkill(BaseSkill):
                 if code in common_errors:
                     secret_list_failures[region] = code
                     continue
+                secret_list_failures[region] = code
+                continue
             except Exception as e:
                 secret_list_failures[region] = type(e).__name__
                 continue
@@ -201,15 +203,22 @@ class SecretsManagerSkill(BaseSkill):
 
         cw_data = self._collect_cloudwatch_alarms(session_obj, regions)
         self._save_json(evidence_path / "cloudwatch_alarms.json", cw_data)
-        self._record_regional_status_component(components, "cloudwatch-alarms", cw_data)
+        self._record_regional_status_component(components, "cloudwatch_alarms", cw_data)
 
         eb_data = self._collect_eventbridge_rules(session_obj, regions)
         self._save_json(evidence_path / "eventbridge_rules.json", eb_data)
-        self._record_regional_status_component(components, "eventbridge-rules", eb_data)
+        self._record_regional_status_component(components, "eventbridge_rules", eb_data)
 
         self._save_collection_status(evidence_path, {"components": components})
 
         print("  ✅ Alerting evidence saved")
+
+    def _status_error_code(self, error: str) -> Optional[str]:
+        """Return an AWS-style error code when a compact status error carries one."""
+        if not error:
+            return None
+        head = str(error).split(":", 1)[0]
+        return head if head and " " not in head else None
 
     def _record_regional_status_component(
         self,
@@ -234,7 +243,7 @@ class SecretsManagerSkill(BaseSkill):
             component,
             ok=False,
             reason_code=("collection_failed" if len(errors) == len(regions) else "partial_collection"),
-            error_code=next(iter(errors.values())),
+            error_code=self._status_error_code(next(iter(errors.values()))),
             error="; ".join(f"{region}: {error}" for region, error in sorted(errors.items())),
         )
 

@@ -219,6 +219,20 @@ def test_compute_collection_status_happy_path(tmp_path: Path):
         assert status["components"][component] == {"ok": True}
 
 
+def test_compute_error_code_uses_aws_code_not_error_message(tmp_path: Path):
+    status = _run_compute_collect(tmp_path, _DummySession())
+    ComputeSkill()._record_errors_component_status(
+        status["components"],
+        "synthetic",
+        {"list_clusters": "AccessDeniedException: denied message"},
+        collection_failure_keys={"list_clusters"},
+    )
+
+    component = status["components"]["synthetic"]
+    assert component["error_code"] == "AccessDeniedException"
+    assert component["error"] == "list_clusters: AccessDeniedException: denied message"
+
+
 def test_compute_ecs_list_failure_is_collection_failed(tmp_path: Path):
     class _FailECSClient(_DummyECSClient):
         def get_paginator(self, op_name: str):
