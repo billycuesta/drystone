@@ -5,7 +5,6 @@ from pathlib import Path
 from drystone.validation.pre_checks.core import (
     PRE_CHECK_REGISTRY,
     PRE_CHECK_STATUS_WARN,
-    PRE_CHECK_REGISTRY,
     PreCheckResult,
     format_pre_checks_for_prompt,
     resolve_pre_check_id,
