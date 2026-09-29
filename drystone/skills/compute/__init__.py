@@ -132,13 +132,6 @@ class ComputeSkill(BaseSkill):
             },
         )
 
-    def _status_error_code(self, error: str) -> Optional[str]:
-        """Return the AWS error code prefix from a compact status error, when present."""
-        if not error:
-            return None
-        head = str(error).split(":", 1)[0]
-        return head if head and " " not in head else None
-
     def _record_errors_component_status(
         self,
         components: Dict[str, Dict[str, Any]],

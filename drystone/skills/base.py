@@ -140,6 +140,13 @@ class BaseSkill(ABC):
             entry["error"] = str(error)
         components[component] = entry
 
+    def _status_error_code(self, error: str) -> Optional[str]:
+        """Return an AWS-style error code prefix from a compact status error."""
+        if not error:
+            return None
+        head = str(error).split(":", 1)[0]
+        return head if head and " " not in head else None
+
     def _collection_status_ok(self, value: Any) -> bool:
         """Derive aggregate collection status from nested legacy status dicts."""
         if isinstance(value, dict):

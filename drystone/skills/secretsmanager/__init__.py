@@ -213,13 +213,6 @@ class SecretsManagerSkill(BaseSkill):
 
         print("  ✅ Alerting evidence saved")
 
-    def _status_error_code(self, error: str) -> Optional[str]:
-        """Return an AWS-style error code when a compact status error carries one."""
-        if not error:
-            return None
-        head = str(error).split(":", 1)[0]
-        return head if head and " " not in head else None
-
     def _record_regional_status_component(
         self,
         components: Dict[str, Dict[str, Any]],
