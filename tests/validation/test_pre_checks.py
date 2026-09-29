@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from drystone.validation import pre_checks as pre_checks_module
 from drystone.validation.pre_checks import (
     PRE_CHECK_DESCRIPTIONS,
     PRE_CHECK_IMPACTS,
@@ -172,6 +173,152 @@ from drystone.validation.pre_checks import (
 # ============================================================================
 # IAM CHECKS
 # ============================================================================
+
+
+IAM_STATUS_STEMS_BY_CHECK = {
+    "IAM-002": ("users", "credential-report"),
+    "IAM-004": ("users",),
+    "IAM-005": ("password-policy",),
+    "IAM-007": ("roles",),
+    "IAM-008": ("policies",),
+    "IAM-010": ("users",),
+    "IAM-011": ("roles",),
+    "IAM-012": ("users", "credential-report"),
+    "IAM-014": ("users", "credential-report"),
+    "IAM-015": ("users", "policies"),
+    "IAM-016": ("users", "credential-report"),
+    "IAM-017": ("roles",),
+    "IAM-018": ("password-policy",),
+    "IAM-019": ("password-policy",),
+    "IAM-020": ("users",),
+    "IAM-022": ("roles",),
+    "IAM-026": ("roles", "policies"),
+    "IAM-027": ("account-aliases",),
+    "IAM-028": ("users", "roles"),
+    "IAM-029": ("roles",),
+    "IAM-030": ("resource-based-policies", "users", "roles"),
+    "IAM-031": ("instance-profiles",),
+    "IAM-032": ("roles",),
+    "IAM-033": ("roles",),
+    "IAM-034": ("policies",),
+    "IAM-035": ("policies",),
+    "IAM-036": ("policies",),
+    "IAM-037": ("policies",),
+    "IAM-038": ("policies",),
+    "IAM-039": ("policies",),
+    "IAM-040": ("effective-scps",),
+    "IAM-041": ("roles",),
+    "IAM-042": ("policies",),
+    "IAM-043": ("roles",),
+    "IAM-044": ("roles",),
+}
+
+
+def _iam_check_fn(check_id):
+    return getattr(pre_checks_module, f"check_{check_id.lower().replace('-', '_')}")
+
+
+def _iam_status_doc(stems, *, ok=True, reason_code=None):
+    components = {}
+    for stem in stems:
+        entry = {"ok": ok}
+        if not ok:
+            entry["reason_code"] = reason_code
+            entry["error_code"] = "AccessDeniedException"
+            entry["error"] = f"{stem}: AccessDeniedException"
+        components[stem] = entry
+    return {"iam-collection-status": {"components": components}}
+
+
+def _empty_doc_for_iam_stem(stem):
+    if stem in {"users", "roles", "policies"}:
+        return []
+    if stem == "password-policy":
+        return {}
+    if stem == "credential-report":
+        return {"by_user": {}}
+    if stem == "account-aliases":
+        return {"AccountAliases": []}
+    if stem == "instance-profiles":
+        return {"instance_profiles": []}
+    if stem == "resource-based-policies":
+        return {}
+    if stem == "effective-scps":
+        return {"service_control_policies": []}
+    raise AssertionError(stem)
+
+
+def _iam_empty_evidence_with_status(stems):
+    evidence = _iam_status_doc(stems, ok=True)
+    for stem in stems:
+        evidence[stem] = _empty_doc_for_iam_stem(stem)
+    return evidence
+
+
+@pytest.mark.parametrize("check_id,stems", IAM_STATUS_STEMS_BY_CHECK.items())
+def test_iam_b_checks_warn_on_collection_failed_status(check_id, stems):
+    result = _iam_check_fn(check_id)(_iam_status_doc(stems, ok=False, reason_code="collection_failed"))
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "collection_failed"
+    assert result.metadata["evidence_key"] in stems
+
+
+@pytest.mark.parametrize("check_id,stems", IAM_STATUS_STEMS_BY_CHECK.items())
+def test_iam_b_checks_warn_on_partial_collection_when_no_violation_found(check_id, stems):
+    result = _iam_check_fn(check_id)(_iam_status_doc(stems, ok=False, reason_code="partial_collection"))
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "partial_collection"
+
+
+@pytest.mark.parametrize("check_id,stems", IAM_STATUS_STEMS_BY_CHECK.items())
+def test_iam_b_checks_keep_legacy_empty_evidence_without_status(check_id, stems):
+    result = _iam_check_fn(check_id)({})
+
+    assert result.check_id == check_id
+    assert result.status != "WARN"
+
+
+@pytest.mark.parametrize("check_id,stems", IAM_STATUS_STEMS_BY_CHECK.items())
+def test_iam_b_checks_keep_ok_empty_evidence_behavior(check_id, stems):
+    result = _iam_check_fn(check_id)(_iam_empty_evidence_with_status(stems))
+
+    assert result.check_id == check_id
+    assert result.status != "WARN"
+
+
+@pytest.mark.parametrize("check_id,stems", IAM_STATUS_STEMS_BY_CHECK.items())
+def test_iam_b_checks_warn_when_status_exists_but_required_evidence_key_missing(check_id, stems):
+    result = _iam_check_fn(check_id)({"iam-collection-status": {"components": {}}})
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "missing_evidence"
+    assert result.metadata["evidence_key"] in stems
+
+
+def test_iam_b_partial_collection_never_masks_real_failures():
+    evidence = _iam_status_doc(("users",), ok=False, reason_code="partial_collection")
+    evidence["users"] = [{"UserName": "alice", "Arn": "arn:aws:iam::123:user/alice", "Groups": []}]
+
+    result = check_iam_020(evidence)
+
+    assert result.status == "FAIL"
+    assert result.evidence_summary == "1 users without groups"
+
+
+def test_iam040_status_warning_keeps_existing_error_reason_text():
+    evidence = _iam_status_doc(("effective-scps",), ok=False, reason_code="partial_collection")
+    evidence["effective-scps"] = {"error": "AWSOrganizationsNotInUseException", "service_control_policies": []}
+
+    result = _iam_check_fn("IAM-040")(evidence)
+
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "partial_collection"
+    assert "Account not in Organization or no org permissions" in result.evidence_summary
 
 
 class TestIAMDeterministicFindingText:

@@ -7,7 +7,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from .core import PreCheckResult, _register
+from .core import PRE_CHECK_REGISTRY, PreCheckResult, _register
 from .helpers import *
 from .metadata import *
 
@@ -2229,5 +2229,64 @@ def check_iam_044(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 # ============================================================================
+
+_IAM_COMPONENT_STEMS_BY_CHECK = {
+    "IAM-002": ("users", "credential-report"),
+    "IAM-004": ("users",),
+    "IAM-005": ("password-policy",),
+    "IAM-007": ("roles",),
+    "IAM-008": ("policies",),
+    "IAM-010": ("users",),
+    "IAM-011": ("roles",),
+    "IAM-012": ("users", "credential-report"),
+    "IAM-014": ("users", "credential-report"),
+    "IAM-015": ("users", "policies"),
+    "IAM-016": ("users", "credential-report"),
+    "IAM-017": ("roles",),
+    "IAM-018": ("password-policy",),
+    "IAM-019": ("password-policy",),
+    "IAM-020": ("users",),
+    "IAM-022": ("roles",),
+    "IAM-026": ("roles", "policies"),
+    "IAM-027": ("account-aliases",),
+    "IAM-028": ("users", "roles"),
+    "IAM-029": ("roles",),
+    "IAM-030": ("resource-based-policies", "users", "roles"),
+    "IAM-031": ("instance-profiles",),
+    "IAM-032": ("roles",),
+    "IAM-033": ("roles",),
+    "IAM-034": ("policies",),
+    "IAM-035": ("policies",),
+    "IAM-036": ("policies",),
+    "IAM-037": ("policies",),
+    "IAM-038": ("policies",),
+    "IAM-039": ("policies",),
+    "IAM-040": ("effective-scps",),
+    "IAM-041": ("roles",),
+    "IAM-042": ("policies",),
+    "IAM-043": ("roles",),
+    "IAM-044": ("roles",),
+}
+
+
+def _wrap_iam_component_status(check_fn, stems):
+    def _wrapped(evidence: Dict[str, Any]) -> PreCheckResult:
+        result = check_fn(evidence)
+        return warn_from_component_status(result, evidence, skill="iam", stems=list(stems))
+
+    _wrapped.__name__ = check_fn.__name__
+    _wrapped.__doc__ = check_fn.__doc__
+    return _wrapped
+
+
+for _idx, _check_fn in enumerate(list(PRE_CHECK_REGISTRY.get("iam", []))):
+    _check_id = _check_fn.__name__.removeprefix("check_").upper().replace("_", "-")
+    _stems = _IAM_COMPONENT_STEMS_BY_CHECK.get(_check_id)
+    if not _stems:
+        continue
+    _wrapped = _wrap_iam_component_status(_check_fn, _stems)
+    PRE_CHECK_REGISTRY["iam"][_idx] = _wrapped
+    globals()[_check_fn.__name__] = _wrapped
+
 
 __all__ = [name for name in globals() if name.startswith("check_")]

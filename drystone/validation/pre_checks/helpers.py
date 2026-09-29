@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
-from .core import PRE_CHECK_STATUS_PASS, PRE_CHECK_STATUS_WARN, PreCheckResult
+from .core import PRE_CHECK_STATUS_FAIL, PRE_CHECK_STATUS_PASS, PRE_CHECK_STATUS_WARN, PreCheckResult
 
 
 # HELPER FUNCTIONS
@@ -369,6 +369,69 @@ def pass_or_warn(
     reason = extra_failure_check(evidence)
     if reason:
         return _coverage_gap_warning(check_id, "collection_failed", reason, key)
+    return result
+
+
+def component_status(evidence: Dict[str, Any], skill: str, stem: str) -> Optional[Dict[str, Any]]:
+    """Return one standardized collection-status component, if the status doc exists.
+
+    Missing status documents mean legacy evidence and must not change behavior.
+    A present status document with a missing component means the required
+    evidence key is missing from the contract the pre-check is about to use.
+    """
+    status_doc = evidence.get(f"{skill}-collection-status")
+    if not isinstance(status_doc, dict):
+        return None
+    components = status_doc.get("components")
+    if not isinstance(components, dict):
+        return {"ok": False, "reason_code": "missing_evidence"}
+    component = components.get(stem)
+    if isinstance(component, dict):
+        return component
+    return {"ok": False, "reason_code": "missing_evidence"}
+
+
+def warn_from_component_status(
+    result: PreCheckResult,
+    evidence: Dict[str, Any],
+    *,
+    skill: str,
+    stems: List[str],
+) -> PreCheckResult:
+    """Turn a would-be PASS/SKIP into WARN when collection status is incomplete.
+
+    Rules:
+      - FAIL is authoritative and is never masked.
+      - No status document preserves legacy behavior.
+      - Status doc present + absent required evidence key becomes missing_evidence.
+      - Any required component with ok=False converts PASS/SKIP to WARN using its
+        reason_code, typically collection_failed or partial_collection.
+      - Component ok=True with empty/absent resource class leaves the result unchanged.
+    """
+    if result.status == PRE_CHECK_STATUS_FAIL:
+        return result
+    status_doc = evidence.get(f"{skill}-collection-status")
+    if not isinstance(status_doc, dict):
+        return result
+
+    for stem in stems:
+        status = component_status(evidence, skill, stem)
+        if isinstance(status, dict) and status.get("ok") is False:
+            reason_code = str(status.get("reason_code") or "collection_failed")
+            summary = (
+                result.evidence_summary
+                if result.status != PRE_CHECK_STATUS_PASS
+                else str(status.get("error") or f"Collection incomplete: {stem}")
+            )
+            return _coverage_gap_warning(result.check_id, reason_code, summary, stem)
+        if stem not in evidence:
+            return _coverage_gap_warning(
+                result.check_id,
+                "missing_evidence",
+                f"Missing evidence: {stem}",
+                stem,
+            )
+
     return result
 
 
