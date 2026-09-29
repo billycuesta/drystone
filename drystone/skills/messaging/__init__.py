@@ -21,6 +21,14 @@ from drystone.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Human-readable labels for per-resource error keys, used to summarize
+# partial failures in the collection status file (counts and codes only).
+_SQS_PER_ITEM_LABELS = {"get_queue_attributes": "per-queue attribute lookups"}
+_SNS_PER_ITEM_LABELS = {
+    "get_topic_attributes": "per-topic attribute lookups",
+    "list_subscriptions_by_topic": "per-topic subscription listings",
+}
+
 
 class MessagingSkill(BaseSkill):
     def _skill_specific_traceability(
@@ -55,16 +63,90 @@ class MessagingSkill(BaseSkill):
         }
         self._save_json(evidence_path / "_audit_metadata.json", metadata)
 
+        components: Dict[str, Dict[str, Any]] = {}
+
         queues, q_errors = self._collect_sqs_queues(sqs)
         self._save_json(evidence_path / "sqs-queues.json", {"items": queues, "errors": q_errors})
+        self._record_errors_component(
+            components,
+            "sqs-queues",
+            q_errors,
+            list_key="list_queues",
+            per_item_labels=_SQS_PER_ITEM_LABELS,
+        )
 
         topics, t_errors = self._collect_sns_topics(sns)
         self._save_json(evidence_path / "sns-topics.json", {"items": topics, "errors": t_errors})
+        self._record_errors_component(
+            components,
+            "sns-topics",
+            t_errors,
+            list_key="list_topics",
+            per_item_labels=_SNS_PER_ITEM_LABELS,
+        )
+
+        self._save_collection_status(evidence_path, {"components": components})
 
         ok = not (q_errors or t_errors)
         logger.info(
             "Messaging collection complete",
             extra={"region": region, "queues": len(queues), "topics": len(topics), "ok": ok},
+        )
+
+    def _record_errors_component(
+        self,
+        components: Dict[str, Dict[str, Any]],
+        stem: str,
+        errors: Dict[str, str],
+        *,
+        list_key: str,
+        per_item_labels: Dict[str, str],
+    ) -> None:
+        """Derive a component status entry from a persisted errors dict.
+
+        Only compact AWS error codes and counts are recorded; per-item keys
+        (queue URLs, topic ARNs) and full exception messages never reach the
+        status file. A list failure outranks per-item failures because the
+        items may never have been seen.
+        """
+        if not errors:
+            self._record_component_status(components, stem, ok=True)
+            return
+
+        list_value = errors.get(list_key)
+        if list_value is not None:
+            code = self._status_error_code(str(list_value))
+            self._record_component_status(
+                components,
+                stem,
+                ok=False,
+                reason_code="collection_failed",
+                error_code=code,
+                error=f"{list_key}: {code}" if code else f"{list_key}: failed",
+            )
+            return
+
+        counts: Dict[str, int] = {}
+        codes: set = set()
+        for key, value in errors.items():
+            operation = key.split(":", 1)[0]
+            label = per_item_labels.get(operation, operation)
+            counts[label] = counts.get(label, 0) + 1
+            code = self._status_error_code(str(value))
+            if code:
+                codes.add(code)
+        summary = "; ".join(
+            f"{count} {label} failed" for label, count in sorted(counts.items())
+        )
+        if codes:
+            summary += f" ({', '.join(sorted(codes))})"
+        self._record_component_status(
+            components,
+            stem,
+            ok=False,
+            reason_code="partial_collection",
+            error_code=sorted(codes)[0] if codes else None,
+            error=summary[:200],
         )
 
     def _collect_sqs_queues(self, sqs) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
