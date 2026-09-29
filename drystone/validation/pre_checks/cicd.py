@@ -31,18 +31,20 @@ def _cicd_source_credentials_failure(evidence: Dict[str, Any]) -> Optional[str]:
 def check_cicd_001(evidence: Dict[str, Any]) -> PreCheckResult:
     """CodeBuild source credentials exist."""
     if warning := check_evidence_or_warn(
-        "CICD-001",
-        evidence,
-        ["codebuild-source-credentials"],
-        expected_type=dict,
-        extra_failure_check=_cicd_source_credentials_failure,
+        "CICD-001", evidence, ["codebuild-source-credentials"], expected_type=dict
     ):
         return warning
     sc_doc = evidence.get("codebuild-source-credentials")
     items = sc_doc.get("items") if isinstance(sc_doc, dict) else None
-    if not isinstance(items, list) or len(items) == 0:
-        return PreCheckResult("CICD-001", "PASS", "no CodeBuild source credentials", [])
-    return PreCheckResult("CICD-001", "FAIL", f"{len(items)} source credentials found", [])
+    if isinstance(items, list) and len(items) > 0:
+        return PreCheckResult("CICD-001", "FAIL", f"{len(items)} source credentials found", [])
+    return pass_or_warn(
+        PreCheckResult("CICD-001", "PASS", "no CodeBuild source credentials", []),
+        evidence,
+        "CICD-001",
+        "codebuild-source-credentials",
+        _cicd_source_credentials_failure,
+    )
 
 
 @_register("cicd")
