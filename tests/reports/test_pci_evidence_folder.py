@@ -13,8 +13,8 @@ from drystone.reports.pci_evidence_folder import (
     _short_description,
     generate_pci_evidence_folder,
 )
-from drystone.validation.pre_checks import PreCheckResult
 from drystone.storage.session import AuditSession
+from drystone.validation.pre_checks import PreCheckResult
 
 FIXTURES = Path(__file__).parent / "fixtures" / "pci_cli" / "iam"
 

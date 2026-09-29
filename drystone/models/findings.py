@@ -1,6 +1,6 @@
 """Finding models for AI agent analysis output."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -131,7 +131,9 @@ class SkillFindings(BaseModel):
     skill: str = Field(..., description="Skill name (e.g., 'iam')")
     findings: List[Finding] = Field(default_factory=list, description="List of security findings")
     summary: FindingsSummary = Field(..., description="Summary statistics")
-    analyzed_at: datetime = Field(default_factory=datetime.utcnow, description="Analysis timestamp")
+    analyzed_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc), description="Analysis timestamp"
+    )
     evidence_count: int = Field(..., ge=0, description="Number of evidence files analyzed")
     checklist_version: str = Field(default="1.0", description="Version of security checklist used")
 
