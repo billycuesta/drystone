@@ -713,6 +713,43 @@ class HardeningSkill(BaseSkill):
         self._save_json(evidence_path / "_audit_metadata.json", audit_metadata)
 
         # === COLLECTION STATUS ===
+        component_sources = {
+            "security-hub-status": collection_status["securityhub"],
+            "security-hub-findings": collection_status["securityhub_findings"],
+            "security-hub-findings-summary": collection_status["securityhub_findings"],
+            "security-hub-enabled-standards": collection_status["securityhub_standards"],
+            "config-recorders": collection_status["config"],
+            "config-delivery-channels": collection_status["config"],
+            "config-recorder-status": collection_status["config"],
+            "config-compliance": collection_status["config"],
+            "config-conformance-packs": collection_status["config"],
+            "acm-certificates": {"ok": True, "error": None},
+            "guardduty-detectors": collection_status["guardduty"],
+            "macie-session": collection_status["macie"],
+            "macie-findings": collection_status["macie"],
+            "backup-vaults": collection_status["backup"],
+            "backup-plans": collection_status["backup"],
+            "backup-plans-detailed": collection_status["backup"],
+            "account-summary": collection_status["iam_account"],
+            "account-aliases": collection_status["iam_account"],
+            "password-policy": collection_status["iam_account"],
+        }
+        components: Dict[str, Dict[str, Any]] = {}
+        for path in sorted(evidence_path.glob("*.json")):
+            if path.name.endswith("-collection-status.json") or path.name == "_audit_metadata.json":
+                continue
+            source = component_sources.get(path.stem, {"ok": True, "error": None})
+            ok = source.get("ok") is not False
+            error = source.get("error")
+            self._record_component_status(
+                components,
+                path.stem,
+                ok=ok,
+                reason_code=None if ok else "collection_failed",
+                error_code=self._status_error_code(error or ""),
+                error=error,
+            )
+        collection_status["components"] = components
         self._save_collection_status(evidence_path, collection_status)
 
         print("\n✅ Hardening collection complete")

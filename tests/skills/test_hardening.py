@@ -275,6 +275,38 @@ class TestCollectHappyPath:
         assert "errors" in status
         assert "config" in status
 
+    def test_collection_status_components_match_written_evidence_stems(self, skill, aws_client, mock_session):
+        evidence_dir = mock_session.get_evidence_path.return_value
+        with patch("boto3.client", side_effect=_boto3_factory()):
+            skill.collect(aws_client, mock_session)
+
+        status = json.loads((evidence_dir / "hardening-collection-status.json").read_text())
+        evidence_stems = {
+            path.stem
+            for path in evidence_dir.glob("*.json")
+            if not path.name.endswith("-collection-status.json") and path.name != "_audit_metadata.json"
+        }
+
+        assert set(status["components"]) == evidence_stems
+        assert status["components"]["security-hub-status"] == {"ok": True}
+        assert status["components"]["security-hub-enabled-standards"] == {"ok": True}
+        assert status["components"]["config-conformance-packs"] == {"ok": True}
+
+    def test_collection_status_components_preserve_legacy_keys(self, skill, aws_client, mock_session):
+        evidence_dir = mock_session.get_evidence_path.return_value
+        cfg_mock = _make_config_client()
+        cfg_mock.describe_configuration_recorder_status.side_effect = _GenericAWSError(
+            "AccessDenied"
+        )
+
+        with patch("boto3.client", side_effect=_boto3_factory(config=cfg_mock)):
+            skill.collect(aws_client, mock_session)
+
+        status = json.loads((evidence_dir / "hardening-collection-status.json").read_text())
+        assert status["config"]["ok"] is False
+        assert status["components"]["config-recorder-status"]["ok"] is False
+        assert status["components"]["config-recorder-status"]["reason_code"] == "collection_failed"
+
     def test_audit_metadata_file_written(self, skill, aws_client, mock_session):
         evidence_dir = mock_session.get_evidence_path.return_value
         with patch("boto3.client", side_effect=_boto3_factory()):
