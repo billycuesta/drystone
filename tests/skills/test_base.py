@@ -1413,3 +1413,66 @@ class TestAnalyzePipelineMetadata:
             "error_type": "RuntimeError",
             "message": "coverage exploded",
         }
+
+    def test_collection_status_reaches_pre_checks_through_real_evidence_loader(self, tmp_path):
+        """Proves the collection-status producers (iam/network/exposure/
+        alerting collectors) actually reach pre-checks: writes a real
+        iam-collection-status.json file to disk, runs it through the REAL
+        analyze() evidence-loading loop (the `*.json` glob in this file, not
+        a hand-built dict), and asserts run_pre_checks() -- also the real
+        production call site, only its return value is stubbed -- receives
+        it under evidence["iam-collection-status"]["components"]."""
+        session, evidence_path, findings_path = self._session(tmp_path)
+        (evidence_path / "users.json").write_text('{"items": []}')
+        (evidence_path / "iam-collection-status.json").write_text(
+            json.dumps(
+                {
+                    "_schema": "drystone.collection_status.v1",
+                    "_skill": "iam",
+                    "ok": False,
+                    "errors": {"components": {"users": {"error": "AccessDenied"}}},
+                    "components": {
+                        "users": {
+                            "ok": False,
+                            "reason_code": "collection_failed",
+                            "error_code": "AccessDenied",
+                            "error": "boom",
+                        }
+                    },
+                }
+            )
+        )
+        agent = self._agent()
+
+        captured = {}
+
+        def _capture_run_pre_checks(skill_name, evidence, checklist):
+            captured["evidence"] = evidence
+            return []
+
+        def fake_coverage(checklist, findings, pre_evaluated_checks):
+            return {
+                "coverage_valid": True,
+                "coverage_percentage": 0,
+                "evaluated_checks": 0,
+                "total_checks": len(checklist.get("items", [])),
+                "details": [],
+            }
+
+        with patch(
+            "drystone.validation.pre_checks.run_pre_checks",
+            side_effect=_capture_run_pre_checks,
+        ), patch(
+            "drystone.analysis.router.route_checklist_for_llm",
+            return_value=({"items": []}, {"llm_checks": 0, "deterministic_resolved": 0, "total_checks": 0}),
+        ), patch("drystone.validation.checklist_coverage.validate_checklist_coverage", side_effect=fake_coverage):
+            SKILL.analyze(session, agent)
+
+        assert "evidence" in captured, "run_pre_checks was never called"
+        loaded = captured["evidence"]["iam-collection-status"]
+        assert loaded["components"]["users"] == {
+            "ok": False,
+            "reason_code": "collection_failed",
+            "error_code": "AccessDenied",
+            "error": "boom",
+        }
