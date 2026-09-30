@@ -5,7 +5,7 @@ support security and compliance analysis (e.g., PCI DSS 6.4.2).
 """
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import boto3
@@ -525,8 +525,8 @@ class WAFSkill(BaseSkill):
         cw_region = "us-east-1" if scope == "CLOUDFRONT" else region_name
         cw = boto3.client("cloudwatch", **{**client_kwargs, "region_name": cw_region})
 
-        start = datetime.utcnow() - timedelta(days=7)
-        end = datetime.utcnow()
+        start = datetime.now(timezone.utc) - timedelta(days=7)
+        end = datetime.now(timezone.utc)
         period = 86400
 
         def _query(rule_dimension_value: str) -> int:

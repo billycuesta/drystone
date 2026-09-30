@@ -297,8 +297,9 @@ class AgentClient:
             # the required JSON schema.
             try:
                 from datetime import datetime as _dt
+                from datetime import timezone as _tz
 
-                _now = _dt.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+                _now = _dt.now(_tz.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                 repaired = self._repair_response_to_json(
                     response_text,
                     skill_name=skill_name,

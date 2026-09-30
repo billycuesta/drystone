@@ -7,7 +7,7 @@ Flushes to disk immediately after each write.
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -59,7 +59,7 @@ class CrashSafeLogger:
             context: Optional context dict with additional data
         """
         event = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "skill": self.skill_name,
             "event_type": event_type,
             "severity": severity,
