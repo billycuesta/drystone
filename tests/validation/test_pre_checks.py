@@ -13,6 +13,7 @@ import pytest
 
 from drystone.validation import pre_checks as pre_checks_module
 from drystone.validation.pre_checks import (
+    PRE_CHECK_ANALOGIES,
     PRE_CHECK_DESCRIPTIONS,
     PRE_CHECK_IMPACTS,
     PRE_CHECK_REGISTRY,
@@ -9866,3 +9867,65 @@ class TestVULN024RichMetadata:
         }
         r = check_vuln_024(evidence)
         assert r.status == "PASS"
+
+
+def _critical_high_check_ids(skill: str) -> list:
+    """Registered pre-check IDs for `skill` whose checklist severity is Critical or High."""
+    checklist_path = Path("drystone/skills") / skill / "checklist.json"
+    checklist = json.loads(checklist_path.read_text())
+    severity_map = {item["id"]: item.get("severity") for item in checklist["items"]}
+
+    ids = sorted(
+        {resolve_pre_check_id(fn) for fn in PRE_CHECK_REGISTRY.get(skill, [])}
+    )
+    return [cid for cid in ids if severity_map.get(cid) in ("Critical", "High")]
+
+
+_EXPOSURE_CRITICAL_HIGH_IDS = _critical_high_check_ids("exposure")
+_VULNS_CRITICAL_HIGH_IDS = _critical_high_check_ids("vulns")
+
+
+class TestExposureVulnsCriticalHighImpactAnalogyCoverage:
+    """Guard: every Critical/High exposure and vulns pre-check has narrative content.
+
+    PRE_CHECK_IMPACTS and PRE_CHECK_ANALOGIES back the client-facing business-impact
+    narrative and plain-language analogy for deterministic findings. Critical/High
+    findings are the ones most likely to reach a client report, so they must not fall
+    back to the generic severity template.
+    """
+
+    @pytest.mark.parametrize("check_id", _EXPOSURE_CRITICAL_HIGH_IDS)
+    def test_exposure_critical_high_has_impact(self, check_id):
+        assert check_id in PRE_CHECK_IMPACTS, f"{check_id} is missing a PRE_CHECK_IMPACTS entry"
+        assert PRE_CHECK_IMPACTS[check_id].strip(), f"{check_id} has an empty impact entry"
+
+    @pytest.mark.parametrize("check_id", _EXPOSURE_CRITICAL_HIGH_IDS)
+    def test_exposure_critical_high_has_analogy(self, check_id):
+        assert check_id in PRE_CHECK_ANALOGIES, f"{check_id} is missing a PRE_CHECK_ANALOGIES entry"
+        assert PRE_CHECK_ANALOGIES[check_id].strip(), f"{check_id} has an empty analogy entry"
+
+    @pytest.mark.parametrize("check_id", _VULNS_CRITICAL_HIGH_IDS)
+    def test_vulns_critical_high_has_impact(self, check_id):
+        assert check_id in PRE_CHECK_IMPACTS, f"{check_id} is missing a PRE_CHECK_IMPACTS entry"
+        assert PRE_CHECK_IMPACTS[check_id].strip(), f"{check_id} has an empty impact entry"
+
+    @pytest.mark.parametrize("check_id", _VULNS_CRITICAL_HIGH_IDS)
+    def test_vulns_critical_high_has_analogy(self, check_id):
+        assert check_id in PRE_CHECK_ANALOGIES, f"{check_id} is missing a PRE_CHECK_ANALOGIES entry"
+        assert PRE_CHECK_ANALOGIES[check_id].strip(), f"{check_id} has an empty analogy entry"
+
+    @pytest.mark.parametrize("check_id", _EXPOSURE_CRITICAL_HIGH_IDS + _VULNS_CRITICAL_HIGH_IDS)
+    def test_impact_and_analogy_render_without_kwargs_like_the_consumer(self, check_id):
+        """PRE_CHECK_IMPACTS/PRE_CHECK_ANALOGIES are used as plain strings by base.py and
+        findings_normalizer.py (no .format() call, unlike PRE_CHECK_DESCRIPTIONS). Guard
+        against an accidental stray '{' / '}' placeholder slipping in and raising KeyError
+        the moment someone calls .format() on these values, matching the same no-kwargs
+        call the consumer would make if it ever did.
+        """
+        for value in (PRE_CHECK_IMPACTS.get(check_id), PRE_CHECK_ANALOGIES.get(check_id)):
+            if not value or "{" not in value:
+                continue
+            try:
+                value.format(resources="example", count=1, service="TEST")
+            except KeyError as exc:
+                pytest.fail(f"{check_id} narrative has an unresolvable placeholder: {exc}")

@@ -247,6 +247,140 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
         "existed on the disk at snapshot time, including database files, SSH keys, and "
         "application configuration with embedded secrets."
     ),
+    "EXP-001": (
+        "Publicly readable or writable S3 buckets containing backups, PII, or credentials "
+        "are directly retrievable by anyone on the internet without authentication. An "
+        "attacker can enumerate bucket contents, download sensitive files, and — where "
+        "write access is also granted — upload malicious objects or overwrite existing "
+        "backups.\n\n"
+        "For a PCI DSS environment this is a direct violation of Requirement 3.5.1 (render "
+        "PAN unreadable) and 7.2.1 (least privilege): a public bucket holding backups or "
+        "PII represents unauthenticated disclosure of the exact data types the standard is "
+        "designed to protect."
+    ),
+    "EXP-003": (
+        "Security groups that allow SSH (22) or RDP (3389) from 0.0.0.0/0 expose the "
+        "instance's administrative login surface to continuous internet-wide scanning. "
+        "Automated bots probe these ports within minutes of exposure, attempting "
+        "credential stuffing and brute-force login against any account that has not "
+        "disabled password authentication.\n\n"
+        "Under PCI DSS, Requirement 1.3.1 requires inbound traffic to be restricted to "
+        "what is necessary; allowing administrative access from any source violates this "
+        "control and, per Requirement 8.4.1, bypasses the MFA expected at the point of "
+        "non-console administrative access."
+    ),
+    "EXP-004": (
+        "EC2 instances with a public IP and a security group permitting inbound access on "
+        "administrative or database ports (22, 3389, 3306, 5432) are reachable directly "
+        "from the internet on the exact ports an attacker needs to attempt a foothold, "
+        "whether by brute-forcing SSH/RDP or probing an exposed MySQL/PostgreSQL listener "
+        "for known engine vulnerabilities or weak credentials.\n\n"
+        "This combination — public IP plus open service port — bypasses the layered "
+        "network controls PCI DSS Requirement 1.3.1 expects, placing the instance's "
+        "operating system or database engine directly on the untrusted-network boundary "
+        "instead of behind a load balancer, bastion, or Systems Manager session."
+    ),
+    "EXP-005": (
+        "A Lambda Function URL with AuthType=NONE accepts unauthenticated HTTPS "
+        "invocations from anyone who has, or can guess, the URL. Where the function "
+        "implements sensitive business logic, an attacker can invoke it directly — "
+        "triggering data reads, writes, or downstream calls — without ever passing "
+        "through an authorizer or API Gateway policy.\n\n"
+        "This is a complete bypass of access control for that code path. Under PCI DSS "
+        "Requirement 8.1.1, every access to a system component must be attributable to an "
+        "authenticated identity; an unauthenticated Function URL has no such attribution, "
+        "and Requirement 6.2.4 treats this as a business-logic attack surface that should "
+        "have been closed before deployment."
+    ),
+    "EXP-006": (
+        "API Gateway routes without an authorizer accept requests from anyone on the "
+        "internet, and without throttling those requests are unbounded — an attacker can "
+        "both invoke backend operations without identifying themselves and flood the "
+        "endpoint with volume the backend was never sized for.\n\n"
+        "Unauthenticated access directly violates PCI DSS Requirement 8.1.1 "
+        "(identification and authentication for every access), while the absence of "
+        "throttling removes the automated technical control Requirement 6.4.2 expects for "
+        "detecting and preventing abuse of public-facing application endpoints."
+    ),
+    "EXP-010": (
+        "An ALB listener that still accepts TLS 1.0 or 1.1 lets a client — or an attacker "
+        "performing a protocol-downgrade attack — negotiate a connection using "
+        "cryptography with known weaknesses, such as BEAST and POODLE-class attacks "
+        "against TLS 1.0, instead of being forced onto TLS 1.2 or higher.\n\n"
+        "PCI DSS Requirement 4.2.1 explicitly excludes TLS 1.0/1.1 from the definition of "
+        "strong cryptography for transmitting cardholder data over public networks; "
+        "keeping a listener that still negotiates these versions is a direct control "
+        "failure, not just a hardening suggestion."
+    ),
+    "EXP-011": (
+        "A bucket that allows public s3:ListBucket discloses the full list of object keys "
+        "to any internet user, even when the objects themselves are not directly "
+        "downloadable. File and folder names frequently reveal internal naming "
+        "conventions, backup schedules, application structure, or the existence of "
+        "sensitive files that then become a reconnaissance target for further attacks.\n\n"
+        "This is an information-disclosure gap under PCI DSS Requirement 7.2.1: the "
+        "ability to enumerate what is stored in a location is itself a privilege, and "
+        "granting it to the entire internet undermines least-privilege access to that "
+        "location regardless of object-level permissions."
+    ),
+    "EXP-016": (
+        "Every Lambda Function URL configured with AuthType=NONE is invokable directly "
+        "over HTTPS by anyone who obtains the URL, with no IAM signature, API key, or "
+        "authorizer check in front of it. Because Function URLs are a relatively recent "
+        "invocation path, they are easy to overlook during access reviews that focus on "
+        "API Gateway or ALB-fronted endpoints.\n\n"
+        "Each unauthenticated URL is an independent, ungoverned entry point into account "
+        "compute. In a PCI DSS context this repeats the Requirement 8.1.1 authentication "
+        "gap for every affected function, and the more Function URLs exist without "
+        "authorization, the larger the unmonitored attack surface becomes."
+    ),
+    "EXP-020": (
+        "A CloudFront distribution serving an S3 origin without Origin Access "
+        "Control/Identity does not prove that the underlying bucket is protected — it "
+        "only proves that CloudFront is one way to reach it. If the bucket policy does "
+        "not also restrict access to the CloudFront distribution specifically, the same "
+        "objects remain reachable by requesting the S3 endpoint directly, bypassing any "
+        "edge-level controls such as geo-restriction, signed URLs, or WAF rules attached "
+        "to CloudFront.\n\n"
+        "This does not by itself prove data is public; it indicates a missing "
+        "origin-access control that should be verified against the bucket's own policy. "
+        "Where the bypass exists, it undermines PCI DSS Requirement 7.2.1 by leaving a "
+        "second, unrestricted path to data that was intended to be gated through the CDN."
+    ),
+    "EXP-021": (
+        "Public API routes accepting POST/PUT/PATCH/DELETE without an authorizer let "
+        "anyone execute state-changing operations — creating, modifying, or deleting data "
+        "— without proving who they are. Unlike a read-only endpoint, a mutating route "
+        "directly threatens data integrity: an attacker can inject, corrupt, or delete "
+        "records exposed through the API.\n\n"
+        "This is one of the more severe API weaknesses because it combines two PCI DSS "
+        "gaps at once: Requirement 8.1.1 (no authenticated identity behind the action) "
+        "and Requirement 6.2.4 (no protection against business-logic abuse), on a route "
+        "whose entire purpose is to change data."
+    ),
+    "EXP-022": (
+        "A wildcard route such as ANY on a proxy+ path without an authorizer forwards "
+        "every method and every path under that prefix to the backend with no per-route "
+        "authentication check. Because the route is defined generically, it can silently "
+        "cover endpoints added later that the team assumed were protected by a more "
+        "specific, authenticated route definition.\n\n"
+        "This broadens the API's attack surface beyond what a route-by-route review would "
+        "suggest and, per PCI DSS Requirement 7.2.1, grants effectively unrestricted "
+        "access to whatever the proxy integration exposes behind it."
+    ),
+    "EXP-023": (
+        "A resource-based policy on SQS, SNS, OpenSearch, ECR, or Secrets Manager that "
+        "grants Principal:* with no scoping condition (aws:SourceAccount, "
+        "aws:PrincipalOrgID, aws:SourceVpc) allows any AWS identity in any account — not "
+        "just within the organization — to perform the allowed actions against that "
+        "resource. For a queue or secret, this can mean any AWS customer can read "
+        "messages or retrieve stored credentials.\n\n"
+        "This is functionally equivalent to a public S3 bucket, applied to a different "
+        "resource type. It violates PCI DSS Requirement 7.2.1 (least privilege) directly, "
+        "and where the resource holds sensitive data — a Secrets Manager secret or an SQS "
+        "queue carrying payment-adjacent messages — it also breaches Requirement 3.3.1 "
+        "protection of stored sensitive data."
+    ),
     # ── VULNS ────────────────────────────────────────────────────────────────
     "VULN-004": (
         "Active Inspector findings with exploitAvailable=YES are higher-priority than "
@@ -697,6 +831,49 @@ PRE_CHECK_ANALOGIES: Dict[str, str] = {
     "EXP-028": (
         "Like throwing away a hard drive without wiping it — anyone who finds it in "
         "the dumpster has a complete copy of your data."
+    ),
+    "EXP-001": (
+        "Like leaving a warehouse full of client backup boxes on the sidewalk with the "
+        "doors wide open — anyone passing by can look through them, or simply take one."
+    ),
+    "EXP-002": (
+        "Like moving the payroll filing cabinet from the back office to the sidewalk in "
+        "front of the building — the lock still works, but now anyone walking by can try it."
+    ),
+    "EXP-003": (
+        "Like propping open the staff entrance and hanging a sign inviting anyone on the "
+        "street to try the door."
+    ),
+    "EXP-004": (
+        "Like parking a delivery truck on a public street with the cargo doors open and "
+        "the ignition key still in it."
+    ),
+    "EXP-005": (
+        "Like installing a side door directly into the inventory room with no lock and no "
+        "sign — anyone who finds it walks straight to the goods."
+    ),
+    "EXP-010": (
+        "Like a bank that still honors an old, cracked vault combination alongside the "
+        "current one, just in case someone prefers to use it."
+    ),
+    "EXP-011": (
+        "Like posting a full inventory list of a warehouse in the front window — nobody "
+        "can take anything yet, but everyone can see exactly what's inside and plan their "
+        "next move."
+    ),
+    "EXP-016": (
+        "Like every department quietly installing its own unlocked side door without "
+        "telling building security — none of them alone looks alarming, but nobody is "
+        "tracking how many now exist."
+    ),
+    "EXP-021": (
+        "Like leaving the order-entry terminal at a warehouse unlocked and unattended — "
+        "anyone who walks up can place, change, or cancel orders as if they worked there."
+    ),
+    "EXP-022": (
+        "Like a master pass that opens every room down a hallway instead of individual "
+        "keys per door — convenient for staff, but anyone who gets the pass can walk into "
+        "rooms nobody meant to leave open."
     ),
     # ── NETWORK ──────────────────────────────────────────────────────────────
     "NET-003": (
