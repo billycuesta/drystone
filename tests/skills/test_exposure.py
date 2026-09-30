@@ -225,3 +225,52 @@ def test_apigw2_get_apis_pagination_failure_records_partial_collection(tmp_path)
     components = status.get("components", {})
     assert components.get("api-gateway-stages", {}).get("ok") is False
     assert components.get("api-gateway-stages", {}).get("reason_code") == "partial_collection"
+
+
+def test_apigw2_get_apis_params_match_botocore_model(tmp_path):
+    """get_apis must be called with params botocore accepts (MaxResults is a string)."""
+    import boto3
+    from botocore.validate import validate_parameters
+
+    input_shape = boto3.client(
+        "apigatewayv2",
+        region_name="us-east-1",
+        aws_access_key_id="x",
+        aws_secret_access_key="y",
+    ).meta.service_model.operation_model("GetApis").input_shape
+
+    evidence_dir = tmp_path / "evidence"
+    evidence_dir.mkdir(parents=True)
+    session = Mock(spec=AuditSession)
+    session.account_id = "111111111111"
+    session.get_evidence_path.return_value = evidence_dir
+    aws_client = MagicMock()
+    aws_client.client_kwargs.return_value = {}
+    aws_client.region_name = "us-east-1"
+
+    calls = []
+
+    class RecordingAPIGW2:
+        def get_apis(self, **kwargs):
+            calls.append(kwargs)
+            if len(calls) == 1:
+                return {"Items": [], "NextToken": "t1"}
+            return {"Items": []}
+
+        def get_routes(self, **kwargs):
+            return {"Items": []}
+
+        def get_stages(self, **kwargs):
+            return {"Items": []}
+
+    skill = ExposureSkill()
+    with patch(
+        "boto3.client", side_effect=_make_generic_apigw2_peer_client_factory(RecordingAPIGW2())
+    ):
+        with patch.object(skill, "_save_json"):
+            skill.collect(aws_client, session)
+
+    assert len(calls) == 2
+    assert calls[1].get("NextToken") == "t1"
+    for params in calls:
+        validate_parameters(params, input_shape)
