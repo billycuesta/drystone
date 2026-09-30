@@ -73,6 +73,15 @@ class SistemasExplotablesRedSkill(BaseSkill):
             self._save_json(filepath, data)
             metadata["evidence_files"].append(filename)
 
+        # Per-component collection status (keys are evidence file stems).
+        components: Dict[str, Dict[str, Any]] = {}
+        compute_errors: Dict[str, str] = {}
+        network_errors: Dict[str, str] = {}
+        front_door_errors: Dict[str, str] = {}
+        front_door_detail_failures = 0
+        self._inspector_collection_error: Optional[str] = None
+        self._intel_fetch_errors: List[Tuple[str, str]] = []
+
         # compute-inventory.json
         compute_inventory: Dict[str, Any] = {
             "ec2_instances": [],
@@ -100,8 +109,8 @@ class SistemasExplotablesRedSkill(BaseSkill):
                                 "Tags": inst.get("Tags", []),
                             }
                         )
-        except Exception:
-            pass
+        except Exception as exc:
+            compute_errors["ec2"] = self._ser_error_code(exc)
 
         try:
             cluster_arns = ecs.list_clusters().get("clusterArns", []) or []
@@ -124,8 +133,8 @@ class SistemasExplotablesRedSkill(BaseSkill):
                                 "NetworkConfiguration": svc.get("networkConfiguration", {}),
                             }
                         )
-        except Exception:
-            pass
+        except Exception as exc:
+            compute_errors["ecs"] = self._ser_error_code(exc)
 
         try:
             paginator = lam.get_paginator("list_functions")
@@ -141,8 +150,8 @@ class SistemasExplotablesRedSkill(BaseSkill):
                             "VpcConfig": fn.get("VpcConfig", {}),
                         }
                     )
-        except Exception:
-            pass
+        except Exception as exc:
+            compute_errors["lambda"] = self._ser_error_code(exc)
 
         try:
             paginator = rds.get_paginator("describe_db_instances")
@@ -160,10 +169,11 @@ class SistemasExplotablesRedSkill(BaseSkill):
                             "VpcSecurityGroups": db.get("VpcSecurityGroups", []),
                         }
                     )
-        except Exception:
-            pass
+        except Exception as exc:
+            compute_errors["rds"] = self._ser_error_code(exc)
 
         _save("compute-inventory.json", compute_inventory)
+        self._record_aggregate_component(components, "compute-inventory", compute_errors, 4)
 
         # network-controls.json
         network_controls: Dict[str, Any] = {
@@ -175,21 +185,22 @@ class SistemasExplotablesRedSkill(BaseSkill):
             paginator = ec2.get_paginator("describe_security_groups")
             for page in paginator.paginate():
                 network_controls["security_groups"].extend(page.get("SecurityGroups", []))
-        except Exception:
-            pass
+        except Exception as exc:
+            network_errors["security_groups"] = self._ser_error_code(exc)
         try:
             paginator = ec2.get_paginator("describe_route_tables")
             for page in paginator.paginate():
                 network_controls["route_tables"].extend(page.get("RouteTables", []))
-        except Exception:
-            pass
+        except Exception as exc:
+            network_errors["route_tables"] = self._ser_error_code(exc)
         try:
             paginator = ec2.get_paginator("describe_network_acls")
             for page in paginator.paginate():
                 network_controls["network_acls"].extend(page.get("NetworkAcls", []))
-        except Exception:
-            pass
+        except Exception as exc:
+            network_errors["network_acls"] = self._ser_error_code(exc)
         _save("network-controls.json", network_controls)
+        self._record_aggregate_component(components, "network-controls", network_errors, 3)
 
         # front-doors.json
         front_doors: Dict[str, Any] = {
@@ -219,8 +230,8 @@ class SistemasExplotablesRedSkill(BaseSkill):
                 marker = resp.get("NextMarker")
                 if not marker:
                     break
-        except Exception:
-            pass
+        except Exception as exc:
+            front_door_errors["elbv2"] = self._ser_error_code(exc)
 
         for lb_arn in lb_arns:
             try:
@@ -231,6 +242,7 @@ class SistemasExplotablesRedSkill(BaseSkill):
                     li["LoadBalancerArn"] = lb_arn
                     front_doors["listeners"].append(li)
             except Exception:
+                front_door_detail_failures += 1
                 continue
 
             try:
@@ -241,6 +253,7 @@ class SistemasExplotablesRedSkill(BaseSkill):
                     tg["LoadBalancerArn"] = lb_arn
                     front_doors["target_groups"].append(tg)
             except Exception:
+                front_door_detail_failures += 1
                 continue
 
         try:
@@ -260,10 +273,13 @@ class SistemasExplotablesRedSkill(BaseSkill):
                                 "AuthType": cfg.get("AuthType"),
                             }
                         )
-                    except ClientError:
+                    except ClientError as exc:
+                        # A function without a URL config is a legitimate empty result.
+                        if exc.response.get("Error", {}).get("Code") != "ResourceNotFoundException":
+                            front_door_detail_failures += 1
                         continue
-        except Exception:
-            pass
+        except Exception as exc:
+            front_door_errors["lambda-urls"] = self._ser_error_code(exc)
 
         try:
             rest_apis = apigw.get_rest_apis().get("items", []) or []
@@ -281,7 +297,13 @@ class SistemasExplotablesRedSkill(BaseSkill):
                             m = apigw.get_method(
                                 restApiId=api_id, resourceId=res.get("id"), httpMethod=method
                             )
-                        except ClientError:
+                        except ClientError as exc:
+                            # A declared method that is not found is a legitimate empty result.
+                            if exc.response.get("Error", {}).get("Code") not in {
+                                "NotFoundException",
+                                "ResourceNotFoundException",
+                            }:
+                                front_door_detail_failures += 1
                             continue
                         front_doors["api_gateway_routes"].append(
                             {
@@ -293,8 +315,8 @@ class SistemasExplotablesRedSkill(BaseSkill):
                                 "ApiKeyRequired": bool(m.get("apiKeyRequired")),
                             }
                         )
-        except Exception:
-            pass
+        except Exception as exc:
+            front_door_errors["apigw-rest"] = self._ser_error_code(exc)
 
         try:
             apis2 = apigw2.get_apis().get("Items", []) or []
@@ -319,13 +341,31 @@ class SistemasExplotablesRedSkill(BaseSkill):
                             "ApiKeyRequired": False,
                         }
                     )
-        except Exception:
-            pass
+        except Exception as exc:
+            front_door_errors["apigwv2"] = self._ser_error_code(exc)
 
         _save("front-doors.json", front_doors)
+        self._record_aggregate_component(
+            components,
+            "front-doors",
+            front_door_errors,
+            4,
+            detail_failures=front_door_detail_failures,
+        )
 
         inspector_doc = self._collect_inspector_findings(client_kwargs)
         _save("inspector-findings-normalized.json", inspector_doc)
+        if self._inspector_collection_error:
+            self._record_component_status(
+                components,
+                "inspector-findings-normalized",
+                ok=False,
+                reason_code="collection_failed",
+                error_code=self._inspector_collection_error,
+                error=f"list_findings: {self._inspector_collection_error}"[:200],
+            )
+        else:
+            self._record_component_status(components, "inspector-findings-normalized", ok=True)
 
         account_id = session.account_id or "*"
         reachability_doc, service_hyp_doc = self._build_reachability(
@@ -358,8 +398,99 @@ class SistemasExplotablesRedSkill(BaseSkill):
             external_intel_mode=external_intel_mode,
         )
         _save("cve-intelligence.json", cve_intel)
+        self._record_cve_intel_component(components, cve_intel)
 
         _save("_audit_metadata.json", metadata)
+
+        self._save_collection_status(evidence_path, {"components": components})
+
+    def _ser_error_code(self, exc: Exception) -> str:
+        """Return a compact AWS-style error code for status entries (never raw messages)."""
+        if isinstance(exc, ClientError):
+            return str(exc.response.get("Error", {}).get("Code") or "ClientError")
+        return self._status_error_code(str(exc)) or type(exc).__name__
+
+    def _record_aggregate_component(
+        self,
+        components: Dict[str, Dict[str, Any]],
+        stem: str,
+        block_errors: Dict[str, str],
+        total_blocks: int,
+        *,
+        detail_failures: int = 0,
+    ) -> None:
+        """Aggregate per-block collection errors into one stem-keyed component.
+
+        All blocks failed -> collection_failed; a subset (or item-level detail
+        failures only) -> partial_collection; nothing failed -> ok.
+        """
+        if not block_errors and not detail_failures:
+            self._record_component_status(components, stem, ok=True)
+            return
+        reason = "collection_failed" if len(block_errors) >= total_blocks else "partial_collection"
+        summary = "; ".join(f"{label}({code})" for label, code in sorted(block_errors.items()))
+        if detail_failures:
+            detail_note = f"{detail_failures} item-level lookups failed"
+            summary = f"{summary}; {detail_note}" if summary else detail_note
+        self._record_component_status(
+            components,
+            stem,
+            ok=False,
+            reason_code=reason,
+            error_code=next((code for _label, code in sorted(block_errors.items())), None),
+            error=summary[:200],
+        )
+
+    def _record_intel_fetch_error(self, source: str, code: str) -> None:
+        """Track a swallowed external-intel fetch failure for the status sidecar."""
+        tracker = getattr(self, "_intel_fetch_errors", None)
+        if tracker is not None:
+            tracker.append((source, code))
+
+    _INTEL_DISABLED_MESSAGE = "External vulnerability intelligence disabled"
+
+    def _record_cve_intel_component(
+        self, components: Dict[str, Dict[str, Any]], cve_intel: Dict[str, Any]
+    ) -> None:
+        """Record cve-intelligence status from external-intel enrichment errors.
+
+        The disabled-mode notice is a legitimate configuration, not a failure.
+        Only source labels and counts go into the status file (no URLs or raw
+        messages), keeping it compact and free of sensitive data.
+        """
+        counts: Dict[str, int] = {}
+        total = 0
+        for message in cve_intel.get("enrichment_errors") or []:
+            if str(message) == self._INTEL_DISABLED_MESSAGE:
+                continue
+            source = self._classify_intel_error(str(message))
+            counts[source] = counts.get(source, 0) + 1
+            total += 1
+        for source, _code in getattr(self, "_intel_fetch_errors", None) or []:
+            counts[source] = counts.get(source, 0) + 1
+            total += 1
+        if total == 0:
+            self._record_component_status(components, "cve-intelligence", ok=True)
+            return
+        parts = ", ".join(f"{source}: {counts[source]}" for source in sorted(counts))
+        self._record_component_status(
+            components,
+            "cve-intelligence",
+            ok=False,
+            reason_code="partial_collection",
+            error=f"{total} external-intel enrichment errors ({parts})"[:200],
+        )
+
+    @staticmethod
+    def _classify_intel_error(message: str) -> str:
+        lowered = message.lower()
+        if "nvd" in lowered:
+            return "nvd"
+        if "kev" in lowered or "cisa" in lowered:
+            return "kev"
+        if "exploit" in lowered or "edb" in lowered:
+            return "exploitdb"
+        return "other"
 
     # Port → service name mapping for attack path narrative
     _PORT_SERVICE_MAP: Dict[int, str] = {
@@ -491,6 +622,7 @@ class SistemasExplotablesRedSkill(BaseSkill):
             return lookup
         except Exception as exc:
             logger.warning("CISA KEV fetch failed: %s", exc)
+            self._record_intel_fetch_error("kev", self._ser_error_code(exc))
             self._kev_cache: Dict[str, Dict[str, Any]] = {}
             return self._kev_cache
 
@@ -512,6 +644,7 @@ class SistemasExplotablesRedSkill(BaseSkill):
                 raw = resp.read(self._EXPLOITDB_MAX_SIZE + 1)
                 if len(raw) > self._EXPLOITDB_MAX_SIZE:
                     logger.warning("Exploit-DB CSV exceeds %d bytes, skipping", self._EXPLOITDB_MAX_SIZE)
+                    self._record_intel_fetch_error("exploitdb", "ResponseTooLarge")
                     self._edb_cache: Dict[str, Dict[str, Any]] = {}
                     return self._edb_cache
                 text = raw.decode("utf-8", errors="replace")
@@ -539,6 +672,7 @@ class SistemasExplotablesRedSkill(BaseSkill):
             return {cve: full_index[cve] for cve in cve_ids if cve in full_index}
         except Exception as exc:
             logger.warning("Exploit-DB CSV fetch failed: %s", exc)
+            self._record_intel_fetch_error("exploitdb", self._ser_error_code(exc))
             self._edb_cache: Dict[str, Dict[str, Any]] = {}
             return self._edb_cache
 
@@ -1128,8 +1262,8 @@ class SistemasExplotablesRedSkill(BaseSkill):
                 token = resp.get("nextToken")
                 if not token:
                     break
-        except Exception:
-            pass
+        except Exception as exc:
+            self._inspector_collection_error = self._ser_error_code(exc)
 
         return {
             "findings": findings,
