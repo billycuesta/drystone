@@ -6,6 +6,7 @@ based on known evidence patterns.
 """
 
 import json
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -9929,3 +9930,73 @@ class TestExposureVulnsCriticalHighImpactAnalogyCoverage:
                 value.format(resources="example", count=1, service="TEST")
             except KeyError as exc:
                 pytest.fail(f"{check_id} narrative has an unresolvable placeholder: {exc}")
+
+
+# Batch 1 scope: the exact check_ids whose PRE_CHECK_IMPACTS / PRE_CHECK_ANALOGIES entries
+# were authored in this branch (roadmap/validation-bo-exposure-vulns). This guard is
+# intentionally scoped to that batch rather than every exposure/vulns entry in the dicts,
+# so it does not fail on pre-existing narratives this task did not touch.
+_EXP_IMPACTS_BATCH1 = [
+    "EXP-001", "EXP-003", "EXP-004", "EXP-005", "EXP-006", "EXP-010",
+    "EXP-011", "EXP-016", "EXP-020", "EXP-021", "EXP-022", "EXP-023",
+]
+_EXP_ANALOGIES_BATCH1 = [
+    "EXP-001", "EXP-002", "EXP-003", "EXP-004", "EXP-005", "EXP-010",
+    "EXP-011", "EXP-016", "EXP-021", "EXP-022",
+]
+_VULN_IMPACTS_BATCH1 = [
+    "VULN-001", "VULN-002", "VULN-003", "VULN-005", "VULN-007", "VULN-009",
+    "VULN-011", "VULN-022", "VULN-023", "VULN-024", "VULN-025", "VULN-028", "VULN-029",
+]
+_VULN_ANALOGIES_BATCH1 = [
+    "VULN-001", "VULN-002", "VULN-003", "VULN-005", "VULN-007", "VULN-010",
+    "VULN-011", "VULN-022", "VULN-024", "VULN-028", "VULN-029",
+]
+
+# Matches "Requirement 1.3.1", "Requirement 1.3.1.b", "Requirement 12.5.2", etc.
+# Requires the literal "Requirement" prefix so CIDR/IP literals such as "0.0.0.0/0"
+# elsewhere in the same narratives are never mistaken for a PCI DSS citation.
+_PCI_CITATION_RE = re.compile(r"Requirement\s+(\d{1,2}\.\d{1,2}\.\d{1,2}(?:\.[a-z])?)")
+
+
+def _checklist_pci_controls(skill: str) -> dict:
+    checklist_path = Path("drystone/skills") / skill / "checklist.json"
+    checklist = json.loads(checklist_path.read_text())
+    return {
+        item["id"]: {c["control"] for c in (item.get("pci_dss") or [])}
+        for item in checklist["items"]
+    }
+
+
+class TestExposureVulnsBatch1PciCitationsMatchChecklistMapping:
+    """Guard: a client-facing narrative may only cite a PCI DSS control that is actually
+    mapped to that check in its skill's checklist.json. Catches citations that reference
+    the wrong control (e.g. quoting 3.3.1 — SAD retention — to describe general stored-data
+    protection) as well as citations that are not mapped for that check at all.
+    """
+
+    def _assert_citations_are_mapped(self, skill: str, check_ids: list, source: dict):
+        controls_by_id = _checklist_pci_controls(skill)
+        for check_id in check_ids:
+            text = source.get(check_id) or ""
+            cited = set(_PCI_CITATION_RE.findall(text))
+            if not cited:
+                continue
+            mapped = controls_by_id.get(check_id, set())
+            unmapped = cited - mapped
+            assert not unmapped, (
+                f"{check_id} cites PCI control(s) {sorted(unmapped)} not present in "
+                f"drystone/skills/{skill}/checklist.json pci_dss mapping {sorted(mapped)}"
+            )
+
+    def test_exposure_impact_citations_are_mapped(self):
+        self._assert_citations_are_mapped("exposure", _EXP_IMPACTS_BATCH1, PRE_CHECK_IMPACTS)
+
+    def test_exposure_analogy_citations_are_mapped(self):
+        self._assert_citations_are_mapped("exposure", _EXP_ANALOGIES_BATCH1, PRE_CHECK_ANALOGIES)
+
+    def test_vulns_impact_citations_are_mapped(self):
+        self._assert_citations_are_mapped("vulns", _VULN_IMPACTS_BATCH1, PRE_CHECK_IMPACTS)
+
+    def test_vulns_analogy_citations_are_mapped(self):
+        self._assert_citations_are_mapped("vulns", _VULN_ANALOGIES_BATCH1, PRE_CHECK_ANALOGIES)

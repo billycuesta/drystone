@@ -264,7 +264,7 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
         "Automated bots probe these ports within minutes of exposure, attempting "
         "credential stuffing and brute-force login against any account that has not "
         "disabled password authentication.\n\n"
-        "Under PCI DSS, Requirement 1.3.1 requires inbound traffic to be restricted to "
+        "Under PCI DSS, Requirement 1.3.1.b requires inbound traffic to be restricted to "
         "what is necessary; allowing administrative access from any source violates this "
         "control and, per Requirement 8.4.1, bypasses the MFA expected at the point of "
         "non-console administrative access."
@@ -276,7 +276,7 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
         "whether by brute-forcing SSH/RDP or probing an exposed MySQL/PostgreSQL listener "
         "for known engine vulnerabilities or weak credentials.\n\n"
         "This combination — public IP plus open service port — bypasses the layered "
-        "network controls PCI DSS Requirement 1.3.1 expects, placing the instance's "
+        "network controls PCI DSS Requirement 1.3.1.b expects, placing the instance's "
         "operating system or database engine directly on the untrusted-network boundary "
         "instead of behind a load balancer, bastion, or Systems Manager session."
     ),
@@ -286,28 +286,28 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
         "implements sensitive business logic, an attacker can invoke it directly — "
         "triggering data reads, writes, or downstream calls — without ever passing "
         "through an authorizer or API Gateway policy.\n\n"
-        "This is a complete bypass of access control for that code path. Under PCI DSS "
-        "Requirement 8.1.1, every access to a system component must be attributable to an "
-        "authenticated identity; an unauthenticated Function URL has no such attribution, "
-        "and Requirement 6.2.4 treats this as a business-logic attack surface that should "
-        "have been closed before deployment."
+        "This is a complete bypass of access control for that code path: PCI DSS "
+        "Requirement 7.2.1's least-privilege access model assumes every access path is "
+        "gated by an authorization check, and an unauthenticated Function URL has none. "
+        "Requirement 6.2.4 treats this as exactly the kind of business-logic attack "
+        "surface that should have been closed before deployment."
     ),
     "EXP-006": (
         "API Gateway routes without an authorizer accept requests from anyone on the "
         "internet, and without throttling those requests are unbounded — an attacker can "
         "both invoke backend operations without identifying themselves and flood the "
         "endpoint with volume the backend was never sized for.\n\n"
-        "Unauthenticated access directly violates PCI DSS Requirement 8.1.1 "
-        "(identification and authentication for every access), while the absence of "
-        "throttling removes the automated technical control Requirement 6.4.2 expects for "
-        "detecting and preventing abuse of public-facing application endpoints."
+        "Unauthenticated access bypasses the least-privilege access model PCI DSS "
+        "Requirement 7.2.1 expects, while the absence of throttling removes the "
+        "automated technical control Requirement 6.4.2 expects for detecting and "
+        "preventing abuse of public-facing application endpoints."
     ),
     "EXP-010": (
         "An ALB listener that still accepts TLS 1.0 or 1.1 lets a client — or an attacker "
         "performing a protocol-downgrade attack — negotiate a connection using "
         "cryptography with known weaknesses, such as BEAST and POODLE-class attacks "
         "against TLS 1.0, instead of being forced onto TLS 1.2 or higher.\n\n"
-        "PCI DSS Requirement 4.2.1 explicitly excludes TLS 1.0/1.1 from the definition of "
+        "PCI DSS Requirement 4.2.1.b explicitly excludes TLS 1.0/1.1 from the definition of "
         "strong cryptography for transmitting cardholder data over public networks; "
         "keeping a listener that still negotiates these versions is a direct control "
         "failure, not just a hardening suggestion."
@@ -330,9 +330,9 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
         "invocation path, they are easy to overlook during access reviews that focus on "
         "API Gateway or ALB-fronted endpoints.\n\n"
         "Each unauthenticated URL is an independent, ungoverned entry point into account "
-        "compute. In a PCI DSS context this repeats the Requirement 8.1.1 authentication "
-        "gap for every affected function, and the more Function URLs exist without "
-        "authorization, the larger the unmonitored attack surface becomes."
+        "compute, repeating the same authentication gap for every affected function. The "
+        "more Function URLs exist without authorization, the larger the unmonitored "
+        "attack surface becomes."
     ),
     "EXP-020": (
         "A CloudFront distribution serving an S3 origin without Origin Access "
@@ -353,10 +353,10 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
         "— without proving who they are. Unlike a read-only endpoint, a mutating route "
         "directly threatens data integrity: an attacker can inject, corrupt, or delete "
         "records exposed through the API.\n\n"
-        "This is one of the more severe API weaknesses because it combines two PCI DSS "
-        "gaps at once: Requirement 8.1.1 (no authenticated identity behind the action) "
-        "and Requirement 6.2.4 (no protection against business-logic abuse), on a route "
-        "whose entire purpose is to change data."
+        "This is one of the more severe API weaknesses: PCI DSS Requirement 6.2.4 exists "
+        "precisely to prevent unprotected business-logic abuse, and an unauthenticated "
+        "mutating route — one whose entire purpose is to change data — is exactly the "
+        "pattern it targets."
     ),
     "EXP-022": (
         "A wildcard route such as ANY on a proxy+ path without an authorizer forwards "
@@ -377,9 +377,9 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
         "messages or retrieve stored credentials.\n\n"
         "This is functionally equivalent to a public S3 bucket, applied to a different "
         "resource type. It violates PCI DSS Requirement 7.2.1 (least privilege) directly, "
-        "and where the resource holds sensitive data — a Secrets Manager secret or an SQS "
-        "queue carrying payment-adjacent messages — it also breaches Requirement 3.3.1 "
-        "protection of stored sensitive data."
+        "and the business consequence scales with what the resource holds — a Secrets "
+        "Manager secret or an SQS queue carrying payment-adjacent messages turns an "
+        "access-control gap into direct exposure of sensitive data."
     ),
     # ── VULNS ────────────────────────────────────────────────────────────────
     "VULN-004": (
@@ -434,7 +434,7 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
         "output to review.\n\n"
         "This is a foundational gap rather than a single misconfiguration: PCI DSS "
         "Requirement 11.3.1 mandates regular internal vulnerability scanning, and "
-        "Requirement 6.3.1 requires vulnerabilities to be identified and managed. Without "
+        "Requirement 6.3.1.b requires vulnerabilities to be identified and managed. Without "
         "a scanning engine running, both controls fail simultaneously across the entire "
         "scanned estate."
     ),
@@ -444,11 +444,10 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
         "These are not theoretical weaknesses — Inspector has already correlated the "
         "installed package version against the CVE database and confirmed the vulnerable "
         "version is in use.\n\n"
-        "PCI DSS Requirement 6.3.3 requires critical and high-severity patches to be "
+        "PCI DSS Requirement 6.3.3.b requires critical and high-severity patches to be "
         "applied within one month of release; an ACTIVE CRITICAL finding that predates "
-        "that window is a direct compliance failure, and Requirement 12.5.2 further "
-        "requires that identified vulnerabilities and weaknesses are addressed, not "
-        "merely logged."
+        "that window is a direct compliance failure, not a backlog item that can wait "
+        "for the next patch cycle."
     ),
     "VULN-003": (
         "When an ACTIVE Inspector finding lands on an EC2 instance that is also confirmed "
@@ -458,7 +457,7 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
         "exposed port or service directly, with no need to first pivot through internal "
         "network segments.\n\n"
         "Combining exposure with an unpatched CVE compounds two PCI DSS gaps: Requirement "
-        "1.3.1 (traffic that should be restricted still reaches the resource) and "
+        "1.3.1.b (traffic that should be restricted still reaches the resource) and "
         "Requirement 6.4.2 (public-facing components need a technical control such as a "
         "WAF when they carry this kind of residual risk)."
     ),
@@ -481,9 +480,9 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
         "image can move through the CI/CD pipeline and run in production indefinitely, "
         "since nothing in the pipeline or the registry flags it.\n\n"
         "Container images are software components in the same sense as an EC2 package "
-        "inventory, and PCI DSS Requirement 6.3.2 requires that inventory to be tracked "
-        "and evaluated for vulnerabilities; with scanning off, that inventory exists but "
-        "is never actually checked."
+        "inventory, and PCI DSS Requirement 6.3.2.a requires that inventory to be "
+        "maintained and kept current; with scanning off, the inventory exists on paper "
+        "but the vulnerability status of every image in it is never actually checked."
     ),
     "VULN-009": (
         "A single resource carrying three or more ACTIVE CVEs concentrates risk: even if "
@@ -493,7 +492,7 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
         "recognize the resource itself as the higher-priority unit of work.\n\n"
         "This check flags an accumulation pattern rather than a specific exploit, so "
         "remediation prioritization should treat the resource — not just the individual "
-        "CVE list — as the finding, consistent with how PCI DSS Requirement 6.3.1 expects "
+        "CVE list — as the finding, consistent with how PCI DSS Requirement 6.3.1.b expects "
         "vulnerabilities to be ranked and addressed by actual risk rather than processed "
         "as an undifferentiated backlog."
     ),
@@ -504,9 +503,10 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
         "way in, independent of whatever Inspector has or has not reported elsewhere. "
         "Every image already in the repository, and every future push, ships without "
         "that check.\n\n"
-        "As with any unscanned software inventory, this is a gap against PCI DSS "
-        "Requirement 6.3.2's expectation that components are tracked and assessed for "
-        "known vulnerabilities before they reach production workloads."
+        "As with any inventory that goes unmaintained, this is a gap against PCI DSS "
+        "Requirement 6.3.2.a's expectation that the component list stays current — an "
+        "inventory that no longer reflects what is actually scanned cannot support "
+        "vulnerability management for the images it is supposed to cover."
     ),
     "VULN-022": (
         "An instance that does not require IMDSv2 (HttpTokens != required) still accepts "
@@ -527,10 +527,11 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
         "credentials directly (passwords, API keys, tokens), those values are exposed to "
         "any identity or process that can read user-data, well beyond who should have "
         "visibility into application secrets.\n\n"
-        "Plaintext credentials in an insecure storage location are a direct violation of "
-        "PCI DSS Requirement 3.3.1, and because user-data usually persists for the life "
-        "of the instance, the exposure window is not a one-time event but a standing "
-        "weakness until the instance is rebuilt without the embedded secret."
+        "Storing plaintext credentials in a field designed for boot-time configuration, "
+        "not secret storage, is a preventable exposure with no compensating control once "
+        "the instance is running. Because user-data usually persists for the life of the "
+        "instance, the exposure window is not a one-time event but a standing weakness "
+        "until the instance is rebuilt without the embedded secret."
     ),
     "VULN-024": (
         "Lambda environment variables are visible to anyone with "
@@ -539,11 +540,12 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
         "like secrets (passwords, tokens, API keys) stored as plain environment "
         "variables are therefore exposed to a wider set of identities and log pipelines "
         "than the function's own execution role.\n\n"
-        "This is a storage-location problem rather than a code vulnerability: PCI DSS "
-        "Requirement 3.3.1 requires sensitive data to be protected wherever it is "
-        "stored, and a plaintext Lambda environment variable does not meet that bar "
-        "even when KMS-at-rest encryption is enabled for the function configuration "
-        "itself."
+        "This is a storage-location problem that a pre-release security review is meant "
+        "to catch: PCI DSS Requirement 6.2.3.a requires security code reviews for "
+        "bespoke and custom software before release, precisely the step that should "
+        "flag a hardcoded secret in a function's configuration before it ever reaches "
+        "the deployed environment, KMS-at-rest encryption of the configuration itself "
+        "notwithstanding."
     ),
     "VULN-025": (
         "An EC2 instance profile carrying administrator-equivalent or wildcard "
@@ -566,9 +568,8 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
         "Unlike a live system that can be patched, a snapshot is a frozen copy: it cannot "
         "be secured after the fact except by revoking sharing, and every account that "
         "already restored a copy retains the data regardless of later remediation. This "
-        "directly breaches PCI DSS Requirement 3.3.1 protection of stored sensitive data "
-        "and Requirement 7.2.1 restriction of restore permissions to authorized "
-        "identities."
+        "directly breaches PCI DSS Requirement 7.2.1's restriction of restore permissions "
+        "to authorized identities."
     ),
     "VULN-029": (
         "ECS task definitions with plaintext credentials in the environment block are "
@@ -579,9 +580,9 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
         "secret without ever touching the running container.\n\n"
         "This is the same class of storage-location failure as plaintext Lambda "
         "environment variables, applied to containerized workloads: PCI DSS Requirement "
-        "3.3.1 requires sensitive data to be protected in every location it is stored, "
-        "and Requirement 6.2.3 expects secure deployment practices that keep credentials "
-        "out of configuration artifacts in the first place."
+        "6.2.3.a requires a security code review before release, the step that should "
+        "catch a hardcoded credential in a task definition's environment block before "
+        "it ever reaches a deployed container."
     ),
     "VULN-GD-001": (
         "GuardDuty disabled means no automated threat detection for the account. Malicious "
