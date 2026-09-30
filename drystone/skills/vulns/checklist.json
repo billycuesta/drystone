@@ -498,7 +498,12 @@
       "severity": "High",
       "description": "GuardDuty is not enabled, reducing the account's ability to detect suspicious activity, compromised credentials, and threat indicators.",
       "remediation": "Enable GuardDuty in all relevant regions and integrate findings with the alerting and incident-response workflow.",
-      "pci_dss": [],
+      "pci_dss": [
+        {
+          "control": "10.4.1",
+          "reason": "Audit logs must be reviewed at least once daily, using automated mechanisms where applicable, to identify anomalies or suspicious activity. GuardDuty provides the automated analysis of CloudTrail, VPC Flow Logs, and DNS logs that this daily review depends on; without it, that automated detection capability is absent."
+        }
+      ],
       "qsa_visibility": "standard"
     },
     {
@@ -507,7 +512,12 @@
       "severity": "Medium",
       "description": "GuardDuty suppression or auto-archive rules can hide active threat findings if they are too broad or lack documented review.",
       "remediation": "Review suppression and auto-archive rules, document approved exceptions, and ensure security-relevant findings remain visible to responders.",
-      "pci_dss": [],
+      "pci_dss": [
+        {
+          "control": "10.4.2",
+          "reason": "Periodic review of logged security activity must actually reach the people responsible for acting on it. Findings that are auto-archived or suppressed without documented criteria bypass this review, letting anomalies go unaddressed."
+        }
+      ],
       "qsa_visibility": "standard"
     }
   ],

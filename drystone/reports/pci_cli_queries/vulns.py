@@ -223,6 +223,8 @@ _CHECK_STEMS = {
     "VULN-026": "terraform-state-scan",
     "VULN-028": "ebs-snapshot-sharing",
     "VULN-029": "ecs-task-env-secrets",
+    "VULN-GD-001": "guardduty-status",
+    "VULN-GD-002": "guardduty-status",
 }
 
 _DERIVED_NOTES = {

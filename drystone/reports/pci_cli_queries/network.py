@@ -228,6 +228,7 @@ _CHECK_STEMS = {
     "NET-030": "route-tables",
     "NET-031": "vpcs",
     "NET-032": "route-tables",
+    "NET-EGR-001": "security-groups",
 }
 
 _CHECK_NAMES = {
@@ -263,6 +264,7 @@ _CHECK_NAMES = {
     "NET-030": "Static route propagation",
     "NET-031": "VPC DNS settings",
     "NET-032": "Multiple default routes",
+    "NET-EGR-001": "Unrestricted security group egress",
 }
 
 CHECK_QUERIES = {}

@@ -515,7 +515,12 @@
       "severity": "Medium",
       "description": "Security groups allowing all outbound traffic to 0.0.0.0/0 or ::/0 can enable unrestricted data exfiltration and command-and-control callbacks from compromised workloads.",
       "remediation": "Restrict outbound security group rules to the destinations and protocols required by the workload, using VPC endpoints, prefix lists, or proxy controls where appropriate.",
-      "pci_dss": [],
+      "pci_dss": [
+        {
+          "control": "1.3.2",
+          "reason": "Outbound traffic from the CDE must be restricted to only what is necessary. Security groups permitting unrestricted egress to 0.0.0.0/0 or ::/0 allow any destination and protocol, violating this requirement."
+        }
+      ],
       "qsa_visibility": "standard"
     }
   ],
