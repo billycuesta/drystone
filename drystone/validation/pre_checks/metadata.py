@@ -426,6 +426,163 @@ PRE_CHECK_IMPACTS: Dict[str, str] = {
         "movement across all services whose credentials appear in the state file, without "
         "requiring any additional exploitation."
     ),
+    "VULN-001": (
+        "With Inspector v2 disabled, EC2 instances, ECR images, and Lambda functions in "
+        "the account receive no automated vulnerability scanning at all. Known, "
+        "exploitable CVEs in the OS, installed packages, or container base images can "
+        "accumulate for months without anyone knowing they exist, since there is no scan "
+        "output to review.\n\n"
+        "This is a foundational gap rather than a single misconfiguration: PCI DSS "
+        "Requirement 11.3.1 mandates regular internal vulnerability scanning, and "
+        "Requirement 6.3.1 requires vulnerabilities to be identified and managed. Without "
+        "a scanning engine running, both controls fail simultaneously across the entire "
+        "scanned estate."
+    ),
+    "VULN-002": (
+        "Inspector-confirmed CRITICAL findings in ACTIVE status mean specific CVEs with "
+        "the highest severity rating remain present and unpatched on live resources. "
+        "These are not theoretical weaknesses — Inspector has already correlated the "
+        "installed package version against the CVE database and confirmed the vulnerable "
+        "version is in use.\n\n"
+        "PCI DSS Requirement 6.3.3 requires critical and high-severity patches to be "
+        "applied within one month of release; an ACTIVE CRITICAL finding that predates "
+        "that window is a direct compliance failure, and Requirement 12.5.2 further "
+        "requires that identified vulnerabilities and weaknesses are addressed, not "
+        "merely logged."
+    ),
+    "VULN-003": (
+        "When an ACTIVE Inspector finding lands on an EC2 instance that is also confirmed "
+        "reachable from the internet — via a public IP, PubliclyReachable flag, or "
+        "documented reachability path — the vulnerability is no longer just a patching "
+        "backlog item: it is exploitable by any internet-based attacker who can reach the "
+        "exposed port or service directly, with no need to first pivot through internal "
+        "network segments.\n\n"
+        "Combining exposure with an unpatched CVE compounds two PCI DSS gaps: Requirement "
+        "1.3.1 (traffic that should be restricted still reaches the resource) and "
+        "Requirement 6.4.2 (public-facing components need a technical control such as a "
+        "WAF when they carry this kind of residual risk)."
+    ),
+    "VULN-005": (
+        "An ACTIVE Inspector finding on a resource tagged or named as a database, "
+        "directory service, or VPN endpoint threatens infrastructure that other systems "
+        "depend on for authentication, data storage, or network access — a successful "
+        "exploit here has a disproportionate blast radius compared to the same CVE on a "
+        "stateless application node.\n\n"
+        "Because these resource classes typically sit inside the PCI DSS cardholder data "
+        "environment or control access into it, an unpatched vulnerability on them "
+        "concentrates risk exactly where Requirement 2.2.1 hardening standards and "
+        "Requirement 7.2.1 least-privilege controls are expected to be strongest, making "
+        "any compromise here materially harder to contain."
+    ),
+    "VULN-007": (
+        "When Inspector v2 scanning is disabled for ECR, container images built for "
+        "production are pushed and deployed without any automated check for "
+        "known-vulnerable base images or packages baked into the layers. A vulnerable "
+        "image can move through the CI/CD pipeline and run in production indefinitely, "
+        "since nothing in the pipeline or the registry flags it.\n\n"
+        "Container images are software components in the same sense as an EC2 package "
+        "inventory, and PCI DSS Requirement 6.3.2 requires that inventory to be tracked "
+        "and evaluated for vulnerabilities; with scanning off, that inventory exists but "
+        "is never actually checked."
+    ),
+    "VULN-009": (
+        "A single resource carrying three or more ACTIVE CVEs concentrates risk: even if "
+        "each individual CVE is only moderately severe in isolation, an attacker with a "
+        "foothold on that resource has multiple independent paths to escalate, pivot, or "
+        "achieve persistence, and remediation teams triaging one CVE at a time may not "
+        "recognize the resource itself as the higher-priority unit of work.\n\n"
+        "This check flags an accumulation pattern rather than a specific exploit, so "
+        "remediation prioritization should treat the resource — not just the individual "
+        "CVE list — as the finding, consistent with how PCI DSS Requirement 6.3.1 expects "
+        "vulnerabilities to be ranked and addressed by actual risk rather than processed "
+        "as an undifferentiated backlog."
+    ),
+    "VULN-011": (
+        "Where explicit configuration evidence shows scanOnPush disabled or a "
+        "repository's scan type set to none/basic, the registry itself confirms that "
+        "images pushed to that repository are not evaluated for vulnerabilities on the "
+        "way in, independent of whatever Inspector has or has not reported elsewhere. "
+        "Every image already in the repository, and every future push, ships without "
+        "that check.\n\n"
+        "As with any unscanned software inventory, this is a gap against PCI DSS "
+        "Requirement 6.3.2's expectation that components are tracked and assessed for "
+        "known vulnerabilities before they reach production workloads."
+    ),
+    "VULN-022": (
+        "An instance that does not require IMDSv2 (HttpTokens != required) still accepts "
+        "unauthenticated, non-session-bound requests to the instance metadata service. In "
+        "an SSRF vulnerability elsewhere in the application, an attacker can use that "
+        "flaw to reach the metadata endpoint and retrieve the instance's temporary IAM "
+        "role credentials without needing any further access to the host itself.\n\n"
+        "Once those credentials are exfiltrated, the attacker inherits whatever "
+        "permissions the instance role carries, entirely outside the instance's own "
+        "authentication boundary — a known real-world technique behind several public "
+        "cloud breaches. This bypasses the least-privilege intent of PCI DSS Requirement "
+        "7.2.1 the moment the credentials leave the instance."
+    ),
+    "VULN-023": (
+        "EC2 user-data is retrievable by anyone with read access to the instance's "
+        "metadata service or, depending on permissions, via the DescribeInstanceAttribute "
+        "API — it was never designed as a secret store. When bootstrap scripts embed "
+        "credentials directly (passwords, API keys, tokens), those values are exposed to "
+        "any identity or process that can read user-data, well beyond who should have "
+        "visibility into application secrets.\n\n"
+        "Plaintext credentials in an insecure storage location are a direct violation of "
+        "PCI DSS Requirement 3.3.1, and because user-data usually persists for the life "
+        "of the instance, the exposure window is not a one-time event but a standing "
+        "weakness until the instance is rebuilt without the embedded secret."
+    ),
+    "VULN-024": (
+        "Lambda environment variables are visible to anyone with "
+        "lambda:GetFunctionConfiguration permission, and their values are frequently "
+        "written to CloudWatch Logs during debugging or error handling. Keys that look "
+        "like secrets (passwords, tokens, API keys) stored as plain environment "
+        "variables are therefore exposed to a wider set of identities and log pipelines "
+        "than the function's own execution role.\n\n"
+        "This is a storage-location problem rather than a code vulnerability: PCI DSS "
+        "Requirement 3.3.1 requires sensitive data to be protected wherever it is "
+        "stored, and a plaintext Lambda environment variable does not meet that bar "
+        "even when KMS-at-rest encryption is enabled for the function configuration "
+        "itself."
+    ),
+    "VULN-025": (
+        "An EC2 instance profile carrying administrator-equivalent or wildcard "
+        "(Action: *, Resource: *) permissions means that compromising the instance — "
+        "through a vulnerable package, SSRF-to-metadata, or a remote code execution flaw "
+        "— hands the attacker the same level of account access as a privileged human "
+        "operator, without ever needing separate credentials.\n\n"
+        "Compute roles are one of the most common initial-access vectors in cloud "
+        "incidents precisely because they are reachable through application-layer bugs. "
+        "PCI DSS Requirement 7.2.1 and 7.2.2 both require permissions scoped to job "
+        "function; an over-privileged instance profile inverts that principle for every "
+        "workload running on the instance."
+    ),
+    "VULN-028": (
+        "A public EBS snapshot can be used by any AWS account to create a new volume and "
+        "mount it, exposing the complete disk contents at the time of the snapshot — "
+        "operating system files, application data, configuration, and any credentials or "
+        "private keys that were present on disk, including ones that have since been "
+        "rotated elsewhere but remain readable in the historical snapshot.\n\n"
+        "Unlike a live system that can be patched, a snapshot is a frozen copy: it cannot "
+        "be secured after the fact except by revoking sharing, and every account that "
+        "already restored a copy retains the data regardless of later remediation. This "
+        "directly breaches PCI DSS Requirement 3.3.1 protection of stored sensitive data "
+        "and Requirement 7.2.1 restriction of restore permissions to authorized "
+        "identities."
+    ),
+    "VULN-029": (
+        "ECS task definitions with plaintext credentials in the environment block are "
+        "readable by any principal with ecs:DescribeTaskDefinition permission — a "
+        "broader audience than the task's own execution role — and the same values are "
+        "recorded in CloudTrail and visible in the ECS console. A compromised CI/CD "
+        "identity or an overly broad read-only IAM policy is enough to retrieve the "
+        "secret without ever touching the running container.\n\n"
+        "This is the same class of storage-location failure as plaintext Lambda "
+        "environment variables, applied to containerized workloads: PCI DSS Requirement "
+        "3.3.1 requires sensitive data to be protected in every location it is stored, "
+        "and Requirement 6.2.3 expects secure deployment practices that keep credentials "
+        "out of configuration artifacts in the first place."
+    ),
     "VULN-GD-001": (
         "GuardDuty disabled means no automated threat detection for the account. Malicious "
         "activity including credential abuse, C2 communication, crypto-mining, and data "
@@ -942,6 +1099,51 @@ PRE_CHECK_ANALOGIES: Dict[str, str] = {
     "VULN-026": (
         "Like storing all your building's alarm codes in a notebook labeled 'ALARM CODES' "
         "sitting on an unlocked shelf."
+    ),
+    "VULN-001": (
+        "Like running a building with no health or fire inspector at all — problems may "
+        "exist for years and nobody would know until something fails."
+    ),
+    "VULN-002": (
+        "Like a fire marshal issuing an urgent violation notice that nobody actually goes "
+        "to fix — the risk is documented, but it stays live."
+    ),
+    "VULN-003": (
+        "Like discovering the unlocked storefront also has its display window facing the "
+        "busiest street in town — the exposure and the weakness meet in the worst "
+        "possible place."
+    ),
+    "VULN-005": (
+        "Like finding a broken lock on the vault instead of a supply closet — the same "
+        "kind of flaw, but on the room that matters most."
+    ),
+    "VULN-007": (
+        "Like a shipping company that stopped inspecting containers for contraband but "
+        "keeps loading and shipping them anyway."
+    ),
+    "VULN-010": (
+        "Like discovering the broken lock is on the door of the team that actually "
+        "handles customer orders, not a spare storage room."
+    ),
+    "VULN-011": (
+        "Like a warehouse gate that was reconfigured to wave every truck through without "
+        "a check, and nobody logged the change."
+    ),
+    "VULN-022": (
+        "Like a reception desk that hands out master keys to anyone who asks the right "
+        "question, without ever checking who is asking."
+    ),
+    "VULN-024": (
+        "Like taping the vault combination to the inside of an unlocked supply closet "
+        "door that many people pass through every day."
+    ),
+    "VULN-028": (
+        "Like leaving a copy of your hard drive in an unlocked public storage unit with "
+        "no name on the door — anyone who finds it keeps a full copy of what was on it."
+    ),
+    "VULN-029": (
+        "Like posting the safe combination on a whiteboard visible from the hallway "
+        "instead of keeping it with the one person who needs it."
     ),
     "VULN-GD-001": (
         "Like disabling the alarm system in a jewelry store — burglars can operate "
