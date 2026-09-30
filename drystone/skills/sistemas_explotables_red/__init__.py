@@ -322,7 +322,7 @@ class SistemasExplotablesRedSkill(BaseSkill):
             apis2: List[Dict[str, Any]] = []
             api_token: Optional[str] = None
             while True:
-                api_args: Dict[str, Any] = {"MaxResults": 500}
+                api_args: Dict[str, Any] = {"MaxResults": "500"}
                 if api_token:
                     api_args["NextToken"] = api_token
                 api_page = apigw2.get_apis(**api_args)

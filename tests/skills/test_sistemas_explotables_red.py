@@ -902,3 +902,56 @@ class TestPreCheckSerCve001:
     def test_skip_when_no_cve_intelligence_evidence(self) -> None:
         r = check_ser_cve_001({})
         assert r.status == "SKIP"
+
+
+def test_ser_apigw2_get_apis_params_match_botocore_model(tmp_path: Path) -> None:
+    """get_apis must be called with params botocore accepts (MaxResults is a string)."""
+    import boto3
+    from botocore.validate import validate_parameters
+
+    input_shape = boto3.client(
+        "apigatewayv2",
+        region_name="us-east-1",
+        aws_access_key_id="x",
+        aws_secret_access_key="y",
+    ).meta.service_model.operation_model("GetApis").input_shape
+
+    skill = SistemasExplotablesRedSkill()
+    calls = []
+
+    class RecordingAPIGW2:
+        def get_apis(self, **kwargs):
+            calls.append(kwargs)
+            if len(calls) == 1:
+                return {"Items": [], "NextToken": "t1"}
+            return {"Items": []}
+
+        def get_routes(self, **kwargs):
+            return {"Items": []}
+
+    def _make_client(name, **_kwargs):
+        if name == "apigatewayv2":
+            return RecordingAPIGW2()
+        m = MagicMock()
+        m.get_paginator.return_value.paginate.return_value = []
+        m.get_rest_apis.return_value = {"items": []}
+        m.get_resources.return_value = {"items": []}
+        m.describe_load_balancers.return_value = {"LoadBalancers": []}
+        m.list_findings.return_value = {"findings": [], "nextToken": None}
+        return m
+
+    aws_client = MagicMock()
+    aws_client.client_kwargs.return_value = {}
+    aws_client.region_name = "us-east-1"
+    session = MagicMock()
+    session.get_evidence_path.return_value = tmp_path
+    session.account_id = "111111111111"
+
+    with patch("boto3.client", side_effect=_make_client):
+        with patch.object(skill, "_save_json"):
+            skill.collect(aws_client, session)
+
+    assert len(calls) == 2
+    assert calls[1].get("NextToken") == "t1"
+    for params in calls:
+        validate_parameters(params, input_shape)
