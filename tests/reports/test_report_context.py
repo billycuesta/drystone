@@ -83,3 +83,75 @@ def test_report_context_redacts_finding_secret_material(tmp_path):
     assert "AKIA****************" in dumped
     assert "[REDACTED_SECRET]" in dumped
     assert context.redaction_count >= 2
+
+
+
+def test_report_context_builds_redacted_coverage_gaps_from_warn_metadata(tmp_path):
+    findings = {
+        "skill": "iam",
+        "analysis_metadata": {
+            "pre_check_warn_ids": ["IAM-001"],
+            "pre_check_warn_reasons": [
+                {
+                    "check_id": "IAM-001",
+                    "reason_code": "collection_failed",
+                    "evidence_summary": "Secret Access Key wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY was unavailable",
+                }
+            ],
+        },
+        "findings": [],
+    }
+
+    context = ReportContext.from_findings(findings, _session(tmp_path), report_format_version="1.0")
+
+    assert context.coverage_gaps == [
+        {
+            "check_id": "IAM-001",
+            "title": "Root account must have MFA enabled",
+            "skill": "iam",
+            "reason_code": "collection_failed",
+            "reason": "Required evidence collection failed before this control could be evaluated.",
+            "evidence_summary": "Secret Access Key [REDACTED_SECRET] was unavailable",
+        }
+    ]
+    assert context.metadata["coverage_gap_count"] == 1
+
+
+def test_report_context_collects_aggregate_coverage_gaps_from_skill_findings(tmp_path):
+    findings_dir = tmp_path / "findings"
+    findings_dir.mkdir(parents=True)
+    (findings_dir / "iam.json").write_text(
+        json.dumps(
+            {
+                "skill": "iam",
+                "analysis_metadata": {
+                    "pre_check_warn_ids": ["IAM-001"],
+                    "pre_check_warn_reasons": [
+                        {"check_id": "IAM-001", "reason_code": "missing_evidence", "evidence_summary": "missing users.json"}
+                    ],
+                },
+                "findings": [],
+            }
+        )
+    )
+    (findings_dir / "network.json").write_text(
+        json.dumps(
+            {
+                "skill": "network",
+                "analysis_metadata": {
+                    "pre_check_warn_ids": ["NET-001"],
+                    "pre_check_warn_reasons": [
+                        {"check_id": "NET-001", "reason_code": "partial_collection", "evidence_summary": "some security groups missing"}
+                    ],
+                },
+                "findings": [],
+            }
+        )
+    )
+
+    context = ReportContext.from_findings(
+        {"skill": "aggregated", "findings": []}, _session(tmp_path), report_format_version="1.0"
+    )
+
+    assert [gap["check_id"] for gap in context.coverage_gaps] == ["IAM-001", "NET-001"]
+    assert {gap["skill"] for gap in context.coverage_gaps} == {"iam", "network"}

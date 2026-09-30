@@ -11,6 +11,7 @@ import copy
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List
 
 from drystone.reports.safety import redact_secrets_in_obj
@@ -33,6 +34,7 @@ class ReportContext:
     trend: Dict[str, Any] = field(default_factory=dict)
     correlation_summary: Dict[str, Any] = field(default_factory=dict)
     attack_path_candidates: List[Dict[str, Any]] = field(default_factory=list)
+    coverage_gaps: List[Dict[str, Any]] = field(default_factory=list)
 
     @classmethod
     def from_findings(
@@ -52,7 +54,10 @@ class ReportContext:
 
         source_findings = copy.deepcopy(findings or {})
         redacted_findings, redaction_count = redact_secrets_in_obj(source_findings)
+        coverage_gaps = _collect_coverage_gaps(source_findings, redacted_findings, session)
         metadata = _metadata(source_findings, session, report_format_version, redaction_count)
+        if coverage_gaps:
+            metadata["coverage_gap_count"] = len(coverage_gaps)
         return cls(
             metadata=metadata,
             findings=source_findings,
@@ -61,6 +66,7 @@ class ReportContext:
             trend=_trend_summary(session),
             correlation_summary=_correlation_summary(session),
             attack_path_candidates=_collect_attack_paths(source_findings, session),
+            coverage_gaps=coverage_gaps,
         )
 
 
@@ -164,3 +170,103 @@ def _append_attack_paths(paths: List[Dict[str, Any]], candidate_file, skill: str
             path = dict(path)
             path["skill"] = skill
             paths.append(path)
+
+
+_COVERAGE_GAP_REASONS: Dict[str, str] = {
+    "collection_failed": "Required evidence collection failed before this control could be evaluated.",
+    "partial_collection": "Only partial evidence was collected, so this control could not be evaluated deterministically.",
+    "missing_evidence": "Required evidence was not present in the collected dataset.",
+    "evidence_parse_failed": "Collected evidence could not be parsed reliably for this control.",
+    "precheck_error": "The deterministic pre-check errored before reaching a reliable result.",
+    "not_supported_by_collector": "The current collector does not yet support the evidence needed for this deterministic control.",
+}
+
+
+def _collect_coverage_gaps(
+    findings: Dict[str, Any], redacted_findings: Dict[str, Any], session: AuditSession
+) -> List[Dict[str, Any]]:
+    """Build redacted client-visible coverage gaps from persisted WARN metadata."""
+    skill = str(findings.get("skill") or "unknown")
+    if skill == "aggregated":
+        return _collect_aggregate_coverage_gaps(session)
+    return _coverage_gaps_from_payload(skill, redacted_findings)
+
+
+def _collect_aggregate_coverage_gaps(session: AuditSession) -> List[Dict[str, Any]]:
+    findings_dir = session.base_path / "findings"
+    if not findings_dir.exists():
+        return []
+
+    gaps: List[Dict[str, Any]] = []
+    for finding_file in sorted(findings_dir.glob("*.json")):
+        if finding_file.name in {"correlated.json", "trend.json"}:
+            continue
+        try:
+            with open(finding_file) as f:
+                payload = json.load(f) or {}
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        redacted_payload, _ = redact_secrets_in_obj(payload)
+        skill = str(payload.get("skill") or finding_file.stem)
+        if skill == "aggregated":
+            continue
+        gaps.extend(_coverage_gaps_from_payload(skill, redacted_payload))
+    gaps.sort(key=lambda gap: (str(gap.get("skill", "")), str(gap.get("check_id", ""))))
+    return gaps
+
+
+def _coverage_gaps_from_payload(skill: str, payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    analysis_meta = payload.get("analysis_metadata") or {}
+    if not isinstance(analysis_meta, dict):
+        return []
+
+    warn_ids = [str(cid) for cid in analysis_meta.get("pre_check_warn_ids") or [] if cid]
+    reasons = analysis_meta.get("pre_check_warn_reasons") or []
+    reasons_by_id: Dict[str, Dict[str, Any]] = {}
+    if isinstance(reasons, list):
+        for item in reasons:
+            if isinstance(item, dict) and item.get("check_id"):
+                reasons_by_id[str(item["check_id"])] = item
+
+    check_ids = sorted(set(warn_ids) | set(reasons_by_id))
+    if not check_ids:
+        return []
+
+    titles = _check_titles(skill)
+    gaps: List[Dict[str, Any]] = []
+    for check_id in check_ids:
+        reason_payload = reasons_by_id.get(check_id, {})
+        reason_code = str(reason_payload.get("reason_code") or "unknown")
+        gap = {
+            "check_id": check_id,
+            "title": titles.get(check_id, "Unknown control"),
+            "skill": skill,
+            "reason_code": reason_code,
+            "reason": _COVERAGE_GAP_REASONS.get(
+                reason_code,
+                "Required evidence was not sufficient for deterministic evaluation of this control.",
+            ),
+        }
+        evidence_summary = reason_payload.get("evidence_summary")
+        if evidence_summary:
+            gap["evidence_summary"] = str(evidence_summary)
+        gaps.append(gap)
+    return gaps
+
+
+def _check_titles(skill: str) -> Dict[str, str]:
+    checklist_path = Path(__file__).parents[1] / "skills" / skill / "checklist.json"
+    if not checklist_path.exists():
+        return {}
+    try:
+        with open(checklist_path) as f:
+            checklist = json.load(f) or {}
+    except Exception:
+        return {}
+    titles: Dict[str, str] = {}
+    for item in checklist.get("items", []) or []:
+        if isinstance(item, dict) and item.get("id"):
+            titles[str(item["id"])] = str(item.get("title") or "Unknown control")
+    return titles

@@ -174,3 +174,34 @@ def test_json_formatter_exports_attack_paths_for_aggregated_context(tmp_path) ->
     assert len(exported) == 2
     assert exported[0]["id"] == "AP-NET-001"
     assert exported[1]["id"] == "AP-SER-001"
+
+
+
+def test_json_formatter_exports_coverage_gaps_from_report_context(tmp_path) -> None:
+    formatter = _build_formatter(
+        tmp_path,
+        "iam",
+        {
+            "skill": "iam",
+            "summary": {"overall_risk_score": 0.0},
+            "analysis_metadata": {
+                "pre_check_warn_ids": ["IAM-001"],
+                "pre_check_warn_reasons": [
+                    {"check_id": "IAM-001", "reason_code": "collection_failed", "evidence_summary": "collection failed"}
+                ],
+            },
+            "findings": [],
+        },
+    )
+
+    payload = formatter._build_json()
+
+    assert payload["metadata"]["coverage_gap_count"] == 1
+    assert payload["coverage_gaps"][0]["check_id"] == "IAM-001"
+    assert payload["coverage_gaps"][0]["reason"] == "Required evidence collection failed before this control could be evaluated."
+
+
+def test_json_formatter_omits_coverage_gaps_when_empty(tmp_path) -> None:
+    formatter = _build_formatter(tmp_path, "iam")
+    payload = formatter._build_json()
+    assert "coverage_gaps" not in payload

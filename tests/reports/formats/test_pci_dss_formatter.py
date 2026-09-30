@@ -204,3 +204,35 @@ class TestPCIDSSFormatter:
 
         assert "AKIA1234567890ABCDE1" not in md
         assert "AKIA****************" in md
+
+
+    def test_pci_dss_formatter_renders_warn_rows_from_report_context(self, tmp_path):
+        session = Mock(spec=AuditSession)
+        session.base_path = tmp_path
+        session.account_id = "123456789012"
+        session.client_name = "TestClient"
+        session.get_reports_path.return_value = tmp_path / "reports"
+        (tmp_path / "reports").mkdir(parents=True)
+
+        config = Mock()
+        config.skills = ["iam"]
+        config.report_type = "pci-dss"
+
+        findings = {
+            "skill": "iam",
+            "findings": [],
+            "summary": {"total_findings": 0},
+            "analysis_metadata": {
+                "pre_check_warn_ids": ["IAM-001"],
+                "pre_check_warn_reasons": [
+                    {"check_id": "IAM-001", "reason_code": "missing_evidence", "evidence_summary": "missing evidence"}
+                ],
+            },
+        }
+
+        md = PCIDSSFormatter(findings, session, config)._build_pci_report()
+
+        assert "Coverage Gaps / Controls Not Evaluated" in md
+        assert "IAM-001" in md
+        assert "⚠️ WARN" in md
+        assert "Required evidence was not present in the collected dataset." in md

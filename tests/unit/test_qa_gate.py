@@ -218,3 +218,31 @@ def test_qa_gate_detects_high_finding_missing_resource_refs_even_when_probable(t
     result = run_qa_gate(tmp_path, ["exposure"])
     assert result.passed is False
     assert any("evidence_refs do not cover" in issue for issue in result.issues)
+
+
+
+def test_qa_gate_reports_coverage_gap_metrics_without_failing(tmp_path):
+    findings_dir = tmp_path / "findings"
+    findings_dir.mkdir(parents=True)
+    (findings_dir / "iam.json").write_text(
+        json.dumps(
+            {
+                "skill": "iam",
+                "analysis_metadata": {
+                    "pre_check_warn_ids": ["IAM-001"],
+                    "pre_check_warn_reasons": [
+                        {"check_id": "IAM-001", "reason_code": "collection_failed", "evidence_summary": "collection failed"}
+                    ],
+                },
+                "findings": [],
+            }
+        )
+    )
+
+    result = run_qa_gate(tmp_path, ["iam"])
+
+    assert result.passed is True
+    assert result.coverage_gap_count == 1
+    assert result.coverage_gap_ratio > 0
+    assert result.coverage_gap_policy == "warn-only"
+    assert not result.issues

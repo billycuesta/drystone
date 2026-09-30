@@ -156,6 +156,7 @@ class PCIDSSFormatter(BaseFormatter):
             self._header(),
             self._executive_summary(),
             self._architecture_diagram(),
+            self._coverage_gaps_markdown_section(),
             self._compliance_table(),
             self._critical_non_compliances(),
             self._compliance_statistics(),
@@ -216,6 +217,7 @@ class PCIDSSFormatter(BaseFormatter):
 {skills_evaluated_str}
 
 **Critical Non-Compliances:** {len(critical_ko_controls)} controls
+**Coverage Gaps:** {len(self._coverage_gap_rows())} controls not deterministically evaluated
 **Remediation Effort:** High (estimated 30-60 days)
 """
 
@@ -250,6 +252,7 @@ class PCIDSSFormatter(BaseFormatter):
             return ""
 
         findings_map = self._map_findings_to_controls()
+        gaps_by_check = {str(gap.get("check_id")): gap for gap in self._coverage_gap_rows()}
         table = "## 📋 PCI DSS Control Compliance Table\n\n"
         table += "| Control ID | Status | Justification / Evidence |\n"
         table += "|------------|--------|--------------------------|\n"
@@ -268,6 +271,13 @@ class PCIDSSFormatter(BaseFormatter):
                 req_name = self._get_requirement_name(req_num)
                 table += f"| **Requirement {req_num}: {req_name}** | | |\n"
 
+            mapped_checks = control.get("checks") or []
+            warning_gaps = [
+                gaps_by_check.get(str(check.get("id")))
+                for check in mapped_checks
+                if isinstance(check, dict) and gaps_by_check.get(str(check.get("id")))
+            ]
+
             if control_id in findings_map:
                 finding = findings_map[control_id]
                 status = "❌ KO"
@@ -280,7 +290,6 @@ class PCIDSSFormatter(BaseFormatter):
                 reason = finding_reason or control.get(
                     "reason", "Control not met based on findings."
                 )
-                mapped_checks = control.get("checks") or []
                 check_ids = [
                     str(c.get("id"))
                     for c in mapped_checks
@@ -291,9 +300,15 @@ class PCIDSSFormatter(BaseFormatter):
                 justification = f"**Finding {finding.get('id', 'N/A')}:** {finding.get('title', 'Unknown')}. {reason}"
                 if checks_str:
                     justification += f" (Mapped checks: {checks_str})"
+            elif warning_gaps:
+                status = "⚠️ WARN"
+                gap = warning_gaps[0]
+                justification = (
+                    f"Control not deterministically evaluated for {gap.get('check_id', 'N/A')}: "
+                    f"{gap.get('reason', 'Coverage gap recorded.')}"
+                )
             else:
                 status = "✅ OK"
-                mapped_checks = control.get("checks") or []
                 if (
                     isinstance(mapped_checks, list)
                     and len(mapped_checks) == 1

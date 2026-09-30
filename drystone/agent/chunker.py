@@ -2,7 +2,7 @@
 
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterator, Optional, cast
 
 from drystone.models.findings import Finding, FindingsSummary, SkillFindings
@@ -386,7 +386,7 @@ class FindingsAggregator:
             # Add other required fields for SkillFindings, e.g., skill, analyzed_at, etc.
             # For aggregation, we might need a way to pass these from the original context
             skill="aggregated",  # Placeholder, ideally derived from original findings
-            analyzed_at=datetime.utcnow(),
+            analyzed_at=datetime.now(timezone.utc),
             evidence_count=0,  # This might need to be re-calculated or passed
             checklist_version="N/A",  # This too
         )

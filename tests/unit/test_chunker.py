@@ -1,6 +1,6 @@
 """Tests for EvidenceChunker and FindingsAggregator."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 import pytest
@@ -35,7 +35,7 @@ def make_finding(
 def make_skill_findings(findings: List[Finding]) -> SkillFindings:
     return SkillFindings(
         skill="iam",
-        analyzed_at=datetime.utcnow(),
+        analyzed_at=datetime.now(timezone.utc),
         evidence_count=1,
         checklist_version="1.0",
         findings=findings,

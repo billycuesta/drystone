@@ -55,6 +55,7 @@ class MarkdownFormatter(BaseFormatter):
             self._executive_summary(),
             self._architecture_diagram(),
             self._resources_audited_section(),
+            self._coverage_gaps_markdown_section(),
             self._correlation_section(),
             self._trend_section(),
         ]
@@ -490,6 +491,9 @@ This report presents security findings from the {self._get_skill_display_name(sk
             + "│\n"
         )
         risk_overview += f"│ Total Findings: {total}".ljust(45) + "│\n"
+        gap_count = len(self._coverage_gap_rows())
+        if gap_count:
+            risk_overview += f"│ Coverage gaps: {gap_count}".ljust(45) + "│\n"
         risk_overview += (
             f"│ Critical: {critical} | High: {high} | Medium: {medium} | Low: {low}".ljust(45)
             + "│\n"

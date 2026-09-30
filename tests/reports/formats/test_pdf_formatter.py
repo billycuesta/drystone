@@ -1019,3 +1019,42 @@ def test_executive_narrative_html_handles_non_dict_assessment_dates(tmp_path):
     html_out = formatter._executive_narrative_html(_sample_findings()["summary"])
 
     assert "Assessment period" not in html_out
+
+
+
+def test_pdf_formatter_renders_coverage_gaps_from_report_context(tmp_path, monkeypatch):
+    session = _mock_session(tmp_path)
+    config = Mock()
+    config.aws_region = "us-east-1"
+    config.min_severity = "low"
+    config.report_type = "general"
+    config.ai_provider = "claude-cli"
+    config.ai_model = "auto"
+    findings = {
+        "skill": "iam",
+        "summary": {"total_findings": 0, "overall_risk_score": 0.0},
+        "analysis_metadata": {
+            "pre_check_warn_ids": ["IAM-001"],
+            "pre_check_warn_reasons": [
+                {"check_id": "IAM-001", "reason_code": "collection_failed", "evidence_summary": "collection failed"}
+            ],
+        },
+        "findings": [],
+    }
+    captured = {}
+
+    class FakeHTML:
+        def __init__(self, string):
+            captured["html"] = string
+
+        def write_pdf(self, output_path):
+            with open(output_path, "wb") as f:
+                f.write(b"%PDF-1.4 test")
+
+    monkeypatch.setitem(sys.modules, "weasyprint", types.SimpleNamespace(HTML=FakeHTML))
+
+    PDFFormatter(findings, session, config).generate()
+
+    assert "Coverage Gaps / Controls Not Evaluated" in captured["html"]
+    assert "IAM-001" in captured["html"]
+    assert "collection_failed" in captured["html"]

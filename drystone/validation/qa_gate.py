@@ -20,6 +20,9 @@ class QAGateResult:
     passed: bool
     issues: List[str] = field(default_factory=list)
     critical_coverage_pct: float = 100.0
+    coverage_gap_count: int = 0
+    coverage_gap_ratio: float = 0.0
+    coverage_gap_policy: str = "warn-only"
 
 
 def _load_json(path: Path) -> dict:
@@ -109,6 +112,46 @@ def _resource_name(resource: str) -> str:
     return resource.rsplit(":", 1)[-1]
 
 
+
+def _coverage_gap_metrics(base_path: Path, skills: List[str]) -> tuple[int, float]:
+    """Count persisted WARN coverage gaps without making them QA blockers."""
+    findings_dir = base_path / "findings"
+    if not findings_dir.exists():
+        return 0, 0.0
+
+    requested = {str(skill).lower() for skill in skills}
+    warn_ids: set[str] = set()
+    for finding_file in findings_dir.glob("*.json"):
+        if finding_file.name in {"correlated.json", "trend.json"}:
+            continue
+        payload = _load_json(finding_file)
+        if not isinstance(payload, dict):
+            continue
+        skill = str(payload.get("skill") or finding_file.stem).lower()
+        if requested and skill not in requested:
+            continue
+        analysis_meta = payload.get("analysis_metadata") or {}
+        if not isinstance(analysis_meta, dict):
+            continue
+        for check_id in analysis_meta.get("pre_check_warn_ids") or []:
+            if check_id:
+                warn_ids.add(str(check_id))
+        for reason in analysis_meta.get("pre_check_warn_reasons") or []:
+            if isinstance(reason, dict) and reason.get("check_id"):
+                warn_ids.add(str(reason["check_id"]))
+
+    deterministic_total = _deterministic_check_count(skills)
+    ratio = (len(warn_ids) / deterministic_total) if deterministic_total else 0.0
+    return len(warn_ids), ratio
+
+
+def _deterministic_check_count(skills: List[str]) -> int:
+    try:
+        from drystone.validation.pre_checks import PRE_CHECK_REGISTRY
+    except Exception:
+        return 0
+    return sum(len(PRE_CHECK_REGISTRY.get(str(skill).lower(), [])) for skill in skills)
+
 def _metrics_quality_issues(base_path: Path, skills: List[str]) -> List[str]:
     metrics_path = base_path / "metrics.json"
     if not metrics_path.exists():
@@ -193,6 +236,8 @@ def run_qa_gate(base_path: Path, skills: List[str]) -> QAGateResult:
     if coverage_pct < 100.0:
         issues.append(f"Critical checklist coverage below 100% ({coverage_pct:.1f}%)")
 
+    coverage_gap_count, coverage_gap_ratio = _coverage_gap_metrics(base_path, skills)
+
     reports_dir = base_path / "reports"
     if reports_dir.exists():
         for md in reports_dir.glob("*.md"):
@@ -259,4 +304,11 @@ def run_qa_gate(base_path: Path, skills: List[str]) -> QAGateResult:
                             f"{finding_file.name}:{fid} evidence_refs do not cover all affected resources"
                         )
 
-    return QAGateResult(passed=len(issues) == 0, issues=issues, critical_coverage_pct=coverage_pct)
+    return QAGateResult(
+        passed=len(issues) == 0,
+        issues=issues,
+        critical_coverage_pct=coverage_pct,
+        coverage_gap_count=coverage_gap_count,
+        coverage_gap_ratio=coverage_gap_ratio,
+        coverage_gap_policy="warn-only",
+    )

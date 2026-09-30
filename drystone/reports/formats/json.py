@@ -48,6 +48,8 @@ class JSONFormatter(BaseFormatter):
             "statistics": self._calculate_statistics(),
             "export_timestamp": _utc_now_iso(),
         }
+        if context.coverage_gaps:
+            payload["coverage_gaps"] = context.coverage_gaps
         if context.attack_path_candidates:
             payload["attack_path_candidates"] = context.attack_path_candidates
         if context.correlation_summary:

@@ -215,6 +215,7 @@ class PDFFormatter(BaseFormatter):
             "ARCHITECTURE_SECTION": architecture_html,
             "CORRELATION_SECTION": correlation_html,
             "PAGEBREAK_ARCH_CORR": pagebreak_arch_corr,
+            "COVERAGE_GAPS_SECTION": self._coverage_gaps_html_section(),
             "FINDINGS_BY_SEVERITY": findings_html,
             "PAGEBREAK_FINDINGS": pagebreak_findings,
             "REMEDIATION_TIMELINE": self._remediation_timeline_html(findings),
@@ -690,11 +691,20 @@ class PDFFormatter(BaseFormatter):
             "rating-critical": "!",
         }.get(rating_class, "-")
 
+        gap_count = len(self._coverage_gap_rows())
+        gap_note = ""
+        if gap_count:
+            gap_note = (
+                f"<p><strong>Coverage gaps:</strong> {gap_count} deterministic control(s) "
+                "were not evaluated. These are coverage gaps, not pass/fail compliance results.</p>"
+            )
+
         return (
             business_intro
             + dates_html
             + f"<p>This security assessment evaluated the {scope} for <strong>{client}</strong>. "
             + f"{findings_text}</p>"
+            + gap_note
             + risk_bar
             + f"<div class='assessment-rating {rating_class}'>"
             + f"<div class='rating-badge'>{rating_icon}</div>"

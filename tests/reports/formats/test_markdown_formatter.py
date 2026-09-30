@@ -860,3 +860,33 @@ class TestPciDssAnnexMd:
         f = _make_formatter(tmp_path, report_type="general")
         f.config.skills = ["iam"]
         assert f._pci_dss_annex_md() == ""
+
+
+
+def test_markdown_formatter_renders_coverage_gaps_from_report_context(tmp_path):
+    formatter = _make_formatter(
+        tmp_path,
+        findings={
+            "skill": "iam",
+            "summary": {"total_findings": 0, "overall_risk_score": 0.0},
+            "analysis_metadata": {
+                "pre_check_warn_ids": ["IAM-001"],
+                "pre_check_warn_reasons": [
+                    {"check_id": "IAM-001", "reason_code": "collection_failed", "evidence_summary": "collection failed"}
+                ],
+            },
+            "findings": [],
+        },
+    )
+
+    report = formatter._build_markdown()
+
+    assert "## ⚠️ Coverage Gaps / Controls Not Evaluated" in report
+    assert "| IAM-001 | iam | Root account must have MFA enabled | collection_failed |" in report
+    assert "Required evidence collection failed before this control could be evaluated." in report
+    assert "Coverage gaps: 1" in report
+
+
+def test_markdown_formatter_omits_coverage_gaps_when_empty(tmp_path):
+    report = _make_formatter(tmp_path)._build_markdown()
+    assert "Coverage Gaps / Controls Not Evaluated" not in report
