@@ -230,7 +230,8 @@ def _coverage_gaps_from_payload(skill: str, payload: Dict[str, Any]) -> List[Dic
             if isinstance(item, dict) and item.get("check_id"):
                 reasons_by_id[str(item["check_id"])] = item
 
-    check_ids = sorted(set(warn_ids) | set(reasons_by_id))
+    resolved_check_ids = _finding_check_ids(payload)
+    check_ids = sorted((set(warn_ids) | set(reasons_by_id)) - resolved_check_ids)
     if not check_ids:
         return []
 
@@ -254,6 +255,17 @@ def _coverage_gaps_from_payload(skill: str, payload: Dict[str, Any]) -> List[Dic
             gap["evidence_summary"] = str(evidence_summary)
         gaps.append(gap)
     return gaps
+
+
+def _finding_check_ids(payload: Dict[str, Any]) -> set[str]:
+    findings = payload.get("findings") or []
+    if not isinstance(findings, list):
+        return set()
+    check_ids: set[str] = set()
+    for finding in findings:
+        if isinstance(finding, dict) and finding.get("id"):
+            check_ids.add(str(finding["id"]))
+    return check_ids
 
 
 def _check_titles(skill: str) -> Dict[str, str]:

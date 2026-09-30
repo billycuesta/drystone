@@ -887,6 +887,38 @@ def test_markdown_formatter_renders_coverage_gaps_from_report_context(tmp_path):
     assert "Coverage gaps: 1" in report
 
 
+
+
+def test_markdown_formatter_omits_resolved_warn_coverage_gap(tmp_path):
+    formatter = _make_formatter(
+        tmp_path,
+        findings={
+            "skill": "iam",
+            "summary": {"total_findings": 1, "high": 1, "overall_risk_score": 7.0},
+            "analysis_metadata": {
+                "pre_check_warn_ids": ["IAM-001"],
+                "pre_check_warn_reasons": [
+                    {"check_id": "IAM-001", "reason_code": "collection_failed", "evidence_summary": "collection failed"}
+                ],
+            },
+            "findings": [
+                {
+                    "id": "IAM-001",
+                    "title": "Root account MFA missing",
+                    "severity": "High",
+                    "risk_score": 7.0,
+                    "description": "Evaluated from alternate evidence.",
+                    "remediation": "Enable MFA.",
+                }
+            ],
+        },
+    )
+
+    report = formatter._build_markdown()
+
+    assert "Coverage Gaps / Controls Not Evaluated" not in report
+    assert "IAM-001" in report
+
 def test_markdown_formatter_omits_coverage_gaps_when_empty(tmp_path):
     report = _make_formatter(tmp_path)._build_markdown()
     assert "Coverage Gaps / Controls Not Evaluated" not in report
