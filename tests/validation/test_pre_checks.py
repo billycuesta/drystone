@@ -1405,6 +1405,157 @@ def test_all_registered_cicd_checks_resolve_to_known_checklist_ids():
         assert resolve_pre_check_id(fn) in checklist_ids
 
 
+# ============================================================================
+# VULNS: warn on incomplete evidence status (B checks)
+# ============================================================================
+
+
+# All 20 vulns checks read a single evidence stem, all recorded as components
+# by vulns's own collector (`VULNS_EVIDENCE_COMPONENTS` in
+# `drystone/skills/vulns/__init__.py`). VULN-001..011 all read
+# "inspector-findings" (directly, or via a downstream "cannot confirm ...
+# scanning status" SKIP that is only reachable once findings evidence is
+# present); an incomplete Inspector collection can mask a real
+# CRITICAL/HIGH/exploitable finding as PASS/SKIP just as easily as an
+# entirely missing collection can. VULN-003 also reads
+# "public-vulnerability-paths"/"internet-reachable-vulnerabilities"/
+# "ec2-instances"/"instances" for its public-exposure guard and VULN-011 also
+# reads "ecr-scanning-config"/"scanning-config"/"registry"/"repositories" for
+# its disabled-scanning guard; none of those are vulns's own recorded
+# components (they are cross-skill/not-recorded), so they are intentionally
+# left undeclared.
+VULN_STATUS_STEMS_BY_CHECK = {
+    "VULN-001": ("inspector-findings",),
+    "VULN-002": ("inspector-findings",),
+    "VULN-003": ("inspector-findings",),
+    "VULN-004": ("inspector-findings",),
+    "VULN-005": ("inspector-findings",),
+    "VULN-006": ("inspector-findings",),
+    "VULN-007": ("inspector-findings",),
+    "VULN-008": ("inspector-findings",),
+    "VULN-009": ("inspector-findings",),
+    "VULN-010": ("inspector-findings",),
+    "VULN-011": ("inspector-findings",),
+    "VULN-022": ("imds-configuration",),
+    "VULN-023": ("ec2-user-data",),
+    "VULN-024": ("lambda-environment-variables",),
+    "VULN-025": ("instance-profiles-permissions",),
+    "VULN-026": ("terraform-state-scan",),
+    "VULN-028": ("ebs-snapshot-sharing",),
+    "VULN-029": ("ecs-task-env-secrets",),
+    "VULN-GD-001": ("guardduty-status",),
+    "VULN-GD-002": ("guardduty-status",),
+}
+
+_VULNS_EMPTY_DOC_BY_STEM = {
+    "inspector-findings": [],
+    "imds-configuration": {"items": []},
+    "ec2-user-data": {"items": []},
+    "lambda-environment-variables": {"items": []},
+    "instance-profiles-permissions": {"items": []},
+    "ebs-snapshot-sharing": {"items": []},
+    "ecs-task-env-secrets": {"items": []},
+    "terraform-state-scan": {"items": []},
+    "guardduty-status": {},
+}
+
+
+def _vulns_check_fn(check_id):
+    return _registered_check_fn("vulns", check_id)
+
+
+def _vulns_empty_evidence_with_status(stems):
+    evidence = _status_doc("vulns", stems, ok=True)
+    for stem in stems:
+        evidence[stem] = _VULNS_EMPTY_DOC_BY_STEM[stem]
+    return evidence
+
+
+@pytest.mark.parametrize("check_id,stems", VULN_STATUS_STEMS_BY_CHECK.items())
+def test_vulns_b_checks_warn_on_collection_failed_status(check_id, stems):
+    result = _vulns_check_fn(check_id)(
+        _status_doc("vulns", stems, ok=False, reason_code="collection_failed")
+    )
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "collection_failed"
+    assert result.metadata["evidence_key"] in stems
+
+
+@pytest.mark.parametrize("check_id,stems", VULN_STATUS_STEMS_BY_CHECK.items())
+def test_vulns_b_checks_warn_on_partial_collection_when_no_violation_found(check_id, stems):
+    result = _vulns_check_fn(check_id)(
+        _status_doc("vulns", stems, ok=False, reason_code="partial_collection")
+    )
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "partial_collection"
+
+
+@pytest.mark.parametrize("check_id,stems", VULN_STATUS_STEMS_BY_CHECK.items())
+def test_vulns_b_checks_keep_legacy_empty_evidence_without_status(check_id, stems):
+    result = _vulns_check_fn(check_id)({})
+
+    assert result.check_id == check_id
+    assert result.status != "WARN"
+
+
+@pytest.mark.parametrize("check_id,stems", VULN_STATUS_STEMS_BY_CHECK.items())
+def test_vulns_b_checks_keep_ok_empty_evidence_behavior(check_id, stems):
+    result = _vulns_check_fn(check_id)(_vulns_empty_evidence_with_status(stems))
+
+    assert result.check_id == check_id
+    assert result.status != "WARN"
+
+
+@pytest.mark.parametrize("check_id,stems", VULN_STATUS_STEMS_BY_CHECK.items())
+def test_vulns_b_checks_warn_when_status_exists_but_required_evidence_key_missing(check_id, stems):
+    result = _vulns_check_fn(check_id)({"vulns-collection-status": {"components": {}}})
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "missing_evidence"
+    assert result.metadata["evidence_key"] in stems
+
+
+def test_vulns_b_partial_collection_never_masks_real_failures():
+    evidence = _status_doc("vulns", ("inspector-findings",), ok=False, reason_code="partial_collection")
+    evidence["inspector-findings"] = [
+        {
+            "severity": "CRITICAL",
+            "status": "ACTIVE",
+            "resources": [{"id": "i-critical"}],
+        }
+    ]
+
+    result = _vulns_check_fn("VULN-002")(evidence)
+
+    assert result.status == "FAIL"
+    assert "CRITICAL active Inspector finding" in result.evidence_summary
+
+
+def test_vulns_checks_declare_required_components_matching_status_stems():
+    """Guard: every vulns B check declares a `requires_components` tuple
+    whose stems exactly match the expected mapping.
+    """
+    registered_by_id = {resolve_pre_check_id(fn): fn for fn in PRE_CHECK_REGISTRY["vulns"]}
+
+    for check_id, stems in VULN_STATUS_STEMS_BY_CHECK.items():
+        fn = registered_by_id[check_id]
+        assert fn.required_components == ("vulns", stems), check_id
+
+
+def test_all_registered_vulns_checks_resolve_to_known_checklist_ids():
+    checklist_path = Path(__file__).resolve().parents[2] / "drystone" / "skills" / "vulns" / "checklist.json"
+    checklist_ids = {item["id"] for item in json.loads(checklist_path.read_text())["items"]}
+
+    for fn in PRE_CHECK_REGISTRY["vulns"]:
+        assert resolve_pre_check_id(fn) in checklist_ids
+
+
+
 
 class TestIAMDeterministicFindingText:
     def test_injected_iam_findings_have_specific_impact_text(self):

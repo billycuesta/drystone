@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 @_register("vulns")
+@requires_components("vulns", "inspector-findings")
 def check_vuln_001(evidence: Dict[str, Any]) -> PreCheckResult:
     """Inspector v2 should be enabled (inferred from inspector-findings presence)."""
     findings = evidence.get("inspector-findings")
@@ -36,6 +37,7 @@ def check_vuln_001(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("vulns")
+@requires_components("vulns", "inspector-findings")
 def check_vuln_002(evidence: Dict[str, Any]) -> PreCheckResult:
     """CRITICAL CVEs not remediated — scan inspector-findings for CRITICAL+ACTIVE entries."""
     findings = evidence.get("inspector-findings")
@@ -96,6 +98,7 @@ def check_vuln_002(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("vulns")
+@requires_components("vulns", "inspector-findings")
 def check_vuln_009(evidence: Dict[str, Any]) -> PreCheckResult:
     """Multiple CVEs on same resource — count ACTIVE Inspector findings per resource."""
     findings = evidence.get("inspector-findings")
@@ -148,6 +151,7 @@ def check_vuln_009(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("vulns")
+@requires_components("vulns", "imds-configuration")
 def check_vuln_022(evidence: Dict[str, Any]) -> PreCheckResult:
     """Detect EC2 instances with IMDSv1/optional tokens enabled."""
     imds_doc = evidence.get("imds-configuration") or {}
@@ -174,6 +178,7 @@ def check_vuln_022(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("vulns")
+@requires_components("vulns", "ec2-user-data")
 def check_vuln_023(evidence: Dict[str, Any]) -> PreCheckResult:
     """Detect EC2 user-data scripts containing likely secrets."""
     user_data_doc = evidence.get("ec2-user-data") or {}
@@ -214,6 +219,7 @@ def check_vuln_023(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("vulns")
+@requires_components("vulns", "lambda-environment-variables")
 def check_vuln_024(evidence: Dict[str, Any]) -> PreCheckResult:
     """Detect Lambda functions with potentially sensitive env var keys."""
     env_doc = evidence.get("lambda-environment-variables") or {}
@@ -250,6 +256,7 @@ def check_vuln_024(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("vulns")
+@requires_components("vulns", "instance-profiles-permissions")
 def check_vuln_025(evidence: Dict[str, Any]) -> PreCheckResult:
     """Detect over-privileged instance profiles via attached policy names."""
     prof_doc = evidence.get("instance-profiles-permissions") or {}
@@ -294,6 +301,7 @@ def check_vuln_025(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("vulns")
+@requires_components("vulns", "ebs-snapshot-sharing")
 def check_vuln_028(evidence: Dict[str, Any]) -> PreCheckResult:
     """Detect public EBS snapshots (createVolumePermission Group=all)."""
     snap_doc = evidence.get("ebs-snapshot-sharing") or {}
@@ -317,6 +325,7 @@ def check_vuln_028(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("vulns")
+@requires_components("vulns", "ecs-task-env-secrets")
 def check_vuln_029(evidence: Dict[str, Any]) -> PreCheckResult:
     """VULN-029: ECS task definitions with hardcoded secrets in environment variables."""
     ecs_doc = evidence.get("ecs-task-env-secrets") or {}
@@ -356,6 +365,7 @@ def check_vuln_029(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("vulns")
+@requires_components("vulns", "terraform-state-scan")
 def check_vuln_026(evidence: Dict[str, Any]) -> PreCheckResult:
     """VULN-026: S3 buckets with Terraform state files containing secrets in plaintext.
 
@@ -430,6 +440,7 @@ def check_vuln_026(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("vulns")
+@requires_components("vulns", "inspector-findings")
 def check_vuln_004(evidence: Dict[str, Any]) -> PreCheckResult:
     """VULN-004: CVEs with known active exploit (exploitAvailable=YES + status=ACTIVE)."""
     findings = evidence.get("inspector-findings")
@@ -494,6 +505,7 @@ def check_vuln_004(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("vulns")
+@requires_components("vulns", "inspector-findings")
 def check_vuln_006(evidence: Dict[str, Any]) -> PreCheckResult:
     """VULN-006: EC2 scanning by Inspector (inferred from EC2 findings presence)."""
     findings = evidence.get("inspector-findings")
@@ -526,6 +538,7 @@ def check_vuln_006(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("vulns")
+@requires_components("vulns", "inspector-findings")
 def check_vuln_007(evidence: Dict[str, Any]) -> PreCheckResult:
     """VULN-007: ECR container scanning by Inspector (inferred from ECR findings presence)."""
     findings = evidence.get("inspector-findings")
@@ -561,6 +574,7 @@ def check_vuln_007(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("vulns")
+@requires_components("vulns", "inspector-findings")
 def check_vuln_008(evidence: Dict[str, Any]) -> PreCheckResult:
     """VULN-008: HIGH severity vulnerabilities without remediation plan (accurate count)."""
     findings = evidence.get("inspector-findings")
@@ -617,6 +631,7 @@ def check_vuln_008(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("vulns")
+@requires_components("vulns", "inspector-findings")
 def check_vuln_003(evidence: Dict[str, Any]) -> PreCheckResult:
     """VULN-003: Active vulnerabilities on publicly accessible EC2 resources."""
     findings = evidence.get("inspector-findings")
@@ -706,6 +721,7 @@ def check_vuln_003(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("vulns")
+@requires_components("vulns", "inspector-findings")
 def check_vuln_005(evidence: Dict[str, Any]) -> PreCheckResult:
     """VULN-005: Active vulnerabilities on high-criticality resources (databases, VPN, AD)."""
     import re
@@ -762,6 +778,7 @@ def check_vuln_005(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("vulns")
+@requires_components("vulns", "inspector-findings")
 def check_vuln_010(evidence: Dict[str, Any]) -> PreCheckResult:
     """VULN-010: Active HIGH/CRITICAL vulnerabilities on critical EC2 service components."""
     findings = evidence.get("inspector-findings")
@@ -835,6 +852,7 @@ def check_vuln_010(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("vulns")
+@requires_components("vulns", "inspector-findings")
 def check_vuln_011(evidence: Dict[str, Any]) -> PreCheckResult:
     """VULN-011: ECR scanning explicitly disabled by configuration evidence."""
     findings = evidence.get("inspector-findings")
@@ -905,6 +923,7 @@ def check_vuln_011(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("vulns")
+@requires_components("vulns", "guardduty-status")
 def check_vuln_guardduty_disabled(evidence: Dict[str, Any]) -> PreCheckResult:
     """VULN-GD-001: GuardDuty not enabled in account — no threat detection active."""
     gd = evidence.get("guardduty-status")
@@ -952,6 +971,7 @@ def check_vuln_guardduty_disabled(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("vulns")
+@requires_components("vulns", "guardduty-status")
 def check_vuln_guardduty_suppressed(evidence: Dict[str, Any]) -> PreCheckResult:
     """VULN-GD-002: GuardDuty findings auto-archived without review (suppression rules)."""
     gd = evidence.get("guardduty-status")
