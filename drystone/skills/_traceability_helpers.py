@@ -29,6 +29,7 @@ def resource_matches(obj: Dict[str, Any], affected: set) -> bool:
         str(obj.get("RepositoryName") or ""),
         str(obj.get("ResourceName") or ""),
         str(obj.get("Username") or ""),
+        str(obj.get("user") or ""),
         str(obj.get("callerArn") or ""),
         str(obj.get("EventId") or ""),
     ]
@@ -57,10 +58,72 @@ def generic_traceability(
         if not isinstance(file_key, str) or file_key.startswith("_"):
             continue
 
+        if file_key == "credential-report" and isinstance(doc, dict):
+            def _is_root_like(value: str) -> bool:
+                return value in {"<root_account>", "root", "<root>"} or value.endswith(":root")
+
+            def _matches_root_affected() -> bool:
+                return any(
+                    a == "arn:aws:iam::*:root" or a.endswith(":root") or ":root" in a
+                    for a in affected
+                )
+
+            by_user = doc.get("by_user")
+            if isinstance(by_user, dict):
+                for user_key, row in by_user.items():
+                    if not isinstance(row, dict):
+                        continue
+                    is_root = _is_root_like(str(user_key))
+                    row_affected = set()
+                    for candidate in (
+                        str(row.get("arn") or row.get("Arn") or ""),
+                        str(user_key or ""),
+                        str(row.get("user") or ""),
+                    ):
+                        if candidate:
+                            row_affected.add(candidate)
+                    if is_root:
+                        row_affected.add("arn:aws:iam::*:root")
+                    if row_affected & affected or (_matches_root_affected() and is_root) or any(
+                        c and any(c in a or a in c for a in affected)
+                        for c in row_affected
+                    ):
+                        anchor = "<root_account>" if is_root else str(user_key)
+                        refs.append(f"credential-report.csv#{anchor}")
+                        snippets.append(row)
+                        if len(snippets) >= 3:
+                            return refs[:10], {"items": snippets}
+
+            rows = doc.get("rows")
+            if isinstance(rows, list):
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    user_key = str(row.get("user") or row.get("User") or "")
+                    is_root = _is_root_like(user_key)
+                    row_affected = {
+                        str(row.get("arn") or row.get("Arn") or ""),
+                        user_key,
+                    }
+                    if is_root:
+                        row_affected.add("arn:aws:iam::*:root")
+                    if row_affected & affected or (_matches_root_affected() and is_root) or any(
+                        c and any(c in a or a in c for a in affected)
+                        for c in row_affected
+                    ):
+                        anchor = "<root_account>" if is_root else user_key
+                        refs.append(f"credential-report.csv#{anchor}")
+                        snippets.append(row)
+                        if len(snippets) >= 3:
+                            return refs[:10], {"items": snippets}
+
+            continue
+
         # Common envelope: {"<collection>": [..]}
         if isinstance(doc, dict):
             for coll_key in (
                 "items",
+                "rows",
                 "repositories",
                 "users",
                 "roles",

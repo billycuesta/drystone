@@ -641,6 +641,23 @@ class TestBuildPrecheckTraceability:
         assert len(refs) > 0
         assert "users.json" in refs[0]
 
+    def test_generic_matches_root_credential_report_row(self):
+        evidence = {
+            "credential-report": {
+                "by_user": {
+                    "<root_account>": {
+                        "user": "<root_account>",
+                        "mfa_active": "false",
+                    }
+                }
+            }
+        }
+        result = self._result(affected=["arn:aws:iam::*:root"])
+        refs, snippet = SKILL._build_precheck_traceability("IAM-001", result, evidence)
+        assert refs == ["credential-report.csv#<root_account>"]
+        assert snippet is not None
+        assert snippet["items"][0]["user"] == "<root_account>"
+
     def test_generic_skips_underscore_keys(self):
         """Evidence keys starting with _ (like _audit_metadata) should be skipped."""
         evidence = {
