@@ -875,7 +875,24 @@ class ExposureSkill(BaseSkill):
             # HTTP APIs (apigatewayv2)
             try:
                 apigw2 = boto3.client("apigatewayv2", **client_kwargs)
-                apis2 = apigw2.get_apis().get("Items", [])
+                apis2: List[Dict[str, Any]] = []
+                api_token: Optional[str] = None
+                while True:
+                    api_args: Dict[str, Any] = {"MaxResults": 500}
+                    if api_token:
+                        api_args["NextToken"] = api_token
+                    try:
+                        api_page = apigw2.get_apis(**api_args)
+                    except ClientError:
+                        # Preserve whatever pages were already fetched; the
+                        # sub-call counter below turns this into a recorded
+                        # partial_collection instead of a silent drop.
+                        api_gateway_sub_call_failures += 1
+                        break
+                    apis2.extend(api_page.get("Items", []) or [])
+                    api_token = api_page.get("NextToken")
+                    if not api_token:
+                        break
                 for api in apis2 or []:
                     api_id = api.get("ApiId")
                     if not api_id:

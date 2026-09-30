@@ -319,7 +319,17 @@ class SistemasExplotablesRedSkill(BaseSkill):
             front_door_errors["apigw-rest"] = self._ser_error_code(exc)
 
         try:
-            apis2 = apigw2.get_apis().get("Items", []) or []
+            apis2: List[Dict[str, Any]] = []
+            api_token: Optional[str] = None
+            while True:
+                api_args: Dict[str, Any] = {"MaxResults": 500}
+                if api_token:
+                    api_args["NextToken"] = api_token
+                api_page = apigw2.get_apis(**api_args)
+                apis2.extend(api_page.get("Items", []) or [])
+                api_token = api_page.get("NextToken")
+                if not api_token:
+                    break
             for api in apis2:
                 api_id = api.get("ApiId") if isinstance(api, dict) else None
                 if not api_id:

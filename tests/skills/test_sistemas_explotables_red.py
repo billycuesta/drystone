@@ -56,6 +56,64 @@ def test_build_reachability_includes_alb_to_ecs_edge_for_public_alb() -> None:
     )
 
 
+def test_ser_apigw2_get_apis_pagination_accumulates(tmp_path: Path) -> None:
+    """Ensure apigatewayv2.get_apis() paginated responses are fully accumulated."""
+    skill = SistemasExplotablesRedSkill()
+    evidence_dir = tmp_path
+
+    class DummyAPIGW2:
+        def __init__(self) -> None:
+            self._calls = 0
+
+        def get_apis(self, **kwargs):
+            # First page has a NextToken; second page is the last one.
+            if self._calls == 0:
+                self._calls += 1
+                return {"Items": [{"ApiId": "a1", "Name": "API-One"}], "NextToken": "t1"}
+            return {"Items": [{"ApiId": "a2", "Name": "API-Two"}], "NextToken": None}
+
+        def get_routes(self, **kwargs):
+            return {"Items": [{"RouteKey": "GET /", "AuthorizationType": "NONE"}]}
+
+        def get_stages(self, **kwargs):
+            return {"Items": [{"StageName": "prod", "DeploymentId": "d1"}]}
+
+    def _make_client(name, **_kwargs):
+        if name == "apigatewayv2":
+            return DummyAPIGW2()
+        m = MagicMock()
+        m.get_paginator.return_value.paginate.return_value = []
+        m.get_rest_apis.return_value = {"items": []}
+        m.get_resources.return_value = {"items": []}
+        # Pre-existing pagination loops (ELBv2, Inspector) must terminate
+        # too, otherwise a plain MagicMock NextMarker/nextToken never
+        # becomes falsy.
+        m.describe_load_balancers.return_value = {"LoadBalancers": []}
+        m.list_findings.return_value = {"findings": [], "nextToken": None}
+        return m
+
+    saved = {}
+
+    def _record(path, data):
+        saved[path.name] = data
+
+    aws_client = MagicMock()
+    aws_client.client_kwargs.return_value = {}
+    aws_client.region_name = "us-east-1"
+    session = MagicMock()
+    session.get_evidence_path.return_value = evidence_dir
+    session.account_id = "111111111111"
+
+    with patch("boto3.client", side_effect=_make_client):
+        with patch.object(skill, "_save_json", side_effect=_record):
+            skill.collect(aws_client, session)
+
+    routes = saved.get("front-doors.json", {}).get("api_gateway_routes", [])
+    # Expect both APIs' routes to be present (from a1 and a2).
+    api_ids = {r.get("ApiId") for r in routes}
+    assert "a1" in api_ids and "a2" in api_ids
+
+
 def test_build_attack_paths_scores_high_when_vuln_and_blast_radius_present() -> None:
     skill = SistemasExplotablesRedSkill()
     reachability_doc = {
