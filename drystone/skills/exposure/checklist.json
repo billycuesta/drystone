@@ -3,7 +3,7 @@
   "framework": "AWS Security Best Practices + PCI DSS v4.0 Mapping",
   "description": "Checklist for identifying and assessing AWS resources exposed to the internet, with mappings to relevant PCI DSS controls.",
   "version": "1.5",
-  "total_checks": 21,
+  "total_checks": 23,
   "last_updated": "2026-02-19",
   "items": [
     {

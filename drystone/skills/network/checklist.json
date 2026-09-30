@@ -524,6 +524,6 @@
       "qsa_visibility": "standard"
     }
   ],
-  "total_checks": 31,
+  "total_checks": 33,
   "notes": "Generated based on aws-networkpolicies-skill.md and mapped against PCI DSS v4.0 controls."
 }
