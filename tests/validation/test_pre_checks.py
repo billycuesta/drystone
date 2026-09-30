@@ -1555,6 +1555,135 @@ def test_all_registered_vulns_checks_resolve_to_known_checklist_ids():
         assert resolve_pre_check_id(fn) in checklist_ids
 
 
+# ============================================================================
+# MESSAGING: warn on incomplete evidence status (B checks)
+# ============================================================================
+
+
+# All 9 messaging checks read a single evidence stem, both recorded as
+# components by messaging's own collector via `_record_errors_component`
+# (`drystone/skills/messaging/__init__.py`). MSG-004's "requires AI analysis
+# of DLQ security" SKIP is a genuine deterministic non-evaluation reached
+# only once sqs-queues evidence is present and known to contain a DLQ; it is
+# unaffected by this decoration except when sqs-queues collection itself is
+# incomplete, in which case even the has_dlq inference underneath it cannot
+# be trusted.
+MSG_STATUS_STEMS_BY_CHECK = {
+    "MSG-001": ("sqs-queues",),
+    "MSG-002": ("sqs-queues",),
+    "MSG-003": ("sqs-queues",),
+    "MSG-004": ("sqs-queues",),
+    "MSG-005": ("sqs-queues",),
+    "MSG-006": ("sqs-queues",),
+    "MSG-007": ("sns-topics",),
+    "MSG-008": ("sns-topics",),
+    "MSG-009": ("sns-topics",),
+}
+
+_MSG_EMPTY_DOC_BY_STEM = {
+    "sqs-queues": {"items": []},
+    "sns-topics": {"items": []},
+}
+
+
+def _msg_check_fn(check_id):
+    return _registered_check_fn("messaging", check_id)
+
+
+def _msg_empty_evidence_with_status(stems):
+    evidence = _status_doc("messaging", stems, ok=True)
+    for stem in stems:
+        evidence[stem] = _MSG_EMPTY_DOC_BY_STEM[stem]
+    return evidence
+
+
+@pytest.mark.parametrize("check_id,stems", MSG_STATUS_STEMS_BY_CHECK.items())
+def test_messaging_b_checks_warn_on_collection_failed_status(check_id, stems):
+    result = _msg_check_fn(check_id)(
+        _status_doc("messaging", stems, ok=False, reason_code="collection_failed")
+    )
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "collection_failed"
+    assert result.metadata["evidence_key"] in stems
+
+
+@pytest.mark.parametrize("check_id,stems", MSG_STATUS_STEMS_BY_CHECK.items())
+def test_messaging_b_checks_warn_on_partial_collection_when_no_violation_found(check_id, stems):
+    result = _msg_check_fn(check_id)(
+        _status_doc("messaging", stems, ok=False, reason_code="partial_collection")
+    )
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "partial_collection"
+
+
+@pytest.mark.parametrize("check_id,stems", MSG_STATUS_STEMS_BY_CHECK.items())
+def test_messaging_b_checks_keep_legacy_empty_evidence_without_status(check_id, stems):
+    result = _msg_check_fn(check_id)({})
+
+    assert result.check_id == check_id
+    assert result.status != "WARN"
+
+
+@pytest.mark.parametrize("check_id,stems", MSG_STATUS_STEMS_BY_CHECK.items())
+def test_messaging_b_checks_keep_ok_empty_evidence_behavior(check_id, stems):
+    result = _msg_check_fn(check_id)(_msg_empty_evidence_with_status(stems))
+
+    assert result.check_id == check_id
+    assert result.status != "WARN"
+
+
+@pytest.mark.parametrize("check_id,stems", MSG_STATUS_STEMS_BY_CHECK.items())
+def test_messaging_b_checks_warn_when_status_exists_but_required_evidence_key_missing(check_id, stems):
+    result = _msg_check_fn(check_id)({"messaging-collection-status": {"components": {}}})
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "missing_evidence"
+    assert result.metadata["evidence_key"] in stems
+
+
+def test_messaging_b_partial_collection_never_masks_real_failures():
+    evidence = _status_doc("messaging", ("sqs-queues",), ok=False, reason_code="partial_collection")
+    evidence["sqs-queues"] = {
+        "items": [
+            {
+                "QueueArn": "arn:aws:sqs:us-east-1:123456789012:q1",
+                "KmsMasterKeyId": None,
+                "SqsManagedSseEnabled": "false",
+            }
+        ]
+    }
+
+    result = _msg_check_fn("MSG-006")(evidence)
+
+    assert result.status == "FAIL"
+    assert "queues without encryption" in result.evidence_summary
+
+
+def test_messaging_checks_declare_required_components_matching_status_stems():
+    """Guard: every messaging B check declares a `requires_components` tuple
+    whose stems exactly match the expected mapping.
+    """
+    registered_by_id = {resolve_pre_check_id(fn): fn for fn in PRE_CHECK_REGISTRY["messaging"]}
+
+    for check_id, stems in MSG_STATUS_STEMS_BY_CHECK.items():
+        fn = registered_by_id[check_id]
+        assert fn.required_components == ("messaging", stems), check_id
+
+
+def test_all_registered_messaging_checks_resolve_to_known_checklist_ids():
+    checklist_path = Path(__file__).resolve().parents[2] / "drystone" / "skills" / "messaging" / "checklist.json"
+    checklist_ids = {item["id"] for item in json.loads(checklist_path.read_text())["items"]}
+
+    for fn in PRE_CHECK_REGISTRY["messaging"]:
+        assert resolve_pre_check_id(fn) in checklist_ids
+
+
+
 
 
 class TestIAMDeterministicFindingText:

@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 @_register("messaging")
+@requires_components("messaging", "sqs-queues")
 def check_msg_001(evidence: Dict[str, Any]) -> PreCheckResult:
     """SQS queue policy should include OrgID condition."""
     q_doc = evidence.get("sqs-queues")
@@ -44,6 +45,7 @@ def check_msg_001(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("messaging")
+@requires_components("messaging", "sqs-queues")
 def check_msg_002(evidence: Dict[str, Any]) -> PreCheckResult:
     """DLQ/Redrive configuration presence."""
     q_doc = evidence.get("sqs-queues")
@@ -59,6 +61,7 @@ def check_msg_002(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("messaging")
+@requires_components("messaging", "sqs-queues")
 def check_msg_003(evidence: Dict[str, Any]) -> PreCheckResult:
     """SNS->SQS injection: SendMessage from SNS without SourceArn/SourceAccount."""
     q_doc = evidence.get("sqs-queues")
@@ -111,6 +114,7 @@ def check_msg_003(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("messaging")
+@requires_components("messaging", "sqs-queues")
 def check_msg_004(evidence: Dict[str, Any]) -> PreCheckResult:
     """Message move task risk (only applies when DLQs exist)."""
     q_doc = evidence.get("sqs-queues")
@@ -125,6 +129,7 @@ def check_msg_004(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("messaging")
+@requires_components("messaging", "sqs-queues")
 def check_msg_005(evidence: Dict[str, Any]) -> PreCheckResult:
     """Wildcard principals should not have SQS data-plane actions."""
     q_doc = evidence.get("sqs-queues")
@@ -166,6 +171,7 @@ def check_msg_005(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("messaging")
+@requires_components("messaging", "sqs-queues")
 def check_msg_006(evidence: Dict[str, Any]) -> PreCheckResult:
     """SQS queues should have encryption enabled."""
     q_doc = evidence.get("sqs-queues")
@@ -190,6 +196,7 @@ def check_msg_006(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("messaging")
+@requires_components("messaging", "sns-topics")
 def check_msg_007(evidence: Dict[str, Any]) -> PreCheckResult:
     """SNS topics should not allow wildcard Subscribe."""
     t_doc = evidence.get("sns-topics")
@@ -226,6 +233,7 @@ def check_msg_007(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("messaging")
+@requires_components("messaging", "sns-topics")
 def check_msg_008(evidence: Dict[str, Any]) -> PreCheckResult:
     """SNS topics should not allow wildcard Publish."""
     t_doc = evidence.get("sns-topics")
@@ -262,6 +270,7 @@ def check_msg_008(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("messaging")
+@requires_components("messaging", "sns-topics")
 def check_msg_009(evidence: Dict[str, Any]) -> PreCheckResult:
     """SNS topic policy grants administrative actions (DeleteTopic, SetTopicAttributes,
     AddPermission, RemovePermission) to a wildcard principal."""
