@@ -64,14 +64,29 @@ class BaseFormatter(ABC):
             "Low": "🟢",
         }.get(severity, "⚪")
 
-    def _report_skill_slug(self) -> str:
-        """Return a filename-safe slug for the skill being reported.
+    def _report_skill_slug(
+        self, *, default: str = "unknown", check_report_metadata_skill: bool = True
+    ) -> str:
+        """Return a slug for the skill being reported, from ReportContext's redacted data.
 
         Used to build report filenames like audit-report-network.md.
-        Falls back to 'unknown' if skill metadata is missing.
+
+        Resolution order: the redacted findings' ``report_metadata.report_skill``
+        (skipped when ``check_report_metadata_skill`` is False), then the shared
+        ``metadata.skill``, then the redacted findings' top-level ``skill``,
+        falling back to ``default`` when none are present.
+
+        Formatters historically diverged on the fallback default ("unknown" vs
+        "audit") and on whether ``report_metadata.report_skill`` applies; those
+        differences are preserved through these parameters rather than folded
+        into one silently-changed behavior. See subclass overrides for the
+        parameters each formatter's tests depend on.
         """
-        skill = str(self.findings.get("skill") or "unknown")
-        return skill.lower().replace(" ", "-")
+        redacted = self.report_context.redacted_findings
+        report_meta = redacted.get("report_metadata", {}) or {}
+        skill = report_meta.get("report_skill") if check_report_metadata_skill else None
+        skill = skill or self.report_context.metadata.get("skill") or redacted.get("skill") or default
+        return str(skill).lower()
 
     def _format_risk_score(self, score: float) -> str:
         """Format risk score with color indicator."""

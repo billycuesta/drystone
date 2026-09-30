@@ -95,15 +95,9 @@ class PDFFormatter(BaseFormatter):
         findings = self._report_data().get("findings", [])
         return findings if isinstance(findings, list) else []
 
-    def _report_skill_slug(self) -> str:
-        report_meta = self._report_data().get("report_metadata", {}) or {}
-        skill = (
-            report_meta.get("report_skill")
-            or self._report_metadata().get("skill")
-            or self._report_data().get("skill")
-            or "unknown"
-        )
-        return str(skill).lower()
+    # _report_skill_slug: PDF's historical behavior (check
+    # report_metadata.report_skill, default "unknown") is exactly
+    # BaseFormatter._report_skill_slug()'s default, so no override is needed here.
 
     def generate(self) -> Path:
         html_content = self._build_html_from_xml_template()

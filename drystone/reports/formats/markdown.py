@@ -92,8 +92,10 @@ class MarkdownFormatter(BaseFormatter):
         return findings if isinstance(findings, list) else []
 
     def _report_skill_slug(self) -> str:
-        skill = self._report_metadata().get("skill") or self._report_data().get("skill") or "unknown"
-        return str(skill).lower()
+        # Unlike PDF/PCI DSS/pentest, Markdown reports never consulted
+        # report_metadata.report_skill historically; preserved via the parameter
+        # rather than silently picking it up through the shared implementation.
+        return super()._report_skill_slug(check_report_metadata_skill=False)
 
     def _report_skill_display(self) -> str:
         return self._get_skill_display_name(self._report_skill_slug())

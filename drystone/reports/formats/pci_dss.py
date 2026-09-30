@@ -122,14 +122,9 @@ class PCIDSSFormatter(BaseFormatter):
         return self.report_context.metadata
 
     def _report_skill_slug(self) -> str:
-        report_meta = self._report_data().get("report_metadata", {}) or {}
-        skill = (
-            report_meta.get("report_skill")
-            or self._report_metadata().get("skill")
-            or self._report_data().get("skill")
-            or "audit"
-        )
-        return str(skill).lower()
+        # Unlike Markdown/PDF, PCI DSS and pentest reports fall back to "audit"
+        # rather than "unknown" when no skill metadata is present.
+        return super()._report_skill_slug(default="audit")
 
     @property
     def file_extension(self) -> str:
