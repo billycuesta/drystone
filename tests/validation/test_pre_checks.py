@@ -1683,6 +1683,156 @@ def test_all_registered_messaging_checks_resolve_to_known_checklist_ids():
         assert resolve_pre_check_id(fn) in checklist_ids
 
 
+# ============================================================================
+# SISTEMAS EXPLOTABLES RED: warn on incomplete evidence status (B checks)
+# ============================================================================
+
+
+# SER-LMB-001/LMB-002 read "front-doors" directly. SER-CVE-001 reads
+# "cve-intelligence" directly. SER-COR-003/EC2-002 read the derived
+# "attack-path-candidates" document and SER-ECS-001 reads the derived
+# "reachability-graph" document — neither is recorded as its own component
+# by sistemas_explotables_red's collector (only compute-inventory,
+# network-controls, front-doors, inspector-findings-normalized and
+# cve-intelligence are; see `_record_aggregate_component`/
+# `_record_cve_intel_component` in
+# `drystone/skills/sistemas_explotables_red/__init__.py`), so declaring
+# "attack-path-candidates"/"reachability-graph" themselves would make these
+# checks WARN unconditionally on every real session once a status doc
+# exists. Instead they declare the real recorded sources that feed those
+# derived documents: `_build_reachability` (reachability-graph.json) reads
+# only `front_doors` and `compute_inventory`; `_build_attack_paths`
+# (attack-path-candidates.json) additionally folds in `inspector_doc`
+# (inspector-findings-normalized) for its vulnerability signal. An
+# incomplete front-doors, compute-inventory or inspector-findings-normalized
+# collection can silently drop or under-score a real attack path, mirroring
+# the RECON-008/015/020 attack-surface-score precedent. SER-EC2-001 and
+# SER-RDS-001 are not in the B set (their SKIPs were not flagged by the
+# guide) and are intentionally left untouched here.
+SER_STATUS_STEMS_BY_CHECK = {
+    "SER-LMB-001": ("front-doors",),
+    "SER-LMB-002": ("front-doors",),
+    "SER-COR-003": ("front-doors", "compute-inventory", "inspector-findings-normalized"),
+    "SER-EC2-002": ("front-doors", "compute-inventory", "inspector-findings-normalized"),
+    "SER-ECS-001": ("front-doors", "compute-inventory"),
+    "SER-CVE-001": ("cve-intelligence",),
+}
+
+_SER_EMPTY_DOC_BY_STEM = {
+    "front-doors": {},
+    "compute-inventory": {},
+    "inspector-findings-normalized": {},
+    "cve-intelligence": {},
+}
+
+
+def _ser_check_fn(check_id):
+    return _registered_check_fn("sistemas_explotables_red", check_id)
+
+
+def _ser_empty_evidence_with_status(stems):
+    evidence = _status_doc("sistemas_explotables_red", stems, ok=True)
+    for stem in stems:
+        evidence[stem] = _SER_EMPTY_DOC_BY_STEM[stem]
+    return evidence
+
+
+@pytest.mark.parametrize("check_id,stems", SER_STATUS_STEMS_BY_CHECK.items())
+def test_ser_b_checks_warn_on_collection_failed_status(check_id, stems):
+    result = _ser_check_fn(check_id)(
+        _status_doc("sistemas_explotables_red", stems, ok=False, reason_code="collection_failed")
+    )
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "collection_failed"
+    assert result.metadata["evidence_key"] in stems
+
+
+@pytest.mark.parametrize("check_id,stems", SER_STATUS_STEMS_BY_CHECK.items())
+def test_ser_b_checks_warn_on_partial_collection_when_no_violation_found(check_id, stems):
+    result = _ser_check_fn(check_id)(
+        _status_doc("sistemas_explotables_red", stems, ok=False, reason_code="partial_collection")
+    )
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "partial_collection"
+
+
+@pytest.mark.parametrize("check_id,stems", SER_STATUS_STEMS_BY_CHECK.items())
+def test_ser_b_checks_keep_legacy_empty_evidence_without_status(check_id, stems):
+    result = _ser_check_fn(check_id)({})
+
+    assert result.check_id == check_id
+    assert result.status != "WARN"
+
+
+@pytest.mark.parametrize("check_id,stems", SER_STATUS_STEMS_BY_CHECK.items())
+def test_ser_b_checks_keep_ok_empty_evidence_behavior(check_id, stems):
+    result = _ser_check_fn(check_id)(_ser_empty_evidence_with_status(stems))
+
+    assert result.check_id == check_id
+    assert result.status != "WARN"
+
+
+@pytest.mark.parametrize("check_id,stems", SER_STATUS_STEMS_BY_CHECK.items())
+def test_ser_b_checks_warn_when_status_exists_but_required_evidence_key_missing(check_id, stems):
+    result = _ser_check_fn(check_id)(
+        {"sistemas_explotables_red-collection-status": {"components": {}}}
+    )
+
+    assert result.check_id == check_id
+    assert result.status == "WARN"
+    assert result.metadata["reason_code"] == "missing_evidence"
+    assert result.metadata["evidence_key"] in stems
+
+
+def test_ser_b_partial_collection_never_masks_real_failures():
+    evidence = _status_doc(
+        "sistemas_explotables_red", ("front-doors",), ok=False, reason_code="partial_collection"
+    )
+    evidence["front-doors"] = {
+        "lambda_function_urls": [
+            {"AuthType": "NONE", "FunctionArn": "arn:aws:lambda:us-east-1:123456789012:function:f1"}
+        ]
+    }
+
+    result = _ser_check_fn("SER-LMB-001")(evidence)
+
+    assert result.status == "FAIL"
+    assert "AuthType=NONE" in result.evidence_summary
+
+
+def test_ser_checks_declare_required_components_matching_status_stems():
+    """Guard: every sistemas_explotables_red B check declares a
+    `requires_components` tuple whose stems exactly match the expected
+    mapping.
+    """
+    registered_by_id = {
+        resolve_pre_check_id(fn): fn for fn in PRE_CHECK_REGISTRY["sistemas_explotables_red"]
+    }
+
+    for check_id, stems in SER_STATUS_STEMS_BY_CHECK.items():
+        fn = registered_by_id[check_id]
+        assert fn.required_components == ("sistemas_explotables_red", stems), check_id
+
+
+def test_all_registered_ser_checks_resolve_to_known_checklist_ids():
+    checklist_path = (
+        Path(__file__).resolve().parents[2]
+        / "drystone"
+        / "skills"
+        / "sistemas_explotables_red"
+        / "checklist.json"
+    )
+    checklist_ids = {item["id"] for item in json.loads(checklist_path.read_text())["items"]}
+
+    for fn in PRE_CHECK_REGISTRY["sistemas_explotables_red"]:
+        assert resolve_pre_check_id(fn) in checklist_ids
+
+
+
 
 
 

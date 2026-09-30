@@ -149,6 +149,7 @@ def check_ser_ec2_001(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("sistemas_explotables_red")
+@requires_components("sistemas_explotables_red", "front-doors")
 def check_ser_lmb_001(evidence: Dict[str, Any]) -> PreCheckResult:
     """Lambda Function URL with AuthType NONE."""
     front_doc = evidence.get("front-doors", {})
@@ -233,6 +234,7 @@ def check_ser_rds_001(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("sistemas_explotables_red")
+@requires_components("sistemas_explotables_red", "front-doors", "compute-inventory", "inspector-findings-normalized")
 def check_ser_cor_003(evidence: Dict[str, Any]) -> PreCheckResult:
     """Resource with combined high reachability + vulnerability + blast-radius signals."""
     paths_doc = evidence.get("attack-path-candidates", {})
@@ -271,6 +273,7 @@ def check_ser_cor_003(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("sistemas_explotables_red")
+@requires_components("sistemas_explotables_red", "front-doors", "compute-inventory", "inspector-findings-normalized")
 def check_ser_ec2_002(evidence: Dict[str, Any]) -> PreCheckResult:
     """Internet-reachable EC2 with active Inspector findings."""
     paths_doc = evidence.get("attack-path-candidates", {})
@@ -433,6 +436,7 @@ def check_ser_ec2_002(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("sistemas_explotables_red")
+@requires_components("sistemas_explotables_red", "front-doors", "compute-inventory")
 def check_ser_ecs_001(evidence: Dict[str, Any]) -> PreCheckResult:
     """ECS service reachable via internet-facing ALB."""
     reach_doc = evidence.get("reachability-graph", {})
@@ -466,6 +470,7 @@ def check_ser_ecs_001(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("sistemas_explotables_red")
+@requires_components("sistemas_explotables_red", "front-doors")
 def check_ser_lmb_002(evidence: Dict[str, Any]) -> PreCheckResult:
     """Lambda exposed via API Gateway without authorization."""
     front_doc = evidence.get("front-doors", {})
@@ -548,6 +553,7 @@ def check_ser_lmb_002(evidence: Dict[str, Any]) -> PreCheckResult:
 
 
 @_register("sistemas_explotables_red")
+@requires_components("sistemas_explotables_red", "cve-intelligence")
 def check_ser_cve_001(evidence: Dict[str, Any]) -> PreCheckResult:
     """SER-CVE-001: Internet-exposed instance with CISA KEV vulnerability."""
     cve_intel = evidence.get("cve-intelligence")
